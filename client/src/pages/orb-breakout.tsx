@@ -65,6 +65,7 @@ interface ORBSetup {
   aiNote?: string;
   autoMode?: boolean;
   mt5Status?: "connected" | "no_data" | "error" | "idle";
+  tlStatus?: "connected" | "no_data" | "error" | "idle";
 }
 
 interface AICheck {
@@ -592,7 +593,7 @@ function SetupCard({
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {setup.lastUpdated && <p className="text-[9px] text-gray-600">Updated {setup.lastUpdated}</p>}
-            {setup.autoMode && (
+            {setup.autoMode && setup.mt5Status && !setup.tlStatus && (
               <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full animate-pulse"
                 style={{
                   background: setup.mt5Status === "connected" ? "rgba(34,197,94,0.2)" : setup.mt5Status === "error" ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)",
@@ -602,12 +603,22 @@ function SetupCard({
                 {setup.mt5Status === "connected" ? "⚡ MT5 LIVE" : setup.mt5Status === "error" ? "⚠ MT5 ERR" : setup.mt5Status === "no_data" ? "📡 NO DATA" : "⏳ MT5 SYNC"}
               </span>
             )}
+            {setup.autoMode && setup.tlStatus && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full animate-pulse"
+                style={{
+                  background: setup.tlStatus === "connected" ? "rgba(168,85,247,0.2)" : setup.tlStatus === "error" ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)",
+                  color: setup.tlStatus === "connected" ? "#c084fc" : setup.tlStatus === "error" ? "#f87171" : "#fbbf24",
+                  border: `1px solid ${setup.tlStatus === "connected" ? "#a855f740" : setup.tlStatus === "error" ? "#ef444440" : "#f59e0b40"}`,
+                }}>
+                {setup.tlStatus === "connected" ? "⚡ TL LIVE" : setup.tlStatus === "error" ? "⚠ TL ERR" : setup.tlStatus === "no_data" ? "📡 NO DATA" : "⏳ TL SYNC"}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex gap-1.5">
           <button
             onClick={() => onToggleAuto(setup.id)}
-            title={setup.autoMode ? "Disable MT5 Auto-Fill" : "Enable MT5 Auto-Fill"}
+            title={setup.autoMode ? "Disable Auto-Fill" : "Enable Auto-Fill (uses selected data source)"}
             className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
             style={{
               background: setup.autoMode ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.05)",
@@ -1290,6 +1301,9 @@ export default function ORBBreakoutPage() {
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const [ssAISetup, setSSAISetup] = useState<ORBSetup | null>(null);
   const [stopOrderSetup, setStopOrderSetup] = useState<ORBSetup | null>(null);
+  const [dataSource, setDataSource] = useState<"mt5" | "tradelocker">(() => {
+    return (localStorage.getItem('orb_data_source') as "mt5" | "tradelocker") || "mt5";
+  });
 
   // Persist setups whenever they change
   useEffect(() => {
@@ -1526,16 +1540,115 @@ export default function ORBBreakoutPage() {
     }
   }, [analyzeMutation, toast, updateSetup]);
 
-  // Interval: poll MT5 every 30 seconds for any setup with autoMode=true
+  // TradeLocker auto-poll logic — mirrors pollMT5 but uses tl-live endpoint
+  const pollTL = useCallback(async (setup: ORBSetup) => {
+    try {
+      const res = await apiRequest("GET", `/api/orb/tl-live/${encodeURIComponent(setup.symbol)}`);
+      if (!res.ok) {
+        updateSetup(setup.id, { tlStatus: "error" });
+        return;
+      }
+      const data = await res.json() as {
+        symbol: string; timeframe: string; currentPrice: number;
+        orbHigh: number | null; orbLow: number | null;
+        orbRange: number; orbRangePct: number; orbPhase: ORBPhase;
+        foundOrbCandle: boolean; lastUpdated: string;
+        preMarketBias?: "bullish" | "bearish" | "neutral";
+        preMarketDetail?: string;
+      };
+
+      if (!data.currentPrice) {
+        updateSetup(setup.id, { tlStatus: "no_data" });
+        return;
+      }
+
+      const patch: Partial<ORBSetup> = {
+        tlStatus: "connected",
+        currentPrice: data.currentPrice,
+        lastUpdated: new Date().toLocaleTimeString() + " (TradeLocker)",
+      };
+
+      if (data.preMarketBias) patch.preMarketBias = data.preMarketBias;
+
+      if (data.foundOrbCandle && data.orbHigh && data.orbLow) {
+        const range = data.orbHigh - data.orbLow;
+        patch.orbHigh = data.orbHigh;
+        patch.orbLow = data.orbLow;
+        patch.orbRange = range;
+        patch.orbRangePct = (range / data.currentPrice) * 100;
+      }
+
+      const high = patch.orbHigh ?? setup.orbHigh;
+      const low = patch.orbLow ?? setup.orbLow;
+      const curr = data.currentPrice;
+
+      if (high > 0 && low > 0) {
+        let newPhase: ORBPhase = setup.phase;
+        const prevPhase = setup.phase;
+
+        if (curr > high * 1.001 && prevPhase !== "BREAKOUT_LONG" && prevPhase !== "RETEST_LONG" && prevPhase !== "TRADE_TAKEN") {
+          newPhase = "BREAKOUT_LONG";
+          patch.tradeDirection = "LONG"; patch.entryPrice = curr;
+          Object.assign(patch, calcLevels("LONG", curr, high, low));
+          patch.aiScore = undefined; patch.aiChecks = undefined; patch.aiNote = undefined;
+          autoFiredRef.current.delete(setup.id);
+        } else if (curr < low * 0.999 && prevPhase !== "BREAKOUT_SHORT" && prevPhase !== "RETEST_SHORT" && prevPhase !== "TRADE_TAKEN") {
+          newPhase = "BREAKOUT_SHORT";
+          patch.tradeDirection = "SHORT"; patch.entryPrice = curr;
+          Object.assign(patch, calcLevels("SHORT", curr, high, low));
+          patch.aiScore = undefined; patch.aiChecks = undefined; patch.aiNote = undefined;
+          autoFiredRef.current.delete(setup.id);
+        } else if (curr >= high * 0.998 && curr <= high * 1.002 && prevPhase === "BREAKOUT_LONG") {
+          newPhase = "RETEST_LONG"; patch.retestLevel = high; patch.entryPrice = curr;
+          Object.assign(patch, calcLevels("LONG", curr, high, low));
+        } else if (curr >= low * 0.998 && curr <= low * 1.002 && prevPhase === "BREAKOUT_SHORT") {
+          newPhase = "RETEST_SHORT"; patch.retestLevel = low; patch.entryPrice = curr;
+          Object.assign(patch, calcLevels("SHORT", curr, high, low));
+        } else if (prevPhase !== "TRADE_TAKEN" && prevPhase !== "WINDOW_CLOSED" &&
+                   prevPhase !== "BREAKOUT_LONG" && prevPhase !== "BREAKOUT_SHORT" &&
+                   prevPhase !== "RETEST_LONG" && prevPhase !== "RETEST_SHORT") {
+          newPhase = getESTHour().phase;
+        }
+
+        if (newPhase !== setup.phase && newPhase !== "TRADE_TAKEN") {
+          patch.phase = newPhase;
+          toast({
+            title: `📡 TL Auto: ${setup.symbol} → ${PHASE_CONFIG[newPhase].label}`,
+            description: `Price ${curr.toFixed(2)} | Auto-updated from TradeLocker`,
+          });
+        }
+
+        const effectivePhase = patch.phase ?? setup.phase;
+        const isRetest = effectivePhase === "RETEST_LONG" || effectivePhase === "RETEST_SHORT";
+        if (isRetest && setup.aiScore === undefined && !autoAnalyzingRef.current.has(setup.id) && !setup.tradeTaken) {
+          autoAnalyzingRef.current.add(setup.id);
+          toast({ title: `🤖 SS AI Bot auto-analyzing ${setup.symbol}…`, description: "Retest detected via TradeLocker live feed" });
+          setAnalyzingId(setup.id);
+          setSSAISetup({ ...setup, ...patch });
+          analyzeMutation.mutate({ ...setup, ...patch });
+        }
+      }
+
+      updateSetup(setup.id, patch);
+    } catch {
+      updateSetup(setup.id, { tlStatus: "error" });
+    }
+  }, [analyzeMutation, toast, updateSetup]);
+
+  // Interval: poll every 30 seconds for any setup with autoMode=true
+  // Route to MT5 or TradeLocker based on selected data source
   useEffect(() => {
     const interval = setInterval(() => {
       setSetups(prev => {
-        prev.filter(s => s.autoMode && !s.tradeTaken).forEach(s => pollMT5(s));
-        return prev; // no state change here — pollMT5 calls updateSetup internally
+        prev.filter(s => s.autoMode && !s.tradeTaken).forEach(s => {
+          if (dataSource === "tradelocker") pollTL(s);
+          else pollMT5(s);
+        });
+        return prev;
       });
     }, 30000);
     return () => clearInterval(interval);
-  }, [pollMT5]);
+  }, [pollMT5, pollTL, dataSource]);
 
   // Auto-fire webhook when SS AI Bot scores ≥ 70 on a retest in auto mode
   useEffect(() => {
@@ -1565,16 +1678,19 @@ export default function ORBBreakoutPage() {
     setSetups(prev => prev.map(s => {
       if (s.id !== id) return s;
       const enabling = !s.autoMode;
+      const srcLabel = dataSource === "tradelocker" ? "TradeLocker" : "MT5";
       if (enabling) {
-        toast({ title: `⚡ MT5 Auto-Fill enabled for ${s.symbol}`, description: "Polling live data every 30 seconds" });
-        // Immediate first poll
-        setTimeout(() => pollMT5({ ...s, autoMode: true }), 500);
+        toast({ title: `⚡ ${srcLabel} Auto-Fill enabled for ${s.symbol}`, description: "Polling live data every 30 seconds" });
+        setTimeout(() => {
+          if (dataSource === "tradelocker") pollTL({ ...s, autoMode: true });
+          else pollMT5({ ...s, autoMode: true });
+        }, 500);
       } else {
-        toast({ title: `MT5 Auto-Fill disabled for ${s.symbol}`, description: "Returning to manual entry mode" });
+        toast({ title: `${srcLabel} Auto-Fill disabled for ${s.symbol}`, description: "Returning to manual entry mode" });
         autoFiredRef.current.delete(id);
         autoAnalyzingRef.current.delete(id);
       }
-      return { ...s, autoMode: enabling, mt5Status: enabling ? "idle" : undefined };
+      return { ...s, autoMode: enabling, mt5Status: enabling && dataSource === "mt5" ? "idle" : s.mt5Status, tlStatus: enabling && dataSource === "tradelocker" ? "idle" : s.tlStatus };
     }));
   }
 
@@ -1615,11 +1731,32 @@ export default function ORBBreakoutPage() {
                 15-min opening range · 6-min breakout · Retest entry · 1 trade/pair/day — US30, NAS100, SPX, Stocks, Commodities
               </p>
             </div>
-            <Button onClick={() => setShowAddModal(true)}
-              className="flex-shrink-0 bg-green-600 hover:bg-green-700"
-              size="sm">
-              <Plus className="w-4 h-4 mr-1.5" /> Add Instrument
-            </Button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Data source toggle */}
+              <div className="flex items-center rounded-lg overflow-hidden border border-gray-700/50 text-[10px] font-bold">
+                <button
+                  onClick={() => { setDataSource("mt5"); localStorage.setItem('orb_data_source', 'mt5'); }}
+                  className="px-2.5 py-1.5 transition-colors"
+                  style={{
+                    background: dataSource === "mt5" ? "rgba(6,182,212,0.2)" : "rgba(255,255,255,0.04)",
+                    color: dataSource === "mt5" ? "#06b6d4" : "#6b7280",
+                  }}
+                >MT5</button>
+                <button
+                  onClick={() => { setDataSource("tradelocker"); localStorage.setItem('orb_data_source', 'tradelocker'); }}
+                  className="px-2.5 py-1.5 transition-colors border-l border-gray-700/50"
+                  style={{
+                    background: dataSource === "tradelocker" ? "rgba(168,85,247,0.2)" : "rgba(255,255,255,0.04)",
+                    color: dataSource === "tradelocker" ? "#a855f7" : "#6b7280",
+                  }}
+                >TradeLocker</button>
+              </div>
+              <Button onClick={() => setShowAddModal(true)}
+                className="bg-green-600 hover:bg-green-700"
+                size="sm">
+                <Plus className="w-4 h-4 mr-1.5" /> Add Instrument
+              </Button>
+            </div>
           </div>
         </motion.div>
 

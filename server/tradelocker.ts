@@ -689,6 +689,76 @@ export class TradeLockerService {
     }
   }
 
+  /**
+   * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
+   * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
+   * { t, o, h, l, c, v }
+   */
+  async getCandlesticks(symbol: string, resolutionMinutes: number = 5, fromTs?: number, toTs?: number): Promise<any[]> {
+    await this.ensureAuthenticated();
+    await this.resolveAccNum();
+
+    // Resolve tradableInstrumentId via instrument lookup (reuse placeOrder cache key)
+    const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
+    let tradableInstrumentId: number | null = null;
+    const cached = instrumentCache.get(instCacheKey);
+    if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+      tradableInstrumentId = cached.tradableInstrumentId;
+    } else {
+      const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+      });
+      if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
+      const instrData = await instrResp.json();
+      const instruments: any[] = instrData.d?.instruments || instrData.instruments || instrData || [];
+      const sym = symbol.toUpperCase();
+      const ALIASES: Record<string, string[]> = {
+        'XAUUSD': ['GOLD', 'XAU/USD'], 'NAS100': ['USTEC', 'US100', 'NDX100'],
+        'US30': ['DJ30', 'WALLST30'], 'US500': ['SPX500', 'SP500', 'SPX'],
+      };
+      const variants = [sym, ...(ALIASES[sym] || [])];
+      let matched: any = null;
+      for (const v of variants) {
+        matched = instruments.find((i: any) => (i.name || i.symbol || '').toUpperCase().replace(/\s/g, '') === v.replace(/\s/g, ''));
+        if (matched) break;
+      }
+      if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
+      tradableInstrumentId = matched.tradableInstrumentId || matched.id;
+      const routes: any[] = Array.isArray(matched.routes) ? matched.routes : [];
+      const routeId = (routes.find((r: any) => r.type === 'TRADE' || r.name === 'TRADE') ?? routes[0])?.id ?? 1;
+      instrumentCache.set(instCacheKey, { tradableInstrumentId: tradableInstrumentId!, routeId, cachedAt: Date.now() });
+    }
+
+    // TL resolution string: 1, 5, 15, 60, 1D etc.
+    const resolution = resolutionMinutes >= 1440 ? '1D' : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + 'H' : String(resolutionMinutes);
+    const now = Math.floor(Date.now() / 1000);
+    const startTime = fromTs ?? (now - 86400); // default: last 24h
+    const endTime = toTs ?? now;
+
+    const url = `${this.baseUrl}/trade/accounts/${this.accountId}/instruments/${tradableInstrumentId}/history` +
+      `?resolution=${resolution}&startTime=${startTime}&endTime=${endTime}`;
+
+    const histResp = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+    });
+    if (!histResp.ok) {
+      const txt = await histResp.text();
+      throw new Error(`TradeLocker history error: ${histResp.status} — ${txt}`);
+    }
+    const histData = await histResp.json();
+
+    // Normalise to { t, o, h, l, c, v } ascending
+    const bars: any[] = histData.d?.bars || histData.bars || histData || [];
+    return bars.map((b: any) => ({
+      t: b.time ?? b.t ?? b.timestamp ?? 0,
+      o: b.open  ?? b.o ?? 0,
+      h: b.high  ?? b.h ?? 0,
+      l: b.low   ?? b.l ?? 0,
+      c: b.close ?? b.c ?? 0,
+      v: b.volume ?? b.v ?? 0,
+    })).sort((a, b) => a.t - b.t);
+  }
+
   async closePosition(positionId: string): Promise<TradeLockerOrderResponse> {
     await this.ensureAuthenticated();
 

@@ -21446,6 +21446,132 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   });
 
+  // GET /api/orb/tl-live/:symbol — pull live ORB data from TradeLocker (mirrors mt5-live)
+  app.get("/api/orb/tl-live/:symbol", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as User).id;
+    const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, '');
+
+    try {
+      // Load user's active TradeLocker connection
+      const tlConn = await storage.getUserTradelockerConnection(userId);
+      if (!tlConn?.isActive) {
+        return res.status(404).json({
+          error: "No active TradeLocker connection",
+          hint: "Connect your TradeLocker account via Settings → Broker Connections",
+        });
+      }
+
+      const { TradeLockerService, decryptPassword } = await import('./tradelocker');
+      const password = decryptPassword(tlConn.encryptedPassword);
+      const service = new TradeLockerService(
+        tlConn.accountType as 'demo' | 'live',
+        tlConn.accountId,
+        tlConn.serverId,
+        tlConn.accNum,
+      );
+      await service.authenticate(tlConn.email, password);
+
+      // Fetch 5-min candles for the last 24 hours
+      const now = Math.floor(Date.now() / 1000);
+      const candles = await service.getCandlesticks(rawSymbol, 5, now - 86400, now);
+
+      if (!candles.length) {
+        return res.status(404).json({
+          error: `No TradeLocker data for ${rawSymbol}`,
+          hint: "Ensure this symbol is available in your TradeLocker account",
+        });
+      }
+
+      const currentPrice: number = candles[candles.length - 1]?.c || 0;
+
+      // ── Helper: get EST h+m from unix-seconds timestamp ──
+      function toEST(ts: number, offsetHours: number) {
+        const d = new Date(ts * 1000);
+        const localH = ((d.getUTCHours() + offsetHours) % 24 + 24) % 24;
+        return { h: localH, m: d.getUTCMinutes() };
+      }
+
+      const nowMs = Date.now();
+      const todayUTCStart = Math.floor(nowMs / 86400000) * 86400;
+      const todayCandles = candles.filter((c: any) => (c.t || 0) >= todayUTCStart);
+
+      // ── Find 9:30 AM ORB candle ──
+      const estOffsets = [-5, -4];
+      let orbHigh = 0, orbLow = 0, foundOrbCandle = false;
+      let orbCandle: any = null;
+      for (const off of estOffsets) {
+        orbCandle = todayCandles.find((c: any) => {
+          const { h, m } = toEST(c.t || 0, off);
+          return h === 9 && m === 30;
+        });
+        if (orbCandle) {
+          orbHigh = orbCandle.h || 0;
+          orbLow  = orbCandle.l || 0;
+          foundOrbCandle = true;
+          break;
+        }
+      }
+      if (!foundOrbCandle && todayCandles.length > 0) {
+        orbCandle = todayCandles[0];
+        orbHigh = orbCandle.h || 0;
+        orbLow  = orbCandle.l || 0;
+      }
+
+      // ── Pre-market bias ──
+      let preMarketBias: "bullish" | "bearish" | "neutral" = "neutral";
+      let preMarketDetail = "";
+      for (const off of estOffsets) {
+        const pmC = todayCandles.filter((c: any) => { const { h } = toEST(c.t || 0, off); return h >= 4 && h < 9; });
+        if (pmC.length >= 2) {
+          const firstOpen  = pmC[0].o || 0;
+          const lastClose  = pmC[pmC.length - 1].c || 0;
+          if (firstOpen > 0 && lastClose > 0) {
+            const chg = (lastClose - firstOpen) / firstOpen * 100;
+            if (chg > 0.15)       { preMarketBias = "bullish"; preMarketDetail = `+${chg.toFixed(2)}% pre-market drift`; }
+            else if (chg < -0.15) { preMarketBias = "bearish"; preMarketDetail = `${chg.toFixed(2)}% pre-market drift`; }
+            else                  { preMarketDetail = `${chg.toFixed(2)}% — flat pre-market`; }
+            break;
+          }
+        }
+      }
+
+      // ── Phase detection ──
+      const estNow = toEST(Math.floor(Date.now() / 1000), -5);
+      let orbPhase = "RANGE_SET";
+      if (estNow.h < 9 || (estNow.h === 9 && estNow.m < 30)) orbPhase = "PRE_MARKET";
+      else if (estNow.h === 9 && estNow.m < 45) orbPhase = "BUILDING";
+      else if (estNow.h >= 14) orbPhase = "WINDOW_CLOSED";
+      else if (orbHigh > 0 && currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
+      else if (orbLow > 0 && currentPrice < orbLow * 0.999) orbPhase = "BREAKOUT_SHORT";
+
+      const range = orbHigh - orbLow;
+      const rangePct = currentPrice > 0 ? (range / currentPrice) * 100 : 0;
+
+      return res.json({
+        symbol: rawSymbol,
+        source: "tradelocker",
+        timeframe: "M5",
+        currentPrice,
+        orbHigh: orbHigh || null,
+        orbLow: orbLow || null,
+        orbRange: range,
+        orbRangePct: rangePct,
+        orbPhase,
+        foundOrbCandle,
+        preMarketBias,
+        preMarketDetail,
+        lastUpdated: new Date().toISOString(),
+        candleCount: candles.length,
+        todayCandleCount: todayCandles.length,
+      });
+    } catch (err: any) {
+      const msg = err?.message || 'Unknown error';
+      console.error(`[ORB TL] Error for ${rawSymbol}:`, msg);
+      return res.status(500).json({ error: msg });
+    }
+  });
+
   // POST /api/orb/fire-webhook — fire trade signal webhook when SS AI Bot ≥ 70
   app.post("/api/orb/fire-webhook", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
