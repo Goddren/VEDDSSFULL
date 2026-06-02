@@ -9804,15 +9804,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE &&
           analysis.tradePlan) {
 
-        const tlConnection = await storage.getUserTradelockerConnection(token.userId);
+        const tlAllConns = await storage.getUserTradelockerConnections(token.userId);
+        const tlActiveConns = tlAllConns.filter((c: any) => c.isActive && c.autoExecute);
         console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
           signal: analysis.signal,
           confidence: analysis.confidence,
-          hasTradeLocker: !!tlConnection,
-          autoExecute: tlConnection?.autoExecute
+          tradeLockerAccounts: tlActiveConns.length,
         });
 
-        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+        if (tlActiveConns.length > 0) {
+          // Use first active connection reference for gate checks (cooldown is per-user/symbol, not per-account)
+          const tlConnection = tlActiveConns[0];
           // ── Cooldown: DB-backed so it survives server restarts/redeployments ──
           // In-memory map is also set (race-condition guard within single process).
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
@@ -9878,18 +9880,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 tradelockerResult = null;
               } else {
 
-              console.log('[MT5 Chart Data AutoTrade] Executing trade on TradeLocker:', {
-                action: 'OPEN',
-                symbol: sanitizedSymbol,
-                direction: analysis.signal,
-                volume: tradeVolume,
-                entry: analysis.tradePlan.entry,
-                stopLoss: analysis.tradePlan.stopLoss,
-                takeProfit: analysis.tradePlan.takeProfit
+              // Execute on ALL active TradeLocker connections
+              for (const tlConn of tlActiveConns) {
+              console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
+                action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal, volume: tradeVolume,
               });
 
               try {
-                tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+                const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
                   action: 'OPEN',
                   symbol: sanitizedSymbol,
                   direction: analysis.signal,
@@ -9898,10 +9896,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   stopLoss: analysis.tradePlan.stopLoss,
                   takeProfit: analysis.tradePlan.takeProfit,
                 });
-                
-                // Log the trade attempt
+                tradelockerResult = connResult; // keep last result for response compat
+
+                // Log the trade attempt per connection
                 await storage.createTradelockerTradeLog({
-                  connectionId: tlConnection.id,
+                  connectionId: tlConn.id,
                   userId: token.userId,
                   sourceSignalId: null,
                   action: 'OPEN',
@@ -9911,58 +9910,59 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   entryPrice: analysis.tradePlan.entry,
                   stopLoss: analysis.tradePlan.stopLoss,
                   takeProfit: analysis.tradePlan.takeProfit,
-                  tradelockerOrderId: tradelockerResult.orderId || null,
-                  status: tradelockerResult.success ? 'executed' : 'failed',
-                  errorMessage: tradelockerResult.error || null,
+                  tradelockerOrderId: connResult.orderId || null,
+                  status: connResult.success ? 'executed' : 'failed',
+                  errorMessage: connResult.error || null,
                 });
-                
-                // Update connection stats
-                if (tradelockerResult.success) {
-                  await storage.updateTradelockerConnection(tlConnection.id, {
-                    tradeCount: tlConnection.tradeCount + 1,
+
+                // Update connection stats per connection
+                if (connResult.success) {
+                  await storage.updateTradelockerConnection(tlConn.id, {
+                    tradeCount: tlConn.tradeCount + 1,
                     lastConnectedAt: new Date(),
                     lastError: null,
                   });
-                  console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TradeLocker! Order: ${tradelockerResult.orderId}. Word is BOND!`);
+                  console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TL account ${tlConn.accountId}! Order: ${connResult.orderId}.`);
 
-                  // Record for brain learning
-                  if (aiConfirmation && (aiConfirmation as any).breakoutGrade) {
-                    // Breakout trade
-                    try {
-                      await storage.createConfirmationOutcome({
-                        userId: token.userId,
-                        symbol: sanitizedSymbol,
-                        direction: analysis.signal as 'BUY' | 'SELL',
-                        tradeSource: 'breakout',
-                        confluenceGrade: (aiConfirmation as any)?.breakoutGrade || 'C',
-                        session: getCurrentTradingSession(),
-                        aiDecision: 'CONFIRMED',
-                      } as any);
-                    } catch (e) { /* non-blocking */ }
-                  } else if (!aiConfirmation) {
-                    // EA-only trade (no AI confirmation ran)
-                    try {
-                      await storage.createConfirmationOutcome({
-                        userId: token.userId,
-                        symbol: sanitizedSymbol,
-                        direction: analysis.signal as 'BUY' | 'SELL',
-                        tradeSource: 'ea_only',
-                        confluenceGrade: null,
-                        session: getCurrentTradingSession(),
-                        aiDecision: 'EA_ONLY',
-                      } as any);
-                    } catch (e) { /* non-blocking */ }
+                  // Record for brain learning (only once, on first success)
+                  if (tlConn === tlActiveConns[0]) {
+                    if (aiConfirmation && (aiConfirmation as any).breakoutGrade) {
+                      try {
+                        await storage.createConfirmationOutcome({
+                          userId: token.userId,
+                          symbol: sanitizedSymbol,
+                          direction: analysis.signal as 'BUY' | 'SELL',
+                          tradeSource: 'breakout',
+                          confluenceGrade: (aiConfirmation as any)?.breakoutGrade || 'C',
+                          session: getCurrentTradingSession(),
+                          aiDecision: 'CONFIRMED',
+                        } as any);
+                      } catch (e) { /* non-blocking */ }
+                    } else if (!aiConfirmation) {
+                      try {
+                        await storage.createConfirmationOutcome({
+                          userId: token.userId,
+                          symbol: sanitizedSymbol,
+                          direction: analysis.signal as 'BUY' | 'SELL',
+                          tradeSource: 'ea_only',
+                          confluenceGrade: null,
+                          session: getCurrentTradingSession(),
+                          aiDecision: 'EA_ONLY',
+                        } as any);
+                      } catch (e) { /* non-blocking */ }
+                    }
                   }
                 } else {
-                  await storage.updateTradelockerConnection(tlConnection.id, {
-                    lastError: tradelockerResult.error,
+                  await storage.updateTradelockerConnection(tlConn.id, {
+                    lastError: connResult.error,
                   });
-                  console.log('[MT5 Chart Data AutoTrade] Trade failed:', tradelockerResult.error);
+                  console.log(`[MT5 Chart Data AutoTrade] Trade failed on ${tlConn.accountId}:`, connResult.error);
                 }
               } catch (err) {
-                console.error('[MT5 Chart Data AutoTrade] Error executing trade:', err);
+                console.error(`[MT5 Chart Data AutoTrade] Error on account ${tlConn.accountId}:`, err);
                 tradelockerResult = { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
               }
+              } // end for (const tlConn of tlActiveConns)
               } // end else (analysisGuard.allow)
             }
           } else {
@@ -13757,9 +13757,12 @@ Respond with ONLY valid JSON:
       const executionResults: any[] = [];
 
       if (autoExecute && signals.signals && signals.signals.length > 0) {
-        const tlConnection = await storage.getUserTradelockerConnection(userId);
-        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on TradeLocker for user ${userId}`);
+        const tlConnections = await storage.getUserTradelockerConnections(userId);
+        const activeTlConns = tlConnections.filter((c: any) => c.isActive && c.autoExecute);
+        if (activeTlConns.length > 0) {
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}`);
+        for (const tlConnection of activeTlConns) {
+          console.log(`[VEDD Brain AutoExec] → Account: ${tlConnection.accountId} (id=${tlConnection.id})`);
           
           for (let sigIdx = 0; sigIdx < signals.signals.length; sigIdx++) {
             const sig = signals.signals[sigIdx];
@@ -13865,6 +13868,8 @@ Respond with ONLY valid JSON:
             }
           }
 
+        } // end for (const tlConnection of activeTlConns)
+
           triggerWebhooks(userId, 'vedd_brain_signals', {
             type: 'autonomous_signals',
             strategyMode,
@@ -13872,7 +13877,7 @@ Respond with ONLY valid JSON:
             executionResults,
           }).catch(err => console.error('Webhook trigger error:', err));
         } else {
-          console.log(`[VEDD Brain AutoExec] No active TradeLocker connection with autoExecute for user ${userId}`);
+          console.log(`[VEDD Brain AutoExec] No active TradeLocker connections with autoExecute for user ${userId}`);
           executionResults.push({ status: 'skipped', reason: 'No active TradeLocker connection with auto-execute enabled' });
         }
       }

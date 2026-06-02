@@ -1720,10 +1720,10 @@ async function applyServerSideTrails(
 
   if (!state.positionTrailState) state.positionTrailState = {};
 
-  let tlConnection: any = null;
+  let tlConnections: any[] = [];
   try {
-    tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (tlConnection && !tlConnection.isActive) tlConnection = null;
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    tlConnections = allTL.filter((c: any) => c.isActive);
   } catch { /* no TL — MT5 only */ }
 
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
@@ -1835,38 +1835,40 @@ async function applyServerSideTrails(
       message: `📐 ${methodLabel}: ${pos.symbol} ${pos.direction} trail → SL ${Math.round(newSL * 100000) / 100000} (was ${currentSL || 'none'})`,
     });
 
-    if (tlConnection) {
+    if (tlConnections.length > 0) {
       const positionId = pos.ticket || pos.id || null;
       if (positionId) {
-        try {
-          const trailResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: 'MODIFY',
-            symbol: pos.symbol,
-            direction: pos.direction || 'BUY',
-            volume: 0,
-            stopLoss: Math.round(newSL * 100000) / 100000,
-            takeProfit: pos.tp || undefined,
-            positionId: String(positionId),
-          });
-          if (trailResult.success) {
-            addActivity(userId, {
-              type: 'position_update',
+        for (const tlConn of tlConnections) {
+          try {
+            const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: 'MODIFY',
               symbol: pos.symbol,
-              message: `✅ TradeLocker trail applied: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
+              direction: pos.direction || 'BUY',
+              volume: 0,
+              stopLoss: Math.round(newSL * 100000) / 100000,
+              takeProfit: pos.tp || undefined,
+              positionId: String(positionId),
             });
-          } else {
+            if (trailResult.success) {
+              addActivity(userId, {
+                type: 'position_update',
+                symbol: pos.symbol,
+                message: `✅ TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
+              });
+            } else {
+              addActivity(userId, {
+                type: 'error',
+                symbol: pos.symbol,
+                message: `⚠️ TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} — ${trailResult.error}`,
+              });
+            }
+          } catch (tlErr: any) {
             addActivity(userId, {
               type: 'error',
               symbol: pos.symbol,
-              message: `⚠️ TradeLocker trail failed: ${pos.symbol} — ${trailResult.error}. Signal queued for MT5 EA.`,
+              message: `⚠️ TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} — ${tlErr.message}`,
             });
           }
-        } catch (tlErr: any) {
-          addActivity(userId, {
-            type: 'error',
-            symbol: pos.symbol,
-            message: `⚠️ TradeLocker trail error: ${pos.symbol} — ${tlErr.message}. Signal queued for MT5 EA.`,
-          });
         }
       }
     }
@@ -4809,14 +4811,15 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
 
   (async () => {
     try {
-      const tlConn = await storage.getUserTradelockerConnection(userId);
-      if (tlConn && tlConn.isActive) {
+      const tlConnsWarm = await storage.getUserTradelockerConnections(userId);
+      const activeTLWarm = tlConnsWarm.filter((c: any) => c.isActive);
+      for (const tlConn of activeTLWarm) {
         const warmResult = await warmTradeLockerConnection(tlConn);
         addActivity(userId, {
           type: warmResult.success ? 'info' : 'error',
           message: warmResult.success
-            ? 'TradeLocker pre-warmed — ready for instant trade execution'
-            : `TradeLocker pre-warm failed: ${warmResult.error}`,
+            ? `TradeLocker account ${tlConn.accountId} pre-warmed — ready for instant trade execution`
+            : `TradeLocker pre-warm failed (${tlConn.accountId}): ${warmResult.error}`,
         });
       }
     } catch (e) {
