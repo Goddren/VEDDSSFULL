@@ -93,6 +93,7 @@ import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
 import AmbassadorFreePathPage from "@/pages/ambassador-free-path";
 import TokenInvestmentsPage from "@/pages/token-investments";
 import AccountGrowthPlan from "@/pages/account-growth-plan";
+import MicroGrowthPage from "@/pages/micro-growth";
 import ActivityHubPage from "@/pages/activity-hub";
 import StopOrdersPage from "@/pages/stop-orders";
 import StreakBanner from "@/components/StreakBanner";
@@ -253,6 +254,9 @@ function AppLayout() {
 
             {/* Account Growth Plan */}
             <ProtectedRoute path="/account-growth" component={AccountGrowthPlan} />
+
+            {/* Micro Account Growth Engine */}
+            <ProtectedRoute path="/micro-growth" component={MicroGrowthPage} />
 
             {/* Token-Backed Investments */}
             <ProtectedRoute path="/token-investments" component={TokenInvestmentsPage} />

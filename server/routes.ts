@@ -22079,6 +22079,142 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // MICRO ACCOUNT GROWTH ENGINE
+  // In-memory only — no DB tables. Resets on server restart (by design).
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // Tier definitions
+  const MICRO_TIERS = [
+    { tier: 1, minBalance: 25,  maxBalance: 49,  lotSize: 0.01, maxTrades: 1, pipTargetMin: 3,  pipTargetMax: 5,  slPips: 5,  sessionDurationMin: 3  },
+    { tier: 2, minBalance: 50,  maxBalance: 99,  lotSize: 0.01, maxTrades: 2, pipTargetMin: 4,  pipTargetMax: 6,  slPips: 6,  sessionDurationMin: 4  },
+    { tier: 3, minBalance: 100, maxBalance: 149, lotSize: 0.02, maxTrades: 3, pipTargetMin: 5,  pipTargetMax: 8,  slPips: 7,  sessionDurationMin: 5  },
+    { tier: 4, minBalance: 150, maxBalance: 249, lotSize: 0.03, maxTrades: 4, pipTargetMin: 6,  pipTargetMax: 10, slPips: 8,  sessionDurationMin: 6  },
+    { tier: 5, minBalance: 250, maxBalance: 349, lotSize: 0.05, maxTrades: 5, pipTargetMin: 8,  pipTargetMax: 12, slPips: 10, sessionDurationMin: 7  },
+    { tier: 6, minBalance: 350, maxBalance: 499, lotSize: 0.07, maxTrades: 6, pipTargetMin: 10, pipTargetMax: 13, slPips: 12, sessionDurationMin: 8  },
+    { tier: 7, minBalance: 500, maxBalance: Infinity, lotSize: 0.10, maxTrades: 7, pipTargetMin: 12, pipTargetMax: 15, slPips: 14, sessionDurationMin: 10 },
+  ];
+
+  function getMicroTier(balance: number) {
+    return MICRO_TIERS.find(t => balance >= t.minBalance && balance <= t.maxBalance) ?? MICRO_TIERS[MICRO_TIERS.length - 1];
+  }
+
+  // Declare globals for in-memory storage
+  if (!(global as any).microGrowthSessions) (global as any).microGrowthSessions = {};
+  if (!(global as any).microGrowthHistory) (global as any).microGrowthHistory = {};
+
+  // GET /api/micro-growth/status
+  app.get('/api/micro-growth/status', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const rawBalance = parseFloat(req.query.balance as string);
+    const balance = isNaN(rawBalance) ? 25 : rawBalance;
+
+    const tierDef = getMicroTier(balance);
+    const nextTierDef = MICRO_TIERS.find(t => t.minBalance > tierDef.minBalance);
+    const nextTierBalance = nextTierDef ? nextTierDef.minBalance : null;
+    const progressPct = nextTierBalance
+      ? Math.min(100, Math.round(((balance - tierDef.minBalance) / (nextTierBalance - tierDef.minBalance)) * 100))
+      : 100;
+
+    const history: any[] = (global as any).microGrowthHistory[userId] ?? [];
+    const todayStr = new Date().toDateString();
+    const todayPnl = history.filter((s: any) => new Date(s.startedAt).toDateString() === todayStr).reduce((acc: number, s: any) => acc + (s.pnl ?? 0), 0);
+    const totalPnl = history.reduce((acc: number, s: any) => acc + (s.pnl ?? 0), 0);
+    const sessionCount = history.length;
+
+    res.json({
+      tier: tierDef.tier,
+      balance,
+      lotSize: tierDef.lotSize,
+      maxTrades: tierDef.maxTrades,
+      pipTarget: `${tierDef.pipTargetMin}–${tierDef.pipTargetMax}`,
+      slPips: tierDef.slPips,
+      sessionDuration: tierDef.sessionDurationMin,
+      todayPnl,
+      totalPnl,
+      sessionCount,
+      nextTierBalance,
+      progressPct,
+    });
+  });
+
+  // POST /api/micro-growth/start-session
+  app.post('/api/micro-growth/start-session', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const { balance, pairs } = req.body as { balance?: number; pairs?: string[] };
+    const bal = typeof balance === 'number' ? balance : 25;
+    const tierDef = getMicroTier(bal);
+    const midPipTarget = Math.round((tierDef.pipTargetMin + tierDef.pipTargetMax) / 2);
+
+    const session: any = {
+      id: `${userId}_${Date.now()}`,
+      userId,
+      startedAt: new Date(),
+      durationMs: tierDef.sessionDurationMin * 60000,
+      tier: tierDef.tier,
+      lotSize: tierDef.lotSize,
+      maxTrades: tierDef.maxTrades,
+      pipTarget: midPipTarget,
+      slPips: tierDef.slPips,
+      pairs: pairs ?? ['EURUSD', 'XAUUSD'],
+      status: 'active',
+      tradesCount: 0,
+      pipsGained: 0,
+      pnl: 0,
+    };
+
+    (global as any).microGrowthSessions[userId] = session;
+    res.json({ sessionId: session.id, session });
+  });
+
+  // GET /api/micro-growth/sessions
+  app.get('/api/micro-growth/sessions', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const history: any[] = (global as any).microGrowthHistory[userId] ?? [];
+    res.json(history.slice(-20).reverse());
+  });
+
+  // POST /api/micro-growth/log-session
+  app.post('/api/micro-growth/log-session', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const { sessionId, pipsGained, tradesCount, pnl, pairs } = req.body as {
+      sessionId?: string;
+      pipsGained?: number;
+      tradesCount?: number;
+      pnl?: number;
+      pairs?: string[];
+    };
+
+    const activeSession = (global as any).microGrowthSessions[userId];
+    if (!activeSession || activeSession.id !== sessionId) {
+      return res.status(404).json({ message: 'Session not found or already completed' });
+    }
+
+    const completed = {
+      ...activeSession,
+      pipsGained: pipsGained ?? 0,
+      tradesCount: tradesCount ?? 0,
+      pnl: pnl ?? 0,
+      pairs: pairs ?? activeSession.pairs,
+      status: 'completed',
+      completedAt: new Date(),
+    };
+
+    if (!(global as any).microGrowthHistory[userId]) (global as any).microGrowthHistory[userId] = [];
+    const userHistory: any[] = (global as any).microGrowthHistory[userId];
+    userHistory.push(completed);
+    // keep last 50
+    if (userHistory.length > 50) userHistory.splice(0, userHistory.length - 50);
+
+    delete (global as any).microGrowthSessions[userId];
+
+    res.json({ success: true, session: completed });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one
   const httpServer = existingServer || createServer(app);
