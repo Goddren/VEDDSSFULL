@@ -789,6 +789,67 @@ export class TradeLockerService {
     }
   }
 
+  /**
+   * Fetch filled/closed orders from TradeLocker for a given day.
+   * Tries GET /trade/accounts/{id}/orders with status filters.
+   * Returns normalised array: { id, symbol, side, profit, closeTime, qty }
+   */
+  async getFilledOrders(fromTs?: number): Promise<any[]> {
+    await this.ensureAuthenticated();
+    try {
+      // TradeLocker order history endpoint — try with status param first
+      const base = `${this.baseUrl}/trade/accounts/${this.accountId}/orders`;
+      const params = new URLSearchParams({ status: 'Filled' });
+      if (fromTs) params.set('from', String(fromTs));
+      const response = await fetch(`${base}?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+          'accNum': this.accNum,
+        },
+      });
+      if (!response.ok) {
+        // Some TL instances use lowercase status or different endpoint path
+        const response2 = await fetch(`${base}?status=filled`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+            'accNum': this.accNum,
+          },
+        });
+        if (!response2.ok) return [];
+        const data2 = await response2.json();
+        const orders2: any[] = Array.isArray(data2) ? data2 : (data2?.d?.orders || data2?.orders || []);
+        return this._normaliseOrders(orders2, fromTs);
+      }
+      const data = await response.json();
+      const orders: any[] = Array.isArray(data) ? data : (data?.d?.orders || data?.orders || []);
+      return this._normaliseOrders(orders, fromTs);
+    } catch (err) {
+      console.error('[TradeLocker] getFilledOrders error:', (err as Error).message);
+      return [];
+    }
+  }
+
+  private _normaliseOrders(orders: any[], fromTs?: number): any[] {
+    return orders
+      .map((o: any) => ({
+        id: o.id || o.orderId || o.positionId,
+        symbol: o.instrument || o.symbol || '',
+        side: o.side || o.direction || '',
+        profit: parseFloat(o.profit ?? o.pnl ?? o.grossProfit ?? 0),
+        closeTime: o.closedAt || o.updatedAt || o.timestamp || null,
+        qty: o.qty || o.quantity || o.volume || 0,
+      }))
+      .filter((o: any) => {
+        if (!fromTs) return true;
+        if (!o.closeTime) return true; // include if no timestamp
+        return new Date(o.closeTime).getTime() >= fromTs * 1000;
+      });
+  }
+
   async getPositions(): Promise<any[]> {
     await this.ensureAuthenticated();
 

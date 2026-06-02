@@ -10399,17 +10399,60 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       return d >= weekStart && (!ticket || !weekDbTickets.has(ticket));
     });
 
-    // Open positions unrealized P&L
+    // Open positions unrealized P&L (MT5)
     const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
-    const unrealizedPnL = openPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+    const mt5UnrealizedPnL = openPositions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+
+    // ── TradeLocker P&L — realized (today/week filled orders) + unrealized (open positions) ──
+    let tlTodayClosedPnL = 0;
+    let tlWeekClosedPnL = 0;
+    let tlUnrealizedPnL = 0;
+    try {
+      const tlConnections = await storage.getUserTradelockerConnections(userId);
+      const activeTlConns = tlConnections.filter((c: any) => c.isActive);
+      const todayStartTs = Math.floor(todayStart.getTime() / 1000);
+      const weekStartTs  = Math.floor(weekStart.getTime() / 1000);
+
+      for (const conn of activeTlConns) {
+        try {
+          const tlSvc = new TradeLockerService(
+            (conn.accountType as 'demo' | 'live') || 'live',
+            conn.accountId,
+            conn.serverId,
+            conn.accNum?.toString()
+          );
+
+          // Unrealized P&L from open positions
+          const positions = await tlSvc.getPositions().catch(() => []);
+          tlUnrealizedPnL += positions.reduce((s: number, p: any) =>
+            s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+
+          // Realized P&L from today's filled orders
+          const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          for (const order of filledOrders) {
+            const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
+            if (closeTs >= todayStart.getTime()) tlTodayClosedPnL += (order.profit || 0);
+            if (closeTs >= weekStart.getTime())  tlWeekClosedPnL  += (order.profit || 0);
+          }
+        } catch (connErr) {
+          console.error('[daily-summary] TL conn error:', (connErr as Error).message);
+        }
+      }
+    } catch (tlErr) {
+      console.error('[daily-summary] TL fetch error:', (tlErr as Error).message);
+    }
+
+    const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
 
     const todayClosedProfit =
       todayDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
-      todayCache.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+      todayCache.reduce((s: number, t: any) => s + (t.profit || 0), 0) +
+      tlTodayClosedPnL;
 
     const weekClosedProfit =
       weekDb.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) +
-      weekCache.reduce((s: number, t: any) => s + (t.profit || 0), 0);
+      weekCache.reduce((s: number, t: any) => s + (t.profit || 0), 0) +
+      tlWeekClosedPnL;
 
     const todayTrades = todayDb.length + todayCache.length;
     const todayWins = todayDb.filter((t: any) => t.result === 'WIN').length +
