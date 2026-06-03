@@ -12746,6 +12746,60 @@ Rules:
   // TradeLocker Connection Routes
 
   // GET all connections (plural) — used by multi-account UI
+  /** Execution diagnostics — shows why each account is/isn't trading */
+  app.get("/api/tradelocker/exec-status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const recentLogs = await storage.getTradelockerTradeLogs(userId, 50);
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+    const result = connections.map((c: any) => {
+      const acctLogs = recentLogs.filter((l: any) => l.connectionId === c.id);
+      const todayLogs = acctLogs.filter((l: any) => new Date(l.createdAt) >= todayStart);
+      const lastTrade = acctLogs[0] ?? null;
+
+      // Why is this account NOT in activeTlConns?
+      const blockedReasons: string[] = [];
+      if (!c.isActive)    blockedReasons.push('isActive = false — toggle ON in TradeLocker settings');
+      if (!c.autoExecute) blockedReasons.push('autoExecute = false — enable Auto-Execute in TradeLocker settings');
+      if (c.lastError)    blockedReasons.push(`Last error: ${c.lastError}`);
+
+      return {
+        id: c.id,
+        accountId: c.accountId,
+        accountType: c.accountType,
+        isActive: c.isActive,
+        autoExecute: c.autoExecute,
+        lotMultiplier: c.lotMultiplier,
+        inActiveTlConns: c.isActive && c.autoExecute,
+        blockedReasons,
+        todayTrades: todayLogs.length,
+        todayExecuted: todayLogs.filter((l: any) => l.status === 'executed').length,
+        todayFailed: todayLogs.filter((l: any) => l.status === 'failed').length,
+        lastTrade: lastTrade ? {
+          symbol: lastTrade.symbol,
+          direction: lastTrade.direction,
+          status: lastTrade.status,
+          error: lastTrade.errorMessage,
+          time: lastTrade.createdAt,
+          volume: lastTrade.volume,
+        } : null,
+        lastError: c.lastError,
+        lastConnectedAt: c.lastConnectedAt,
+      };
+    });
+
+    res.json({
+      accounts: result,
+      activeForAutoExec: result.filter((r: any) => r.inActiveTlConns).length,
+      totalAccounts: result.length,
+      generatedAt: new Date().toISOString(),
+    });
+  });
+
   app.get("/api/tradelocker/connections", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -13914,65 +13968,82 @@ Respond with ONLY valid JSON:
       if (autoExecute && signals.signals && signals.signals.length > 0) {
         const tlConnections = await storage.getUserTradelockerConnections(userId);
         const activeTlConns = tlConnections.filter((c: any) => c.isActive && c.autoExecute);
+
+        // ── Diagnostics: log all connections and why inactive ones are skipped ──
+        for (const c of tlConnections) {
+          if (!c.isActive || !c.autoExecute) {
+            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) — isActive=${c.isActive} autoExecute=${c.autoExecute}`);
+          }
+        }
+
         if (activeTlConns.length > 0) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}`);
-        for (const tlConnection of activeTlConns) {
-          console.log(`[VEDD Brain AutoExec] → Account: ${tlConnection.accountId} (id=${tlConnection.id})`);
-          
-          for (let sigIdx = 0; sigIdx < signals.signals.length; sigIdx++) {
-            const sig = signals.signals[sigIdx];
-            if (!sig.symbol || !sig.direction) continue;
-            const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
-            const confidence = typeof sig.confidence === 'number' ? sig.confidence : parseFloat(sig.confidence) || 0;
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}: ${activeTlConns.map((c: any) => c.accountId).join(', ')}`);
 
-            const parseNum = (v: any): number | undefined => {
-              if (typeof v === 'number') return v;
-              if (typeof v === 'string') { const n = parseFloat(v.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? undefined : n; }
-              return undefined;
-            };
-            const entryPrice = parseNum(sig.entryZone);
-            const stopLoss = parseNum(sig.stopLoss);
-            const takeProfit = parseNum(sig.takeProfit);
-            const lotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0)); // cap at 1.0 lot for safety
+        // ── Move signal quality gate OUTSIDE the account loop so it runs once per signal ──
+        // Then execute the approved signal on ALL active accounts
+        const parseNum = (v: any): number | undefined => {
+          if (typeof v === 'number') return v;
+          if (typeof v === 'string') { const n = parseFloat(v.replace(/[^0-9.\-]/g, '')); return isNaN(n) ? undefined : n; }
+          return undefined;
+        };
 
-            // ── Brain AutoExec signal quality gate ──────────────────────
-            // Raised from 60% to 70% and added R:R + SL/TP requirement to
-            // match the same standards as the live engine's processDecision().
-            const brainGuard = tlSignalGuard({
-              confidence,
-              entryPrice: entryPrice ?? null,
-              stopLoss: stopLoss ?? null,
-              takeProfit: takeProfit ?? null,
+        for (let sigIdx = 0; sigIdx < signals.signals.length; sigIdx++) {
+          const sig = signals.signals[sigIdx];
+          if (!sig.symbol || !sig.direction) continue;
+          const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
+          const confidence = typeof sig.confidence === 'number' ? sig.confidence : parseFloat(sig.confidence) || 0;
+
+          const entryPrice = parseNum(sig.entryZone);
+          const stopLoss = parseNum(sig.stopLoss);
+          const takeProfit = parseNum(sig.takeProfit);
+          const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0));
+
+          // ── Brain AutoExec signal quality gate (raised to 75% + R:R ≥ 1.5) ──
+          const brainGuard = tlSignalGuard({
+            confidence,
+            entryPrice: entryPrice ?? null,
+            stopLoss: stopLoss ?? null,
+            takeProfit: takeProfit ?? null,
+            symbol: sig.symbol,
+            direction: sig.direction,
+            minConfidence: 75,  // raised from 70 → 75 to reduce bad trades
+            requireSLTP: true,
+          });
+          if (!brainGuard.allow) {
+            console.log(`[VEDD Brain AutoExec Guard] BLOCKED ${sig.symbol} ${sig.direction}: ${brainGuard.reason}`);
+            executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: brainGuard.reason });
+            continue;
+          }
+
+          // Create signal log once (not once per account)
+          let signalLogId: number | null = null;
+          try {
+            const signalLog = await storage.createMt5SignalLog({
+              userId,
               symbol: sig.symbol,
               direction: sig.direction,
-              minConfidence: 70,
-              requireSLTP: true,
+              action: 'OPEN',
+              volume: baseLotSize,
+              entryPrice: entryPrice || null,
+              stopLoss: stopLoss || null,
+              takeProfit: takeProfit || null,
+              confidence,
+              source: 'vedd_brain_autonomous',
             });
-            if (!brainGuard.allow) {
-              console.log(`[VEDD Brain AutoExec Guard] BLOCKED ${sig.symbol} ${sig.direction}: ${brainGuard.reason}`);
-              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: brainGuard.reason });
-              continue;
-            }
+            signalLogId = signalLog.id;
+          } catch (logErr) { /* non-blocking */ }
+
+          // Execute on ALL active TL accounts with per-account lot multiplier
+          for (const tlConnection of activeTlConns) {
+            const accountLotSize = Math.max(0.01, Math.min(baseLotSize * (tlConnection.lotMultiplier || 1.0), 5.0));
+            console.log(`[VEDD Brain AutoExec] → Account ${tlConnection.accountId} (id=${tlConnection.id}) | lot=${accountLotSize} (base=${baseLotSize} × mult=${tlConnection.lotMultiplier || 1.0})`);
 
             try {
-              const signalLog = await storage.createMt5SignalLog({
-                userId,
-                symbol: sig.symbol,
-                direction: sig.direction,
-                action: 'OPEN',
-                volume: lotSize,
-                entryPrice: entryPrice || null,
-                stopLoss: stopLoss || null,
-                takeProfit: takeProfit || null,
-                confidence,
-                source: 'vedd_brain_autonomous',
-              });
-
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
                 action: 'OPEN',
                 symbol: sig.symbol,
                 direction: sig.direction,
-                volume: lotSize,
+                volume: accountLotSize,
                 entryPrice,
                 stopLoss,
                 takeProfit,
@@ -13981,11 +14052,11 @@ Respond with ONLY valid JSON:
               await storage.createTradelockerTradeLog({
                 connectionId: tlConnection.id,
                 userId,
-                sourceSignalId: signalLog.id,
+                sourceSignalId: signalLogId,
                 action: 'OPEN',
                 symbol: sig.symbol,
                 direction: sig.direction,
-                volume: lotSize,
+                volume: accountLotSize,
                 entryPrice,
                 stopLoss,
                 takeProfit,
@@ -14000,30 +14071,32 @@ Respond with ONLY valid JSON:
                   lastConnectedAt: new Date(),
                   lastError: null,
                 });
-                console.log(`[VEDD Brain AutoExec] EXECUTED ${sig.direction} ${sig.symbol} @ lot ${sig.lotSize || 0.01} | Order: ${tradeResult.orderId}`);
+                console.log(`[VEDD Brain AutoExec] ✅ EXECUTED ${sig.direction} ${sig.symbol} on ${tlConnection.accountId} @ lot ${accountLotSize} | Order: ${tradeResult.orderId}`);
+              } else {
+                await storage.updateTradelockerConnection(tlConnection.id, { lastError: tradeResult.error });
+                console.log(`[VEDD Brain AutoExec] ❌ FAILED ${sig.symbol} on ${tlConnection.accountId}: ${tradeResult.error}`);
               }
 
               executionResults.push({
                 sigId,
                 symbol: sig.symbol,
                 direction: sig.direction,
+                accountId: tlConnection.accountId,
                 status: tradeResult.success ? 'executed' : 'failed',
                 orderId: tradeResult.orderId || null,
                 error: tradeResult.error || null,
+                lotSize: accountLotSize,
               });
             } catch (execErr: any) {
-              console.error(`[VEDD Brain AutoExec] Error executing ${sig.symbol}:`, execErr.message);
+              console.error(`[VEDD Brain AutoExec] Error on account ${tlConnection.accountId}:`, execErr.message);
               executionResults.push({
-                sigId,
-                symbol: sig.symbol,
-                direction: sig.direction,
-                status: 'error',
-                error: execErr.message,
+                sigId, symbol: sig.symbol, direction: sig.direction,
+                accountId: tlConnection.accountId,
+                status: 'error', error: execErr.message,
               });
             }
-          }
-
-        } // end for (const tlConnection of activeTlConns)
+          } // end for each account
+        } // end for each signal
 
           triggerWebhooks(userId, 'vedd_brain_signals', {
             type: 'autonomous_signals',

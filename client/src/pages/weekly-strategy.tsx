@@ -962,6 +962,13 @@ export default function WeeklyStrategyPage() {
   });
   const activeTLEngineConns = tlConnectionsEngine.filter((c: any) => c.isActive);
 
+  // Execution diagnostics — which accounts are actually firing trades
+  const { data: execStatus, refetch: refetchExecStatus } = useQuery<any>({
+    queryKey: ['/api/tradelocker/exec-status'],
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
   // Markov chain probability data — updated every scan cycle
   const { data: markovOverview } = useQuery<{ overview: any[]; count: number }>({
     queryKey: ['/api/markov/overview'],
@@ -4387,6 +4394,57 @@ export default function WeeklyStrategyPage() {
                         <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoExecuteSignals ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
                       </button>
                     </div>
+
+                    {/* ── Account Execution Diagnostics ── */}
+                    {execStatus?.accounts?.length > 0 && (
+                      <div className="rounded-xl border border-gray-700/50 bg-black/20 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">
+                            Account Execution Status
+                          </span>
+                          <button onClick={() => refetchExecStatus()} className="text-gray-600 hover:text-gray-400">
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          {execStatus.accounts.map((acct: any) => (
+                            <div key={acct.id} className={`rounded-lg p-2.5 border ${acct.inActiveTlConns ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${acct.inActiveTlConns ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                                  <span className="text-xs text-white font-medium">{acct.accountId}</span>
+                                  <Badge className={`text-[9px] border-0 ${acct.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                    {acct.accountType?.toUpperCase()}
+                                  </Badge>
+                                  {acct.lotMultiplier !== 1 && (
+                                    <span className="text-[9px] font-mono text-amber-400">×{acct.lotMultiplier}</span>
+                                  )}
+                                </div>
+                                <div className="flex gap-3 text-[10px]">
+                                  <span className="text-emerald-400">{acct.todayExecuted}✓</span>
+                                  {acct.todayFailed > 0 && <span className="text-red-400">{acct.todayFailed}✗</span>}
+                                </div>
+                              </div>
+                              {acct.blockedReasons.length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {acct.blockedReasons.map((r: string, i: number) => (
+                                    <p key={i} className="text-[10px] text-red-400 flex items-start gap-1">
+                                      <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />{r}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                              {acct.lastTrade && (
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                  Last: {acct.lastTrade.symbol} {acct.lastTrade.direction} — {acct.lastTrade.status}
+                                  {acct.lastTrade.error ? ` (${acct.lastTrade.error})` : ''}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {autonomousSignals?.signals?.length > 0 && (
                       <div className="space-y-2">
                         {autonomousSignals.marketRead && (
