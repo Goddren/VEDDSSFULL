@@ -84,7 +84,7 @@ export function serveStatic(app: Express) {
   }
 
   // Serve static assets: hashed filenames (JS/CSS/images) can be cached
-  // forever; HTML must never be cached so mobile always gets the latest entry.
+  // forever; HTML and sw.js must never be cached so mobile always gets the latest entry.
   app.use(express.static(distPath, {
     setHeaders(res, filePath) {
       if (filePath.endsWith(".html")) {
@@ -92,6 +92,14 @@ export function serveStatic(app: Express) {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         res.setHeader("Pragma", "no-cache");
         res.setHeader("Expires", "0");
+      } else if (filePath.endsWith("sw.js") || filePath.endsWith("service-worker.js")) {
+        // CRITICAL: service worker must never be HTTP-cached — browser must always
+        // re-fetch it to detect version changes. If sw.js is cached, cache busting
+        // never fires and mobile stays on the old build indefinitely.
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.setHeader("Service-Worker-Allowed", "/");
       } else if (/\.[0-9a-f]{8,}\.(js|css|woff2?|ttf|svg|png|jpg|webp)$/i.test(filePath)) {
         // Content-hashed assets are immutable — cache forever
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");

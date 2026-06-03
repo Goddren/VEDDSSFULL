@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'vedd-v8';
+const CACHE_VERSION = 'vedd-v9';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
@@ -67,7 +67,41 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets - cache first, update in background (stale-while-revalidate)
+  // HTML (index.html / SPA routes) — network-first so users always get the
+  // latest entry point. Fall back to cache only when offline.
+  if (url.pathname === '/' || url.pathname.endsWith('.html') || !url.pathname.includes('.')) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(STATIC_CACHE).then(c => c.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // JS / CSS bundles — network-first so new deploys are picked up immediately.
+  // Fall back to cache when offline.
+  if (url.pathname.match(/\.(js|css)$/)) {
+    event.respondWith(
+      fetch(request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(STATIC_CACHE).then(c => c.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // Other static assets (images, fonts) — cache-first, update in background
   event.respondWith(
     caches.match(request)
       .then(cached => {
