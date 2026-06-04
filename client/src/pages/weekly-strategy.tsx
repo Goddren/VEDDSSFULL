@@ -4447,6 +4447,7 @@ export default function WeeklyStrategyPage() {
                             { id: 'session_breakout', name: 'Breakout' },
                             { id: 'aggressive', name: 'Aggressive' },
                             { id: 'sniper', name: 'Sniper' },
+                            { id: 'orb', name: 'ORB' },
                           ]).map((m: any) => {
                             const isSelected = selectedSignalModes.includes(m.id);
                             return (
@@ -4560,14 +4561,29 @@ export default function WeeklyStrategyPage() {
                               <Badge variant="outline" className={`text-[10px] ${sig.direction === 'BUY' ? 'text-emerald-400 border-emerald-500/40' : 'text-red-400 border-red-500/40'}`}>{sig.direction}</Badge>
                               <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">{sig.confidence}%</Badge>
                               <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">{sig.strategy}</Badge>
+                              {/* Order type badge */}
+                              {sig.orderType === 'stop_entry' && (
+                                <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30 text-[10px]">⬆ STOP ENTRY</Badge>
+                              )}
+                              {sig.orderType === 'limit_entry' && (
+                                <Badge className="bg-cyan-500/15 text-cyan-400 border-cyan-500/30 text-[10px]">⬇ LIMIT ENTRY</Badge>
+                              )}
+                              {(!sig.orderType || sig.orderType === 'market') && (
+                                <Badge className="bg-gray-500/10 text-gray-500 border-gray-700 text-[10px]">MARKET</Badge>
+                              )}
                               {sig.sourceMode && sig.sourceMode !== sig.strategy && (
                                 <Badge className="bg-yellow-500/10 text-yellow-500/80 border-yellow-500/20 text-[10px]">via {sig.sourceMode}</Badge>
                               )}
                               <span className="ml-auto text-[10px] text-gray-500">{sig.holdTime}</span>
                             </div>
                             <p className="text-xs text-gray-300">{sig.reason}</p>
-                            <div className="flex gap-3 text-[10px] text-gray-500 mt-1">
-                              {sig.entryZone && <span>Entry: {sig.entryZone}</span>}
+                            <div className="flex gap-3 text-[10px] text-gray-500 mt-1 flex-wrap">
+                              {sig.entryPrice && sig.orderType !== 'market' && (
+                                <span className={sig.orderType === 'stop_entry' ? 'text-orange-400/70' : 'text-cyan-400/70'}>
+                                  {sig.orderType === 'stop_entry' ? '⬆ Trigger' : '⬇ Fill'}: {sig.entryPrice}
+                                </span>
+                              )}
+                              {!sig.entryPrice && sig.entryZone && <span>Zone: {sig.entryZone}</span>}
                               {sig.stopLoss && <span>SL: {sig.stopLoss}</span>}
                               {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
                               {sig.lotSize && <span>Lot: {sig.lotSize}</span>}

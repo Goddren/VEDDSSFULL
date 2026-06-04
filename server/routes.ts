@@ -14030,12 +14030,69 @@ Format each recommendation as a clear, concise action item.`;
       const currentSession = currentHour < 7 ? 'Asian' : currentHour < 13 ? 'London' : currentHour < 20 ? 'New York' : 'Late NY';
 
       const strategyDescriptions: Record<string, string> = {
-        scalping: `SCALPING MODE (HFT): Target 3-8 pips per trade, 10-20+ trades/day. Quick entries/exits within 5-30 minutes. Use tight stops (5-10 pips). Focus on spread-friendly pairs. Exploit micro-movements during high-volatility sessions.`,
-        momentum: `MOMENTUM SURFING: Ride strong directional moves. 5-15 trades/day, hold 15min-2hrs. Enter on breakouts and continuations. Larger pip targets (15-40 pips). Trail stops aggressively. Stack positions when momentum confirms.`,
-        session_breakout: `SESSION OPEN BREAKOUT: Trade the first 30-60 minutes of London/NY opens. 3-6 high-conviction trades. Capture the initial move from session open. Wide targets (20-50 pips), tight relative stops.`,
-        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Combine scalping, momentum, and breakout strategies dynamically. Increase lot sizes as balance grows intraday. Push for 5-20% daily account growth. High trade frequency.`,
-        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence of learned patterns. Larger position sizes, precise entries, tight risk. Quality over quantity - each trade is a kill shot.`,
+        scalping: `SCALPING MODE (HFT): Target 3-8 pips per trade, 10-20+ trades/day. Quick entries/exits within 5-30 minutes. Use tight stops (5-10 pips). Focus on spread-friendly pairs. Exploit micro-movements during high-volatility sessions. Use orderType:"market" for immediate fills.`,
+        momentum: `MOMENTUM SURFING: Ride strong directional moves. 5-15 trades/day, hold 15min-2hrs. Enter on breakouts and continuations. Larger pip targets (15-40 pips). Use orderType:"stop_entry" to enter on breakout confirmation (BUY STOP above resistance, SELL STOP below support) — only fills if price actually breaks out.`,
+        session_breakout: `SESSION OPEN BREAKOUT: Trade the first 30-60 minutes of London/NY opens. 3-6 high-conviction trades. Use orderType:"stop_entry" with entryPrice just above the opening high (BUY) or below the opening low (SELL) — captures the directional move while avoiding false starts. Wide targets (20-50 pips).`,
+        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Combine scalping, momentum, and breakout strategies dynamically. Use orderType:"market" for scalps, orderType:"stop_entry" for breakouts. Push for 5-20% daily account growth.`,
+        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence. Use orderType:"limit_entry" to get optimal entry at key support/resistance levels (BUY LIMIT below price, SELL LIMIT above price) — better fill, better R:R. Only fires if price comes to your level.`,
+        orb: `ORB (OPENING RANGE BREAKOUT): Trade the VEDD ORB strategy. The opening range is defined by the first 15 minutes of NYSE open (9:30-9:45 AM EST).
+RULES: 1) Only trade instruments where ORB High/Low is available in the context below. 2) After 9:45 AM EST, place a BUY STOP just above ORB High or SELL STOP just below ORB Low using orderType:"stop_entry". 3) Entry is on the RETEST — after price breaks out and pulls back to test the broken level. Use entryPrice at the ORB High (for longs) or ORB Low (for shorts). 4) SL = 10% of ORB range below ORB Low (longs) or above ORB High (shorts). 5) TP1 = 2:1 R:R, TP2 = 3:1 R:R — use T1 as takeProfit. 6) ONLY valid 9:45 AM – 2:00 PM EST. 7) One trade per instrument per day. 8) Only generate ORB signals where ORB data is present in context — do not fabricate ORB levels.`,
       };
+
+      // ── Build ORB context from MT5 chart cache ───────────────────────────────
+      const mt5ChartCacheBrain = (global as any).mt5ChartDataCache || {};
+      const orbContextLines: string[] = [];
+      const trackedSymsBrain = Object.keys(mt5ChartCacheBrain)
+        .filter(k => k.startsWith(`mt5_chart_${userId}_`))
+        .map(k => k.replace(`mt5_chart_${userId}_`, '').replace(/_[A-Z0-9]+$/, ''))
+        .filter((v, i, a) => a.indexOf(v) === i);
+
+      for (const sym of trackedSymsBrain.slice(0, 8)) {
+        for (const tf of ['M6', 'M5', 'M1', 'M15']) {
+          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym}_${tf}`];
+          if (!entry?.candles?.length) continue;
+          const candles: any[] = entry.candles;
+          const currPrice = candles[0]?.c || candles[0]?.close || 0;
+          if (!currPrice) continue;
+
+          const todayUTCStart = Math.floor(Date.now() / 86400000) * 86400;
+          const todayC = candles.filter((c: any) => (c.t || c.time || 0) >= todayUTCStart)
+            .sort((a: any, b: any) => (a.t || a.time) - (b.t || b.time));
+
+          let orbH = 0, orbL = 0;
+          for (const off of [-5, -4]) {
+            const oc = todayC.find((c: any) => {
+              const ts = c.t || c.time || 0;
+              if (!ts) return false;
+              const d = new Date(ts * 1000);
+              const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+              return h === 9 && d.getUTCMinutes() <= 30;
+            });
+            if (oc) { orbH = oc.h || oc.high || 0; orbL = oc.l || oc.low || 0; break; }
+          }
+
+          if (orbH > 0 && orbL > 0) {
+            const range = (orbH - orbL).toFixed(4);
+            const slLong  = (orbL - (orbH - orbL) * 0.1).toFixed(4);
+            const slShort = (orbH + (orbH - orbL) * 0.1).toFixed(4);
+            const tp1Long  = (orbH + (orbH - orbL) * 2).toFixed(4);
+            const tp1Short = (orbL - (orbH - orbL) * 2).toFixed(4);
+            let phase = 'Range Set';
+            if (currPrice > orbH * 1.001) phase = 'BREAKOUT LONG — retest entry zone';
+            else if (currPrice < orbL * 0.999) phase = 'BREAKOUT SHORT — retest entry zone';
+            else if (Math.abs(currPrice - orbH) / orbH < 0.002) phase = 'AT ORB HIGH — breakout watch';
+            else if (Math.abs(currPrice - orbL) / orbL < 0.002) phase = 'AT ORB LOW — breakdown watch';
+            orbContextLines.push(
+              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
+            );
+          }
+          break;
+        }
+      }
+
+      const orbSection = orbContextLines.length > 0
+        ? `\nLIVE ORB DATA (use these exact levels for ORB signals — do NOT fabricate):\n${orbContextLines.join('\n')}`
+        : `\nORB DATA: No ORB data available (MT5 EA not connected or market not open). Do not generate ORB signals.`;
 
       // ── Run AI for each selected strategy mode, then merge ──────────────────
       const buildPrompt = (mode: string) => `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
@@ -14046,6 +14103,7 @@ CURRENT CONTEXT:
 - Hour: ${currentHour} UTC
 - Strategy Mode: ${mode.toUpperCase()}
 - ${strategyDescriptions[mode] || strategyDescriptions.aggressive}
+${orbSection}
 
 LEARNED BRAIN DATA (from ${brain.totalTradesAnalyzed} historical trades):
 ${JSON.stringify(liveContext, null, 2)}
@@ -14053,15 +14111,20 @@ ${JSON.stringify(liveContext, null, 2)}
 KEY INSIGHTS FROM LEARNING:
 ${brain.learningInsights.join('\n')}
 
-RULES:
+ORDER TYPE RULES (critical — choose the right order type for each signal):
+- "market": immediate fill at current price — use for scalping, fast momentum
+- "stop_entry": BUY STOP above price / SELL STOP below price — use for breakout confirmation, ORB entries. entryPrice REQUIRED (the trigger level).
+- "limit_entry": BUY LIMIT below price / SELL LIMIT above price — use for sniper/reversal at key S/R levels. entryPrice REQUIRED (the fill level).
+
+SIGNAL RULES:
 1. Generate signals ONLY for pairs where you have learned data OR live market data
 2. Use learned win rates, best sessions, direction biases to maximize edge
 3. Avoid pairs/hours/days with historically poor performance
-4. If a pair has an open position, don't signal the same direction (could add to winners only if momentum mode)
+4. If a pair has an open position, don't signal the same direction
 5. Prioritize pairs currently in their historically best-performing session
 6. If no clear signal exists, return fewer signals - quality > quantity
 7. Each signal must explain WHY based on learned patterns
-8. Factor in current market data (RSI, trend, ATR) when available
+8. For ORB mode: ONLY generate signals where ORB data is provided above. Use exact ORB levels.
 
 Respond with ONLY valid JSON:
 {
@@ -14070,14 +14133,16 @@ Respond with ONLY valid JSON:
       "symbol": "XAUUSD",
       "direction": "BUY",
       "confidence": 85,
-      "strategy": "scalping|momentum|breakout|sniper",
-      "reason": "Specific reason citing learned patterns and current conditions",
-      "entryZone": "price range or condition",
+      "strategy": "scalping|momentum|breakout|sniper|orb",
+      "orderType": "market|stop_entry|limit_entry",
+      "entryZone": "descriptive price range or condition",
+      "entryPrice": number or null (required for stop_entry and limit_entry),
       "stopLoss": number,
       "takeProfit": number,
       "lotSize": number,
       "holdTime": "5min|15min|1hr|4hr",
       "session": "current session this targets",
+      "reason": "Specific reason citing learned patterns and current conditions",
       "learnedEdge": "What historical pattern gives this trade an edge",
       "riskScore": 1-10
     }
@@ -14268,14 +14333,24 @@ Respond with ONLY valid JSON:
             console.log(`[VEDD Brain AutoExec] → Account ${tlConnection.accountId} (id=${tlConnection.id}) | lot=${accountLotSize} (base=${baseLotSize} × mult=${tlConnection.lotMultiplier || 1.0})`);
 
             try {
+              const sigOrderType = (sig.orderType === 'stop_entry' || sig.orderType === 'limit_entry')
+                ? sig.orderType : 'market';
+              // For stop/limit orders use the explicit entryPrice field; fall back to entryZone parse
+              const sigEntryPrice = (sigOrderType !== 'market')
+                ? (parseNum(sig.entryPrice) ?? entryPrice)
+                : entryPrice;
+
+              console.log(`[VEDD Brain AutoExec] → ${sig.symbol} ${sig.direction} | orderType=${sigOrderType} entryPrice=${sigEntryPrice} lot=${accountLotSize}`);
+
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
                 action: 'OPEN',
                 symbol: sig.symbol,
                 direction: sig.direction,
                 volume: accountLotSize,
-                entryPrice,
+                entryPrice: sigEntryPrice,
                 stopLoss,
                 takeProfit,
+                orderType: sigOrderType,
               });
 
               await storage.createTradelockerTradeLog({

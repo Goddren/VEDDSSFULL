@@ -555,8 +555,8 @@ export class TradeLockerService {
         price: 0,  // Required field - 0 for market orders
       };
       
-      // Add price for limit orders (override the 0)
-      if (order.type === 'limit' && order.price) {
+      // Add price for limit and stop orders (override the 0)
+      if ((order.type === 'limit' || order.type === 'stop') && order.price) {
         orderPayload.price = order.price;
       }
       
@@ -1062,6 +1062,8 @@ export async function executeMT5SignalOnTradeLocker(
     stopLoss?: number | null;
     takeProfit?: number | null;
     positionId?: string | null;
+    /** 'market' = immediate fill | 'stop_entry' = BUY/SELL STOP at entryPrice | 'limit_entry' = BUY/SELL LIMIT at entryPrice */
+    orderType?: 'market' | 'stop_entry' | 'limit_entry';
   }
 ): Promise<{ success: boolean; orderId?: string; error?: string; message?: string }> {
   console.log('[TradeLocker Execute] Starting trade execution:', {
@@ -1075,17 +1077,29 @@ export async function executeMT5SignalOnTradeLocker(
     const service = await getOrCreateService(connection);
 
     if (signal.action === 'OPEN' || signal.action.toUpperCase() === 'OPEN') {
+      // Resolve TL order type from signal's orderType field
+      const tlOrderType: 'market' | 'limit' | 'stop' =
+        signal.orderType === 'limit_entry' ? 'limit' :
+        signal.orderType === 'stop_entry'  ? 'stop'  : 'market';
+
+      // stop/limit orders require a price — if missing fall back to market
+      const usePrice = (tlOrderType !== 'market') && signal.entryPrice && signal.entryPrice > 0
+        ? signal.entryPrice : undefined;
+      const resolvedType = usePrice ? tlOrderType : 'market';
+
       console.log('[TradeLocker Execute] Placing order:', {
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
-        type: 'market',
+        type: resolvedType,
+        price: usePrice,
         quantity: signal.volume,
       });
       const orderResult = await service.placeOrder({
         symbol: signal.symbol,
         side: signal.direction.toLowerCase() as 'buy' | 'sell',
-        type: 'market',
+        type: resolvedType,
         quantity: signal.volume,
+        price: usePrice,
         stopLoss: signal.stopLoss || undefined,
         takeProfit: signal.takeProfit || undefined,
       });
