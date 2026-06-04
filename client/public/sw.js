@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'vedd-v11';
+const CACHE_VERSION = 'vedd-v12';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
@@ -9,23 +9,30 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate event - clean up old caches and force-refresh all open windows
 self.addEventListener('activate', (event) => {
   console.log('Service Worker: Activating version', CACHE_VERSION);
   event.waitUntil(
-    Promise.all([
-      caches.keys().then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cache) => {
-            if (!cache.startsWith(CACHE_VERSION)) {
-              console.log('Service Worker: Clearing old cache', cache);
-              return caches.delete(cache);
-            }
-          })
-        );
-      }),
-      self.clients.claim()
-    ])
+    caches.keys().then((cacheNames) => {
+      const oldCaches = cacheNames.filter((c) => !c.startsWith(CACHE_VERSION));
+      const isUpdate = oldCaches.length > 0;
+      return Promise.all(oldCaches.map((c) => {
+        console.log('Service Worker: Clearing old cache', c);
+        return caches.delete(c);
+      })).then(() => self.clients.claim()).then(() => {
+        // If this is a genuine version upgrade (old caches existed),
+        // force every open window to reload so users immediately get
+        // the new build without having to manually refresh.
+        if (isUpdate) {
+          return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+            clients.forEach((client) => {
+              console.log('Service Worker: Force-reloading client for new version');
+              client.navigate(client.url);
+            });
+          });
+        }
+      });
+    })
   );
 });
 

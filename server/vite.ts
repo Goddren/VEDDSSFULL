@@ -5,6 +5,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
+import { SERVER_START_VERSION } from "./version";
 
 const viteLogger = createLogger();
 // stable version stamp set once at server start — prevents Vite HMR infinite reload loop
@@ -107,13 +108,56 @@ export function serveStatic(app: Express) {
     },
   }));
 
-  // Fallback: serve index.html for all SPA routes — never cached
-  app.use("*", (_req, res) => {
-    res.set({
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      "Pragma": "no-cache",
-      "Expires": "0",
-    });
-    res.sendFile(path.resolve(distPath, "index.html"));
+  // Fallback: serve index.html for all SPA routes — never cached.
+  // We read the file and inject an inline version-check script so the
+  // browser can detect new deploys and nuke stale SW caches even when
+  // the old service worker is still serving old JS bundles.
+  const indexPath = path.resolve(distPath, "index.html");
+
+  // Inline script (no external deps — runs before any bundle loads):
+  // • reads vedd-build-version from localStorage
+  // • compares with the version stamped at server start
+  // • if mismatch: unregisters all SWs, clears all caches, hard-reloads
+  const versionScript = `<script>
+(function(){
+  try{
+    var v='${SERVER_START_VERSION}';
+    var k='vedd-build-version';
+    var stored=localStorage.getItem(k);
+    if(stored&&stored!==v){
+      localStorage.setItem(k,v);
+      var done=function(){location.href=location.href.split('?')[0]+'?v='+v;};
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){return r.unregister();}));
+        }).then(function(){
+          return 'caches' in window ? caches.keys().then(function(ks){
+            return Promise.all(ks.map(function(k){return caches.delete(k);}));
+          }) : null;
+        }).then(done).catch(done);
+      } else { done(); }
+    } else {
+      localStorage.setItem(k,v);
+    }
+  }catch(e){}
+})();
+</script>`;
+
+  app.use("*", async (_req, res) => {
+    try {
+      res.set({
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      let html = await fs.promises.readFile(indexPath, "utf-8");
+      // Inject version check as the very first thing inside <head>
+      html = html.replace("<head>", "<head>" + versionScript);
+      res.send(html);
+    } catch {
+      // File missing — send a minimal reload page
+      res.send(`<!DOCTYPE html><html><head>${versionScript}</head><body><script>setTimeout(function(){location.reload()},2000)</script></body></html>`);
+    }
   });
 }

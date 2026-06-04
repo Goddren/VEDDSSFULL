@@ -935,8 +935,7 @@ function runForexQuantAgent(
   return { verdict, score, reasons };
 }
 
-// Stable timestamp set once when the server process starts — changes on every Render deploy
-const SERVER_START_VERSION = Date.now().toString();
+import { SERVER_START_VERSION } from "./version";
 
 export async function registerRoutes(app: Express, existingServer?: Server): Promise<Server> {
   // Initialize Twilio if credentials are available
