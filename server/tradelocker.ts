@@ -953,7 +953,7 @@ type TLConnection = {
   id?: number;
 };
 
-async function getOrCreateService(connection: TLConnection): Promise<TradeLockerService> {
+export async function getOrCreateService(connection: TLConnection): Promise<TradeLockerService> {
   const connId = connection.id || 0;
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {

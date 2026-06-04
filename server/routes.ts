@@ -57,7 +57,7 @@ import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-proce
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
-import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword } from "./tradelocker";
+import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -935,21 +935,36 @@ function runForexQuantAgent(
   return { verdict, score, reasons };
 }
 
+// Stable timestamp set once when the server process starts — changes on every Render deploy
+const SERVER_START_VERSION = Date.now().toString();
+
 export async function registerRoutes(app: Express, existingServer?: Server): Promise<Server> {
   // Initialize Twilio if credentials are available
   setupTwilio();
-  
+
   // Initialize news service
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
-  
+
   // Register VEDD token routes
   app.use('/api/vedd', veddTokenRouter);
   app.use('/api', tradovateRouter);
 
+  // Build-version endpoint — client polls this on startup to detect new deploys.
+  // Returns the server start timestamp which changes on every Render restart.
+  // Must be no-cache so the SW never serves a stale version number.
+  app.get("/api/build-version", (_req: Request, res: Response) => {
+    res.set({
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
+    });
+    res.json({ version: SERVER_START_VERSION });
+  });
+
   // Health check endpoint for keeping the app awake and verifying connectivity
   app.get("/api/health", (_req: Request, res: Response) => {
-    res.json({ 
-      status: "ok", 
+    res.json({
+      status: "ok",
       timestamp: new Date().toISOString(),
       message: "VEDD AI is running"
     });
@@ -12823,29 +12838,27 @@ Rules:
       let totalBalance = 0;
       let totalEquity = 0;
 
-      await Promise.all(activeConns.map(async (conn: any) => {
+      // Run sequentially to avoid hammering TL API with concurrent auth requests
+      for (const conn of activeConns) {
         try {
-          const tlSvc = new TradeLockerService(
-            conn.accountType as 'demo' | 'live',
-            conn.accountId,
-            conn.serverId,
-            conn.accNum?.toString()
-          );
-          if (conn.encryptedPassword) {
-            const plainPw = await decryptPassword(conn.encryptedPassword);
-            await tlSvc.authenticate(conn.email, plainPw);
-          } else if (conn.accessToken) {
-            (tlSvc as any).accessToken = conn.accessToken;
-          }
+          // Use the same auth helper as trade execution — handles token caching/refresh
+          const tlSvc = await tlGetOrCreateService(conn);
           const info = await tlSvc.getAccountInfo();
-          accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: info.balance, equity: info.equity, currency: info.currency });
+          accounts.push({
+            accountId: conn.accountId,
+            accountType: conn.accountType,
+            balance: info.balance || 0,
+            equity: info.equity || 0,
+            currency: info.currency || 'USD',
+          });
           totalBalance += info.balance || 0;
           totalEquity += info.equity || 0;
+          console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
         } catch (err: any) {
           console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);
           accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: 0, equity: 0, error: err.message });
         }
-      }));
+      }
 
       res.json({ totalBalance, totalEquity, accounts });
     } catch (err: any) {
