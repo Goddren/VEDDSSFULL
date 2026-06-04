@@ -21,7 +21,7 @@ export interface AdvancedIndicators {
   sessionContext?: { session: string; dayOfWeek: string; hourUTC: number; isSessionOpen: boolean; distanceFromSessionHigh: number; distanceFromSessionLow: number };
   volatilityContext?: { currentATR: number; atr30Avg: number; volatilityPercentile: string; isExpanding: boolean };
   swingPoints?: { lastSwingHigh: number; lastSwingLow: number; swingHighIndex: number; swingLowIndex: number };
-  volumeProfile?: { avgVolume: number; currentVolume: number; volumeRatio: number; volumeTrend: string };
+  volumeProfile?: { avgVolume: number; currentVolume: number; volumeRatio: number; volumeTrend: string; poc?: number; vah?: number; val?: number; pocStrength?: number };
   recentTradeContext?: { openPositionsOnSymbol: number; recentWinRate: number; recentTradeCount: number; avgHoldingPeriod: string };
   breakoutDetection?: {
     isBreakoutWindow: boolean;
@@ -456,12 +456,86 @@ export function calculateVolumeProfile(candles: CandleData[]): AdvancedIndicator
   const olderAvg = candles.slice(5, 15).reduce((s, c) => s + (c.v || 0), 0) / Math.min(10, Math.max(1, candles.length - 5));
   const volumeTrend = recentAvg > olderAvg * 1.2 ? 'INCREASING' : recentAvg < olderAvg * 0.8 ? 'DECREASING' : 'STABLE';
 
+  // ── True Volume Profile: POC, VAH, VAL ───────────────────────────────────
+  const vp = computeTrueVolumeProfile(candles);
+
   return {
     avgVolume: Math.round(avgVolume),
     currentVolume: Math.round(currentVolume),
     volumeRatio: Math.round(volumeRatio * 100) / 100,
     volumeTrend,
+    poc: vp?.poc,
+    vah: vp?.vah,
+    val: vp?.val,
+    pocStrength: vp?.pocStrength,
   };
+}
+
+/**
+ * Compute true volume profile from candle data.
+ * Returns POC (Point of Control), VAH/VAL (70% Value Area High/Low), and pocStrength (% of total vol at POC).
+ * Works on any instrument — uses relative price buckets.
+ */
+export function computeTrueVolumeProfile(candles: CandleData[]): { poc: number; vah: number; val: number; pocStrength: number } | undefined {
+  if (candles.length < 10) return undefined;
+
+  const NUM_BUCKETS = 50;
+  const priceHigh = Math.max(...candles.map(c => c.h));
+  const priceLow  = Math.min(...candles.map(c => c.l));
+  const priceRange = priceHigh - priceLow;
+  const totalVol   = candles.reduce((s, c) => s + (c.v || 0), 0);
+
+  if (priceRange <= 0 || totalVol === 0) return undefined;
+
+  const bucketSize = priceRange / NUM_BUCKETS;
+  const buckets: number[] = new Array(NUM_BUCKETS).fill(0);
+
+  for (const candle of candles) {
+    const vol = candle.v || 0;
+    if (vol === 0) continue;
+    const candleRange = candle.h - candle.l;
+    if (candleRange <= 0) {
+      // Zero-range candle — put all volume in the closest bucket
+      const bi = Math.min(Math.floor((candle.c - priceLow) / bucketSize), NUM_BUCKETS - 1);
+      if (bi >= 0) buckets[bi] += vol;
+      continue;
+    }
+    // Distribute volume evenly across price buckets the candle spans
+    const startBi = Math.max(0, Math.floor((candle.l - priceLow) / bucketSize));
+    const endBi   = Math.min(NUM_BUCKETS - 1, Math.floor((candle.h - priceLow) / bucketSize));
+    const span    = endBi - startBi + 1;
+    const volPerBucket = vol / span;
+    for (let bi = startBi; bi <= endBi; bi++) {
+      buckets[bi] += volPerBucket;
+    }
+  }
+
+  // POC = bucket index with max volume
+  const maxVol  = Math.max(...buckets);
+  const pocIdx  = buckets.indexOf(maxVol);
+  const poc     = priceLow + (pocIdx + 0.5) * bucketSize;
+  const pocStrength = Math.round((maxVol / totalVol) * 100);
+
+  // Value Area = 70% of total volume, expanded outward from POC
+  let vaVol = maxVol;
+  let loIdx = pocIdx, hiIdx = pocIdx;
+  while (vaVol < totalVol * 0.70 && (loIdx > 0 || hiIdx < NUM_BUCKETS - 1)) {
+    const loNext = loIdx > 0             ? buckets[loIdx - 1]     : 0;
+    const hiNext = hiIdx < NUM_BUCKETS-1 ? buckets[hiIdx + 1]     : 0;
+    if (loNext >= hiNext) {
+      loIdx = Math.max(0, loIdx - 1);
+      vaVol += loNext;
+    } else {
+      hiIdx = Math.min(NUM_BUCKETS - 1, hiIdx + 1);
+      vaVol += hiNext;
+    }
+  }
+  const vah = priceLow + (hiIdx + 1) * bucketSize;
+  const val = priceLow + loIdx       * bucketSize;
+
+  // Round to 5 decimal places (handles forex precision; indices just get trimmed)
+  const r = (n: number) => Math.round(n * 100000) / 100000;
+  return { poc: r(poc), vah: r(vah), val: r(val), pocStrength };
 }
 
 export function calculateRSI(candles: CandleData[], period: number = 14): AdvancedIndicators['rsi'] {

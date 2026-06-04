@@ -13996,30 +13996,60 @@ Format each recommendation as a clear, concise action item.`;
       }
 
       const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
-      const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
+      const mt5Cache = (global as any).mt5ChartDataCache || {};
       const openPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+
+      // Helper: get the best available candles for a symbol from mt5ChartDataCache
+      // Prefers higher timeframes for VP (more meaningful levels), falls back to lower
+      const getBestCandles = (sym: string): any[] => {
+        for (const tf of ['M15', 'M30', 'H1', 'M5', 'M6', 'M1']) {
+          const entry = mt5Cache[`mt5_chart_${userId}_${sym}_${tf}`];
+          if (entry?.candles?.length >= 10) return entry.candles;
+        }
+        return [];
+      };
 
       const liveContext: Record<string, any> = {};
       for (const [sym, knowledge] of Object.entries(brain.pairKnowledge) as any[]) {
         const pairData = Object.values(connectedPairs).find((p: any) =>
           (p.symbol || '').toUpperCase().replace('/', '') === sym
         ) as any;
-        const chartSnap = lastChartData[sym];
         const hasOpenPos = openPositions.some((p: any) =>
           (p.symbol || '').toUpperCase().replace('/', '') === sym
         );
 
+        // Pull live chart snapshot from mt5ChartDataCache (mt5LastChartData is never populated)
+        const candles = getBestCandles(sym);
+        const latest  = candles[0];
+        const atr     = latest?.atr || null;
+        const rsi     = latest?.rsi || null;
+        const trend   = latest?.trend || null;
+        const close   = latest?.c || latest?.close || null;
+
+        // Compute volume profile from live candles
+        let vpData: { poc?: number; vah?: number; val?: number; pocStrength?: number } = {};
+        if (candles.length >= 10) {
+          const { computeTrueVolumeProfile } = await import('./indicators');
+          const vp = computeTrueVolumeProfile(candles.slice(0, 100));
+          if (vp) vpData = vp;
+        }
+
+        // Strip stale/low-value fields from knowledge before spreading into liveContext
+        const {
+          lastSignal: _ls, lastConfidence: _lc, lastPrice: _lp,
+          currentSpread: _cs, maxLossStreak: _mls, minProfitableATR: _mpa,
+          lastLossAt: _lla, topDays: _td, buyWinRate: _bwr, sellWinRate: _swr,
+          ...cleanKnowledge
+        } = (knowledge as any) || {};
+
         liveContext[sym] = {
-          ...knowledge,
-          currentPrice: pairData?.price || chartSnap?.close || null,
-          currentSignal: pairData?.signal || null,
-          currentConfidence: pairData?.confidence || null,
-          spread: pairData?.spread || null,
-          atr: chartSnap?.atr || null,
-          rsi: chartSnap?.rsi || null,
-          trend: chartSnap?.trend || null,
+          ...cleanKnowledge,
+          currentPrice: pairData?.price || close || null,
+          atr,
+          rsi,
+          trend,
           hasOpenPosition: hasOpenPos,
-          lastUpdateAge: pairData?.lastUpdated ? Math.round((Date.now() - new Date(pairData.lastUpdated).getTime()) / 60000) : null,
+          // volumeProfile excluded here — already surfaced in vpSection above
         };
       }
 
@@ -14030,13 +14060,13 @@ Format each recommendation as a clear, concise action item.`;
       const currentSession = currentHour < 7 ? 'Asian' : currentHour < 13 ? 'London' : currentHour < 20 ? 'New York' : 'Late NY';
 
       const strategyDescriptions: Record<string, string> = {
-        scalping: `SCALPING MODE (HFT): Target 3-8 pips per trade, 10-20+ trades/day. Quick entries/exits within 5-30 minutes. Use tight stops (5-10 pips). Focus on spread-friendly pairs. Exploit micro-movements during high-volatility sessions. Use orderType:"market" for immediate fills.`,
-        momentum: `MOMENTUM SURFING: Ride strong directional moves. 5-15 trades/day, hold 15min-2hrs. Enter on breakouts and continuations. Larger pip targets (15-40 pips). Use orderType:"stop_entry" to enter on breakout confirmation (BUY STOP above resistance, SELL STOP below support) — only fills if price actually breaks out.`,
-        session_breakout: `SESSION OPEN BREAKOUT: Trade the first 30-60 minutes of London/NY opens. 3-6 high-conviction trades. Use orderType:"stop_entry" with entryPrice just above the opening high (BUY) or below the opening low (SELL) — captures the directional move while avoiding false starts. Wide targets (20-50 pips).`,
-        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Combine scalping, momentum, and breakout strategies dynamically. Use orderType:"market" for scalps, orderType:"stop_entry" for breakouts. Push for 5-20% daily account growth.`,
-        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence. Use orderType:"limit_entry" to get optimal entry at key support/resistance levels (BUY LIMIT below price, SELL LIMIT above price) — better fill, better R:R. Only fires if price comes to your level.`,
-        orb: `ORB (OPENING RANGE BREAKOUT): Trade the VEDD ORB strategy. The opening range is defined by the first 15 minutes of NYSE open (9:30-9:45 AM EST).
-RULES: 1) Only trade instruments where ORB High/Low is available in the context below. 2) After 9:45 AM EST, place a BUY STOP just above ORB High or SELL STOP just below ORB Low using orderType:"stop_entry". 3) Entry is on the RETEST — after price breaks out and pulls back to test the broken level. Use entryPrice at the ORB High (for longs) or ORB Low (for shorts). 4) SL = 10% of ORB range below ORB Low (longs) or above ORB High (shorts). 5) TP1 = 2:1 R:R, TP2 = 3:1 R:R — use T1 as takeProfit. 6) ONLY valid 9:45 AM – 2:00 PM EST. 7) One trade per instrument per day. 8) Only generate ORB signals where ORB data is present in context — do not fabricate ORB levels.`,
+        scalping: `SCALPING MODE: 3-8 pips/trade, 10-20+ trades/day, hold 5-30min, tight stops 5-10 pips. Focus spread-friendly pairs. VP: Use POC bounces as micro-targets; VAH/VAL as profit exits. Enter market orders when price taps POC or value-area edge with volume surge.`,
+        momentum: `MOMENTUM SURFING: Ride strong directional moves, 15-40 pip targets, hold 15min-2hrs, trail stops aggressively. VP: Momentum is strongest ABOVE VAH (breakout long) or BELOW VAL (breakdown short). Avoid entries between POC and VAH/VAL when ADX is weak. Use stop_entry orders above VAH or below VAL for breakout confirmation.`,
+        session_breakout: `SESSION OPEN BREAKOUT: Trade first 30-60min of London/NY opens, 3-6 trades, 20-50 pip targets. VP: Highest-probability breakouts clear VAH (long) or VAL (short). Previous session's POC is the key retest zone after breakout — use limit_entry at prior POC for pullback re-entry.`,
+        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth, 5-20% daily target. Combine scalping/momentum/breakout dynamically. VP: Regardless of sub-strategy, always align the final entry with the nearest VP level (POC/VAH/VAL) — this is the high-confluence anchor for all aggressive entries.`,
+        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence. Large size, precise entries, tight risk. VP: Sniper entries MUST align with a VP level — POC retest, VAH, or VAL. Entry at POC or value-area edge = maximum statistical edge. If no VP confluence, do NOT take the trade. Use limit_entry orders positioned at VP levels.`,
+        orb: `ORB (OPENING RANGE BREAKOUT): Trade the VEDD ORB strategy. Opening range = first 15min of NYSE open (9:30-9:45 AM EST).
+RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 2) Entry on RETEST of broken ORB level. entryPrice = ORB High (longs) or ORB Low (shorts). 3) SL = 10% of range beyond broken level. 4) TP = 2:1 R:R. 5) Valid 9:45 AM–2:00 PM EST only. 6) One trade per instrument/day. 7) Do NOT fabricate ORB levels. VP bonus: If ORB High/Low aligns with VAH/VAL, the setup has double confluence — increase confidence.`,
       };
 
       // ── Build ORB context from MT5 chart cache ───────────────────────────────
@@ -14094,37 +14124,73 @@ RULES: 1) Only trade instruments where ORB High/Low is available in the context 
         ? `\nLIVE ORB DATA (use these exact levels for ORB signals — do NOT fabricate):\n${orbContextLines.join('\n')}`
         : `\nORB DATA: No ORB data available (MT5 EA not connected or market not open). Do not generate ORB signals.`;
 
+      // ── Build Volume Profile summary section ────────────────────────────────
+      const vpLines: string[] = [];
+      for (const [sym, ctx] of Object.entries(liveContext) as any[]) {
+        const vp = ctx.volumeProfile;
+        if (!vp?.poc) continue;
+        const price = ctx.currentPrice;
+        let priceRelation = '';
+        if (price && vp.poc) {
+          if (price > vp.vah) priceRelation = ' — price ABOVE value area (extended, fade or wait for pullback to VAH)';
+          else if (price < vp.val) priceRelation = ' — price BELOW value area (extended, fade or wait for bounce to VAL)';
+          else if (Math.abs(price - vp.poc) / vp.poc < 0.001) priceRelation = ' — price AT POC (maximum liquidity zone, high probability mean-reversion)';
+          else if (price > vp.poc) priceRelation = ' — price between POC and VAH (bullish value area, support near POC)';
+          else priceRelation = ' — price between POC and VAL (bearish value area, resistance near POC)';
+        }
+        vpLines.push(`${sym}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
+      }
+      const vpSection = vpLines.length > 0
+        ? `\nVOLUME PROFILE (computed from live candles — highest-volume price nodes):\n${vpLines.join('\n')}`
+        : '';
+
+      // ── Compact per-symbol context table (replaces verbose JSON.stringify) ──
+      const buildContextTable = () => Object.entries(liveContext).map(([sym, c]: [string, any]) => {
+        const live = [
+          c.currentPrice ? `px=${c.currentPrice}` : '',
+          c.rsi          ? `rsi=${c.rsi}` : '',
+          c.trend        ? `trend=${c.trend}` : '',
+          c.atr          ? `atr=${c.atr}` : '',
+        ].filter(Boolean).join(' ');
+        const hist = [
+          c.winRate != null           ? `wr=${c.winRate}%(${c.totalTrades||0}t)` : '',
+          c.preferredDirection        ? `bias=${c.preferredDirection}` : '',
+          c.riskRewardRatio           ? `rr=${c.riskRewardRatio}` : '',
+          c.avgWinPips                ? `avgW=${c.avgWinPips}pips` : '',
+          c.avgLossPips               ? `avgL=${c.avgLossPips}pips` : '',
+          c.topSessions?.length       ? `bestSess=${c.topSessions.slice(0,2).join('/')}` : '',
+          c.worstHours?.length        ? `avoidUTC=${c.worstHours.slice(0,3).join(',')}` : '',
+          c.recommendedLotMultiplier  ? `lotMult=${c.recommendedLotMultiplier}` : '',
+          c.consecutiveLossesToday    ? `lossesToday=${c.consecutiveLossesToday}` : '',
+          c.bestStrategies?.length    ? `edge=${c.bestStrategies.slice(0,2).join('/')}` : '',
+          c.hasOpenPosition           ? 'OPEN_POS' : '',
+        ].filter(Boolean).join(' ');
+        return `${sym}: ${live} | ${hist}`;
+      }).join('\n');
+
       // ── Run AI for each selected strategy mode, then merge ──────────────────
-      const buildPrompt = (mode: string) => `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
-
-CURRENT CONTEXT:
-- Time: ${nowUTC.toISOString()} (${currentSession} session)
-- Day: ${currentDay}
-- Hour: ${currentHour} UTC
-- Strategy Mode: ${mode.toUpperCase()}
-- ${strategyDescriptions[mode] || strategyDescriptions.aggressive}
+      const buildPrompt = (mode: string) => `GENERATE TRADE SIGNALS — ${mode.toUpperCase()} MODE
+Time: ${nowUTC.toISOString()} (${currentSession} session, ${currentDay}, UTC${currentHour})
+Strategy: ${strategyDescriptions[mode] || strategyDescriptions.aggressive}
 ${orbSection}
+${vpSection}
 
-LEARNED BRAIN DATA (from ${brain.totalTradesAnalyzed} historical trades):
-${JSON.stringify(liveContext, null, 2)}
+PAIR DATA (${brain.totalTradesAnalyzed} historical trades analyzed):
+${buildContextTable()}
 
-KEY INSIGHTS FROM LEARNING:
+KEY INSIGHTS:
 ${brain.learningInsights.join('\n')}
 
-ORDER TYPE RULES (critical — choose the right order type for each signal):
-- "market": immediate fill at current price — use for scalping, fast momentum
-- "stop_entry": BUY STOP above price / SELL STOP below price — use for breakout confirmation, ORB entries. entryPrice REQUIRED (the trigger level).
-- "limit_entry": BUY LIMIT below price / SELL LIMIT above price — use for sniper/reversal at key S/R levels. entryPrice REQUIRED (the fill level).
+VP LEVELS (apply to all strategies):
+- POC=max-volume magnet (limit entries, mean-reversion targets). VAH=70%-area top (TP/sell-limit/buy-stop trigger). VAL=70%-area bottom (TP/buy-limit/sell-stop trigger).
+- Outside value area (above VAH or below VAL) = overextended → fade toward POC or wait for VAH/VAL re-entry.
 
-SIGNAL RULES:
-1. Generate signals ONLY for pairs where you have learned data OR live market data
-2. Use learned win rates, best sessions, direction biases to maximize edge
-3. Avoid pairs/hours/days with historically poor performance
-4. If a pair has an open position, don't signal the same direction
-5. Prioritize pairs currently in their historically best-performing session
-6. If no clear signal exists, return fewer signals - quality > quantity
-7. Each signal must explain WHY based on learned patterns
-8. For ORB mode: ONLY generate signals where ORB data is provided above. Use exact ORB levels.
+ORDER TYPE:
+- market: price AT entry zone now with immediate momentum
+- stop_entry: BUY STOP above resistance / SELL STOP below support. entryPrice=trigger level.
+- limit_entry: BUY LIMIT below current (pullback to support) / SELL LIMIT above current (rally to resistance). entryPrice=fill level.
+
+RULES: Only signal pairs with data. Use learned bias/sessions/hours. Skip if open position same direction. Fewer high-quality signals beats many weak ones. Align entries with VP levels. ORB: use only provided levels.
 
 Respond with ONLY valid JSON:
 {
@@ -14144,6 +14210,7 @@ Respond with ONLY valid JSON:
       "session": "current session this targets",
       "reason": "Specific reason citing learned patterns and current conditions",
       "learnedEdge": "What historical pattern gives this trade an edge",
+      "vpContext": "How volume profile levels influenced this trade (e.g. 'entry at VAL, target at POC, stop below VAL') or null if no VP data",
       "riskScore": 1-10
     }
   ],
@@ -14159,7 +14226,7 @@ Respond with ONLY valid JSON:
         const response = await openaiInstance.chat.completions.create({
           model: selectedModel,
           messages: [
-            { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
+            { role: "system", content: "You are VEDD SS AI, an autonomous trading signal engine. Analyze the provided market data and historical brain knowledge to generate the highest-accuracy trade signals. Respond with valid JSON only. No markdown, no explanation outside the JSON." },
             { role: "user", content: buildPrompt(mode) }
           ],
           response_format: { type: "json_object" },
@@ -14328,6 +14395,7 @@ Respond with ONLY valid JSON:
           } catch (logErr) { /* non-blocking */ }
 
           // Execute on ALL active TL accounts with per-account lot multiplier
+          let aiTradeResultRecorded = false; // only record to ai_trade_results once per signal
           for (const tlConnection of activeTlConns) {
             const accountLotSize = Math.max(0.01, Math.min(baseLotSize * (tlConnection.lotMultiplier || 1.0), 5.0));
             console.log(`[VEDD Brain AutoExec] → Account ${tlConnection.accountId} (id=${tlConnection.id}) | lot=${accountLotSize} (base=${baseLotSize} × mult=${tlConnection.lotMultiplier || 1.0})`);
@@ -14376,6 +14444,24 @@ Respond with ONLY valid JSON:
                   lastError: null,
                 });
                 console.log(`[VEDD Brain AutoExec] ✅ EXECUTED ${sig.direction} ${sig.symbol} on ${tlConnection.accountId} @ lot ${accountLotSize} | Order: ${tradeResult.orderId}`);
+
+                // ── Save to ai_trade_results so Brain learning includes this trade ──
+                // Record once per signal (not once per account to avoid duplicate counting)
+                if (!aiTradeResultRecorded) {
+                  aiTradeResultRecorded = true;
+                  storage.createAiTradeResult({
+                    userId,
+                    symbol: sig.symbol.toUpperCase().replace('/', ''),
+                    direction: sig.direction.toUpperCase(),
+                    entryPrice: sigEntryPrice || entryPrice || 0,
+                    stopLoss: stopLoss || null,
+                    takeProfit: takeProfit || null,
+                    aiConfidence: confidence,
+                    result: 'PENDING',
+                    source: 'brain_autoexec',
+                    notes: `Brain AutoExec | ${sig.strategy || mode} | orderId:${tradeResult.orderId || 'n/a'} | reason:${(sig.reason || '').slice(0, 120)}`,
+                  }).catch(err => console.error('[Brain AutoExec] Failed to save ai_trade_result:', err));
+                }
               } else {
                 await storage.updateTradelockerConnection(tlConnection.id, { lastError: tradeResult.error });
                 console.log(`[VEDD Brain AutoExec] ❌ FAILED ${sig.symbol} on ${tlConnection.accountId}: ${tradeResult.error}`);
@@ -14402,6 +14488,16 @@ Respond with ONLY valid JSON:
           } // end for each account
         } // end for each signal
 
+        // ── Auto re-learn: update brain stats after new trades are recorded ──
+        const anyExecuted = executionResults.some(r => r.status === 'executed');
+        if (anyExecuted) {
+          setTimeout(() => {
+            runBrainLearning(userId).catch(err =>
+              console.error('[Brain AutoExec] Post-execution re-learn failed:', err)
+            );
+          }, 4000); // 4s delay lets DB writes settle before brain reads them
+        }
+
           triggerWebhooks(userId, 'vedd_brain_signals', {
             type: 'autonomous_signals',
             strategyMode,
@@ -14415,8 +14511,7 @@ Respond with ONLY valid JSON:
         }
       }
 
-      (global as any).veddAutonomousSignals = (global as any).veddAutonomousSignals || {};
-      (global as any).veddAutonomousSignals[userId] = {
+      const cachedSignalPayload = {
         ...signals,
         generatedAt: new Date().toISOString(),
         strategyMode,
@@ -14424,6 +14519,13 @@ Respond with ONLY valid JSON:
         tradesLearned: brain.totalTradesAnalyzed,
         executionResults: executionResults.length > 0 ? executionResults : undefined,
       };
+      // Cache in both locations: legacy in-memory store AND inside the brain object
+      // so signals survive server restarts (brain is disk-persisted via saveBrainToDisk)
+      (global as any).veddAutonomousSignals = (global as any).veddAutonomousSignals || {};
+      (global as any).veddAutonomousSignals[userId] = cachedSignalPayload;
+      if ((global as any).veddAIBrain?.[userId]) {
+        (global as any).veddAIBrain[userId].lastAutonomousSignals = cachedSignalPayload;
+      }
 
       console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyModesArr.join('+')}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter(r => r.status === 'executed').length}` : ''}`);
       res.json({

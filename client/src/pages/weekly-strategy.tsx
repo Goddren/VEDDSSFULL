@@ -1222,6 +1222,10 @@ export default function WeeklyStrategyPage() {
       const modesLabel = (data?.strategyModes || [data?.strategyMode]).filter(Boolean).join(' + ');
       if (data?.autoExecuted && executed > 0) {
         toast({ title: `${executed} Trade${executed > 1 ? 's' : ''} Executed!`, description: `AI signals auto-executed on TradeLocker (${modesLabel})` });
+        // Brain re-learns server-side after 4s — refresh status after 6s to pick up updated counts
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/status'] });
+        }, 6000);
       } else {
         const signalCount = data?.signals?.length || 0;
         toast({ title: `${signalCount} Signal${signalCount !== 1 ? 's' : ''} Generated`, description: `Scanned ${(data?.strategyModes || []).length || 1} strateg${(data?.strategyModes?.length || 1) === 1 ? 'y' : 'ies'}: ${modesLabel}` });
@@ -4588,6 +4592,12 @@ export default function WeeklyStrategyPage() {
                               {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
                               {sig.lotSize && <span>Lot: {sig.lotSize}</span>}
                             </div>
+                            {sig.vpContext && (
+                              <div className="mt-1 text-[10px] text-violet-400/80 bg-violet-500/5 border border-violet-500/20 rounded px-2 py-1 flex items-start gap-1">
+                                <span className="shrink-0">📊 VP:</span>
+                                <span>{sig.vpContext}</span>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

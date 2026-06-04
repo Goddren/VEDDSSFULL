@@ -211,7 +211,7 @@ __export(schema_exports, {
   workforceEnrollments: () => workforceEnrollments,
   workforceModules: () => workforceModules
 });
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema;
@@ -899,6 +899,8 @@ var init_schema = __esm({
       lastConnectedAt: timestamp("last_connected_at"),
       lastError: text("last_error"),
       tradeCount: integer("trade_count").notNull().default(0),
+      lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1),
+      // Per-account lot size multiplier (0.1–5.0)
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -15895,6 +15897,68 @@ var init_tradelocker = __esm({
           throw error;
         }
       }
+      /**
+       * Fetch OHLCV candlestick bars for a symbol from TradeLocker.
+       * Returns candles in ascending time order (oldest first), same shape as MT5 cache:
+       * { t, o, h, l, c, v }
+       */
+      async getCandlesticks(symbol, resolutionMinutes = 5, fromTs, toTs) {
+        await this.ensureAuthenticated();
+        await this.resolveAccNum();
+        const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
+        let tradableInstrumentId = null;
+        const cached = instrumentCache.get(instCacheKey);
+        if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached.tradableInstrumentId;
+        } else {
+          const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
+          const instrData = await instrResp.json();
+          const instruments = instrData.d?.instruments || instrData.instruments || instrData || [];
+          const sym = symbol.toUpperCase();
+          const ALIASES = {
+            "XAUUSD": ["GOLD", "XAU/USD"],
+            "NAS100": ["USTEC", "US100", "NDX100"],
+            "US30": ["DJ30", "WALLST30"],
+            "US500": ["SPX500", "SP500", "SPX"]
+          };
+          const variants = [sym, ...ALIASES[sym] || []];
+          let matched = null;
+          for (const v of variants) {
+            matched = instruments.find((i) => (i.name || i.symbol || "").toUpperCase().replace(/\s/g, "") === v.replace(/\s/g, ""));
+            if (matched) break;
+          }
+          if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
+          tradableInstrumentId = matched.tradableInstrumentId || matched.id;
+          const routes = Array.isArray(matched.routes) ? matched.routes : [];
+          const routeId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
+          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
+        }
+        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "H" : String(resolutionMinutes);
+        const now = Math.floor(Date.now() / 1e3);
+        const startTime = fromTs ?? now - 86400;
+        const endTime = toTs ?? now;
+        const url = `${this.baseUrl}/trade/accounts/${this.accountId}/instruments/${tradableInstrumentId}/history?resolution=${resolution}&startTime=${startTime}&endTime=${endTime}`;
+        const histResp = await fetch(url, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+        });
+        if (!histResp.ok) {
+          const txt = await histResp.text();
+          throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
+        }
+        const histData = await histResp.json();
+        const bars = histData.d?.bars || histData.bars || histData || [];
+        return bars.map((b) => ({
+          t: b.time ?? b.t ?? b.timestamp ?? 0,
+          o: b.open ?? b.o ?? 0,
+          h: b.high ?? b.h ?? 0,
+          l: b.low ?? b.l ?? 0,
+          c: b.close ?? b.c ?? 0,
+          v: b.volume ?? b.v ?? 0
+        })).sort((a, b) => a.t - b.t);
+      }
       async closePosition(positionId) {
         await this.ensureAuthenticated();
         try {
@@ -15920,6 +15984,61 @@ var init_tradelocker = __esm({
           console.error("TradeLocker close position error:", error);
           throw error;
         }
+      }
+      /**
+       * Fetch filled/closed orders from TradeLocker for a given day.
+       * Tries GET /trade/accounts/{id}/orders with status filters.
+       * Returns normalised array: { id, symbol, side, profit, closeTime, qty }
+       */
+      async getFilledOrders(fromTs) {
+        await this.ensureAuthenticated();
+        try {
+          const base = `${this.baseUrl}/trade/accounts/${this.accountId}/orders`;
+          const params = new URLSearchParams({ status: "Filled" });
+          if (fromTs) params.set("from", String(fromTs));
+          const response = await fetch(`${base}?${params.toString()}`, {
+            method: "GET",
+            headers: {
+              "Authorization": `Bearer ${this.accessToken}`,
+              "Content-Type": "application/json",
+              "accNum": this.accNum
+            }
+          });
+          if (!response.ok) {
+            const response2 = await fetch(`${base}?status=filled`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": this.accNum
+              }
+            });
+            if (!response2.ok) return [];
+            const data2 = await response2.json();
+            const orders2 = Array.isArray(data2) ? data2 : data2?.d?.orders || data2?.orders || [];
+            return this._normaliseOrders(orders2, fromTs);
+          }
+          const data = await response.json();
+          const orders = Array.isArray(data) ? data : data?.d?.orders || data?.orders || [];
+          return this._normaliseOrders(orders, fromTs);
+        } catch (err) {
+          console.error("[TradeLocker] getFilledOrders error:", err.message);
+          return [];
+        }
+      }
+      _normaliseOrders(orders, fromTs) {
+        return orders.map((o) => ({
+          id: o.id || o.orderId || o.positionId,
+          symbol: o.instrument || o.symbol || "",
+          side: o.side || o.direction || "",
+          profit: parseFloat(o.profit ?? o.pnl ?? o.grossProfit ?? 0),
+          closeTime: o.closedAt || o.updatedAt || o.timestamp || null,
+          qty: o.qty || o.quantity || o.volume || 0
+        })).filter((o) => {
+          if (!fromTs) return true;
+          if (!o.closeTime) return true;
+          return new Date(o.closeTime).getTime() >= fromTs * 1e3;
+        });
       }
       async getPositions() {
         await this.ensureAuthenticated();
@@ -16568,6 +16687,65 @@ var init_vedd_token_service = __esm({
           }
         }
         return { processed, errors };
+      }
+      /**
+       * Dual-track referral reward: logs the reward and, if the referrer has a
+       * connected Solana wallet + a live pool wallet, immediately fires an on-chain
+       * SPL token transfer in the background. In-app credit is always awarded by
+       * the caller via storage.addReferralCredits() — this method handles the
+       * on-chain side only.
+       *
+       * @param referrerId  - userId of the person who referred
+       * @param actionType  - 'referral_signup' | 'referral_subscription'
+       * @param amount      - VEDD tokens to transfer (e.g. 50 or 200)
+       */
+      async enqueueReferralReward(referrerId, actionType, amount) {
+        try {
+          const [referrer] = await db.select().from(users).where(eq6(users.id, referrerId)).limit(1);
+          if (!referrer) return;
+          const poolWallet = await this.getPoolWalletInfo("rewards");
+          const [reward] = await db.insert(ambassadorActionRewards).values({
+            userId: referrerId,
+            actionType,
+            baseReward: amount,
+            bonusReward: 0,
+            totalReward: amount,
+            verificationStatus: "auto_approved",
+            verifiedAt: /* @__PURE__ */ new Date(),
+            notes: `Auto-approved referral reward (${actionType})`
+          }).returning();
+          const walletAddr = referrer.walletAddress;
+          if (!walletAddr || !poolWallet) {
+            console.log(`[Referral Token] ${amount} VEDD reward logged for user ${referrerId} \u2014 wallet not connected, held pending`);
+            return;
+          }
+          const [blacklisted] = await db.select({ id: veddWalletBlacklist.id }).from(veddWalletBlacklist).where(and4(eq6(veddWalletBlacklist.walletAddress, walletAddr), eq6(veddWalletBlacklist.isActive, true))).limit(1);
+          if (blacklisted) {
+            console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
+            return;
+          }
+          const idempotencyKey = `referral-${referrerId}-${actionType}-${reward.id}-${Date.now()}`;
+          const [transferJob] = await db.insert(veddTransferJobs).values({
+            userId: referrerId,
+            sourceWalletId: poolWallet.id,
+            destinationWallet: walletAddr,
+            amount,
+            actionType,
+            actionId: reward.id,
+            status: "pending",
+            idempotencyKey,
+            metadata: { referralReward: true, autoApproved: true }
+          }).returning();
+          this.processTransfer(transferJob.id).then((result) => {
+            if (result.success) {
+              console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
+            } else {
+              console.error(`[Referral Token] Transfer failed for user ${referrerId}: ${result.error}`);
+            }
+          }).catch((err) => console.error("[Referral Token] processTransfer error:", err));
+        } catch (err) {
+          console.error("[Referral Token] enqueueReferralReward error:", err);
+        }
       }
     };
     veddTokenService = new VeddTokenService();
@@ -18781,6 +18959,466 @@ var init_share_card_service = __esm({
   }
 });
 
+// server/services/markov-chain.ts
+var markov_chain_exports = {};
+__export(markov_chain_exports, {
+  MARKOV_STATES: () => MARKOV_STATES,
+  buildTransitionMatrix: () => buildTransitionMatrix,
+  classifyCandle: () => classifyCandle,
+  getAllCachedSymbols: () => getAllCachedSymbols,
+  getCachedMatrix: () => getCachedMatrix,
+  getMarkovSignal: () => getMarkovSignal,
+  getMarkovSnapshot: () => getMarkovSnapshot
+});
+function classifyCandle(open, close, threshold = 6e-4) {
+  if (close <= 0 || open <= 0) return "NEUTRAL";
+  const changePct = (close - open) / open;
+  const strong = threshold * 2;
+  if (changePct >= strong) return "STRONG_BULL";
+  if (changePct > 0) return "BULL";
+  if (changePct <= -strong) return "STRONG_BEAR";
+  if (changePct < 0) return "BEAR";
+  return "NEUTRAL";
+}
+function emptyCountMatrix() {
+  const m = {};
+  for (const from of MARKOV_STATES) {
+    m[from] = {};
+    for (const to of MARKOV_STATES) m[from][to] = 0;
+  }
+  return m;
+}
+function buildTransitionMatrix(symbol, candles, threshold) {
+  if (candles.length < 5) {
+    const flat = emptyCountMatrix();
+    const uniform = emptyCountMatrix();
+    for (const from of MARKOV_STATES) {
+      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
+    }
+    const matrix = {
+      matrix: uniform,
+      counts: flat,
+      totalTransitions: 0,
+      candleCount: candles.length,
+      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      candleHistory: candles
+    };
+    matrixCache.set(symbol, matrix);
+    return matrix;
+  }
+  const counts = emptyCountMatrix();
+  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
+  let totalTransitions = 0;
+  for (let i = 0; i < states.length - 1; i++) {
+    counts[states[i]][states[i + 1]]++;
+    totalTransitions++;
+  }
+  const prob = emptyCountMatrix();
+  for (const from of MARKOV_STATES) {
+    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
+    const smoothedTotal = rowTotal + MARKOV_STATES.length;
+    for (const to of MARKOV_STATES) {
+      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
+    }
+  }
+  const result = {
+    matrix: prob,
+    counts,
+    totalTransitions,
+    candleCount: candles.length,
+    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    candleHistory: candles
+  };
+  matrixCache.set(symbol, result);
+  return result;
+}
+function bullishStates() {
+  return ["STRONG_BULL", "BULL"];
+}
+function bearishStates() {
+  return ["STRONG_BEAR", "BEAR"];
+}
+function groupProbability(matrix, fromState, toGroup) {
+  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
+}
+function twoStepGroupProbability(matrix, fromState, toGroup) {
+  let total = 0;
+  for (const mid of MARKOV_STATES) {
+    const pFromMid = matrix[fromState][mid] ?? 0;
+    const pMidToGroup = groupProbability(matrix, mid, toGroup);
+    total += pFromMid * pMidToGroup;
+  }
+  return Math.round(total * 1e3) / 1e3;
+}
+function getMarkovSignal(symbol, direction, candles) {
+  const tm = buildTransitionMatrix(symbol, candles);
+  const matrix = tm.matrix;
+  const lastCandle = candles[candles.length - 1];
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const nextStateProbabilities = { ...matrix[currentState] };
+  const bullP = groupProbability(matrix, currentState, bullishStates());
+  const bearP = groupProbability(matrix, currentState, bearishStates());
+  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
+  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
+  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
+  let confidenceAdjustment = 0;
+  let reason = "";
+  const alignP = direction === "BUY" ? bullP : bearP;
+  const align2P = direction === "BUY" ? bull2P : bear2P;
+  const opposP = direction === "BUY" ? bearP : bullP;
+  if (alignP >= 0.7) {
+    confidenceAdjustment = 8;
+    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
+  } else if (alignP >= 0.58) {
+    confidenceAdjustment = 5;
+    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
+  } else if (alignP >= 0.48) {
+    confidenceAdjustment = 2;
+    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
+  } else if (opposP >= 0.7) {
+    confidenceAdjustment = -10;
+    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
+  } else if (opposP >= 0.58) {
+    confidenceAdjustment = -6;
+    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
+  } else if (opposP >= 0.48) {
+    confidenceAdjustment = -3;
+    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
+  } else {
+    confidenceAdjustment = 0;
+    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
+  }
+  if (confidenceAdjustment > 0 && align2P >= 0.55) {
+    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
+    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
+  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
+    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
+    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
+  }
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    confidenceAdjustment,
+    reason,
+    nextStateProbabilities,
+    twoStepBullProbability: bull2P,
+    twoStepBearProbability: bear2P
+  };
+}
+function getCachedMatrix(symbol) {
+  return matrixCache.get(symbol) ?? null;
+}
+function getMarkovSnapshot(symbol, lastCandle) {
+  const tm = matrixCache.get(symbol);
+  if (!tm || !lastCandle) return null;
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const row = tm.matrix[currentState];
+  const bullP = groupProbability(tm.matrix, currentState, bullishStates());
+  const bearP = groupProbability(tm.matrix, currentState, bearishStates());
+  const neutP = groupProbability(tm.matrix, currentState, ["NEUTRAL"]);
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    nextStateProbabilities: { ...row },
+    matrix: tm
+  };
+}
+function getAllCachedSymbols() {
+  return Array.from(matrixCache.keys());
+}
+var MARKOV_STATES, matrixCache;
+var init_markov_chain = __esm({
+  "server/services/markov-chain.ts"() {
+    "use strict";
+    MARKOV_STATES = [
+      "STRONG_BULL",
+      "BULL",
+      "NEUTRAL",
+      "BEAR",
+      "STRONG_BEAR"
+    ];
+    matrixCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/polymarket.ts
+var polymarket_exports = {};
+__export(polymarket_exports, {
+  clearPolymarketCache: () => clearPolymarketCache,
+  getCachedPolymarketSentiment: () => getCachedPolymarketSentiment,
+  getPolymarketBTCSentiment: () => getPolymarketBTCSentiment
+});
+function classifyDirection(question) {
+  const q = question.toLowerCase();
+  if (q.includes("below") || q.includes("under $") || q.includes("crash") || q.includes("drop to") || q.includes("fall below") || q.includes("lose") || q.includes("less than") && (q.includes("btc") || q.includes("bitcoin"))) return "bearish";
+  if (q.includes("above") || q.includes("exceed") || q.includes("over $") || q.includes("reach $") || q.includes("hit $") || q.includes("cross $") || q.includes("surpass") || q.includes("higher than") || q.includes("at least") && (q.includes("btc") || q.includes("bitcoin"))) return "bullish";
+  return "neutral";
+}
+function computeSentimentLabel(score) {
+  if (score >= 70) return "Very Bullish";
+  if (score >= 55) return "Bullish";
+  if (score >= 45) return "Neutral";
+  if (score >= 30) return "Bearish";
+  return "Very Bearish";
+}
+function computeConfidenceAdjustment(score, signalDirection) {
+  if (!signalDirection) return 0;
+  const deviation = score - 50;
+  const raw = Math.round(deviation / 50 * 8);
+  if (signalDirection === "BUY") return raw;
+  if (signalDirection === "SELL") return -raw;
+  return 0;
+}
+async function fetchPolymarketBTCMarkets() {
+  const url = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volumeNum&order=DESC`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+    // 8s timeout
+  });
+  if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error("Unexpected Polymarket response format");
+  const markets = [];
+  for (const item of data) {
+    const outcomes = Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
+    const prices = (() => {
+      try {
+        const raw = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
+        return raw.map((p) => parseFloat(String(p)));
+      } catch {
+        return [0.5, 0.5];
+      }
+    })();
+    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
+    const noProb = 100 - yesProb;
+    const direction = classifyDirection(item.question || "");
+    const volume = parseFloat(item.volumeNum ?? item.volume ?? "0") || 0;
+    markets.push({
+      id: item.id || item.conditionId || "",
+      question: item.question || "Unknown market",
+      yesProbability: yesProb,
+      noProbability: noProb,
+      volume,
+      endDate: item.endDate || item.endDateIso || null,
+      closed: item.closed ?? false,
+      direction,
+      outcomes
+    });
+  }
+  return markets.filter((m) => m.direction !== "neutral" && m.volume > 1e3).slice(0, 10);
+}
+async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedSentiment2 && now - cacheTimestamp < CACHE_TTL_MS3) {
+    const adj2 = computeConfidenceAdjustment(cachedSentiment2.overallBullishScore, signalDirection);
+    return {
+      ...cachedSentiment2,
+      confidenceAdjustment: adj2,
+      reason: buildReason(cachedSentiment2.overallBullishScore, cachedSentiment2.sentimentLabel, adj2, signalDirection),
+      fromCache: true
+    };
+  }
+  let markets = [];
+  try {
+    markets = await fetchPolymarketBTCMarkets();
+  } catch (err) {
+    if (cachedSentiment2) {
+      return { ...cachedSentiment2, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
+    }
+    throw err;
+  }
+  let totalVolume = 0;
+  let weightedBullScore = 0;
+  for (const m of markets) {
+    const bullScore = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
+    weightedBullScore += bullScore * m.volume;
+    totalVolume += m.volume;
+  }
+  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBullScore / totalVolume) : 50;
+  const sentimentLabel = computeSentimentLabel(overallBullishScore);
+  const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
+  const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
+  const result = {
+    overallBullishScore,
+    sentimentLabel,
+    markets,
+    confidenceAdjustment: adj,
+    reason,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache: false
+  };
+  cachedSentiment2 = result;
+  cacheTimestamp = now;
+  return result;
+}
+function buildReason(score, label, adj, direction) {
+  if (!direction) return `Polymarket BTC: ${label} (${score}% bullish sentiment)`;
+  const alignText = adj > 0 ? `aligns with ${direction}` : adj < 0 ? `conflicts with ${direction}` : "neutral vs";
+  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
+  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+}
+function clearPolymarketCache() {
+  cachedSentiment2 = null;
+  cacheTimestamp = 0;
+}
+function getCachedPolymarketSentiment() {
+  return cachedSentiment2;
+}
+var GAMMA_BASE, CACHE_TTL_MS3, cachedSentiment2, cacheTimestamp;
+var init_polymarket = __esm({
+  "server/services/polymarket.ts"() {
+    "use strict";
+    GAMMA_BASE = "https://gamma-api.polymarket.com";
+    CACHE_TTL_MS3 = 5 * 60 * 1e3;
+    cachedSentiment2 = null;
+    cacheTimestamp = 0;
+  }
+});
+
+// server/services/composite-signal.ts
+var composite_signal_exports = {};
+__export(composite_signal_exports, {
+  ALIGNMENT_LABELS: () => ALIGNMENT_LABELS,
+  getCompositeEdgeSignal: () => getCompositeEdgeSignal
+});
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function alignmentLabel(markovAdj, polyAdj) {
+  const mSign = Math.sign(markovAdj);
+  const pSign = polyAdj !== null ? Math.sign(polyAdj) : 0;
+  if (pSign === 0) {
+    if (Math.abs(markovAdj) >= 8) return markovAdj > 0 ? "strong_agree" : "strong_disagree";
+    if (Math.abs(markovAdj) >= 4) return markovAdj > 0 ? "agree" : "disagree";
+    return "neutral";
+  }
+  const bothStrong = Math.abs(markovAdj) >= 5 && Math.abs(polyAdj ?? 0) >= 4;
+  if (mSign === pSign && bothStrong) return mSign > 0 ? "strong_agree" : "strong_disagree";
+  if (mSign === pSign) return mSign > 0 ? "agree" : "disagree";
+  if (mSign !== pSign && bothStrong) return "strong_disagree";
+  return "neutral";
+}
+function compositeEdgeScore(markovBullP, polyBullScore) {
+  if (polyBullScore === null) {
+    return clamp(Math.round(markovBullP), 0, 100);
+  }
+  const blended = (markovBullP + polyBullScore) / 2;
+  return clamp(Math.round(blended), 0, 100);
+}
+async function getCompositeEdgeSignal(symbol, direction, candles) {
+  let markovSignal = null;
+  try {
+    if (candles.length > 0) {
+      markovSignal = getMarkovSignal(symbol, direction, candles);
+    }
+  } catch {
+  }
+  const markovAdj = markovSignal?.confidenceAdjustment ?? 0;
+  const markovBullP = markovSignal ? Math.round(markovSignal.bullishProbability * 100) : 50;
+  let polySentiment = null;
+  const isCrypto = CRYPTO_REGEX.test(symbol);
+  if (isCrypto) {
+    try {
+      polySentiment = await getPolymarketBTCSentiment(direction);
+    } catch {
+    }
+  }
+  const polyAdj = polySentiment?.confidenceAdjustment ?? null;
+  const polyBullScore = polySentiment?.overallBullishScore ?? null;
+  let finalAdjustment;
+  if (polyAdj === null) {
+    finalAdjustment = markovAdj;
+  } else {
+    const mSign = Math.sign(markovAdj);
+    const pSign = Math.sign(polyAdj);
+    if (mSign === pSign && mSign !== 0) {
+      const larger = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      const smaller = Math.abs(markovAdj) < Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(larger * 1.5) + Math.round(smaller * 0.4);
+    } else if (mSign !== pSign && mSign !== 0 && pSign !== 0) {
+      const strongerAdj = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(strongerAdj * 0.3);
+    } else {
+      finalAdjustment = markovAdj + (polyAdj ?? 0);
+    }
+  }
+  finalAdjustment = clamp(finalAdjustment, -15, 15);
+  const align = alignmentLabel(markovAdj, polyAdj);
+  const edgeScore = compositeEdgeScore(markovBullP, polyBullScore);
+  const adjText = finalAdjustment > 0 ? `+${finalAdjustment}%` : `${finalAdjustment}%`;
+  const alignEmoji = {
+    strong_agree: "\u{1F525}",
+    agree: "\u2705",
+    neutral: "\u{1F538}",
+    disagree: "\u26A0\uFE0F",
+    strong_disagree: "\u{1F6AB}"
+  }[align];
+  let reason = `${alignEmoji} Composite Edge [${symbol}]`;
+  if (polySentiment) {
+    reason += ` | Markov ${markovBullP}% bull (${markovAdj > 0 ? "+" : ""}${markovAdj}%)`;
+    reason += ` | Polymarket ${polySentiment.sentimentLabel} ${polySentiment.overallBullishScore}% (${polyAdj > 0 ? "+" : ""}${polyAdj}%)`;
+    reason += ` | Combined: ${adjText}`;
+    if (align === "strong_agree") {
+      reason += " \u2014 BOTH signals confirm direction (amplified)";
+    } else if (align === "disagree" || align === "strong_disagree") {
+      reason += " \u2014 signals conflict (dampened)";
+    }
+  } else if (markovSignal) {
+    reason += ` | Markov: ${markovSignal.reason}`;
+    if (isCrypto) reason += " | Polymarket: unavailable";
+  }
+  return {
+    confidenceAdjustment: finalAdjustment,
+    reason,
+    markov: {
+      currentState: markovSignal?.currentState ?? "NEUTRAL",
+      bullP: markovBullP,
+      bearP: markovSignal ? Math.round(markovSignal.bearishProbability * 100) : 50,
+      adjustment: markovAdj,
+      available: markovSignal !== null
+    },
+    polymarket: polySentiment ? {
+      overallBullishScore: polySentiment.overallBullishScore,
+      sentimentLabel: polySentiment.sentimentLabel,
+      adjustment: polyAdj,
+      marketCount: polySentiment.markets.length,
+      fromCache: polySentiment.fromCache,
+      available: true
+    } : isCrypto ? {
+      overallBullishScore: 50,
+      sentimentLabel: "Neutral",
+      adjustment: 0,
+      marketCount: 0,
+      fromCache: false,
+      available: false
+    } : null,
+    alignment: align,
+    compositeEdgeScore: edgeScore,
+    usedPolymarket: polySentiment !== null
+  };
+}
+var CRYPTO_REGEX, ALIGNMENT_LABELS;
+var init_composite_signal = __esm({
+  "server/services/composite-signal.ts"() {
+    "use strict";
+    init_markov_chain();
+    init_polymarket();
+    CRYPTO_REGEX = /BTC|ETH|SOL|XRP|BNB|CRYPTO|DOGE|ADA|MATIC|LINK/i;
+    ALIGNMENT_LABELS = {
+      strong_agree: { label: "Strong Agree", color: "text-emerald-400", emoji: "\u{1F525}" },
+      agree: { label: "Agree", color: "text-green-400", emoji: "\u2705" },
+      neutral: { label: "Neutral", color: "text-gray-400", emoji: "\u{1F538}" },
+      disagree: { label: "Disagree", color: "text-orange-400", emoji: "\u26A0\uFE0F" },
+      strong_disagree: { label: "Strong Conflict", color: "text-red-400", emoji: "\u{1F6AB}" }
+    };
+  }
+});
+
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -19317,10 +19955,15 @@ function setMT5AccountReceiveSignals(userId, alias, receive) {
   mt5AccountRegistry[userId][alias].receiveSignals = receive;
   return true;
 }
-async function autoRetainBrain(userId) {
+async function autoRetainBrain(userId, _attempt = 0) {
   try {
     const fn = global.runBrainLearning;
-    if (typeof fn !== "function") return;
+    if (typeof fn !== "function") {
+      if (_attempt < 3) {
+        setTimeout(() => autoRetainBrain(userId, _attempt + 1), 5e3);
+      }
+      return;
+    }
     const brain = await fn(userId);
     const count = brain?.totalTradesAnalyzed ?? 0;
     addActivity2(userId, { type: "info", message: `\u{1F9E0} Brain auto-retrained from ${count} trades across ${brain?.pairsLearned ?? 0} pairs` });
@@ -19544,6 +20187,32 @@ function calculateKellyFraction(wins, losses, totalRR) {
   const fractionalKelly = kelly * 0.25;
   return Math.min(0.03, Math.max(5e-3, fractionalKelly));
 }
+function getConfidenceLotMultiplier(confidence2) {
+  if (confidence2 >= 93) return { mult: 1.5, label: `A+ (${confidence2}% \u226593%) \u2192 1.5\xD7` };
+  if (confidence2 >= 88) return { mult: 1.25, label: `A  (${confidence2}% \u226588%) \u2192 1.25\xD7` };
+  if (confidence2 >= 83) return { mult: 1, label: `B  (${confidence2}% \u226583%) \u2192 1.0\xD7` };
+  if (confidence2 >= 78) return { mult: 0.75, label: `C  (${confidence2}% \u226578%) \u2192 0.75\xD7` };
+  return { mult: 0.5, label: `D  (${confidence2}%  <78%) \u2192 0.5\xD7` };
+}
+function getStrategyLotMultiplier(strategy) {
+  const s = strategy.toLowerCase();
+  if (["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper", "smc_demand_supply"].includes(s)) {
+    return { mult: 1.2, label: `sniper-tier (${s}) \u2192 1.2\xD7` };
+  }
+  if (["momentum", "swing", "breakout", "asia_range_breakout", "news_fade", "sunday_gap"].includes(s)) {
+    return { mult: 1, label: `standard-tier (${s}) \u2192 1.0\xD7` };
+  }
+  if (["scalping", "vwap_mean_reversion"].includes(s)) {
+    return { mult: 0.8, label: `scalp-tier (${s}) \u2192 0.8\xD7` };
+  }
+  return { mult: 1, label: `default-tier (${s}) \u2192 1.0\xD7` };
+}
+function getExposureLotMultiplier(openPositions) {
+  if (openPositions === 0) return { mult: 1, label: `0 open \u2192 1.0\xD7` };
+  if (openPositions === 1) return { mult: 0.85, label: `1 open \u2192 0.85\xD7` };
+  if (openPositions === 2) return { mult: 0.7, label: `2 open \u2192 0.70\xD7` };
+  return { mult: 0.55, label: `${openPositions} open \u2192 0.55\xD7` };
+}
 function addActivity2(userId, activity) {
   const state = engineStates[userId];
   if (!state) return;
@@ -19583,6 +20252,10 @@ function getDefaultConfig(userId) {
     dailyLossLimit: 5,
     maxDailyTrades: 0,
     directionFilter: "both",
+    pairDirectionOverrides: {},
+    enableORBAutonomous: true,
+    enableCompositeAutonomous: true,
+    compositeMinEdgeScore: 72,
     aiMode: "full",
     breakevenBufferPips: 5,
     trailFixedPips: 20,
@@ -19820,10 +20493,10 @@ function recordTradeResult(userId, result) {
     }
   }
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
-  if (state.tradesSinceLastLearn >= 5) {
+  if (state.tradesSinceLastLearn >= 3) {
     state.tradesSinceLastLearn = 0;
     autoRetainBrain(userId).then(() => {
-      addActivity2(userId, { type: "info", message: "\u{1F9E0} Brain updated after 5 new trade results" });
+      addActivity2(userId, { type: "info", message: "\u{1F9E0} Brain updated after 3 new trade results" });
     });
   }
   const weekKey = `${userId}_${tracker.weekStartedAt.split("T")[0].substring(0, 8)}`;
@@ -19916,7 +20589,9 @@ async function scanMarkets(userId) {
           // for volume gate in processDecision
           relativeVolume: volumeMetrics.relativeVolume,
           // raw ratio for gate logic
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          // Last confirmed candle stored for Markov current-state lookup in processDecision
+          lastConfirmedCandle: confirmedBars.length > 0 ? { open: confirmedBars[confirmedBars.length - 1].open, close: confirmedBars[confirmedBars.length - 1].close } : null
         };
         if (!state._lastATR) state._lastATR = {};
         state._lastATR[symbol] = atr;
@@ -19925,6 +20600,10 @@ async function scanMarkets(userId) {
           addActivity2(userId, { type: "info", symbol, message: preScanEnforcement.reason });
           await new Promise((r) => setTimeout(r, 8500));
           continue;
+        }
+        try {
+          buildTransitionMatrix(symbol, confirmedBars.map((b) => ({ open: b.open, close: b.close })));
+        } catch {
         }
         marketAnalysis[symbol] = {
           currentPrice,
@@ -19948,7 +20627,9 @@ async function scanMarkets(userId) {
           volatilityContext: indicators.volatilityContext,
           volumeProfile: indicators.volumeProfile,
           swingPoints: indicators.swingPoints,
-          volumeMetrics
+          volumeMetrics,
+          // Store last confirmed candle for Markov state lookup in processDecision
+          lastConfirmedCandle: confirmedBars.length > 0 ? { open: confirmedBars[confirmedBars.length - 1].open, close: confirmedBars[confirmedBars.length - 1].close } : null
         };
         const htfSymbol = symbol;
         const htfAssetType = assetType;
@@ -20084,6 +20765,78 @@ async function scanMarkets(userId) {
     }
     const currentOpenPositions = global.mt5OpenPositions?.[userId]?.positions || [];
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
+    if (config.enableCompositeAutonomous !== false) {
+      const CRYPTO_RE = /BTC|ETH|SOL|XRP|BNB|DOGE|ADA|MATIC|LINK/i;
+      const minEdge = config.compositeMinEdgeScore ?? 72;
+      const COMPOSITE_COOLDOWN_MS = 5 * 60 * 1e3;
+      if (!state.compositeLastFiredAt) state.compositeLastFiredAt = {};
+      const cryptoPairs = analyzedPairs.filter((sym) => CRYPTO_RE.test(sym));
+      for (const sym of cryptoPairs) {
+        try {
+          const symSnap = state.marketSnapshot?.[sym] ?? {};
+          const { getCachedMatrix: getCachedMatrix3 } = await Promise.resolve().then(() => (init_markov_chain(), markov_chain_exports));
+          const cachedTM = getCachedMatrix3(sym);
+          const candles = (cachedTM?.candleHistory?.length ?? 0) >= 5 ? cachedTM.candleHistory : symSnap.lastConfirmedCandle ? [symSnap.lastConfirmedCandle] : [];
+          const lastFired = state.compositeLastFiredAt[sym] || 0;
+          if (Date.now() - lastFired < COMPOSITE_COOLDOWN_MS) continue;
+          const { getCompositeEdgeSignal: getCompositeEdgeSignal2 } = await Promise.resolve().then(() => (init_composite_signal(), composite_signal_exports));
+          for (const dir of ["BUY", "SELL"]) {
+            const composite = await getCompositeEdgeSignal2(sym, dir, candles);
+            if (!composite.usedPolymarket) break;
+            const edgeOk = dir === "BUY" ? composite.compositeEdgeScore >= minEdge : composite.compositeEdgeScore <= 100 - minEdge;
+            if (composite.alignment !== "strong_agree" || !edgeOk) continue;
+            const mData = marketAnalysis[sym] || {};
+            const currentPrice = mData.currentPrice || symSnap.currentPrice || 0;
+            if (currentPrice <= 0) continue;
+            const atr = mData.atr?.value ?? mData.atr ?? currentPrice * 5e-3;
+            const pipSize = getPipSize(sym);
+            const isJpy = sym.includes("JPY");
+            const isXau = sym.includes("XAU");
+            const isCrypto = !isJpy && !isXau;
+            const minSlPips = isCrypto ? 50 : isXau ? 300 : 22;
+            const minSlDist = minSlPips * pipSize;
+            const slDist = Math.max(atr * 1.8, minSlDist);
+            const tpDist = Math.max(atr * 3.6, slDist * 2);
+            const sl = dir === "BUY" ? currentPrice - slDist : currentPrice + slDist;
+            const tp = dir === "BUY" ? currentPrice + tpDist : currentPrice - tpDist;
+            const autonomousDecision = {
+              action: "OPEN_TRADE",
+              strategy: "composite_autonomous",
+              symbol: sym,
+              direction: dir,
+              confidence: Math.round(50 + Math.abs(composite.compositeEdgeScore - 50) * 0.8),
+              reason: `\u{1F916} Composite Autonomous \u2014 ${composite.reason}`,
+              confluences: [
+                `Markov: ${composite.markov.currentState} (bull ${composite.markov.bullP}%)`,
+                `Polymarket: ${composite.polymarket?.sentimentLabel ?? "N/A"} (${composite.polymarket?.overallBullishScore ?? 0}%)`,
+                `Alignment: ${composite.alignment} | Edge: ${composite.compositeEdgeScore}`
+              ],
+              entryPrice: currentPrice,
+              stopLoss: sl,
+              takeProfit: tp,
+              lotSize: config.baseLotSize,
+              holdTime: "5min",
+              urgency: "IMMEDIATE"
+            };
+            addActivity2(userId, {
+              type: "signal",
+              symbol: sym,
+              direction: dir,
+              message: `\u{1F525} COMPOSITE AUTO SIGNAL [${sym}]: ${dir} \u2014 Markov + Polymarket strong_agree (edge ${composite.compositeEdgeScore}) \u2192 firing trade`,
+              confidence: autonomousDecision.confidence
+            });
+            state.compositeLastFiredAt[sym] = Date.now();
+            await processDecision(userId, autonomousDecision, newsContext);
+            break;
+          }
+        } catch {
+        }
+      }
+    }
+    try {
+      await runORBAutonomousScan(userId);
+    } catch {
+    }
     await runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerPairs, htfMarketData);
   } catch (err) {
     addActivity2(userId, { type: "error", message: `Scan cycle error: ${err.message}` });
@@ -20220,10 +20973,10 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   if (!config.trailingStopEnabled || config.trailMethod === "staged_volume" || config.trailMethod === "none") return;
   if (openPositions.length === 0) return;
   if (!state.positionTrailState) state.positionTrailState = {};
-  let tlConnection = null;
+  let tlConnections = [];
   try {
-    tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (tlConnection && !tlConnection.isActive) tlConnection = null;
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    tlConnections = allTL.filter((c) => c.isActive);
   } catch {
   }
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
@@ -20322,38 +21075,40 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       symbol: pos.symbol,
       message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
     });
-    if (tlConnection) {
+    if (tlConnections.length > 0) {
       const positionId = pos.ticket || pos.id || null;
       if (positionId) {
-        try {
-          const trailResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: "MODIFY",
-            symbol: pos.symbol,
-            direction: pos.direction || "BUY",
-            volume: 0,
-            stopLoss: Math.round(newSL * 1e5) / 1e5,
-            takeProfit: pos.tp || void 0,
-            positionId: String(positionId)
-          });
-          if (trailResult.success) {
-            addActivity2(userId, {
-              type: "position_update",
+        for (const tlConn of tlConnections) {
+          try {
+            const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: "MODIFY",
               symbol: pos.symbol,
-              message: `\u2705 TradeLocker trail applied: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
+              direction: pos.direction || "BUY",
+              volume: 0,
+              stopLoss: Math.round(newSL * 1e5) / 1e5,
+              takeProfit: pos.tp || void 0,
+              positionId: String(positionId)
             });
-          } else {
+            if (trailResult.success) {
+              addActivity2(userId, {
+                type: "position_update",
+                symbol: pos.symbol,
+                message: `\u2705 TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
+              });
+            } else {
+              addActivity2(userId, {
+                type: "error",
+                symbol: pos.symbol,
+                message: `\u26A0\uFE0F TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} \u2014 ${trailResult.error}`
+              });
+            }
+          } catch (tlErr) {
             addActivity2(userId, {
               type: "error",
               symbol: pos.symbol,
-              message: `\u26A0\uFE0F TradeLocker trail failed: ${pos.symbol} \u2014 ${trailResult.error}. Signal queued for MT5 EA.`
+              message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
             });
           }
-        } catch (tlErr) {
-          addActivity2(userId, {
-            type: "error",
-            symbol: pos.symbol,
-            message: `\u26A0\uFE0F TradeLocker trail error: ${pos.symbol} \u2014 ${tlErr.message}. Signal queued for MT5 EA.`
-          });
         }
       }
     }
@@ -20791,18 +21546,19 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
   {
     const filteredAnalysis = {};
     const voteSummary = [];
+    const PREFILTER_VOTE_THRESHOLD = 4;
     for (const [sym, data] of Object.entries(marketAnalysis)) {
       const { bull, bear } = countIndicatorAlignment(data);
       const direction = bull >= bear ? `\u{1F7E2}${bull}B` : `\u{1F534}${bear}R`;
-      const passed = bull >= 3 || bear >= 3;
+      const passed = bull >= PREFILTER_VOTE_THRESHOLD || bear >= PREFILTER_VOTE_THRESHOLD;
       voteSummary.push(`${sym}:${direction}${passed ? "\u2713" : "\u2717"}`);
       if (passed) {
         filteredAnalysis[sym] = data;
       }
     }
-    addActivity2(userId, { type: "info", message: `Pre-filter votes (need 3+): ${voteSummary.join(" | ")}` });
+    addActivity2(userId, { type: "info", message: `Pre-filter votes (need ${PREFILTER_VOTE_THRESHOLD}+): ${voteSummary.join(" | ")}` });
     if (Object.keys(filteredAnalysis).length === 0) {
-      addActivity2(userId, { type: "info", message: "Pre-filter: no pairs with 3+ indicator votes this cycle \u2014 AI call skipped (market in full consolidation)" });
+      addActivity2(userId, { type: "info", message: `Pre-filter: no pairs with ${PREFILTER_VOTE_THRESHOLD}+ indicator votes this cycle \u2014 AI call skipped (market in full consolidation)` });
       return;
     }
     marketAnalysis = filteredAnalysis;
@@ -20963,12 +21719,12 @@ WEEKLY PROFIT GOAL SYSTEM:
 - Win Rate: ${tracker.winRate}% (${tracker.wins}W / ${tracker.losses}L) | Streak: ${tracker.consecutiveWins > 0 ? tracker.consecutiveWins + " wins" : tracker.consecutiveLosses + " losses"}
 - Phase: ${tracker.currentPhase.toUpperCase()} | Compound Multiplier: ${compMult}x
 - Base Lot: ${config.baseLotSize} \u2192 Adjusted: ${adjustedBaseLot} (after compounding)
-${tracker.currentPhase === "warming_up" ? "- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (80%+). Build momentum with small wins. Use minimum lot sizes." : ""}
-${tracker.currentPhase === "building" ? "- PHASE INSTRUCTIONS: Good progress. Use base lots. Mix scalping for quick wins with momentum for bigger moves. Aim for 3-5 trades/session." : ""}
-${tracker.currentPhase === "accelerating" ? "- PHASE INSTRUCTIONS: 25%+ done. INCREASE frequency - use all strategies. Scale lot sizes up with compound multiplier. Target 5-8 trades/session." : ""}
-${tracker.currentPhase === "cruising" ? "- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk - dont blow gains. Use the compound multiplier but cap exposure." : ""}
-${tracker.currentPhase === "pushing" ? "- PHASE INSTRUCTIONS: 80%+ done! Almost there. REDUCE risk now - smaller lots, only A+ setups. Protect gains. Avoid revenge trading." : ""}
-${tracker.currentPhase === "target_reached" ? "- PHASE INSTRUCTIONS: TARGET HIT! Switch to PRESERVATION mode. Only take ultra-high confidence sniper setups. Minimum lot sizes. Protect the bag." : ""}
+${tracker.currentPhase === "warming_up" ? "- PHASE INSTRUCTIONS: Start conservative. Take only high-confidence setups (82%+). Build momentum with small wins. Use minimum lot sizes. Quality over quantity." : ""}
+${tracker.currentPhase === "building" ? "- PHASE INSTRUCTIONS: Good progress. Use base lots. Focus on high-probability setups with clear HTF alignment. 2-4 quality trades per session. Do NOT force trades." : ""}
+${tracker.currentPhase === "accelerating" ? "- PHASE INSTRUCTIONS: 25%+ done. Maintain discipline \u2014 do NOT lower confluence standards to chase frequency. Only take setups where HTF and M15 align. 3-5 trades/session MAX. Quality is the target, not volume." : ""}
+${tracker.currentPhase === "cruising" ? "- PHASE INSTRUCTIONS: Halfway there. Maintain pace. Balance risk \u2014 do NOT blow gains. Use the compound multiplier but cap total open exposure to 3 trades max." : ""}
+${tracker.currentPhase === "pushing" ? "- PHASE INSTRUCTIONS: 80%+ done! SHIFT TO PRESERVATION MODE NOW. Only A+ sniper/ICT setups with 85%+ confidence. Smaller lots. No scalping. Protect the gains." : ""}
+${tracker.currentPhase === "target_reached" ? "- PHASE INSTRUCTIONS: TARGET HIT! PRESERVATION mode ONLY. Only ultra-high-confidence sniper setups (90%+). Minimum lot sizes. No scalping. Protect the bag." : ""}
 
 STRATEGY PERFORMANCE THIS WEEK:
 ${Object.entries(tracker.strategyBreakdown).map(([s, d]) => `- ${s}: ${d.trades} trades, ${d.wins} wins, $${d.pnl} P&L`).join("\n") || "- No trades yet"}
@@ -21589,21 +22345,41 @@ async function processDecision(userId, decision, newsCtx) {
     return;
   }
   if (decision.action === "OPEN_TRADE") {
+    {
+      const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+      if (state.tradesOpenedTodayDate !== todayUTC) {
+        state.tradesOpenedToday = 0;
+        state.tradesOpenedTodayDate = todayUTC;
+      }
+      const cap = config.maxDailyTrades ?? 0;
+      if (cap > 0 && state.tradesOpenedToday >= cap) {
+        addActivity2(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: `\u{1F6AB} DAILY TRADE CAP: ${decision.symbol} ${decision.direction} blocked \u2014 already opened ${state.tradesOpenedToday}/${cap} trades today. Cap resets at UTC midnight.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
     const _signalDirRaw = (decision.direction || "").toUpperCase();
-    if (config.directionFilter === "buy_only" && _signalDirRaw === "SELL") {
+    const _pairFilter = config.pairDirectionOverrides?.[decision.symbol] ?? config.directionFilter ?? "both";
+    if (_pairFilter === "buy_only" && _signalDirRaw === "SELL") {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F6AB} DIRECTION FILTER: SELL on ${decision.symbol} blocked \u2014 engine is set to BUY ONLY. Change direction filter in settings to allow sells.`
+        message: `\u{1F6AB} DIRECTION FILTER: SELL on ${decision.symbol} blocked \u2014 ${isOverride ? `${decision.symbol} is set to BUY ONLY (per-pair override)` : "engine is set to BUY ONLY"}. Change in engine settings to allow sells.`
       });
       state.signalsGenerated++;
       return;
     }
-    if (config.directionFilter === "sell_only" && _signalDirRaw === "BUY") {
+    if (_pairFilter === "sell_only" && _signalDirRaw === "BUY") {
+      const isOverride = !!config.pairDirectionOverrides?.[decision.symbol];
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F6AB} DIRECTION FILTER: BUY on ${decision.symbol} blocked \u2014 engine is set to SELL ONLY. Change direction filter in settings to allow buys.`
+        message: `\u{1F6AB} DIRECTION FILTER: BUY on ${decision.symbol} blocked \u2014 ${isOverride ? `${decision.symbol} is set to SELL ONLY (per-pair override)` : "engine is set to SELL ONLY"}. Change in engine settings to allow buys.`
       });
       state.signalsGenerated++;
       return;
@@ -21633,6 +22409,39 @@ async function processDecision(userId, decision, newsCtx) {
           });
           state.signalsGenerated++;
           return;
+        }
+      }
+    }
+    {
+      const newSym = (decision.symbol || "").toUpperCase().replace("/", "");
+      const newIsUSD = newSym.includes("USD");
+      if (newIsUSD) {
+        const _livePositionsForCorr = global.mt5OpenPositions?.[userId]?.positions || [];
+        const openUSDPositions = _livePositionsForCorr.filter((p) => {
+          const pSym = (p.symbol || "").toUpperCase().replace("/", "");
+          return pSym.includes("USD");
+        });
+        if (openUSDPositions.length >= 2) {
+          const usdDirOf = (sym, tradeDir) => {
+            const s = sym.toUpperCase().replace("/", "");
+            const usdIsBase = s.startsWith("USD");
+            if (usdIsBase) return tradeDir === "BUY" ? "BUY_USD" : "SELL_USD";
+            return tradeDir === "BUY" ? "SELL_USD" : "BUY_USD";
+          };
+          const newUSDDir = usdDirOf(newSym, _signalDirRaw);
+          const existingUSDDirs = openUSDPositions.map(
+            (p) => usdDirOf((p.symbol || "").toUpperCase().replace("/", ""), (p.direction || p.type || "").toUpperCase())
+          );
+          const allSameAsNew = existingUSDDirs.every((d) => d === newUSDDir);
+          if (allSameAsNew && openUSDPositions.length >= 2) {
+            addActivity2(userId, {
+              type: "info",
+              symbol: decision.symbol,
+              message: `\u26A1 USD CORRELATION BLOCK: ${_signalDirRaw} ${decision.symbol} rejected \u2014 already ${openUSDPositions.length} USD positions all in ${newUSDDir} direction. Correlated exposure cap reached (max 2 same-direction USD trades). Close an existing position first.`
+            });
+            state.signalsGenerated++;
+            return;
+          }
         }
       }
     }
@@ -21670,11 +22479,11 @@ async function processDecision(userId, decision, newsCtx) {
           message: `\u{1F4CA} HTF bias: ${htfTFLabel} ${htfBias.trend} \u2014 aligns with ${signalDir} (+5% confidence \u2192 ${adjustedConfidence}%)`
         });
       } else {
-        if (confidence2 < 85) {
+        if (confidence2 < 90) {
           addActivity2(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u{1F4CA} HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% < 85% required. Counter-trend trade blocked.`
+            message: `\u{1F4CA} HTF CONFLICT BLOCK: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% < 90% required for counter-trend. Trade blocked.`
           });
           state.signalsGenerated++;
           return;
@@ -21682,7 +22491,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity2(userId, {
           type: "info",
           symbol: decision.symbol,
-          message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% \u2265 85% threshold cleared. Allowing high-confidence counter-trend.`
+          message: `\u{1F4CA} HTF CONFLICT: ${signalDir} on ${decision.symbol} vs ${htfTFLabel} ${htfBias.trend} \u2014 ${confidence2}% \u2265 90% threshold cleared. Allowing high-confidence counter-trend.`
         });
       }
     }
@@ -21702,11 +22511,11 @@ async function processDecision(userId, decision, newsCtx) {
       if (trendDetected && m15Conflicts) {
         const isStrongTrend = m15ADX > 20 || diSep > 12;
         if (isStrongTrend) {
-          if (adjustedConfidence < 82) {
+          if (adjustedConfidence < 88) {
             addActivity2(userId, {
               type: "info",
               symbol: decision.symbol,
-              message: `\u{1F6AB} M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) \u2014 ${adjustedConfidence}% < 82% required for counter-trend. BLOCKED.`
+              message: `\u{1F6AB} M15 TREND BLOCK: ${signalDir} vs strong M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, +DI ${m15PlusDI.toFixed(1)} / -DI ${m15MinusDI.toFixed(1)}, diSep ${diSep.toFixed(1)}) \u2014 ${adjustedConfidence}% < 88% required for counter-trend. BLOCKED.`
             });
             state.signalsGenerated++;
             return;
@@ -21714,7 +22523,7 @@ async function processDecision(userId, decision, newsCtx) {
           addActivity2(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u26A0\uFE0F M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} \u2014 ${adjustedConfidence}% \u2265 82% cleared. Allowing high-confidence counter-trend (use caution).`
+            message: `\u26A0\uFE0F M15 STRONG CONFLICT: ${signalDir} vs M15 ${effectiveTrend} \u2014 ${adjustedConfidence}% \u2265 88% cleared. Allowing high-confidence counter-trend (use caution).`
           });
         } else {
           const penalty = 12;
@@ -21725,6 +22534,37 @@ async function processDecision(userId, decision, newsCtx) {
             message: `\u26A0\uFE0F M15 TREND CONFLICT (mild): ${signalDir} vs M15 ${effectiveTrend} (ADX ${m15ADX.toFixed(1)}, diSep ${diSep.toFixed(1)}) \u2014 confidence penalised ${penalty}% \u2192 ${adjustedConfidence}%`
           });
         }
+      }
+    }
+    if (decision.direction && (decision.direction === "BUY" || decision.direction === "SELL")) {
+      try {
+        const { getCompositeEdgeSignal: getCompositeEdgeSignal2 } = await Promise.resolve().then(() => (init_composite_signal(), composite_signal_exports));
+        const symSnap = state.marketSnapshot?.[decision.symbol] ?? {};
+        const lastCC = symSnap.lastConfirmedCandle ?? null;
+        const candles = lastCC ? [lastCC] : [];
+        const composite = await getCompositeEdgeSignal2(
+          decision.symbol,
+          decision.direction,
+          candles
+        );
+        const adj = composite.confidenceAdjustment;
+        if (adj !== 0) {
+          adjustedConfidence = Math.min(100, Math.max(0, adjustedConfidence + adj));
+        }
+        addActivity2(userId, {
+          type: "info",
+          symbol: decision.symbol,
+          message: composite.reason + (adj !== 0 ? ` \u2192 confidence now ${adjustedConfidence}%` : "")
+        });
+        decision._composite = {
+          adjustment: adj,
+          alignment: composite.alignment,
+          compositeEdgeScore: composite.compositeEdgeScore,
+          markov: composite.markov,
+          polymarket: composite.polymarket,
+          usedPolymarket: composite.usedPolymarket
+        };
+      } catch {
       }
     }
     const currentATR = state._lastATR?.[decision.symbol] || 0;
@@ -21742,7 +22582,7 @@ async function processDecision(userId, decision, newsCtx) {
     }
     decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     decision._brainTrailPips = postEnforcement.recommendedTrailPips;
-    const HARD_CONFIDENCE_FLOOR = 72;
+    const HARD_CONFIDENCE_FLOOR = 78;
     const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity2(userId, {
@@ -21991,11 +22831,23 @@ async function processDecision(userId, decision, newsCtx) {
         }
         const oldSlPips = Math.round(actualSlDist / pipSize);
         const newSlPips = Math.round(effectiveMinSL / pipSize);
-        addActivity2(userId, {
-          type: "info",
-          symbol: decision.symbol,
-          message: `\u{1F4CF} SL EXPANDED: ${decision.symbol} ${decision.direction} \u2014 SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`
-        });
+        const slExpansionRatio = actualSlDist > 0 ? effectiveMinSL / actualSlDist : 1;
+        if (slExpansionRatio > 1 && decision.lotSize && decision.lotSize > 0) {
+          const originalLot = decision.lotSize;
+          const scaledLot = Math.max(0.01, Math.round(originalLot / slExpansionRatio * 100) / 100);
+          decision.lotSize = scaledLot;
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4CF} SL EXPANDED: ${decision.symbol} ${decision.direction} \u2014 SL ${oldSlPips}\u2192${newSlPips} pips (ATR floor). Lot scaled ${originalLot}\u2192${scaledLot} to keep dollar risk constant. TP scaled to maintain R:R.`
+          });
+        } else {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F4CF} SL EXPANDED: ${decision.symbol} ${decision.direction} \u2014 SL was ${oldSlPips} pips (too tight), expanded to ${newSlPips} pips (ATR floor). TP scaled to maintain R:R.`
+          });
+        }
         decision.stopLoss = Math.round(expandedSL * 1e5) / 1e5;
         decision.takeProfit = expandedTP ? Math.round(expandedTP * 1e5) / 1e5 : takeProfit;
         stopLoss = decision.stopLoss;
@@ -22053,11 +22905,11 @@ async function processDecision(userId, decision, newsCtx) {
         brainTotalTrades = totals.trades;
         brainOverallWinRate = totals.trades >= 5 ? Math.round(totals.wins / totals.trades * 100) : 0;
       }
-      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 55;
+      brainLocked = brainTotalTrades < 10 || brainOverallWinRate < 60;
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/55% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
+        message: brainLocked ? `\u{1F9E0} Learning Mode: lot locked at 0.01 (${brainTotalTrades}/10 trades, ${brainOverallWinRate}%/60% WR) \u2014 full sizing unlocks automatically` : `\u{1F9E0} Brain unlocked: ${brainTotalTrades} trades @ ${brainOverallWinRate}% WR \u2014 full risk sizing active`
       });
     }
     const rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
@@ -22142,7 +22994,22 @@ async function processDecision(userId, decision, newsCtx) {
     const safeCompoundMult = isSmallAccount ? Math.min(state.goalTracker.compoundMultiplier, 1.25) : state.goalTracker.compoundMultiplier;
     const baseLotForCalc = sizingMode === "kelly" || sizingMode === "kelly_base_pyramid_allowed" ? kellyLot : rawLotSize;
     const compoundedLot = config.enableCompounding ? Math.round(baseLotForCalc * safeCompoundMult * 100) / 100 : baseLotForCalc;
-    const lotSize = Math.max(0.01, Math.min(compoundedLot, safeMaxLot));
+    const isDynamicSizingEnabled = !brainLocked && !decision.pyramidOf;
+    let dynamicLot = compoundedLot;
+    if (isDynamicSizingEnabled) {
+      const confTier = getConfidenceLotMultiplier(adjustedConfidence);
+      const stratTier = getStrategyLotMultiplier(decision.strategy || "auto");
+      const openCount = global.mt5OpenPositions?.[userId]?.positions?.length ?? state.openPositionCount;
+      const expTier = getExposureLotMultiplier(openCount);
+      const combinedMult = confTier.mult * stratTier.mult * expTier.mult;
+      dynamicLot = Math.round(compoundedLot * combinedMult * 100) / 100;
+      addActivity2(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F4D0} Dynamic sizing: ${compoundedLot} base \xD7 [Conf:${confTier.label}] \xD7 [Strat:${stratTier.label}] \xD7 [Exp:${expTier.label}] = ${dynamicLot} lots`
+      });
+    }
+    const lotSize = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
     const mt5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -22161,9 +23028,10 @@ async function processDecision(userId, decision, newsCtx) {
       status: "pending"
     };
     broadcastMT5Signal(userId, mt5Signal);
-    const tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (!tlConnection || !tlConnection.isActive) {
-      addActivity2(userId, { type: "info", symbol: decision.symbol, message: "TradeLocker not connected. Signal queued for MT5 EA pickup." });
+    const tlConnections = await storage.getUserTradelockerConnections(userId);
+    const activeTLConnections = tlConnections.filter((c) => c.isActive);
+    if (activeTLConnections.length === 0) {
+      addActivity2(userId, { type: "info", symbol: decision.symbol, message: "No active TradeLocker connections. Signal queued for MT5 EA pickup." });
       return;
     }
     {
@@ -22210,48 +23078,79 @@ async function processDecision(userId, decision, newsCtx) {
         confidence: adjustedConfidence,
         source: "vedd_live_engine"
       });
-      const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-        action: "OPEN",
-        symbol: decision.symbol,
-        direction: decision.direction,
-        volume: lotSize,
-        entryPrice,
-        stopLoss,
-        takeProfit
-      });
-      await storage.createTradelockerTradeLog({
-        connectionId: tlConnection.id,
-        userId,
-        sourceSignalId: signalLog.id,
-        action: "OPEN",
-        symbol: decision.symbol,
-        direction: decision.direction,
-        volume: lotSize,
-        entryPrice,
-        stopLoss,
-        takeProfit,
-        tradelockerOrderId: tradeResult.orderId || null,
-        status: tradeResult.success ? "executed" : "failed",
-        errorMessage: tradeResult.error || null
-      });
-      if (tradeResult.success) {
+      const openResults = await Promise.allSettled(
+        activeTLConnections.map(async (tlConn) => {
+          const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
+          const acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+          const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: "OPEN",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: acctLot,
+            entryPrice,
+            stopLoss,
+            takeProfit
+          });
+          await storage.createTradelockerTradeLog({
+            connectionId: tlConn.id,
+            userId,
+            sourceSignalId: signalLog.id,
+            action: "OPEN",
+            symbol: decision.symbol,
+            direction: decision.direction,
+            volume: acctLot,
+            entryPrice,
+            stopLoss,
+            takeProfit,
+            tradelockerOrderId: tradeResult.orderId || null,
+            status: tradeResult.success ? "executed" : "failed",
+            errorMessage: tradeResult.error || null
+          });
+          return { tlConn, tradeResult, acctLot };
+        })
+      );
+      let anySuccess = false;
+      for (const result of openResults) {
+        if (result.status === "fulfilled") {
+          const { tlConn, tradeResult, acctLot: executedLot } = result.value;
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          const multLabel = (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
+          if (tradeResult.success) {
+            anySuccess = true;
+            addActivity2(userId, {
+              type: "trade_open",
+              symbol: decision.symbol,
+              direction: decision.direction,
+              confidence: adjustedConfidence,
+              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences }
+            });
+          } else {
+            addActivity2(userId, {
+              type: "error",
+              symbol: decision.symbol,
+              message: `TradeLocker ${acctLabel} execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}`
+            });
+          }
+        } else {
+          addActivity2(userId, {
+            type: "error",
+            symbol: decision.symbol,
+            message: `TradeLocker execution error on one account: ${result.reason?.message || "Unknown error"}`
+          });
+        }
+      }
+      if (anySuccess) {
         state.tradesExecuted++;
+        state.tradesOpenedToday++;
         state.openPositionCount++;
         mt5Signal.status = "executed";
-        addActivity2(userId, {
-          type: "trade_open",
-          symbol: decision.symbol,
-          direction: decision.direction,
-          confidence: adjustedConfidence,
-          message: `TRADE EXECUTED via TradeLocker: ${decision.direction} ${decision.symbol} | Lot: ${lotSize} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
-          details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences }
-        });
       } else {
         state.tradesFailed++;
         addActivity2(userId, {
           type: "error",
           symbol: decision.symbol,
-          message: `TradeLocker execution failed: ${decision.direction} ${decision.symbol} - ${tradeResult.error}. Signal still available for MT5 EA.`
+          message: `TradeLocker execution failed on all ${activeTLConnections.length} account(s). Signal still available for MT5 EA.`
         });
       }
     } catch (err) {
@@ -22313,37 +23212,47 @@ async function processDecision(userId, decision, newsCtx) {
       positionId: decision.positionId || null
     };
     broadcastMT5Signal(userId, mgmtSignal);
-    const tlConnection = await storage.getUserTradelockerConnection(userId);
-    if (tlConnection && tlConnection.isActive) {
-      try {
-        if (signalAction === "CLOSE") {
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: "CLOSE",
-            symbol: decision.symbol,
-            direction: decision.direction || "BUY",
-            volume: partialVolume || 0,
-            positionId: decision.positionId
-          });
-          if (tradeResult.success) {
-            addActivity2(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker: ${decision.symbol} - ${decision.reason}` });
+    const tlConnectionsForMgmt = await storage.getUserTradelockerConnections(userId);
+    const activeTLForMgmt = tlConnectionsForMgmt.filter((c) => c.isActive);
+    if (activeTLForMgmt.length > 0) {
+      await Promise.allSettled(
+        activeTLForMgmt.map(async (tlConn) => {
+          const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
+          try {
+            if (signalAction === "CLOSE") {
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: "CLOSE",
+                symbol: decision.symbol,
+                direction: decision.direction || "BUY",
+                volume: partialVolume || 0,
+                positionId: decision.positionId
+              });
+              if (tradeResult.success) {
+                addActivity2(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+              } else {
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            } else if (signalAction === "MODIFY") {
+              const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                action: "MODIFY",
+                symbol: decision.symbol,
+                direction: decision.direction || "BUY",
+                volume: 0,
+                stopLoss: newSL,
+                takeProfit: newTP,
+                positionId: decision.positionId
+              });
+              if (tradeResult.success) {
+                addActivity2(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via TradeLocker ${acctLabel}: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
+              } else {
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `MODIFY failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
+              }
+            }
+          } catch (err) {
+            addActivity2(userId, { type: "error", symbol: decision.symbol, message: `Position management error on TradeLocker ${acctLabel}: ${err.message}` });
           }
-        } else if (signalAction === "MODIFY") {
-          const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-            action: "MODIFY",
-            symbol: decision.symbol,
-            direction: decision.direction || "BUY",
-            volume: 0,
-            stopLoss: newSL,
-            takeProfit: newTP,
-            positionId: decision.positionId
-          });
-          if (tradeResult.success) {
-            addActivity2(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via TradeLocker: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
-          }
-        }
-      } catch (err) {
-        addActivity2(userId, { type: "error", symbol: decision.symbol, message: `Position management execution error: ${err.message}. Signal queued for MT5 EA.` });
-      }
+        })
+      );
     }
   }
 }
@@ -22381,6 +23290,153 @@ function scheduleGapScanner(userId) {
     message: `\u{1F319} Sunday gap scanner scheduled for ${targetSunday.toISOString().slice(0, 16)} UTC (${Math.round(msUntilScan / 36e5)}h away)`
   });
 }
+async function runORBAutonomousScan(userId) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const config = state.config;
+  if (config.enableORBAutonomous === false) return;
+  if (!state.orbDailyFired) state.orbDailyFired = {};
+  const nowUTC = /* @__PURE__ */ new Date();
+  const estOffsets = [-4, -5];
+  let estHour = -1, estMin = -1;
+  for (const off of estOffsets) {
+    const h = ((nowUTC.getUTCHours() + off) % 24 + 24) % 24;
+    const m = nowUTC.getUTCMinutes();
+    const totalMins = h * 60 + m;
+    if (totalMins >= 9 * 60 + 30 && totalMins < 14 * 60) {
+      estHour = h;
+      estMin = m;
+      break;
+    }
+  }
+  if (estHour === -1) return;
+  const todayKey = nowUTC.toISOString().slice(0, 10);
+  for (const symbol of config.pairs) {
+    try {
+      if (state.orbDailyFired[symbol] === todayKey) continue;
+      const assetType = marketDataService.detectAssetType(symbol);
+      const m5Result = await marketDataService.fetchMarketData({
+        symbol,
+        assetType,
+        timeframe: "5m",
+        limit: 60
+      });
+      if (!m5Result.bars || m5Result.bars.length < 6) continue;
+      const h1Result = await marketDataService.fetchMarketData({
+        symbol,
+        assetType,
+        timeframe: "1h",
+        limit: 30
+      });
+      const m5Bars = m5Result.bars;
+      const h1Bars = h1Result.bars || [];
+      const currentPrice = m5Bars[m5Bars.length - 1].close;
+      const toBC = (b) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1e3) });
+      const m5BC = [...m5Bars].reverse().map(toBC);
+      const h1BC = [...h1Bars].reverse().map(toBC);
+      let orbHigh = 0, orbLow = 0;
+      for (const off of estOffsets) {
+        const orbCandles = m5BC.filter((c) => {
+          if (!c.t) return false;
+          const d = new Date(c.t * 1e3);
+          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+          const m = d.getUTCMinutes();
+          return h === 9 && m >= 30 && m < 45;
+        });
+        if (orbCandles.length > 0) {
+          orbHigh = Math.max(...orbCandles.map((c) => c.h));
+          orbLow = Math.min(...orbCandles.map((c) => c.l));
+          break;
+        }
+      }
+      if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
+      const orbRange = orbHigh - orbLow;
+      const retestBuffer = orbRange * 0.15;
+      let breakoutDir = null;
+      const todayUTCDate = nowUTC.toISOString().slice(0, 10);
+      const postORBCandles = m5BC.filter((c) => {
+        if (!c.t) return false;
+        const candleDate = new Date(c.t * 1e3).toISOString().slice(0, 10);
+        if (candleDate !== todayUTCDate) return false;
+        for (const off of estOffsets) {
+          const d = new Date(c.t * 1e3);
+          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+          const m = d.getUTCMinutes();
+          const total = h * 60 + m;
+          if (total >= 9 * 60 + 45) return true;
+        }
+        return false;
+      });
+      for (const c of postORBCandles.slice(1)) {
+        const bodyHigh = Math.max(c.o, c.c);
+        const bodyLow = Math.min(c.o, c.c);
+        if (bodyLow > orbHigh) {
+          breakoutDir = "BUY";
+          break;
+        }
+        if (bodyHigh < orbLow) {
+          breakoutDir = "SELL";
+          break;
+        }
+      }
+      if (!breakoutDir) continue;
+      const isRetestLong = breakoutDir === "BUY" && currentPrice >= orbHigh - retestBuffer && currentPrice <= orbHigh + retestBuffer;
+      const isRetestShort = breakoutDir === "SELL" && currentPrice >= orbLow - retestBuffer && currentPrice <= orbLow + retestBuffer;
+      if (!isRetestLong && !isRetestShort) continue;
+      const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
+      const aiScore = scoreResult.percentage;
+      if (aiScore < 70) {
+        addActivity2(userId, {
+          type: "info",
+          symbol,
+          message: `\u{1F4CA} ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 70 \u2014 skipping`
+        });
+        continue;
+      }
+      const direction = breakoutDir;
+      const entry = currentPrice;
+      const slDist = orbRange + orbRange * 0.1;
+      const tp1Dist = slDist * 2;
+      const tp2Dist = slDist * 3;
+      const sl = direction === "BUY" ? orbLow - orbRange * 0.1 : orbHigh + orbRange * 0.1;
+      const tp1 = direction === "BUY" ? entry + tp1Dist : entry - tp1Dist;
+      const tp2 = direction === "BUY" ? entry + tp2Dist : entry - tp2Dist;
+      addActivity2(userId, {
+        type: "signal",
+        symbol,
+        direction,
+        message: `\u{1F680} ORB AUTO SIGNAL [${symbol}]: ${direction} \u2014 retest at ${entry.toFixed(4)} | ORB ${orbLow.toFixed(4)}\u2013${orbHigh.toFixed(4)} | SS AI ${aiScore}/100 | SL ${sl.toFixed(4)} TP1 ${tp1.toFixed(4)}`,
+        confidence: aiScore
+      });
+      state.orbDailyFired[symbol] = todayKey;
+      await processDecision(userId, {
+        action: "OPEN_TRADE",
+        strategy: "orb_breakout",
+        symbol,
+        direction,
+        confidence: aiScore,
+        entryPrice: entry,
+        stopLoss: sl,
+        takeProfit: tp1,
+        takeProfit2: tp2,
+        lotSize: config.baseLotSize,
+        holdTime: "2-4 hours",
+        urgency: "ENTER_NOW",
+        reason: `ORB Autonomous \u2014 ${direction} retest of ${direction === "BUY" ? `ORB High ${orbHigh.toFixed(4)}` : `ORB Low ${orbLow.toFixed(4)}`} | Range ${(orbRange * 1e4).toFixed(0)} pips | SS AI ${aiScore}/100 | ${scoreResult.summary.split("\n")[0]}`,
+        confluences: [
+          `ORB range: ${orbLow.toFixed(4)}\u2013${orbHigh.toFixed(4)}`,
+          `Breakout direction: ${direction}`,
+          `Retest at: ${entry.toFixed(4)}`,
+          `SS AI Bot score: ${aiScore}/100`,
+          ...scoreResult.strategies.filter((s) => s.fired).map((s) => s.name)
+        ]
+      });
+    } catch (err) {
+      addActivity2(userId, { type: "error", symbol, message: `ORB Auto scan error (${symbol}): ${err.message}` });
+    }
+    await new Promise((r) => setTimeout(r, 3e3));
+  }
+}
 async function runSundayGapScanner(userId) {
   const state = engineStates[userId];
   if (!state) return;
@@ -22404,8 +23460,10 @@ async function runSundayGapScanner(userId) {
       const gapSize = Math.abs(sundayOpen - fridayClose);
       const tp1 = direction === "BUY" ? sundayOpen + gapSize * 0.618 : sundayOpen - gapSize * 0.618;
       const tp2 = fridayClose;
-      const slPips = isGold ? 300 : isJPY ? 20 : 2e-3;
-      const sl = direction === "BUY" ? sundayOpen - slPips : sundayOpen + slPips;
+      const pipSz = getPipSize(symbol);
+      const slPipCount = isGold ? 300 : isJPY ? 20 : 20;
+      const slDist = slPipCount * pipSz;
+      const sl = direction === "BUY" ? sundayOpen - slDist : sundayOpen + slDist;
       const confidence2 = Math.min(88, 72 + gapPips * 0.8);
       addActivity2(userId, {
         type: "info",
@@ -22456,6 +23514,8 @@ function startLiveEngine(userId, config) {
     signalsGenerated: 0,
     tradesExecuted: 0,
     tradesFailed: 0,
+    tradesOpenedToday: 0,
+    tradesOpenedTodayDate: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     positionsManaged: 0,
     lastScanAt: null,
     lastSignalAt: null,
@@ -22485,7 +23545,9 @@ function startLiveEngine(userId, config) {
     positionTrailState: {},
     aiResponseCache: {},
     htfBiasCache: {},
-    pairDirectionLock: {}
+    pairDirectionLock: {},
+    compositeLastFiredAt: {},
+    orbDailyFired: {}
   };
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
   const intervalDisplay = fullConfig.adaptiveScanInterval ? `adaptive (${adaptiveInterval / 1e3}s now)` : `${fullConfig.scanIntervalMs / 1e3}s`;
@@ -22503,12 +23565,13 @@ function startLiveEngine(userId, config) {
   });
   (async () => {
     try {
-      const tlConn = await storage.getUserTradelockerConnection(userId);
-      if (tlConn && tlConn.isActive) {
+      const tlConnsWarm = await storage.getUserTradelockerConnections(userId);
+      const activeTLWarm = tlConnsWarm.filter((c) => c.isActive);
+      for (const tlConn of activeTLWarm) {
         const warmResult = await warmTradeLockerConnection(tlConn);
         addActivity2(userId, {
           type: warmResult.success ? "info" : "error",
-          message: warmResult.success ? "TradeLocker pre-warmed \u2014 ready for instant trade execution" : `TradeLocker pre-warm failed: ${warmResult.error}`
+          message: warmResult.success ? `TradeLocker account ${tlConn.accountId} pre-warmed \u2014 ready for instant trade execution` : `TradeLocker pre-warm failed (${tlConn.accountId}): ${warmResult.error}`
         });
       }
     } catch (e) {
@@ -22519,6 +23582,19 @@ function startLiveEngine(userId, config) {
     scanMarkets(userId).then(() => scheduleScan(userId));
   }, 2e3);
   scheduleGapScanner(userId);
+  try {
+    const loadFn = global.loadPersistedBrain;
+    if (typeof loadFn === "function") {
+      const persisted = loadFn(userId);
+      if (persisted) {
+        addActivity2(userId, {
+          type: "info",
+          message: `\u{1F9E0} Brain restored from disk \u2014 ${persisted.totalTradesAnalyzed ?? 0} trades, ${persisted.pairsLearned ?? 0} pairs`
+        });
+      }
+    }
+  } catch (_) {
+  }
   autoRetainBrain(userId);
   if (brainLearningIntervals[userId]) clearInterval(brainLearningIntervals[userId]);
   brainLearningIntervals[userId] = setInterval(() => autoRetainBrain(userId), 30 * 60 * 1e3);
@@ -22727,6 +23803,8 @@ var init_live_trading_engine = __esm({
     init_pipUtils();
     init_smcUtils();
     init_ictMacroUtils();
+    init_markov_chain();
+    init_breakoutEngine();
     mt5AccountQueues = {};
     mt5AccountRegistry = {};
     engineStates = {};
@@ -33491,6 +34569,19 @@ Respond ONLY in valid JSON format with these exact keys:
       }
       const userId = req.user.id;
       const result = await createSubscription(userId, planId);
+      try {
+        const subscribingUser = await storage.getUser(userId);
+        const referrerId = subscribingUser?.referredBy;
+        if (referrerId) {
+          await storage.markReferralSubscribed(userId);
+          await storage.addReferralCredits(referrerId, 200);
+          console.log(`[Referral] Awarded 200 credits to user ${referrerId} \u2014 referred user ${userId} subscribed`);
+          veddTokenService.enqueueReferralReward(referrerId, "referral_subscription", 200).catch(() => {
+          });
+        }
+      } catch (refSubErr) {
+        console.error("[Referral] Subscription credit award failed (non-fatal):", refSubErr);
+      }
       res.json(result);
     } catch (error) {
       console.error("Error creating subscription:", error);
@@ -38472,6 +39563,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               weeklyTarget,
               updatedAt: (/* @__PURE__ */ new Date()).toISOString()
             };
+            const aiPathControl = global.veddAiPathControl?.[token.userId];
+            if (aiPathControl?.enabled && aiPathControl.pairs?.length > 0) {
+              const normalizedSym = sanitizedSymbol.toUpperCase().replace("/", "");
+              const pathPairs = aiPathControl.pairs.map((p) => p.toUpperCase().replace("/", ""));
+              const isOnPath = pathPairs.some(
+                (p) => normalizedSym === p || normalizedSym.includes(p) || p.includes(normalizedSym)
+              );
+              goalLotMultiplier = aiPathControl.lotMultiplier ?? goalLotMultiplier;
+              if (!isOnPath && analysis.signal !== "NEUTRAL") {
+                analysis.signal = "NEUTRAL";
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(
+                  `AI PATH CONTROL \u{1F3AF}: ${normalizedSym} skipped \u2014 not in your active ${aiPathControl.pathType} path. Active pairs: ${aiPathControl.pairs.join(", ")}`
+                );
+              } else if (isOnPath && analysis.signal !== "NEUTRAL") {
+                analysis.alerts = analysis.alerts || [];
+                analysis.alerts.push(
+                  `AI PATH CONTROL \u2705: ${normalizedSym} is on your ${aiPathControl.pathType} path. Lot size \xD7${goalLotMultiplier.toFixed(2)} applied.`
+                );
+              } else if (isOnPath && blockedByPlan && preFilterSignal !== "NEUTRAL") {
+                analysis.signal = preFilterSignal;
+                analysis.alerts = (analysis.alerts || []).filter((a) => !a.includes("Trade blocked") && !a.includes("NOT scheduled"));
+                analysis.alerts.push(
+                  `AI PATH CONTROL \u{1F513}: ${normalizedSym} unlocked \u2014 on your ${aiPathControl.pathType} path. Lot size \xD7${goalLotMultiplier.toFixed(2)}.`
+                );
+              }
+              console.log(`[AI Path Control] ${normalizedSym} | path=${aiPathControl.pathType} | onPath=${isOnPath} | signal=${analysis.signal} | lots\xD7${goalLotMultiplier.toFixed(2)}`);
+            }
           }
         } catch (goalErr) {
           console.error("[VEDD Goal Intelligence] Error:", goalErr);
@@ -39288,14 +40407,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
       }
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {
-        const tlConnection = await storage.getUserTradelockerConnection(token.userId);
+        const tlAllConns = await storage.getUserTradelockerConnections(token.userId);
+        const tlActiveConns = tlAllConns.filter((c) => c.isActive && c.autoExecute);
         console.log(`[KNOWLEDGE] Signal MANIFESTED for ${sanitizedSymbol}:`, {
           signal: analysis.signal,
           confidence: analysis.confidence,
-          hasTradeLocker: !!tlConnection,
-          autoExecute: tlConnection?.autoExecute
+          tradeLockerAccounts: tlActiveConns.length
         });
-        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
+        if (tlActiveConns.length > 0) {
+          const tlConnection = tlActiveConns[0];
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
           global.recentTrades = global.recentTrades || {};
           const now = Date.now();
@@ -39340,83 +40460,85 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
                 tradelockerResult = null;
               } else {
-                console.log("[MT5 Chart Data AutoTrade] Executing trade on TradeLocker:", {
-                  action: "OPEN",
-                  symbol: sanitizedSymbol,
-                  direction: analysis.signal,
-                  volume: tradeVolume,
-                  entry: analysis.tradePlan.entry,
-                  stopLoss: analysis.tradePlan.stopLoss,
-                  takeProfit: analysis.tradePlan.takeProfit
-                });
-                try {
-                  tradelockerResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+                for (const tlConn of tlActiveConns) {
+                  console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
                     action: "OPEN",
                     symbol: sanitizedSymbol,
                     direction: analysis.signal,
-                    volume: tradeVolume,
-                    entryPrice: analysis.tradePlan.entry,
-                    stopLoss: analysis.tradePlan.stopLoss,
-                    takeProfit: analysis.tradePlan.takeProfit
+                    volume: tradeVolume
                   });
-                  await storage.createTradelockerTradeLog({
-                    connectionId: tlConnection.id,
-                    userId: token.userId,
-                    sourceSignalId: null,
-                    action: "OPEN",
-                    symbol: sanitizedSymbol,
-                    direction: analysis.signal,
-                    volume: tradeVolume,
-                    entryPrice: analysis.tradePlan.entry,
-                    stopLoss: analysis.tradePlan.stopLoss,
-                    takeProfit: analysis.tradePlan.takeProfit,
-                    tradelockerOrderId: tradelockerResult.orderId || null,
-                    status: tradelockerResult.success ? "executed" : "failed",
-                    errorMessage: tradelockerResult.error || null
-                  });
-                  if (tradelockerResult.success) {
-                    await storage.updateTradelockerConnection(tlConnection.id, {
-                      tradeCount: tlConnection.tradeCount + 1,
-                      lastConnectedAt: /* @__PURE__ */ new Date(),
-                      lastError: null
+                  try {
+                    const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
+                      action: "OPEN",
+                      symbol: sanitizedSymbol,
+                      direction: analysis.signal,
+                      volume: tradeVolume,
+                      entryPrice: analysis.tradePlan.entry,
+                      stopLoss: analysis.tradePlan.stopLoss,
+                      takeProfit: analysis.tradePlan.takeProfit
                     });
-                    console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TradeLocker! Order: ${tradelockerResult.orderId}. Word is BOND!`);
-                    if (aiConfirmation && aiConfirmation.breakoutGrade) {
-                      try {
-                        await storage.createConfirmationOutcome({
-                          userId: token.userId,
-                          symbol: sanitizedSymbol,
-                          direction: analysis.signal,
-                          tradeSource: "breakout",
-                          confluenceGrade: aiConfirmation?.breakoutGrade || "C",
-                          session: getCurrentTradingSession(),
-                          aiDecision: "CONFIRMED"
-                        });
-                      } catch (e) {
+                    tradelockerResult = connResult;
+                    await storage.createTradelockerTradeLog({
+                      connectionId: tlConn.id,
+                      userId: token.userId,
+                      sourceSignalId: null,
+                      action: "OPEN",
+                      symbol: sanitizedSymbol,
+                      direction: analysis.signal,
+                      volume: tradeVolume,
+                      entryPrice: analysis.tradePlan.entry,
+                      stopLoss: analysis.tradePlan.stopLoss,
+                      takeProfit: analysis.tradePlan.takeProfit,
+                      tradelockerOrderId: connResult.orderId || null,
+                      status: connResult.success ? "executed" : "failed",
+                      errorMessage: connResult.error || null
+                    });
+                    if (connResult.success) {
+                      await storage.updateTradelockerConnection(tlConn.id, {
+                        tradeCount: tlConn.tradeCount + 1,
+                        lastConnectedAt: /* @__PURE__ */ new Date(),
+                        lastError: null
+                      });
+                      console.log(`[BUILD] BORN (9)! Trade MANIFESTED on TL account ${tlConn.accountId}! Order: ${connResult.orderId}.`);
+                      if (tlConn === tlActiveConns[0]) {
+                        if (aiConfirmation && aiConfirmation.breakoutGrade) {
+                          try {
+                            await storage.createConfirmationOutcome({
+                              userId: token.userId,
+                              symbol: sanitizedSymbol,
+                              direction: analysis.signal,
+                              tradeSource: "breakout",
+                              confluenceGrade: aiConfirmation?.breakoutGrade || "C",
+                              session: getCurrentTradingSession(),
+                              aiDecision: "CONFIRMED"
+                            });
+                          } catch (e) {
+                          }
+                        } else if (!aiConfirmation) {
+                          try {
+                            await storage.createConfirmationOutcome({
+                              userId: token.userId,
+                              symbol: sanitizedSymbol,
+                              direction: analysis.signal,
+                              tradeSource: "ea_only",
+                              confluenceGrade: null,
+                              session: getCurrentTradingSession(),
+                              aiDecision: "EA_ONLY"
+                            });
+                          } catch (e) {
+                          }
+                        }
                       }
-                    } else if (!aiConfirmation) {
-                      try {
-                        await storage.createConfirmationOutcome({
-                          userId: token.userId,
-                          symbol: sanitizedSymbol,
-                          direction: analysis.signal,
-                          tradeSource: "ea_only",
-                          confluenceGrade: null,
-                          session: getCurrentTradingSession(),
-                          aiDecision: "EA_ONLY"
-                        });
-                      } catch (e) {
-                      }
+                    } else {
+                      await storage.updateTradelockerConnection(tlConn.id, {
+                        lastError: connResult.error
+                      });
+                      console.log(`[MT5 Chart Data AutoTrade] Trade failed on ${tlConn.accountId}:`, connResult.error);
                     }
-                  } else {
-                    await storage.updateTradelockerConnection(tlConnection.id, {
-                      lastError: tradelockerResult.error
-                    });
-                    console.log("[MT5 Chart Data AutoTrade] Trade failed:", tradelockerResult.error);
+                  } catch (err) {
+                    console.error(`[MT5 Chart Data AutoTrade] Error on account ${tlConn.accountId}:`, err);
+                    tradelockerResult = { success: false, error: err instanceof Error ? err.message : "Unknown error" };
                   }
-                } catch (err) {
-                  console.error("[MT5 Chart Data AutoTrade] Error executing trade:", err);
-                  tradelockerResult = { success: false, error: err instanceof Error ? err.message : "Unknown error" };
                 }
               }
             }
@@ -39771,9 +40893,41 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       return d >= weekStart && (!ticket || !weekDbTickets.has(ticket));
     });
     const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
-    const unrealizedPnL = openPositions.reduce((s, p) => s + (p.profit || 0), 0);
-    const todayClosedProfit = todayDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCache.reduce((s, t) => s + (t.profit || 0), 0);
-    const weekClosedProfit = weekDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + weekCache.reduce((s, t) => s + (t.profit || 0), 0);
+    const mt5UnrealizedPnL = openPositions.reduce((s, p) => s + (p.profit || 0), 0);
+    let tlTodayClosedPnL = 0;
+    let tlWeekClosedPnL = 0;
+    let tlUnrealizedPnL = 0;
+    try {
+      const tlConnections = await storage.getUserTradelockerConnections(userId);
+      const activeTlConns = tlConnections.filter((c) => c.isActive);
+      const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
+      const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
+      for (const conn of activeTlConns) {
+        try {
+          const tlSvc = new TradeLockerService(
+            conn.accountType || "live",
+            conn.accountId,
+            conn.serverId,
+            conn.accNum?.toString()
+          );
+          const positions = await tlSvc.getPositions().catch(() => []);
+          tlUnrealizedPnL += positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          for (const order of filledOrders) {
+            const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
+            if (closeTs >= todayStart.getTime()) tlTodayClosedPnL += order.profit || 0;
+            if (closeTs >= weekStart.getTime()) tlWeekClosedPnL += order.profit || 0;
+          }
+        } catch (connErr) {
+          console.error("[daily-summary] TL conn error:", connErr.message);
+        }
+      }
+    } catch (tlErr) {
+      console.error("[daily-summary] TL fetch error:", tlErr.message);
+    }
+    const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
+    const todayClosedProfit = todayDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCache.reduce((s, t) => s + (t.profit || 0), 0) + tlTodayClosedPnL;
+    const weekClosedProfit = weekDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + weekCache.reduce((s, t) => s + (t.profit || 0), 0) + tlWeekClosedPnL;
     const todayTrades = todayDb.length + todayCache.length;
     const todayWins = todayDb.filter((t) => t.result === "WIN").length + todayCache.filter((t) => (t.profit || 0) > 0).length;
     const weekTrades = weekDb.length + weekCache.length;
@@ -40862,6 +42016,57 @@ Respond with ONLY valid JSON:
       todayWinRate: todayWinRateAll
     });
   });
+  app2.post("/api/goal-pacing/set-ai-path", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pathType, pairs, lotSize, enabled } = req.body;
+    global.veddAiPathControl = global.veddAiPathControl || {};
+    if (!enabled) {
+      global.veddAiPathControl[userId] = { enabled: false };
+      return res.json({ success: true, enabled: false });
+    }
+    let resolvedPathType = pathType || "AUTO";
+    let resolvedPairs = pairs || [];
+    let resolvedLotMult = lotSize || 1;
+    if (resolvedPathType === "AUTO") {
+      const gi = global.veddGoalIntelligence?.[userId];
+      const paceRatio = gi?.paceRatio ?? 1;
+      if (paceRatio >= 1) {
+        resolvedPathType = "SAFE";
+        resolvedLotMult = 0.5;
+      } else if (paceRatio >= 0.6) {
+        resolvedPathType = "MODERATE";
+        resolvedLotMult = 1;
+      } else {
+        resolvedPathType = "AGGRESSIVE";
+        resolvedLotMult = Math.min(1.5, 1 + (1 - paceRatio) * 0.5);
+      }
+    }
+    if (resolvedPairs.length === 0) {
+      const SAFE_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "USDCAD"];
+      const MODERATE_PAIRS = ["EURUSD", "GBPUSD", "XAUUSD", "USDJPY", "NAS100"];
+      const AGGRESSIVE_PAIRS = ["XAUUSD", "US30", "NAS100", "GBPJPY", "EURJPY", "EURUSD", "GBPUSD"];
+      resolvedPairs = resolvedPathType === "SAFE" ? SAFE_PAIRS : resolvedPathType === "MODERATE" ? MODERATE_PAIRS : AGGRESSIVE_PAIRS;
+    }
+    const pathState = {
+      enabled: true,
+      pathType: resolvedPathType,
+      pairs: resolvedPairs,
+      lotMultiplier: resolvedLotMult,
+      activatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      activatedBy: "user"
+    };
+    global.veddAiPathControl[userId] = pathState;
+    console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(",")} lotMult=${resolvedLotMult}`);
+    res.json({ success: true, ...pathState });
+  });
+  app2.get("/api/goal-pacing/ai-path-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const state = global.veddAiPathControl?.[userId];
+    if (!state || !state.enabled) return res.json({ enabled: false });
+    res.json(state);
+  });
   app2.post("/api/goal-pacing/analyze", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -41723,6 +42928,52 @@ Rules:
       res.status(500).json({ error: `Balance fetch failed: ${err instanceof Error ? err.message : "Unknown"}` });
     }
   });
+  app2.get("/api/tradelocker/exec-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const recentLogs = await storage.getTradelockerTradeLogs(userId, 50);
+    const todayStart = /* @__PURE__ */ new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const result = connections.map((c) => {
+      const acctLogs = recentLogs.filter((l) => l.connectionId === c.id);
+      const todayLogs = acctLogs.filter((l) => new Date(l.createdAt) >= todayStart);
+      const lastTrade = acctLogs[0] ?? null;
+      const blockedReasons = [];
+      if (!c.isActive) blockedReasons.push("isActive = false \u2014 toggle ON in TradeLocker settings");
+      if (!c.autoExecute) blockedReasons.push("autoExecute = false \u2014 enable Auto-Execute in TradeLocker settings");
+      if (c.lastError) blockedReasons.push(`Last error: ${c.lastError}`);
+      return {
+        id: c.id,
+        accountId: c.accountId,
+        accountType: c.accountType,
+        isActive: c.isActive,
+        autoExecute: c.autoExecute,
+        lotMultiplier: c.lotMultiplier,
+        inActiveTlConns: c.isActive && c.autoExecute,
+        blockedReasons,
+        todayTrades: todayLogs.length,
+        todayExecuted: todayLogs.filter((l) => l.status === "executed").length,
+        todayFailed: todayLogs.filter((l) => l.status === "failed").length,
+        lastTrade: lastTrade ? {
+          symbol: lastTrade.symbol,
+          direction: lastTrade.direction,
+          status: lastTrade.status,
+          error: lastTrade.errorMessage,
+          time: lastTrade.createdAt,
+          volume: lastTrade.volume
+        } : null,
+        lastError: c.lastError,
+        lastConnectedAt: c.lastConnectedAt
+      };
+    });
+    res.json({
+      accounts: result,
+      activeForAutoExec: result.filter((r) => r.inActiveTlConns).length,
+      totalAccounts: result.length,
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  });
   app2.get("/api/tradelocker/connections", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -41794,8 +43045,15 @@ Rules:
     if (!connection2 || connection2.userId !== userId) {
       return res.status(404).json({ error: "No connection found" });
     }
-    const { isActive, autoExecute } = req.body;
-    const updated = await storage.updateTradelockerConnection(connId, { isActive, autoExecute });
+    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const updateDataById = {};
+    if (isActive !== void 0) updateDataById.isActive = isActive;
+    if (autoExecute !== void 0) updateDataById.autoExecute = autoExecute;
+    if (lotMultiplier !== void 0) {
+      const mult = parseFloat(lotMultiplier);
+      if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
+    }
+    const updated = await storage.updateTradelockerConnection(connId, updateDataById);
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
@@ -41811,8 +43069,15 @@ Rules:
     if (!connection2) {
       return res.status(404).json({ error: "No connection found" });
     }
-    const { isActive, autoExecute } = req.body;
-    const updated = await storage.updateTradelockerConnection(connection2.id, { isActive, autoExecute });
+    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const updateDataLegacy = {};
+    if (isActive !== void 0) updateDataLegacy.isActive = isActive;
+    if (autoExecute !== void 0) updateDataLegacy.autoExecute = autoExecute;
+    if (lotMultiplier !== void 0) {
+      const mult = parseFloat(lotMultiplier);
+      if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataLegacy.lotMultiplier = mult;
+    }
+    const updated = await storage.updateTradelockerConnection(connection2.id, updateDataLegacy);
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
@@ -42520,10 +43785,28 @@ Format each recommendation as a clear, concise action item.`;
       }
     }
     global.veddAIBrain[userId] = brain;
+    try {
+      const brainDir = path4.join(process.cwd(), "data", "brains");
+      if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
+      fs4.writeFileSync(path4.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+    } catch (_brainSaveErr) {
+    }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
     return brain;
   }
   global.runBrainLearning = runBrainLearning;
+  global.loadPersistedBrain = (userId) => {
+    try {
+      const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs4.existsSync(p)) return null;
+      const brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+      global.veddAIBrain = global.veddAIBrain || {};
+      global.veddAIBrain[userId] = brain;
+      return brain;
+    } catch (_) {
+      return null;
+    }
+  };
   app2.post("/api/vedd-brain/learn", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -42538,14 +43821,36 @@ Format each recommendation as a clear, concise action item.`;
   app2.get("/api/vedd-brain/status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const brain = global.veddAIBrain?.[userId];
+    let brain = global.veddAIBrain?.[userId];
+    if (!brain) {
+      try {
+        const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs4.existsSync(p)) {
+          brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+          global.veddAIBrain = global.veddAIBrain || {};
+          global.veddAIBrain[userId] = brain;
+        }
+      } catch (_) {
+      }
+    }
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
     res.json({ learned: true, ...brain });
   });
   app2.get("/api/vedd-live-engine/brain-status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const brain = global.veddAIBrain?.[userId];
+    let brain = global.veddAIBrain?.[userId];
+    if (!brain) {
+      try {
+        const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs4.existsSync(p)) {
+          brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+          global.veddAIBrain = global.veddAIBrain || {};
+          global.veddAIBrain[userId] = brain;
+        }
+      } catch (_) {
+      }
+    }
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
     res.json({ learned: true, ...brain });
   });
@@ -42673,26 +43978,32 @@ Respond with ONLY valid JSON:
       }
       const executionResults = [];
       if (autoExecute && signals.signals && signals.signals.length > 0) {
-        const tlConnection = await storage.getUserTradelockerConnection(userId);
-        if (tlConnection && tlConnection.isActive && tlConnection.autoExecute) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on TradeLocker for user ${userId}`);
+        const tlConnections = await storage.getUserTradelockerConnections(userId);
+        const activeTlConns = tlConnections.filter((c) => c.isActive && c.autoExecute);
+        for (const c of tlConnections) {
+          if (!c.isActive || !c.autoExecute) {
+            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) \u2014 isActive=${c.isActive} autoExecute=${c.autoExecute}`);
+          }
+        }
+        if (activeTlConns.length > 0) {
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}: ${activeTlConns.map((c) => c.accountId).join(", ")}`);
+          const parseNum = (v) => {
+            if (typeof v === "number") return v;
+            if (typeof v === "string") {
+              const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
+              return isNaN(n) ? void 0 : n;
+            }
+            return void 0;
+          };
           for (let sigIdx = 0; sigIdx < signals.signals.length; sigIdx++) {
             const sig = signals.signals[sigIdx];
             if (!sig.symbol || !sig.direction) continue;
             const sigId = `${sig.symbol}_${sig.direction}_${sigIdx}`;
             const confidence2 = typeof sig.confidence === "number" ? sig.confidence : parseFloat(sig.confidence) || 0;
-            const parseNum = (v) => {
-              if (typeof v === "number") return v;
-              if (typeof v === "string") {
-                const n = parseFloat(v.replace(/[^0-9.\-]/g, ""));
-                return isNaN(n) ? void 0 : n;
-              }
-              return void 0;
-            };
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
-            const lotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1));
+            const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1));
             const brainGuard = tlSignalGuard({
               confidence: confidence2,
               entryPrice: entryPrice ?? null,
@@ -42700,7 +44011,8 @@ Respond with ONLY valid JSON:
               takeProfit: takeProfit ?? null,
               symbol: sig.symbol,
               direction: sig.direction,
-              minConfidence: 70,
+              minConfidence: 75,
+              // raised from 70 → 75 to reduce bad trades
               requireSLTP: true
             });
             if (!brainGuard.allow) {
@@ -42708,68 +44020,83 @@ Respond with ONLY valid JSON:
               executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: brainGuard.reason });
               continue;
             }
+            let signalLogId = null;
             try {
               const signalLog = await storage.createMt5SignalLog({
                 userId,
                 symbol: sig.symbol,
                 direction: sig.direction,
                 action: "OPEN",
-                volume: lotSize,
+                volume: baseLotSize,
                 entryPrice: entryPrice || null,
                 stopLoss: stopLoss || null,
                 takeProfit: takeProfit || null,
                 confidence: confidence2,
                 source: "vedd_brain_autonomous"
               });
-              const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
-                action: "OPEN",
-                symbol: sig.symbol,
-                direction: sig.direction,
-                volume: lotSize,
-                entryPrice,
-                stopLoss,
-                takeProfit
-              });
-              await storage.createTradelockerTradeLog({
-                connectionId: tlConnection.id,
-                userId,
-                sourceSignalId: signalLog.id,
-                action: "OPEN",
-                symbol: sig.symbol,
-                direction: sig.direction,
-                volume: lotSize,
-                entryPrice,
-                stopLoss,
-                takeProfit,
-                tradelockerOrderId: tradeResult.orderId || null,
-                status: tradeResult.success ? "executed" : "failed",
-                errorMessage: tradeResult.error || null
-              });
-              if (tradeResult.success) {
-                await storage.updateTradelockerConnection(tlConnection.id, {
-                  tradeCount: tlConnection.tradeCount + 1,
-                  lastConnectedAt: /* @__PURE__ */ new Date(),
-                  lastError: null
+              signalLogId = signalLog.id;
+            } catch (logErr) {
+            }
+            for (const tlConnection of activeTlConns) {
+              const accountLotSize = Math.max(0.01, Math.min(baseLotSize * (tlConnection.lotMultiplier || 1), 5));
+              console.log(`[VEDD Brain AutoExec] \u2192 Account ${tlConnection.accountId} (id=${tlConnection.id}) | lot=${accountLotSize} (base=${baseLotSize} \xD7 mult=${tlConnection.lotMultiplier || 1})`);
+              try {
+                const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
+                  action: "OPEN",
+                  symbol: sig.symbol,
+                  direction: sig.direction,
+                  volume: accountLotSize,
+                  entryPrice,
+                  stopLoss,
+                  takeProfit
                 });
-                console.log(`[VEDD Brain AutoExec] EXECUTED ${sig.direction} ${sig.symbol} @ lot ${sig.lotSize || 0.01} | Order: ${tradeResult.orderId}`);
+                await storage.createTradelockerTradeLog({
+                  connectionId: tlConnection.id,
+                  userId,
+                  sourceSignalId: signalLogId,
+                  action: "OPEN",
+                  symbol: sig.symbol,
+                  direction: sig.direction,
+                  volume: accountLotSize,
+                  entryPrice,
+                  stopLoss,
+                  takeProfit,
+                  tradelockerOrderId: tradeResult.orderId || null,
+                  status: tradeResult.success ? "executed" : "failed",
+                  errorMessage: tradeResult.error || null
+                });
+                if (tradeResult.success) {
+                  await storage.updateTradelockerConnection(tlConnection.id, {
+                    tradeCount: tlConnection.tradeCount + 1,
+                    lastConnectedAt: /* @__PURE__ */ new Date(),
+                    lastError: null
+                  });
+                  console.log(`[VEDD Brain AutoExec] \u2705 EXECUTED ${sig.direction} ${sig.symbol} on ${tlConnection.accountId} @ lot ${accountLotSize} | Order: ${tradeResult.orderId}`);
+                } else {
+                  await storage.updateTradelockerConnection(tlConnection.id, { lastError: tradeResult.error });
+                  console.log(`[VEDD Brain AutoExec] \u274C FAILED ${sig.symbol} on ${tlConnection.accountId}: ${tradeResult.error}`);
+                }
+                executionResults.push({
+                  sigId,
+                  symbol: sig.symbol,
+                  direction: sig.direction,
+                  accountId: tlConnection.accountId,
+                  status: tradeResult.success ? "executed" : "failed",
+                  orderId: tradeResult.orderId || null,
+                  error: tradeResult.error || null,
+                  lotSize: accountLotSize
+                });
+              } catch (execErr) {
+                console.error(`[VEDD Brain AutoExec] Error on account ${tlConnection.accountId}:`, execErr.message);
+                executionResults.push({
+                  sigId,
+                  symbol: sig.symbol,
+                  direction: sig.direction,
+                  accountId: tlConnection.accountId,
+                  status: "error",
+                  error: execErr.message
+                });
               }
-              executionResults.push({
-                sigId,
-                symbol: sig.symbol,
-                direction: sig.direction,
-                status: tradeResult.success ? "executed" : "failed",
-                orderId: tradeResult.orderId || null,
-                error: tradeResult.error || null
-              });
-            } catch (execErr) {
-              console.error(`[VEDD Brain AutoExec] Error executing ${sig.symbol}:`, execErr.message);
-              executionResults.push({
-                sigId,
-                symbol: sig.symbol,
-                direction: sig.direction,
-                status: "error",
-                error: execErr.message
-              });
             }
           }
           triggerWebhooks(userId, "vedd_brain_signals", {
@@ -42779,7 +44106,7 @@ Respond with ONLY valid JSON:
             executionResults
           }).catch((err) => console.error("Webhook trigger error:", err));
         } else {
-          console.log(`[VEDD Brain AutoExec] No active TradeLocker connection with autoExecute for user ${userId}`);
+          console.log(`[VEDD Brain AutoExec] No active TradeLocker connections with autoExecute for user ${userId}`);
           executionResults.push({ status: "skipped", reason: "No active TradeLocker connection with auto-execute enabled" });
         }
       }
@@ -43097,7 +44424,7 @@ Respond with ONLY valid JSON:
   app2.post("/api/vedd-live-engine/start", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, aiMode, breakevenBufferPips } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous } = req.body;
     try {
       const state = startLiveEngine2(userId, {
         pairs: pairs || void 0,
@@ -43121,8 +44448,24 @@ Respond with ONLY valid JSON:
         useKellyCriterion: useKellyCriterion !== void 0 ? Boolean(useKellyCriterion) : void 0,
         drawdownShieldThreshold: drawdownShieldThreshold !== void 0 ? Number(drawdownShieldThreshold) : void 0,
         dailyLossLimit: dailyLossLimit !== void 0 ? Number(dailyLossLimit) : void 0,
+        maxDailyTrades: maxDailyTrades !== void 0 ? Math.max(0, Number(maxDailyTrades)) : void 0,
         aiMode: ["full", "economy", "rule_based"].includes(aiMode) ? aiMode : void 0,
-        breakevenBufferPips: breakevenBufferPips !== void 0 ? Math.min(20, Math.max(0, Number(breakevenBufferPips))) : void 0
+        breakevenBufferPips: breakevenBufferPips !== void 0 ? Math.min(20, Math.max(0, Number(breakevenBufferPips))) : void 0,
+        directionFilter: ["buy_only", "sell_only", "both"].includes(directionFilter) ? directionFilter : void 0,
+        pairDirectionOverrides: pairDirectionOverrides && typeof pairDirectionOverrides === "object" ? Object.fromEntries(
+          Object.entries(pairDirectionOverrides).filter(([, v]) => ["buy_only", "sell_only", "both"].includes(v))
+        ) : void 0,
+        trailMethod: ["staged_volume", "chandelier", "r_multiple", "swing_structure", "parabolic_sar", "none", "fixed_pip", "profit_lock", "stepped_fixed"].includes(trailMethod) ? trailMethod : void 0,
+        trailFixedPips: trailFixedPips !== void 0 ? Number(trailFixedPips) : void 0,
+        trailStepPips: trailStepPips !== void 0 ? Number(trailStepPips) : void 0,
+        trailProfitLockPct: trailProfitLockPct !== void 0 ? Math.min(100, Math.max(0, Number(trailProfitLockPct))) : void 0,
+        trailActivationPips: trailActivationPips !== void 0 ? Number(trailActivationPips) : void 0,
+        trailSarInitialAF: trailSarInitialAF !== void 0 ? Number(trailSarInitialAF) : void 0,
+        trailSarMaxAF: trailSarMaxAF !== void 0 ? Number(trailSarMaxAF) : void 0,
+        brainLearningMode: brainLearningMode !== void 0 ? Boolean(brainLearningMode) : void 0,
+        enableORBAutonomous: enableORBAutonomous !== void 0 ? Boolean(enableORBAutonomous) : void 0,
+        enableCompositeAutonomous: enableCompositeAutonomous !== void 0 ? Boolean(enableCompositeAutonomous) : void 0,
+        compositeMinEdgeScore: compositeMinEdgeScore !== void 0 ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : void 0
       });
       res.json({ success: true, state });
     } catch (err) {
@@ -43154,7 +44497,13 @@ Respond with ONLY valid JSON:
     const userId = req.user.id;
     const state = getLiveEngineState2(userId);
     if (!state) return res.json({ status: "stopped", message: "Live engine not started" });
-    res.json(state);
+    const gt = state.goalTracker;
+    const weeklyProgress = gt ? {
+      currentProfit: gt.currentProfit ?? 0,
+      targetProfit: gt.weeklyTarget ?? 0,
+      progressPct: gt.progressPercent ?? (gt.weeklyTarget > 0 ? Math.round(gt.currentProfit / gt.weeklyTarget * 100) : 0)
+    } : void 0;
+    res.json({ ...state, weeklyProgress });
   });
   app2.get("/api/vedd-live-engine/activity", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -43169,6 +44518,137 @@ Respond with ONLY valid JSON:
     const state = updateLiveEngineConfig2(userId, req.body);
     if (!state) return res.status(400).json({ error: "Engine not running" });
     res.json({ success: true, state });
+  });
+  app2.get("/api/markov/overview", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getAllCachedSymbols: getAllCachedSymbols2, getCachedMatrix: getCachedMatrix3, classifyCandle: classifyCandle3 } = await Promise.resolve().then(() => (init_markov_chain(), markov_chain_exports));
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const userId = req.user.id;
+      const engineState = getLiveEngineState3(userId);
+      const symbols = getAllCachedSymbols2();
+      const overview = symbols.map((symbol) => {
+        const tm = getCachedMatrix3(symbol);
+        const snap = engineState?.marketSnapshot?.[symbol];
+        const lastCC = snap?.lastConfirmedCandle ?? null;
+        const currentState = lastCC ? classifyCandle3(lastCC.open, lastCC.close) : "NEUTRAL";
+        const row = tm?.matrix?.[currentState] ?? {};
+        const bullP = (row["STRONG_BULL"] ?? 0) + (row["BULL"] ?? 0);
+        const bearP = (row["STRONG_BEAR"] ?? 0) + (row["BEAR"] ?? 0);
+        const neutP = row["NEUTRAL"] ?? 0;
+        return {
+          symbol,
+          currentState,
+          bullishProbability: Math.round(bullP * 100),
+          bearishProbability: Math.round(bearP * 100),
+          neutralProbability: Math.round(neutP * 100),
+          candleCount: tm?.candleCount ?? 0,
+          computedAt: tm?.computedAt ?? null,
+          currentPrice: snap?.price ?? null,
+          trend: snap?.trend ?? "NEUTRAL"
+        };
+      });
+      res.json({ overview, count: overview.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/markov/symbol/:symbol", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const symbol = req.params.symbol.toUpperCase();
+      const { getCachedMatrix: getCachedMatrix3, classifyCandle: classifyCandle3, MARKOV_STATES: MARKOV_STATES2 } = await Promise.resolve().then(() => (init_markov_chain(), markov_chain_exports));
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const userId = req.user.id;
+      const engineState = getLiveEngineState3(userId);
+      const tm = getCachedMatrix3(symbol);
+      if (!tm) return res.status(404).json({ error: `No Markov data for ${symbol} \u2014 engine must be running and have scanned this symbol` });
+      const snap = engineState?.marketSnapshot?.[symbol];
+      const lastCC = snap?.lastConfirmedCandle ?? null;
+      const currentState = lastCC ? classifyCandle3(lastCC.open, lastCC.close) : "NEUTRAL";
+      const displayMatrix = {};
+      for (const from of MARKOV_STATES2) {
+        displayMatrix[from] = {};
+        for (const to of MARKOV_STATES2) {
+          displayMatrix[from][to] = Math.round((tm.matrix[from][to] ?? 0) * 100);
+        }
+      }
+      const row = tm.matrix[currentState];
+      const bullP = (row["STRONG_BULL"] ?? 0) + (row["BULL"] ?? 0);
+      const bearP = (row["STRONG_BEAR"] ?? 0) + (row["BEAR"] ?? 0);
+      res.json({
+        symbol,
+        currentState,
+        bullishProbability: Math.round(bullP * 100),
+        bearishProbability: Math.round(bearP * 100),
+        neutralProbability: Math.round((row["NEUTRAL"] ?? 0) * 100),
+        nextStateProbabilities: Object.fromEntries(
+          Object.entries(row).map(([k, v]) => [k, Math.round(v * 100)])
+        ),
+        matrix: displayMatrix,
+        counts: tm.counts,
+        candleCount: tm.candleCount,
+        totalTransitions: tm.totalTransitions,
+        computedAt: tm.computedAt,
+        currentPrice: snap?.price ?? null,
+        trend: snap?.trend ?? "NEUTRAL"
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/composite-edge/:symbol", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const symbol = req.params.symbol.toUpperCase();
+      const direction = (req.query.direction || "BUY").toUpperCase();
+      if (direction !== "BUY" && direction !== "SELL") {
+        return res.status(400).json({ error: "direction must be BUY or SELL" });
+      }
+      const { getCompositeEdgeSignal: getCompositeEdgeSignal2 } = await Promise.resolve().then(() => (init_composite_signal(), composite_signal_exports));
+      const { getCachedMatrix: getCachedMatrix3, classifyCandle: classifyCandle3 } = await Promise.resolve().then(() => (init_markov_chain(), markov_chain_exports));
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const userId = req.user.id;
+      const engineState = getLiveEngineState3(userId);
+      const snap = engineState?.marketSnapshot?.[symbol];
+      const lastCC = snap?.lastConfirmedCandle ?? null;
+      const candles = lastCC ? [lastCC] : [];
+      const composite = await getCompositeEdgeSignal2(symbol, direction, candles);
+      const tm = getCachedMatrix3(symbol);
+      const currentState = lastCC ? classifyCandle3(lastCC.open, lastCC.close) : "NEUTRAL";
+      res.json({
+        symbol,
+        direction,
+        ...composite,
+        currentPrice: snap?.price ?? null,
+        trend: snap?.trend ?? "NEUTRAL",
+        currentState,
+        matrixAvailable: tm !== null,
+        candleCount: tm?.candleCount ?? 0
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/polymarket/btc", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPolymarketBTCSentiment: getPolymarketBTCSentiment2 } = await Promise.resolve().then(() => (init_polymarket(), polymarket_exports));
+      const forceRefresh = req.query.refresh === "true";
+      const sentiment = await getPolymarketBTCSentiment2(void 0, forceRefresh);
+      res.json(sentiment);
+    } catch (err) {
+      res.json({
+        overallBullishScore: 50,
+        sentimentLabel: "Neutral",
+        markets: [],
+        confidenceAdjustment: 0,
+        reason: `Polymarket unavailable: ${err.message}`,
+        fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        fromCache: false,
+        error: err.message
+      });
+    }
   });
   app2.get("/api/ss-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -48789,6 +50269,122 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       broker: found.broker
     });
   });
+  app2.get("/api/orb/tl-live/:symbol", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = req.user.id;
+    const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
+    try {
+      let toEST2 = function(ts, offsetHours) {
+        const d = new Date(ts * 1e3);
+        const localH = ((d.getUTCHours() + offsetHours) % 24 + 24) % 24;
+        return { h: localH, m: d.getUTCMinutes() };
+      };
+      var toEST = toEST2;
+      const tlConn = await storage.getUserTradelockerConnection(userId);
+      if (!tlConn?.isActive) {
+        return res.status(404).json({
+          error: "No active TradeLocker connection",
+          hint: "Connect your TradeLocker account via Settings \u2192 Broker Connections"
+        });
+      }
+      const { TradeLockerService: TradeLockerService2, decryptPassword: decryptPassword3 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const password = decryptPassword3(tlConn.encryptedPassword);
+      const service = new TradeLockerService2(
+        tlConn.accountType,
+        tlConn.accountId,
+        tlConn.serverId,
+        tlConn.accNum
+      );
+      await service.authenticate(tlConn.email, password);
+      const now = Math.floor(Date.now() / 1e3);
+      const candles = await service.getCandlesticks(rawSymbol, 5, now - 86400, now);
+      if (!candles.length) {
+        return res.status(404).json({
+          error: `No TradeLocker data for ${rawSymbol}`,
+          hint: "Ensure this symbol is available in your TradeLocker account"
+        });
+      }
+      const currentPrice = candles[candles.length - 1]?.c || 0;
+      const nowMs = Date.now();
+      const todayUTCStart = Math.floor(nowMs / 864e5) * 86400;
+      const todayCandles = candles.filter((c) => (c.t || 0) >= todayUTCStart);
+      const estOffsets = [-5, -4];
+      let orbHigh = 0, orbLow = 0, foundOrbCandle = false;
+      let orbCandle = null;
+      for (const off of estOffsets) {
+        orbCandle = todayCandles.find((c) => {
+          const { h, m } = toEST2(c.t || 0, off);
+          return h === 9 && m === 30;
+        });
+        if (orbCandle) {
+          orbHigh = orbCandle.h || 0;
+          orbLow = orbCandle.l || 0;
+          foundOrbCandle = true;
+          break;
+        }
+      }
+      if (!foundOrbCandle && todayCandles.length > 0) {
+        orbCandle = todayCandles[0];
+        orbHigh = orbCandle.h || 0;
+        orbLow = orbCandle.l || 0;
+      }
+      let preMarketBias = "neutral";
+      let preMarketDetail = "";
+      for (const off of estOffsets) {
+        const pmC = todayCandles.filter((c) => {
+          const { h } = toEST2(c.t || 0, off);
+          return h >= 4 && h < 9;
+        });
+        if (pmC.length >= 2) {
+          const firstOpen = pmC[0].o || 0;
+          const lastClose = pmC[pmC.length - 1].c || 0;
+          if (firstOpen > 0 && lastClose > 0) {
+            const chg = (lastClose - firstOpen) / firstOpen * 100;
+            if (chg > 0.15) {
+              preMarketBias = "bullish";
+              preMarketDetail = `+${chg.toFixed(2)}% pre-market drift`;
+            } else if (chg < -0.15) {
+              preMarketBias = "bearish";
+              preMarketDetail = `${chg.toFixed(2)}% pre-market drift`;
+            } else {
+              preMarketDetail = `${chg.toFixed(2)}% \u2014 flat pre-market`;
+            }
+            break;
+          }
+        }
+      }
+      const estNow = toEST2(Math.floor(Date.now() / 1e3), -5);
+      let orbPhase = "RANGE_SET";
+      if (estNow.h < 9 || estNow.h === 9 && estNow.m < 30) orbPhase = "PRE_MARKET";
+      else if (estNow.h === 9 && estNow.m < 45) orbPhase = "BUILDING";
+      else if (estNow.h >= 14) orbPhase = "WINDOW_CLOSED";
+      else if (orbHigh > 0 && currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
+      else if (orbLow > 0 && currentPrice < orbLow * 0.999) orbPhase = "BREAKOUT_SHORT";
+      const range = orbHigh - orbLow;
+      const rangePct = currentPrice > 0 ? range / currentPrice * 100 : 0;
+      return res.json({
+        symbol: rawSymbol,
+        source: "tradelocker",
+        timeframe: "M5",
+        currentPrice,
+        orbHigh: orbHigh || null,
+        orbLow: orbLow || null,
+        orbRange: range,
+        orbRangePct: rangePct,
+        orbPhase,
+        foundOrbCandle,
+        preMarketBias,
+        preMarketDetail,
+        lastUpdated: (/* @__PURE__ */ new Date()).toISOString(),
+        candleCount: candles.length,
+        todayCandleCount: todayCandles.length
+      });
+    } catch (err) {
+      const msg = err?.message || "Unknown error";
+      console.error(`[ORB TL] Error for ${rawSymbol}:`, msg);
+      return res.status(500).json({ error: msg });
+    }
+  });
   app2.post("/api/orb/fire-webhook", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
@@ -49251,6 +50847,105 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(status).json({ error: err.message });
     }
   });
+  const MICRO_TIERS = [
+    { tier: 1, minBalance: 25, maxBalance: 49, lotSize: 0.01, maxTrades: 1, pipTargetMin: 3, pipTargetMax: 5, slPips: 5, sessionDurationMin: 3 },
+    { tier: 2, minBalance: 50, maxBalance: 99, lotSize: 0.01, maxTrades: 2, pipTargetMin: 4, pipTargetMax: 6, slPips: 6, sessionDurationMin: 4 },
+    { tier: 3, minBalance: 100, maxBalance: 149, lotSize: 0.02, maxTrades: 3, pipTargetMin: 5, pipTargetMax: 8, slPips: 7, sessionDurationMin: 5 },
+    { tier: 4, minBalance: 150, maxBalance: 249, lotSize: 0.03, maxTrades: 4, pipTargetMin: 6, pipTargetMax: 10, slPips: 8, sessionDurationMin: 6 },
+    { tier: 5, minBalance: 250, maxBalance: 349, lotSize: 0.05, maxTrades: 5, pipTargetMin: 8, pipTargetMax: 12, slPips: 10, sessionDurationMin: 7 },
+    { tier: 6, minBalance: 350, maxBalance: 499, lotSize: 0.07, maxTrades: 6, pipTargetMin: 10, pipTargetMax: 13, slPips: 12, sessionDurationMin: 8 },
+    { tier: 7, minBalance: 500, maxBalance: Infinity, lotSize: 0.1, maxTrades: 7, pipTargetMin: 12, pipTargetMax: 15, slPips: 14, sessionDurationMin: 10 }
+  ];
+  function getMicroTier(balance) {
+    return MICRO_TIERS.find((t) => balance >= t.minBalance && balance <= t.maxBalance) ?? MICRO_TIERS[MICRO_TIERS.length - 1];
+  }
+  if (!global.microGrowthSessions) global.microGrowthSessions = {};
+  if (!global.microGrowthHistory) global.microGrowthHistory = {};
+  app2.get("/api/micro-growth/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const rawBalance = parseFloat(req.query.balance);
+    const balance = isNaN(rawBalance) ? 25 : rawBalance;
+    const tierDef = getMicroTier(balance);
+    const nextTierDef = MICRO_TIERS.find((t) => t.minBalance > tierDef.minBalance);
+    const nextTierBalance = nextTierDef ? nextTierDef.minBalance : null;
+    const progressPct = nextTierBalance ? Math.min(100, Math.round((balance - tierDef.minBalance) / (nextTierBalance - tierDef.minBalance) * 100)) : 100;
+    const history = global.microGrowthHistory[userId] ?? [];
+    const todayStr = (/* @__PURE__ */ new Date()).toDateString();
+    const todayPnl = history.filter((s) => new Date(s.startedAt).toDateString() === todayStr).reduce((acc, s) => acc + (s.pnl ?? 0), 0);
+    const totalPnl = history.reduce((acc, s) => acc + (s.pnl ?? 0), 0);
+    const sessionCount = history.length;
+    res.json({
+      tier: tierDef.tier,
+      balance,
+      lotSize: tierDef.lotSize,
+      maxTrades: tierDef.maxTrades,
+      pipTarget: `${tierDef.pipTargetMin}\u2013${tierDef.pipTargetMax}`,
+      slPips: tierDef.slPips,
+      sessionDuration: tierDef.sessionDurationMin,
+      todayPnl,
+      totalPnl,
+      sessionCount,
+      nextTierBalance,
+      progressPct
+    });
+  });
+  app2.post("/api/micro-growth/start-session", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const { balance, pairs } = req.body;
+    const bal = typeof balance === "number" ? balance : 25;
+    const tierDef = getMicroTier(bal);
+    const midPipTarget = Math.round((tierDef.pipTargetMin + tierDef.pipTargetMax) / 2);
+    const session3 = {
+      id: `${userId}_${Date.now()}`,
+      userId,
+      startedAt: /* @__PURE__ */ new Date(),
+      durationMs: tierDef.sessionDurationMin * 6e4,
+      tier: tierDef.tier,
+      lotSize: tierDef.lotSize,
+      maxTrades: tierDef.maxTrades,
+      pipTarget: midPipTarget,
+      slPips: tierDef.slPips,
+      pairs: pairs ?? ["EURUSD", "XAUUSD"],
+      status: "active",
+      tradesCount: 0,
+      pipsGained: 0,
+      pnl: 0
+    };
+    global.microGrowthSessions[userId] = session3;
+    res.json({ sessionId: session3.id, session: session3 });
+  });
+  app2.get("/api/micro-growth/sessions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const history = global.microGrowthHistory[userId] ?? [];
+    res.json(history.slice(-20).reverse());
+  });
+  app2.post("/api/micro-growth/log-session", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const { sessionId, pipsGained, tradesCount, pnl, pairs } = req.body;
+    const activeSession = global.microGrowthSessions[userId];
+    if (!activeSession || activeSession.id !== sessionId) {
+      return res.status(404).json({ message: "Session not found or already completed" });
+    }
+    const completed = {
+      ...activeSession,
+      pipsGained: pipsGained ?? 0,
+      tradesCount: tradesCount ?? 0,
+      pnl: pnl ?? 0,
+      pairs: pairs ?? activeSession.pairs,
+      status: "completed",
+      completedAt: /* @__PURE__ */ new Date()
+    };
+    if (!global.microGrowthHistory[userId]) global.microGrowthHistory[userId] = [];
+    const userHistory = global.microGrowthHistory[userId];
+    userHistory.push(completed);
+    if (userHistory.length > 50) userHistory.splice(0, userHistory.length - 50);
+    delete global.microGrowthSessions[userId];
+    res.json({ success: true, session: completed });
+  });
   const httpServer2 = existingServer || createServer(app2);
   streamingService.initialize(httpServer2);
   return httpServer2;
@@ -49401,6 +51096,7 @@ import path7 from "path";
 
 // server/auth.ts
 init_storage();
+init_vedd_token_service();
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import session2 from "express-session";
@@ -49487,6 +51183,10 @@ function setupAuth(app2) {
             await storage.updateUser(user.id, { referredBy: referrer.id });
             await storage.recordReferral(referrer.id, user.id);
             await storage.markReferralSignup(refCode, user.id);
+            await storage.addReferralCredits(referrer.id, 50);
+            console.log(`[Referral] Awarded 50 credits to user ${referrer.id} for signup referral`);
+            veddTokenService.enqueueReferralReward(referrer.id, "referral_signup", 50).catch(() => {
+            });
           }
         } catch (refErr) {
           console.error("[auth] Referral tracking error (non-fatal):", refErr);
@@ -50332,7 +52032,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         // AI Vision Confirmation persistence — default TRUE so all users get 2nd-confirmation AI out of the box
         `ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_vision_enabled boolean DEFAULT true`,
         // Multi-TradeLocker: drop the unique constraint so multiple accounts per user are allowed
-        `ALTER TABLE tradelocker_connections DROP CONSTRAINT IF EXISTS tradelocker_connections_user_id_unique`
+        `ALTER TABLE tradelocker_connections DROP CONSTRAINT IF EXISTS tradelocker_connections_user_id_unique`,
+        // Per-account lot multiplier — allows different lot sizes per TradeLocker account
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS lot_multiplier double precision NOT NULL DEFAULT 1.0`
       ];
       for (const m of migrations) {
         await db.execute(sql8.raw(m));
