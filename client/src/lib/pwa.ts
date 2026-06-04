@@ -8,25 +8,50 @@ let deferredPrompt: BeforeInstallPromptEvent | null = null;
 export const registerServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
   if ('serviceWorker' in navigator) {
     try {
+      // updateViaCache: 'none' — browser must ALWAYS re-fetch sw.js from the
+      // network, bypassing its own HTTP cache. This is the critical flag that
+      // makes cache-busting work on mobile. Without it, browsers can serve a
+      // stale sw.js even when the server sends no-cache headers.
       const registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/'
+        scope: '/',
+        updateViaCache: 'none',
       });
-      
+
       console.log('Service Worker registered successfully:', registration.scope);
-      
+
+      // When a new SW is found and finishes installing, reload the page so
+      // users get the latest build immediately. skipWaiting() in sw.js fires
+      // on install, then 'controllerchange' fires here — one reload, no loop.
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!reloading) {
+          reloading = true;
+          console.log('New Service Worker activated — reloading for latest build');
+          window.location.reload();
+        }
+      });
+
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
-        console.log('Service Worker update found');
-        
+        console.log('Service Worker update found — installing new version');
+
         if (newWorker) {
           newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('New Service Worker available - reload to update');
-            }
+            console.log('SW state:', newWorker.state);
+            // 'installed' with an existing controller = new SW waiting.
+            // skipWaiting() in sw.js means it will take over automatically,
+            // which fires controllerchange above and reloads the page.
           });
         }
       });
-      
+
+      // Proactively check for a new SW version every time the page gains focus
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          registration.update().catch(() => { /* network may be offline */ });
+        }
+      });
+
       return registration;
     } catch (error) {
       console.error('Service Worker registration failed:', error);
