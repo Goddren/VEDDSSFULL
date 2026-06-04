@@ -13968,6 +13968,8 @@ Format each recommendation as a clear, concise action item.`;
       ? rawModes
       : [rawMode || 'aggressive'];
     const autoExecute: boolean = req.body.autoExecute || false;
+    // User's min confidence from UI engine setting — clamp to 50–95 for safety
+    const userMinConfidence: number = Math.min(95, Math.max(50, Number(req.body.minConfidence) || 75));
 
     // Primary mode used for metadata/labels = first selected
     const strategyMode = strategyModesArr[0];
@@ -14140,7 +14142,7 @@ Respond with ONLY valid JSON:
         }
 
         if (activeTlConns.length > 0) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}: ${activeTlConns.map((c: any) => c.accountId).join(', ')}`);
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% R:R≥2.0 session-filtered | accounts: ${activeTlConns.map((c: any) => c.accountId).join(', ')}`);
 
         // ── Move signal quality gate OUTSIDE the account loop so it runs once per signal ──
         // Then execute the approved signal on ALL active accounts
@@ -14161,7 +14163,7 @@ Respond with ONLY valid JSON:
           const takeProfit = parseNum(sig.takeProfit);
           const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0));
 
-          // ── Brain AutoExec signal quality gate (80% confidence, R:R ≥ 2.0, session filter, risk score) ──
+          // ── Brain AutoExec signal quality gate — uses user's engine min confidence setting ──
           const brainGuard = tlSignalGuard({
             confidence,
             entryPrice: entryPrice ?? null,
@@ -14170,7 +14172,7 @@ Respond with ONLY valid JSON:
             symbol: sig.symbol,
             direction: sig.direction,
             riskScore: typeof sig.riskScore === 'number' ? sig.riskScore : null,
-            minConfidence: 80,  // 70 → 75 → 80 — only high-conviction signals execute
+            minConfidence: userMinConfidence, // from user's UI engine setting (not hardcoded)
             requireSLTP: true,
             checkSession: true, // block trades outside instrument's best liquidity window
           });

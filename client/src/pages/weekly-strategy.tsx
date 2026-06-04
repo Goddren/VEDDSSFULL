@@ -1200,11 +1200,12 @@ export default function WeeklyStrategyPage() {
   });
 
   const generateSignalsMutation = useMutation({
-    mutationFn: async ({ modes, autoExec }: { modes: string[]; autoExec: boolean }) => {
+    mutationFn: async ({ modes, autoExec, minConf }: { modes: string[]; autoExec: boolean; minConf: number }) => {
       const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', {
         strategyModes: modes,
         strategyMode: modes[0] || 'aggressive', // backward compat
         autoExecute: autoExec,
+        minConfidence: minConf,
       });
       return res.json();
     },
@@ -4397,13 +4398,37 @@ export default function WeeklyStrategyPage() {
                           <Zap className="w-4 h-4 text-yellow-400" /> Autonomous Signals
                         </h4>
                         <Button size="sm" variant="outline"
-                          onClick={() => generateSignalsMutation.mutate({ modes: selectedSignalModes, autoExec: autoExecuteSignals })}
+                          onClick={() => generateSignalsMutation.mutate({ modes: selectedSignalModes, autoExec: autoExecuteSignals, minConf: engineMinConf })}
                           disabled={generateSignalsMutation.isPending || selectedSignalModes.length === 0}
                           className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs h-7">
                           {generateSignalsMutation.isPending
                             ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Scanning {selectedSignalModes.length > 1 ? `${selectedSignalModes.length} modes` : ''}...</>
                             : <><Zap className="w-3 h-3 mr-1" /> Generate</>}
                         </Button>
+                      </div>
+                      {/* Confidence threshold — mirrors the engine Min Confidence setting */}
+                      <div className="flex items-center justify-between bg-black/20 rounded-lg px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-400">Min Confidence Gate</span>
+                          <span className="text-[10px] text-gray-600">(matches engine setting)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            value={engineMinConf}
+                            min={50} max={95}
+                            onChange={e => { setEngineMinConf(Number(e.target.value)); queueSaveAccountSettings(); }}
+                            className="w-14 bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1 text-center"
+                          />
+                          <span className="text-[11px] text-gray-400">%</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            engineMinConf >= 80 ? 'bg-emerald-500/20 text-emerald-400' :
+                            engineMinConf >= 70 ? 'bg-yellow-500/20 text-yellow-400' :
+                            'bg-red-500/20 text-red-400'
+                          }`}>
+                            {engineMinConf >= 80 ? 'Strict' : engineMinConf >= 70 ? 'Moderate' : 'Loose'}
+                          </span>
+                        </div>
                       </div>
                       {/* Multi-strategy toggle chips */}
                       <div className="space-y-1">
