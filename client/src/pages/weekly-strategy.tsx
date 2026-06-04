@@ -1203,9 +1203,16 @@ export default function WeeklyStrategyPage() {
     mutationFn: async ({ modes, autoExec, minConf }: { modes: string[]; autoExec: boolean; minConf: number }) => {
       const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', {
         strategyModes: modes,
-        strategyMode: modes[0] || 'aggressive', // backward compat
+        strategyMode: modes[0] || 'aggressive',
         autoExecute: autoExec,
         minConfidence: minConf,
+        // Engine settings — all user-configured values flow through to execution
+        enginePairs: enginePairs.length > 0 ? enginePairs : undefined,
+        engineRiskPerTrade,
+        engineAccountBalance,
+        engineMaxLotSize,
+        engineBaseLotSize,
+        engineMaxTrades,
       });
       return res.json();
     },

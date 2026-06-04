@@ -10533,27 +10533,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
       for (const conn of activeTlConns) {
         try {
-          const tlSvc = new TradeLockerService(
-            (conn.accountType as 'demo' | 'live') || 'live',
-            conn.accountId,
-            conn.serverId,
-            conn.accNum?.toString()
-          );
+          // Use getOrCreateService — handles token caching/refresh so API calls don't fail with 401
+          const tlSvc = await tlGetOrCreateService(conn);
 
           // Unrealized P&L from open positions
           const positions = await tlSvc.getPositions().catch(() => []);
-          tlUnrealizedPnL += positions.reduce((s: number, p: any) =>
+          const connUnrealized = positions.reduce((s: number, p: any) =>
             s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          tlUnrealizedPnL += connUnrealized;
+          console.log(`[daily-summary] TL ${conn.accountId}: unrealized=$${connUnrealized.toFixed(2)} (${positions.length} positions)`);
 
           // Realized P&L from today's filled orders
           const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          let connTodayPnL = 0;
+          let connWeekPnL = 0;
           for (const order of filledOrders) {
             const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
-            if (closeTs >= todayStart.getTime()) tlTodayClosedPnL += (order.profit || 0);
-            if (closeTs >= weekStart.getTime())  tlWeekClosedPnL  += (order.profit || 0);
+            if (closeTs >= todayStart.getTime()) { tlTodayClosedPnL += (order.profit || 0); connTodayPnL += (order.profit || 0); }
+            if (closeTs >= weekStart.getTime())  { tlWeekClosedPnL  += (order.profit || 0); connWeekPnL  += (order.profit || 0); }
           }
+          console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
         } catch (connErr) {
-          console.error('[daily-summary] TL conn error:', (connErr as Error).message);
+          console.error(`[daily-summary] TL ${conn.accountId} error:`, (connErr as Error).message);
         }
       }
     } catch (tlErr) {
@@ -13968,8 +13969,18 @@ Format each recommendation as a clear, concise action item.`;
       ? rawModes
       : [rawMode || 'aggressive'];
     const autoExecute: boolean = req.body.autoExecute || false;
-    // User's min confidence from UI engine setting — clamp to 50–95 for safety
-    const userMinConfidence: number = Math.min(95, Math.max(50, Number(req.body.minConfidence) || 75));
+
+    // ── Engine settings from UI — all user-configured values ──
+    const userMinConfidence: number  = Math.min(95, Math.max(50, Number(req.body.minConfidence) || 75));
+    const userRiskPerTrade: number   = Math.min(10, Math.max(0.1, Number(req.body.engineRiskPerTrade) || 1));
+    const userAccountBalance: number = Math.max(100, Number(req.body.engineAccountBalance) || 1000);
+    const userMaxLotSize: number     = Math.min(10, Math.max(0.01, Number(req.body.engineMaxLotSize) || 0.10));
+    const userBaseLotSize: number    = Math.min(1, Math.max(0.01, Number(req.body.engineBaseLotSize) || 0.01));
+    const userMaxTrades: number      = Math.min(20, Math.max(1, Number(req.body.engineMaxTrades) || 5));
+    // Pair filter — if user supplied a list, only generate/execute on those pairs
+    const userPairs: string[] = Array.isArray(req.body.enginePairs) && req.body.enginePairs.length > 0
+      ? req.body.enginePairs.map((p: string) => p.toUpperCase().replace('/', ''))
+      : [];
 
     // Primary mode used for metadata/labels = first selected
     const strategyMode = strategyModesArr[0];
@@ -14119,8 +14130,21 @@ Respond with ONLY valid JSON:
       const bestMeta = allRawResults.reduce((best, cur) =>
         (cur.data.brainConfidence || 0) > (best.data.brainConfidence || 0) ? cur : best
       );
+
+      // Apply user pair filter — if the user specified pairs, drop signals for other pairs
+      let mergedSignals = Array.from(signalMap.values());
+      if (userPairs.length > 0) {
+        const before = mergedSignals.length;
+        mergedSignals = mergedSignals.filter(s =>
+          userPairs.some(p => (s.symbol || '').toUpperCase().replace('/', '') === p)
+        );
+        if (before !== mergedSignals.length) {
+          console.log(`[VEDD Brain] Pair filter: kept ${mergedSignals.length}/${before} signals matching user pairs [${userPairs.join(',')}]`);
+        }
+      }
+
       const signals: any = {
-        signals: Array.from(signalMap.values()),
+        signals: mergedSignals,
         marketRead: bestMeta.data.marketRead || '',
         activeSessionAdvice: bestMeta.data.activeSessionAdvice || '',
         nextBestSetup: bestMeta.data.nextBestSetup || '',
@@ -14132,12 +14156,16 @@ Respond with ONLY valid JSON:
 
       if (autoExecute && signals.signals && signals.signals.length > 0) {
         const tlConnections = await storage.getUserTradelockerConnections(userId);
-        const activeTlConns = tlConnections.filter((c: any) => c.isActive && c.autoExecute);
+        // Brain AutoExec fires on ALL isActive connections — autoExecute is the live-engine
+        // flag only. When the user hits "Generate + Execute" every connected account should fire.
+        const activeTlConns = tlConnections.filter((c: any) => c.isActive);
 
-        // ── Diagnostics: log all connections and why inactive ones are skipped ──
+        // ── Diagnostics: log every connection and its status ──
         for (const c of tlConnections) {
-          if (!c.isActive || !c.autoExecute) {
-            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) — isActive=${c.isActive} autoExecute=${c.autoExecute}`);
+          if (!c.isActive) {
+            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) — isActive=${c.isActive} (disabled)`);
+          } else {
+            console.log(`[VEDD Brain AutoExec] QUEUED account ${c.accountId} (id=${c.id}) — isActive=true lotMult=${c.lotMultiplier || 1.0}`);
           }
         }
 
@@ -14161,7 +14189,41 @@ Respond with ONLY valid JSON:
           const entryPrice = parseNum(sig.entryZone);
           const stopLoss = parseNum(sig.stopLoss);
           const takeProfit = parseNum(sig.takeProfit);
-          const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0));
+
+          // ── Max open trades gate — check current open positions ──
+          const currentOpenPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+          if (currentOpenPositions.length >= userMaxTrades) {
+            console.log(`[VEDD Brain AutoExec] MAX TRADES reached (${currentOpenPositions.length}/${userMaxTrades}) — skipping ${sig.symbol}`);
+            executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: 'skipped', reason: `Max open trades (${userMaxTrades}) reached` });
+            continue;
+          }
+
+          // ── Lot sizing: risk-based using user's engine settings ──
+          // Calculate as % of account balance / estimated pip risk — fall back to baseLot
+          const aiSuggestedLot = parseNum(sig.lotSize);
+          let baseLotSize: number;
+          if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
+            const slDistance = Math.abs(entryPrice - stopLoss);
+            const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
+            // Rough lot calculation: risk$ / (slDistance * 100000 * 0.0001) for majors
+            // For non-majors/gold/crypto, use AI suggestion capped to userMaxLotSize
+            const sym = (sig.symbol || '').toUpperCase();
+            if (sym.includes('XAU') || sym.includes('GOLD')) {
+              // Gold: pip value ~$1/pip per 0.01 lot — use AI suggestion capped
+              baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+            } else if (sym.includes('BTC') || sym.includes('ETH') || sym.includes('NAS') || sym.includes('US30') || sym.includes('SPX')) {
+              // Indices/Crypto: use AI suggestion capped to user max
+              baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+            } else {
+              // Forex pairs: pip value ~$10/pip per 1.0 lot for USD pairs
+              const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 100000 * 0.0001 * 10) : userBaseLotSize;
+              baseLotSize = Math.max(userBaseLotSize, Math.min(estimatedLot, userMaxLotSize));
+            }
+          } else {
+            // No SL distance — use base lot size from user settings
+            baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+          }
+          baseLotSize = Math.round(baseLotSize * 100) / 100; // round to 2 decimal places
 
           // ── Brain AutoExec signal quality gate — uses user's engine min confidence setting ──
           const brainGuard = tlSignalGuard({
