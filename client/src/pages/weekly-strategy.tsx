@@ -962,6 +962,14 @@ export default function WeeklyStrategyPage() {
   });
   const activeTLEngineConns = tlConnectionsEngine.filter((c: any) => c.isActive);
 
+  // Live TL account balance — fetches real equity from all active TL connections
+  const { data: tlAccountBalance } = useQuery<any>({
+    queryKey: ['/api/tradelocker/account-balance'],
+    enabled: !!user,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
   // Execution diagnostics — which accounts are actually firing trades
   const { data: execStatus, refetch: refetchExecStatus } = useQuery<any>({
     queryKey: ['/api/tradelocker/exec-status'],
@@ -994,17 +1002,26 @@ export default function WeeklyStrategyPage() {
   });
 
   // Pre-fill balance from connected account whenever data arrives
+  // Priority: MT5 live > TL live equity > TL DB connection field
   useEffect(() => {
     const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
-    const tlBalance = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
+    // Use live equity from the dedicated balance endpoint (sum of all active TL accounts)
+    const tlLiveBalance = tlAccountBalance?.totalEquity && tlAccountBalance.totalEquity > 0
+      ? tlAccountBalance.totalEquity
+      : (tlAccountBalance?.totalBalance || null);
+    // Fallback to DB connection field if live fetch not yet available
+    const tlFallback = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
+    const tlBalance = tlLiveBalance ?? tlFallback;
+
     if (mt5Balance && mt5Balance > 0) {
       setAccountBalance(String(Math.round(mt5Balance * 100) / 100));
       setAutoBalanceSource('MT5');
     } else if (tlBalance && tlBalance > 0) {
       setAccountBalance(String(Math.round(tlBalance * 100) / 100));
-      setAutoBalanceSource('TradeLocker');
+      // Distinguish live API balance from DB-cached value
+      setAutoBalanceSource(tlLiveBalance ? 'TradeLocker (Live)' : 'TradeLocker');
     }
-  }, [mt5AccountData, tlConnection]);
+  }, [mt5AccountData, tlConnection, tlAccountBalance]);
 
   // Note: engine account balance is now synced by ConnectedAccountPicker (handleEngineAccountSelected)
 
@@ -1108,7 +1125,7 @@ export default function WeeklyStrategyPage() {
   const [unrealizedPnL, setUnrealizedPnL] = useState(0);
   const [lastPositionUpdate, setLastPositionUpdate] = useState<string | null>(null);
   const [pairDailyStats, setPairDailyStats] = useState<Record<string, any>>({});
-  const [selectedSignalMode, setSelectedSignalMode] = useState("aggressive");
+  const [selectedSignalModes, setSelectedSignalModes] = useState<string[]>(["aggressive"]);
   const [autoExecuteSignals, setAutoExecuteSignals] = useState(false);
 
   // Daily progress tracking
@@ -1183,17 +1200,23 @@ export default function WeeklyStrategyPage() {
   });
 
   const generateSignalsMutation = useMutation({
-    mutationFn: async ({ mode, autoExec }: { mode: string; autoExec: boolean }) => {
-      const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', { strategyMode: mode, autoExecute: autoExec });
+    mutationFn: async ({ modes, autoExec }: { modes: string[]; autoExec: boolean }) => {
+      const res = await apiRequest('POST', '/api/vedd-brain/autonomous-signals', {
+        strategyModes: modes,
+        strategyMode: modes[0] || 'aggressive', // backward compat
+        autoExecute: autoExec,
+      });
       return res.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/vedd-brain/autonomous-signals'] });
       const executed = data?.executionResults?.filter((r: any) => r.status === 'executed')?.length || 0;
+      const modesLabel = (data?.strategyModes || [data?.strategyMode]).filter(Boolean).join(' + ');
       if (data?.autoExecuted && executed > 0) {
-        toast({ title: `${executed} Trade${executed > 1 ? 's' : ''} Executed!`, description: `AI signals auto-executed on TradeLocker` });
+        toast({ title: `${executed} Trade${executed > 1 ? 's' : ''} Executed!`, description: `AI signals auto-executed on TradeLocker (${modesLabel})` });
       } else {
-        toast({ title: "Autonomous Signals Generated", description: "AI generated trade signals from learned patterns" });
+        const signalCount = data?.signals?.length || 0;
+        toast({ title: `${signalCount} Signal${signalCount !== 1 ? 's' : ''} Generated`, description: `Scanned ${(data?.strategyModes || []).length || 1} strateg${(data?.strategyModes?.length || 1) === 1 ? 'y' : 'ies'}: ${modesLabel}` });
       }
     },
     onError: (err: any) => {
@@ -4368,19 +4391,55 @@ export default function WeeklyStrategyPage() {
                     </div>
                   )}
                   <div className="border-t border-purple-500/20 pt-3 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-yellow-400" /> Autonomous Signals
-                      </h4>
-                      <div className="flex gap-2">
-                        <select value={selectedSignalMode} onChange={e => setSelectedSignalMode(e.target.value)}
-                          className="bg-gray-900 border border-gray-700 text-white text-xs rounded px-2 py-1">
-                          {(strategyModes?.modes || []).map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                        <Button size="sm" variant="outline" onClick={() => generateSignalsMutation.mutate({ mode: selectedSignalMode, autoExec: autoExecuteSignals })}
-                          disabled={generateSignalsMutation.isPending} className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs h-7">
-                          {generateSignalsMutation.isPending ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Generating...</> : <><Zap className="w-3 h-3 mr-1" /> Generate</>}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-yellow-400" /> Autonomous Signals
+                        </h4>
+                        <Button size="sm" variant="outline"
+                          onClick={() => generateSignalsMutation.mutate({ modes: selectedSignalModes, autoExec: autoExecuteSignals })}
+                          disabled={generateSignalsMutation.isPending || selectedSignalModes.length === 0}
+                          className="text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/10 text-xs h-7">
+                          {generateSignalsMutation.isPending
+                            ? <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Scanning {selectedSignalModes.length > 1 ? `${selectedSignalModes.length} modes` : ''}...</>
+                            : <><Zap className="w-3 h-3 mr-1" /> Generate</>}
                         </Button>
+                      </div>
+                      {/* Multi-strategy toggle chips */}
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Scan strategies (select multiple):</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(strategyModes?.modes || [
+                            { id: 'scalping', name: 'Scalping' },
+                            { id: 'momentum', name: 'Momentum' },
+                            { id: 'session_breakout', name: 'Breakout' },
+                            { id: 'aggressive', name: 'Aggressive' },
+                            { id: 'sniper', name: 'Sniper' },
+                          ]).map((m: any) => {
+                            const isSelected = selectedSignalModes.includes(m.id);
+                            return (
+                              <button
+                                key={m.id}
+                                onClick={() => setSelectedSignalModes(prev =>
+                                  prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id]
+                                )}
+                                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                                  isSelected
+                                    ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300'
+                                    : 'bg-gray-800/60 border-gray-700/50 text-gray-500 hover:text-gray-300 hover:border-gray-600'
+                                }`}
+                              >
+                                {m.name}
+                                {isSelected && <span className="ml-1 text-yellow-400">✓</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {selectedSignalModes.length > 1 && (
+                          <p className="text-[10px] text-yellow-500/70">
+                            AI will scan {selectedSignalModes.length} strategies simultaneously and merge the best signals
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center justify-between bg-black/30 rounded-lg px-3 py-2">
@@ -4447,6 +4506,15 @@ export default function WeeklyStrategyPage() {
                     )}
                     {autonomousSignals?.signals?.length > 0 && (
                       <div className="space-y-2">
+                        {/* Multi-strategy scan summary */}
+                        {autonomousSignals.strategiesScanned?.length > 1 && (
+                          <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+                            <Zap className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                            <span className="text-[11px] text-yellow-300">
+                              Scanned <strong>{autonomousSignals.strategiesScanned.length}</strong> strategies simultaneously: {autonomousSignals.strategiesScanned.map((m: string) => m.charAt(0).toUpperCase() + m.slice(1)).join(', ')} — showing best signal per pair
+                            </span>
+                          </div>
+                        )}
                         {autonomousSignals.marketRead && (
                           <div className="bg-black/30 rounded p-2 text-xs text-gray-400 italic flex gap-2">
                             <Brain className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />
@@ -4455,11 +4523,14 @@ export default function WeeklyStrategyPage() {
                         )}
                         {autonomousSignals.signals.map((sig: any, i: number) => (
                           <div key={i} className={`rounded-xl border p-3 ${sig.direction === 'BUY' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-red-500/30 bg-red-500/5'}`}>
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <span className="font-semibold text-white text-sm">{sig.symbol}</span>
                               <Badge variant="outline" className={`text-[10px] ${sig.direction === 'BUY' ? 'text-emerald-400 border-emerald-500/40' : 'text-red-400 border-red-500/40'}`}>{sig.direction}</Badge>
                               <Badge className="bg-purple-500/15 text-purple-400 border-purple-500/30 text-[10px]">{sig.confidence}%</Badge>
                               <Badge className="bg-gray-500/15 text-gray-400 border-gray-600 text-[10px]">{sig.strategy}</Badge>
+                              {sig.sourceMode && sig.sourceMode !== sig.strategy && (
+                                <Badge className="bg-yellow-500/10 text-yellow-500/80 border-yellow-500/20 text-[10px]">via {sig.sourceMode}</Badge>
+                              )}
                               <span className="ml-auto text-[10px] text-gray-500">{sig.holdTime}</span>
                             </div>
                             <p className="text-xs text-gray-300">{sig.reason}</p>

@@ -12810,6 +12810,50 @@ Rules:
     res.json(safe);
   });
 
+  // Live account balance — fetches real-time equity/balance from all active TL connections
+  app.get("/api/tradelocker/account-balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const connections = await storage.getUserTradelockerConnections(userId);
+      const activeConns = connections.filter((c: any) => c.isActive);
+      if (activeConns.length === 0) return res.json({ totalBalance: 0, totalEquity: 0, accounts: [] });
+
+      const accounts: any[] = [];
+      let totalBalance = 0;
+      let totalEquity = 0;
+
+      await Promise.all(activeConns.map(async (conn: any) => {
+        try {
+          const tlSvc = new TradeLockerService(
+            conn.accountType as 'demo' | 'live',
+            conn.accountId,
+            conn.serverId,
+            conn.accNum?.toString()
+          );
+          if (conn.encryptedPassword) {
+            const plainPw = await decryptPassword(conn.encryptedPassword);
+            await tlSvc.authenticate(conn.email, plainPw);
+          } else if (conn.accessToken) {
+            (tlSvc as any).accessToken = conn.accessToken;
+          }
+          const info = await tlSvc.getAccountInfo();
+          accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: info.balance, equity: info.equity, currency: info.currency });
+          totalBalance += info.balance || 0;
+          totalEquity += info.equity || 0;
+        } catch (err: any) {
+          console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);
+          accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: 0, equity: 0, error: err.message });
+        }
+      }));
+
+      res.json({ totalBalance, totalEquity, accounts });
+    } catch (err: any) {
+      console.error('[TL account-balance]', err);
+      res.status(500).json({ error: 'Failed to fetch TL balance' });
+    }
+  });
+
   // GET single connection (legacy / backward-compat — returns first active)
   app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -13838,7 +13882,16 @@ Format each recommendation as a clear, concise action item.`;
       return res.status(400).json({ error: "Brain hasn't learned yet. Run learning first." });
     }
 
-    const { strategyMode = 'aggressive', autoExecute = false } = req.body;
+    // Support both legacy single string (strategyMode) and new multi-select array (strategyModes)
+    const rawModes = req.body.strategyModes;
+    const rawMode = req.body.strategyMode;
+    const strategyModesArr: string[] = Array.isArray(rawModes) && rawModes.length > 0
+      ? rawModes
+      : [rawMode || 'aggressive'];
+    const autoExecute: boolean = req.body.autoExecute || false;
+
+    // Primary mode used for metadata/labels = first selected
+    const strategyMode = strategyModesArr[0];
 
     try {
       const { getUniversalAIClientForUser } = await import('./openai');
@@ -13892,14 +13945,15 @@ Format each recommendation as a clear, concise action item.`;
         sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence of learned patterns. Larger position sizes, precise entries, tight risk. Quality over quantity - each trade is a kill shot.`,
       };
 
-      const prompt = `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
+      // ── Run AI for each selected strategy mode, then merge ──────────────────
+      const buildPrompt = (mode: string) => `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
 
 CURRENT CONTEXT:
 - Time: ${nowUTC.toISOString()} (${currentSession} session)
 - Day: ${currentDay}
 - Hour: ${currentHour} UTC
-- Strategy Mode: ${strategyMode.toUpperCase()}
-- ${strategyDescriptions[strategyMode] || strategyDescriptions.aggressive}
+- Strategy Mode: ${mode.toUpperCase()}
+- ${strategyDescriptions[mode] || strategyDescriptions.aggressive}
 
 LEARNED BRAIN DATA (from ${brain.totalTradesAnalyzed} historical trades):
 ${JSON.stringify(liveContext, null, 2)}
@@ -13942,26 +13996,56 @@ Respond with ONLY valid JSON:
   "brainConfidence": 0-100
 }`;
 
-      const response = await openaiInstance.chat.completions.create({
-        model: selectedModel,
-        messages: [
-          { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 2500,
-        temperature: 0.3,
-      });
-
-      const content = response.choices[0]?.message?.content || '';
-      let signals: any;
-      try {
-        signals = JSON.parse(content);
-      } catch {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) signals = JSON.parse(jsonMatch[0]);
-        else return res.status(500).json({ error: 'AI returned invalid response' });
+      // Run all selected modes — sequentially to avoid rate-limit hammering
+      const allRawResults: Array<{ mode: string; data: any }> = [];
+      for (const mode of strategyModesArr) {
+        const response = await openaiInstance.chat.completions.create({
+          model: selectedModel,
+          messages: [
+            { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
+            { role: "user", content: buildPrompt(mode) }
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 2500,
+          temperature: 0.3,
+        });
+        const content = response.choices[0]?.message?.content || '';
+        try {
+          const parsed = JSON.parse(content);
+          allRawResults.push({ mode, data: parsed });
+        } catch {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) allRawResults.push({ mode, data: JSON.parse(jsonMatch[0]) });
+        }
       }
+
+      if (allRawResults.length === 0) return res.status(500).json({ error: 'AI returned invalid response for all modes' });
+
+      // ── Merge and deduplicate: keep highest-confidence signal per symbol+direction ──
+      const signalMap = new Map<string, any>();
+      for (const { mode, data } of allRawResults) {
+        for (const sig of (data.signals || [])) {
+          sig.sourceMode = mode; // tag which mode produced it
+          const key = `${(sig.symbol || '').toUpperCase()}_${(sig.direction || '').toUpperCase()}`;
+          const existing = signalMap.get(key);
+          if (!existing || (sig.confidence || 0) > (existing.confidence || 0)) {
+            signalMap.set(key, sig);
+          }
+        }
+      }
+
+      // Build merged result using the highest-confidence mode's meta fields
+      const bestMeta = allRawResults.reduce((best, cur) =>
+        (cur.data.brainConfidence || 0) > (best.data.brainConfidence || 0) ? cur : best
+      );
+      const signals: any = {
+        signals: Array.from(signalMap.values()),
+        marketRead: bestMeta.data.marketRead || '',
+        activeSessionAdvice: bestMeta.data.activeSessionAdvice || '',
+        nextBestSetup: bestMeta.data.nextBestSetup || '',
+        brainConfidence: bestMeta.data.brainConfidence || 0,
+        strategiesScanned: strategyModesArr,
+      };
 
       const executionResults: any[] = [];
 
@@ -14101,6 +14185,7 @@ Respond with ONLY valid JSON:
           triggerWebhooks(userId, 'vedd_brain_signals', {
             type: 'autonomous_signals',
             strategyMode,
+            strategyModes: strategyModesArr,
             signals: signals.signals,
             executionResults,
           }).catch(err => console.error('Webhook trigger error:', err));
@@ -14115,15 +14200,17 @@ Respond with ONLY valid JSON:
         ...signals,
         generatedAt: new Date().toISOString(),
         strategyMode,
+        strategyModes: strategyModesArr,
         tradesLearned: brain.totalTradesAnalyzed,
         executionResults: executionResults.length > 0 ? executionResults : undefined,
       };
 
-      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyMode}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter(r => r.status === 'executed').length}` : ''}`);
+      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyModesArr.join('+')}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter(r => r.status === 'executed').length}` : ''}`);
       res.json({
         ...signals,
         generatedAt: new Date().toISOString(),
         strategyMode,
+        strategyModes: strategyModesArr,
         tradesLearned: brain.totalTradesAnalyzed,
         autoExecuted: autoExecute,
         executionResults: executionResults.length > 0 ? executionResults : undefined,
