@@ -66,6 +66,37 @@ import { getPipSize, getPipValue } from "./utils/pipUtils";
 // must call this before firing. Mirrors the gates in processDecision() in
 // live-trading-engine.ts so manual/relay/brain paths can't bypass quality filters.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Best UTC hour windows per instrument — trades outside these risk low liquidity
+// and wide spreads which inflate losses. Format: [startHour, endHour] inclusive/exclusive.
+const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
+  EURUSD:  [[7, 20]],
+  GBPUSD:  [[7, 17]],
+  USDCHF:  [[7, 20]],
+  USDCAD:  [[13, 20]],
+  AUDUSD:  [[0, 4], [7, 17]],
+  NZDUSD:  [[0, 4], [7, 17]],
+  USDJPY:  [[0, 3], [7, 20]],
+  GBPJPY:  [[7, 16]],
+  EURJPY:  [[7, 20]],
+  XAUUSD:  [[7, 20]],
+  GOLD:    [[7, 20]],
+  NAS100:  [[13, 20]],
+  US30:    [[13, 20]],
+  SPX500:  [[13, 20]],
+  US500:   [[13, 20]],
+  BTCUSD:  [[7, 22]],
+  BTCUSDT: [[7, 22]],
+  ETHUSD:  [[7, 22]],
+};
+
+function isInTradingSession(symbol: string, hourUTC: number): boolean {
+  const sym = symbol.toUpperCase().replace('/', '');
+  const windows = PAIR_SESSION_WINDOWS[sym];
+  if (!windows) return true; // unknown symbol — don't block
+  return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
+}
+
 function tlSignalGuard(params: {
   confidence?: number;
   entryPrice?: number | null;
@@ -73,8 +104,10 @@ function tlSignalGuard(params: {
   takeProfit?: number | null;
   symbol?: string;
   direction?: string;
+  riskScore?: number | null;
   minConfidence?: number;
   requireSLTP?: boolean;
+  checkSession?: boolean;
 }): { allow: boolean; reason: string } {
   const {
     confidence = 0,
@@ -83,32 +116,66 @@ function tlSignalGuard(params: {
     takeProfit,
     minConfidence = 70,
     requireSLTP = true,
+    checkSession = false,
+    riskScore,
   } = params;
+  const sym = params.symbol || '';
+  const dir = (params.direction || '').toUpperCase();
 
-  // 1. Confidence gate — must meet minimum threshold
+  // 1. Confidence gate
   if (confidence < minConfidence) {
-    return { allow: false, reason: `Confidence ${confidence}% is below the ${minConfidence}% minimum — signal blocked` };
+    return { allow: false, reason: `Confidence ${confidence}% below ${minConfidence}% minimum — blocked` };
   }
 
-  // 2. Stop loss required — no SL = undefined risk, never execute
+  // 2. Stop loss required — no SL = undefined risk
   if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
-    return { allow: false, reason: `No stop loss provided for ${params.symbol || ''} — trade blocked (undefined risk)` };
+    return { allow: false, reason: `No stop loss on ${sym} — undefined risk, blocked` };
   }
 
-  // 3. Take profit required — forces exit target, prevents open-ended exposure
+  // 3. Take profit required
   if (requireSLTP && (!takeProfit || takeProfit <= 0)) {
-    return { allow: false, reason: `No take profit provided for ${params.symbol || ''} — trade blocked (no exit target)` };
+    return { allow: false, reason: `No take profit on ${sym} — no exit target, blocked` };
   }
 
-  // 4. R:R gate — enforce minimum 1.5:1 reward-to-risk
-  if (entryPrice && stopLoss && takeProfit && entryPrice > 0 && stopLoss > 0 && takeProfit > 0) {
+  if (entryPrice && entryPrice > 0 && stopLoss && stopLoss > 0 && takeProfit && takeProfit > 0) {
+    // 4. Direction sanity — SL/TP must be on the correct side of entry
+    if (dir === 'BUY') {
+      if (stopLoss >= entryPrice) {
+        return { allow: false, reason: `BUY ${sym}: SL ${stopLoss} >= entry ${entryPrice} — inverted levels, blocked` };
+      }
+      if (takeProfit <= entryPrice) {
+        return { allow: false, reason: `BUY ${sym}: TP ${takeProfit} <= entry ${entryPrice} — inverted levels, blocked` };
+      }
+    } else if (dir === 'SELL') {
+      if (stopLoss <= entryPrice) {
+        return { allow: false, reason: `SELL ${sym}: SL ${stopLoss} <= entry ${entryPrice} — inverted levels, blocked` };
+      }
+      if (takeProfit >= entryPrice) {
+        return { allow: false, reason: `SELL ${sym}: TP ${takeProfit} >= entry ${entryPrice} — inverted levels, blocked` };
+      }
+    }
+
+    // 5. R:R gate — raised to 2.0 minimum (was 1.5)
     const riskDist = Math.abs(entryPrice - stopLoss);
     const rewardDist = Math.abs(takeProfit - entryPrice);
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
-      if (rr < 1.5) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${params.symbol || ''} ${params.direction || ''} is below the 1.5 minimum — trade blocked` };
+      if (rr < 2.0) {
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below 2.0 minimum — blocked` };
       }
+    }
+  }
+
+  // 6. Risk score gate — block signals the AI itself rated as high risk
+  if (riskScore != null && riskScore > 7) {
+    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 — blocked` };
+  }
+
+  // 7. Session filter — block trades outside the instrument's liquidity window
+  if (checkSession) {
+    const hourUTC = new Date().getUTCHours();
+    if (!isInTradingSession(sym, hourUTC)) {
+      return { allow: false, reason: `${sym} outside its best session at ${hourUTC}:00 UTC — low liquidity, blocked` };
     }
   }
 
@@ -14094,7 +14161,7 @@ Respond with ONLY valid JSON:
           const takeProfit = parseNum(sig.takeProfit);
           const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1.0));
 
-          // ── Brain AutoExec signal quality gate (raised to 75% + R:R ≥ 1.5) ──
+          // ── Brain AutoExec signal quality gate (80% confidence, R:R ≥ 2.0, session filter, risk score) ──
           const brainGuard = tlSignalGuard({
             confidence,
             entryPrice: entryPrice ?? null,
@@ -14102,8 +14169,10 @@ Respond with ONLY valid JSON:
             takeProfit: takeProfit ?? null,
             symbol: sig.symbol,
             direction: sig.direction,
-            minConfidence: 75,  // raised from 70 → 75 to reduce bad trades
+            riskScore: typeof sig.riskScore === 'number' ? sig.riskScore : null,
+            minConfidence: 80,  // 70 → 75 → 80 — only high-conviction signals execute
             requireSLTP: true,
+            checkSession: true, // block trades outside instrument's best liquidity window
           });
           if (!brainGuard.allow) {
             console.log(`[VEDD Brain AutoExec Guard] BLOCKED ${sig.symbol} ${sig.direction}: ${brainGuard.reason}`);
