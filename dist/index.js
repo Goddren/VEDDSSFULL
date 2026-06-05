@@ -32168,10 +32168,23 @@ var PAIR_SESSION_WINDOWS = {
   EURJPY: [[7, 20]],
   XAUUSD: [[7, 20]],
   GOLD: [[7, 20]],
-  NAS100: [[13, 20]],
-  US30: [[13, 20]],
-  SPX500: [[13, 20]],
-  US500: [[13, 20]],
+  NAS100: [[12, 21]],
+  // pre-market 12:00 UTC → close 21:00 UTC
+  US30: [[12, 21]],
+  SPX500: [[12, 21]],
+  US500: [[12, 21]],
+  NDX: [[12, 21]],
+  DJ30: [[12, 21]],
+  SP500: [[12, 21]],
+  GER40: [[6, 16]],
+  // Frankfurt open 07:00 CET = 06:00 UTC
+  DE40: [[6, 16]],
+  UK100: [[7, 16]],
+  // London open 07:00 UTC
+  FTSE100: [[7, 16]],
+  FRA40: [[7, 16]],
+  AUS200: [[23, 6]],
+  // ASX hours (next-day UTC)
   BTCUSD: [[7, 22]],
   BTCUSDT: [[7, 22]],
   ETHUSD: [[7, 22]]
@@ -44062,7 +44075,7 @@ Format each recommendation as a clear, concise action item.`;
         return [];
       };
       const liveContext = {};
-      for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
+      const buildContextEntry = async (sym, knowledge) => {
         const pairData = Object.values(connectedPairs).find(
           (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
         );
@@ -44094,14 +44107,26 @@ Format each recommendation as a clear, concise action item.`;
           sellWinRate: _swr,
           ...cleanKnowledge
         } = knowledge || {};
-        liveContext[sym] = {
+        return {
           ...cleanKnowledge,
           currentPrice: pairData?.price || close || null,
           atr,
           rsi,
           trend,
-          hasOpenPosition: hasOpenPos
-          // volumeProfile excluded here — already surfaced in vpSection above
+          hasOpenPosition: hasOpenPos,
+          volumeProfile: vpData.poc ? vpData : void 0
+        };
+      };
+      for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
+        liveContext[sym] = await buildContextEntry(sym, knowledge);
+      }
+      for (const sym of userPairs) {
+        if (liveContext[sym]) continue;
+        liveContext[sym] = {
+          ...await buildContextEntry(sym, {}),
+          noHistory: true,
+          // flag rendered in context table
+          totalTrades: 0
         };
       }
       const nowUTC = /* @__PURE__ */ new Date();
@@ -44192,6 +44217,9 @@ ${vpLines.join("\n")}` : "";
           c.trend ? `trend=${c.trend}` : "",
           c.atr ? `atr=${c.atr}` : ""
         ].filter(Boolean).join(" ");
+        if (c.noHistory) {
+          return `${sym}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action and VP levels`;
+        }
         const hist = [
           c.winRate != null ? `wr=${c.winRate}%(${c.totalTrades || 0}t)` : "",
           c.preferredDirection ? `bias=${c.preferredDirection}` : "",
@@ -44228,7 +44256,7 @@ ORDER TYPE:
 - stop_entry: BUY STOP above resistance / SELL STOP below support. entryPrice=trigger level.
 - limit_entry: BUY LIMIT below current (pullback to support) / SELL LIMIT above current (rally to resistance). entryPrice=fill level.
 
-RULES: Only signal pairs with data. Use learned bias/sessions/hours. Skip if open position same direction. Fewer high-quality signals beats many weak ones. Align entries with VP levels. ORB: use only provided levels.
+RULES: Signal ALL listed pairs \u2014 pairs marked NEW have no history yet, base those signals on current price/VP/session context only. Use learned bias/sessions/hours for history-backed pairs. Skip if open position same direction. Fewer high-quality signals beats many weak ones. Align entries with VP levels where available. ORB: use only provided levels.
 
 Respond with ONLY valid JSON:
 {
