@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -858,6 +859,7 @@ function SetupChecklist({ growthPlan, profitTarget, selectedPairs, liveEngineSta
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function WeeklyStrategyPage() {
+  const { user } = useAuth();
   const { toast } = useToast();
   const [profitTarget, setProfitTarget] = useState("400");
   const [profitMode, setProfitMode] = useState<'dollar'|'percent'>('dollar');
@@ -994,9 +996,11 @@ export default function WeeklyStrategyPage() {
   });
 
   // Composite Edge — Markov × Polymarket fused signal for BTC
+  // Note: liveEngineStatus is declared lower in the component — use !!user only here;
+  // the refetchInterval keeps it fresh once the engine is running
   const { data: btcComposite } = useQuery<any>({
     queryKey: ['/api/composite-edge/BTCUSD'],
-    enabled: !!user && liveEngineStatus?.status === 'running',
+    enabled: !!user,
     refetchInterval: 15000,
     staleTime: 0,
   });
