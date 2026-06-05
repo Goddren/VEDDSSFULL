@@ -211,7 +211,6 @@ const Header: React.FC = () => {
 
   // Secondary nav items shown in "More" dropdown
   const moreNavItems = [
-    { name: 'Stop Orders', path: '/stop-orders', active: location === '/stop-orders', icon: <Target className="h-4 w-4 mr-2" /> },
     { name: 'Live Monitor', path: '/live-monitor', active: location === '/live-monitor', icon: <Radio className="h-4 w-4 mr-2" /> },
     { name: 'Futures Connect', path: '/futures-connect', active: location === '/futures-connect', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Futures Live Feed', path: '/futures-live-feed', active: location === '/futures-live-feed', icon: <Activity className="h-4 w-4 mr-2" /> },

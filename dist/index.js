@@ -51389,6 +51389,106 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     delete global.microGrowthSessions[userId];
     res.json({ success: true, session: completed });
   });
+  app2.get("/api/micro-growth/vp-signals", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const symbolsParam = req.query.symbols || "EURUSD,XAUUSD";
+    const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+    const mt5Cache = global.mt5ChartDataCache || {};
+    let computeVP = null;
+    try {
+      const ind = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+      computeVP = ind.computeTrueVolumeProfile;
+    } catch {
+    }
+    const results = {};
+    for (const sym of symbols) {
+      let candles = [];
+      let usedTf = "";
+      for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
+        const key = `mt5_chart_${userId}_${sym}_${tf}`;
+        const entry = mt5Cache[key];
+        if (entry?.candles?.length >= 10) {
+          candles = entry.candles;
+          usedTf = tf;
+          break;
+        }
+      }
+      if (candles.length < 10 || !computeVP) {
+        results[sym] = { available: false, reason: candles.length < 10 ? "no_data" : "vp_unavailable" };
+        continue;
+      }
+      const vp = computeVP(candles);
+      if (!vp) {
+        results[sym] = { available: false, reason: "insufficient_candles" };
+        continue;
+      }
+      const lastCandle = candles[candles.length - 1];
+      const currentPrice = lastCandle.close ?? lastCandle.c ?? 0;
+      const { poc, vah, val } = vp;
+      const range = vah - val || 1e-4;
+      const nearPct = range * 0.12;
+      let orderType = "market";
+      let direction = null;
+      let entryNote = "";
+      if (Math.abs(currentPrice - poc) <= nearPct) {
+        orderType = "market";
+        direction = null;
+        entryNote = `Price AT POC ${poc.toFixed(5)} \u2014 market entry on breakout confirm`;
+      } else if (currentPrice < val) {
+        orderType = "stop_entry";
+        direction = "BUY";
+        entryNote = `Stop Entry BUY above VAL ${val.toFixed(5)} \u2014 value area re-entry`;
+      } else if (currentPrice > vah) {
+        orderType = "stop_entry";
+        direction = "SELL";
+        entryNote = `Stop Entry SELL below VAH ${vah.toFixed(5)} \u2014 value area re-entry`;
+      } else if (currentPrice > poc) {
+        orderType = "limit_entry";
+        direction = "BUY";
+        entryNote = `Limit Entry BUY at POC retest ${poc.toFixed(5)}`;
+      } else {
+        orderType = "limit_entry";
+        direction = "SELL";
+        entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
+      }
+      results[sym] = {
+        available: true,
+        poc,
+        vah,
+        val,
+        pocStrength: vp.pocStrength,
+        currentPrice,
+        timeframe: usedTf,
+        orderType,
+        direction,
+        entryNote
+      };
+    }
+    res.json(results);
+  });
+  app2.post("/api/micro-growth/dispatch-signal", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    const userId = req.user.id;
+    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize, accountAlias } = req.body;
+    if (!symbol || !direction) return res.status(400).json({ message: "symbol and direction required" });
+    if (typeof global.addMT5Signal === "function") {
+      global.addMT5Signal(userId, {
+        symbol,
+        direction: direction.toUpperCase(),
+        orderType: orderType ?? "market",
+        entryPrice: entryPrice ?? null,
+        stopLoss: slPips ?? null,
+        takeProfit: tpPips ?? null,
+        lotSize: lotSize ?? 0.01,
+        source: "micro_growth",
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }, accountAlias ?? "default");
+      res.json({ success: true });
+    } else {
+      res.status(503).json({ message: "MT5 signal dispatcher not available \u2014 ensure live engine is running" });
+    }
+  });
   const httpServer2 = existingServer || createServer(app2);
   streamingService.initialize(httpServer2);
   return httpServer2;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import {
   TrendingUp, Target, Zap, Clock, Play, Square, ChevronUp, BarChart3,
   Activity, DollarSign, Trophy, AlertTriangle, CheckCircle2, Plus, RefreshCw,
-  Power,
+  Power, Wifi, WifiOff, ArrowRight, Info, Server,
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -58,6 +59,23 @@ interface ActivityEntry {
   time: string;
   type: 'start' | 'signal' | 'pip' | 'info';
   message: string;
+  orderType?: 'market' | 'stop_entry' | 'limit_entry';
+  pair?: string;
+  direction?: 'BUY' | 'SELL';
+}
+
+interface VpSignal {
+  available: boolean;
+  reason?: string;
+  poc?: number;
+  vah?: number;
+  val?: number;
+  pocStrength?: number;
+  currentPrice?: number;
+  timeframe?: string;
+  orderType?: 'market' | 'stop_entry' | 'limit_entry';
+  direction?: 'BUY' | 'SELL';
+  entryNote?: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -91,6 +109,12 @@ type RiskMode = 'conservative' | 'standard' | 'aggressive';
 
 const ALL_PAIRS = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'NAS100', 'USDJPY', 'GBPJPY'];
 
+const ORDER_TYPE_META: Record<string, { label: string; color: string; bg: string; emoji: string; desc: string }> = {
+  market:      { label: 'MARKET',      color: '#22c55e', bg: 'rgba(34,197,94,0.15)',   emoji: '🟢', desc: 'Enter immediately at current price' },
+  stop_entry:  { label: 'STOP ENTRY',  color: '#f59e0b', bg: 'rgba(245,158,11,0.15)',  emoji: '🟡', desc: 'Place above/below price — triggers on breakout' },
+  limit_entry: { label: 'LIMIT ENTRY', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)', emoji: '🔵', desc: 'Place at key level — triggers on pullback/retest' },
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatMs(ms: number): string {
@@ -107,6 +131,11 @@ function fmtPnl(v: number): string {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtPrice(p: number, sym: string): string {
+  const digits = sym === 'XAUUSD' ? 2 : sym === 'US30' || sym === 'NAS100' ? 1 : 5;
+  return p.toFixed(digits);
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -126,6 +155,12 @@ export default function MicroGrowthPage() {
   const [balanceInput, setBalanceInput] = useState<string>('25');
   const [selectedPairs, setSelectedPairs] = useState<string[]>(['EURUSD', 'XAUUSD']);
   const [riskMode, setRiskMode] = useState<RiskMode>('standard');
+
+  // Account connection state
+  const [autoForwardMt5, setAutoForwardMt5] = useState<boolean>(() => {
+    try { return localStorage.getItem('micro_auto_forward_mt5') === 'true'; } catch { return false; }
+  });
+  const [showAccountInfo, setShowAccountInfo] = useState(false);
 
   // Session state
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -159,6 +194,36 @@ export default function MicroGrowthPage() {
     queryFn: () => apiRequest('GET', '/api/micro-growth/sessions').then(r => r.json()),
     enabled: !!user,
     refetchOnWindowFocus: false,
+  });
+
+  // VP signals — refresh every 30s while session is active
+  const { data: vpData = {} as Record<string, VpSignal> } = useQuery<Record<string, VpSignal>>({
+    queryKey: ['/api/micro-growth/vp-signals', selectedPairs.join(',')],
+    queryFn: () =>
+      apiRequest('GET', `/api/micro-growth/vp-signals?symbols=${selectedPairs.join(',')}`).then(r => r.json()),
+    enabled: !!user && !!activeSessionId,
+    refetchInterval: 30000,
+    staleTime: 25000,
+  });
+
+  // Also fetch VP when not in session so the panel loads before start
+  const { data: vpPreview = {} as Record<string, VpSignal> } = useQuery<Record<string, VpSignal>>({
+    queryKey: ['/api/micro-growth/vp-preview', selectedPairs.join(',')],
+    queryFn: () =>
+      apiRequest('GET', `/api/micro-growth/vp-signals?symbols=${selectedPairs.join(',')}`).then(r => r.json()),
+    enabled: !!user && !activeSessionId,
+    refetchInterval: 60000,
+    staleTime: 55000,
+  });
+
+  const vpSignals: Record<string, VpSignal> = activeSessionId ? vpData : vpPreview;
+
+  // MT5 tokens
+  const { data: mt5Tokens = [] } = useQuery<any[]>({
+    queryKey: ['/api/mt5-tokens'],
+    queryFn: () => apiRequest('GET', '/api/mt5-tokens').then(r => r.json()),
+    enabled: !!user,
+    staleTime: 60000,
   });
 
   // ── Mutations ────────────────────────────────────────────────────────────────
@@ -199,13 +264,28 @@ export default function MicroGrowthPage() {
     onError: () => toast({ title: 'Error', description: 'Could not log session.', variant: 'destructive' }),
   });
 
+  const dispatchSignalMutation = useMutation({
+    mutationFn: (data: any) => apiRequest('POST', '/api/micro-growth/dispatch-signal', data).then(r => r.json()),
+    onSuccess: () => toast({ title: '📡 Signal sent to MT5', description: 'Check your EA for the pending order.' }),
+    onError: () => toast({ title: 'MT5 Dispatch Failed', description: 'Live engine may not be running.', variant: 'destructive' }),
+  });
+
   // ── Timer logic ───────────────────────────────────────────────────────────────
 
-  const addActivity = useCallback((type: ActivityEntry['type'], message: string) => {
+  const addActivity = useCallback((
+    type: ActivityEntry['type'],
+    message: string,
+    orderType?: ActivityEntry['orderType'],
+    pair?: string,
+    direction?: ActivityEntry['direction'],
+  ) => {
     const entry: ActivityEntry = {
       time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       type,
       message,
+      orderType,
+      pair,
+      direction,
     };
     setActivity(prev => [entry, ...prev].slice(0, 20));
   }, []);
@@ -222,12 +302,11 @@ export default function MicroGrowthPage() {
     setShowResultModal(true);
   }, [stopTimers, addActivity]);
 
-  // Engine on/off toggle — defined after stopTimers so it can reference it
+  // Engine on/off toggle
   const toggleEngine = useCallback(() => {
     setEngineEnabled(prev => {
       const next = !prev;
       try { localStorage.setItem('micro_growth_enabled', String(next)); } catch {}
-      // If turning off, kill any active session
       if (!next) {
         stopTimers();
         setActiveSessionId(null);
@@ -243,30 +322,54 @@ export default function MicroGrowthPage() {
     });
   }, [stopTimers]);
 
+  // Signal pulse using VP data when available
   useEffect(() => {
     if (activeSessionId && sessionStartTime) {
-      // Countdown timer — tick every 500ms
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - sessionStartTime;
         const left = Math.max(0, sessionDurationMs - elapsed);
         setTimeLeftMs(left);
-        if (left === 0) {
-          handleSessionExpired();
-        }
+        if (left === 0) handleSessionExpired();
       }, 500);
 
-      // Trade signal pulse every 60s
       signalRef.current = setInterval(() => {
         const pair = selectedPairs[Math.floor(Math.random() * selectedPairs.length)];
-        const dir = Math.random() > 0.5 ? 'LONG' : 'SHORT';
-        const emoji = dir === 'LONG' ? '↑' : '↓';
-        addActivity('signal', `Signal fired on ${pair} — ${emoji} ${dir} scalp opportunity`);
+        const vp = vpSignals[pair];
+
+        if (vp?.available && vp.orderType) {
+          const dir = (vp.direction ?? (Math.random() > 0.5 ? 'BUY' : 'SELL')) as 'BUY' | 'SELL';
+          const ot = vp.orderType;
+          const meta = ORDER_TYPE_META[ot];
+          addActivity(
+            'signal',
+            `${pair} — ${dir === 'BUY' ? '↑ BUY' : '↓ SELL'} | ${meta.emoji} ${meta.label} | ${vp.entryNote ?? ''}`,
+            ot,
+            pair,
+            dir,
+          );
+          // Auto-forward to MT5 if enabled
+          if (autoForwardMt5 && mt5Tokens.length > 0) {
+            dispatchSignalMutation.mutate({
+              symbol: pair,
+              direction: dir,
+              orderType: ot,
+              entryPrice: vp.currentPrice,
+              slPips: status?.slPips,
+              tpPips: status ? parseFloat(status.pipTarget.split('–')[1]) : undefined,
+              lotSize: status?.lotSize,
+            });
+          }
+        } else {
+          const dir: 'BUY' | 'SELL' = Math.random() > 0.5 ? 'BUY' : 'SELL';
+          addActivity('signal', `${pair} — ${dir === 'BUY' ? '↑ BUY' : '↓ SELL'} scalp opportunity | 🟢 MARKET`, 'market', pair, dir);
+        }
       }, 60000);
     } else {
       stopTimers();
     }
     return stopTimers;
-  }, [activeSessionId, sessionStartTime, sessionDurationMs, selectedPairs, stopTimers, handleSessionExpired, addActivity]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, sessionStartTime, sessionDurationMs, selectedPairs, stopTimers, handleSessionExpired]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -300,13 +403,7 @@ export default function MicroGrowthPage() {
     const pips = parseFloat(resultPips) || 0;
     const trades = parseInt(resultTrades) || 0;
     const pnl = parseFloat(resultPnl) || 0;
-    logMutation.mutate({
-      sessionId: activeSessionId,
-      pipsGained: pips,
-      tradesCount: trades,
-      pnl,
-      pairs: selectedPairs,
-    });
+    logMutation.mutate({ sessionId: activeSessionId, pipsGained: pips, tradesCount: trades, pnl, pairs: selectedPairs });
   }
 
   // ── Derived values ────────────────────────────────────────────────────────────
@@ -315,8 +412,8 @@ export default function MicroGrowthPage() {
   const tierLabel = TIER_LABELS[status?.tier ?? 1];
   const sessionPct = status ? (pipsThisSession / parseFloat(status.pipTarget.split('–')[1])) * 100 : 0;
   const pipTargetMax = status ? parseFloat(status.pipTarget.split('–')[1]) : 5;
+  const vpAvailableCount = Object.values(vpSignals).filter(v => v.available).length;
 
-  // Growth chart data from session history
   const chartData = (() => {
     const sorted = [...sessions].reverse();
     let running = balance - sorted.reduce((acc, s) => acc + (s.pnl ?? 0), 0);
@@ -347,16 +444,15 @@ export default function MicroGrowthPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white leading-tight">Micro Account Growth Engine</h1>
-            <p className="text-xs text-gray-400">Scalp your way from $25 → $500+ with tier-based sessions</p>
+            <p className="text-xs text-gray-400">Scale from $25 → $500+ with tier-based sessions + VP-guided orders</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => { refetchStatus(); refetchSessions(); }} className="text-gray-400 hover:text-white">
               <RefreshCw className="w-4 h-4" />
             </Button>
-            {/* Engine on/off toggle */}
             <button
               onClick={toggleEngine}
-              title={engineEnabled ? 'Disable Micro Growth Engine' : 'Enable Micro Growth Engine'}
+              title={engineEnabled ? 'Disable Engine' : 'Enable Engine'}
               className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all"
               style={{
                 background: engineEnabled ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.12)',
@@ -372,403 +468,559 @@ export default function MicroGrowthPage() {
 
         {/* ── Disabled Banner ── */}
         {!engineEnabled && (
-          <div
-            className="flex items-center gap-3 rounded-xl px-4 py-4"
-            style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}
-          >
+          <div className="flex items-center gap-3 rounded-xl px-4 py-4" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
             <Power className="w-5 h-5 text-red-400 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-semibold text-red-400">Micro Growth Engine is OFF</p>
-              <p className="text-xs text-gray-500 mt-0.5">Enable the engine above to start scalping sessions and track your progress.</p>
+              <p className="text-xs text-gray-500 mt-0.5">Enable the engine above to start scalping sessions.</p>
             </div>
-            <button
-              onClick={toggleEngine}
-              className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-all"
-              style={{ background: 'rgba(34,197,94,0.8)', border: '1px solid rgba(34,197,94,0.5)' }}
-            >
-              Enable
-            </button>
+            <button onClick={toggleEngine} className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'rgba(34,197,94,0.8)' }}>Enable</button>
           </div>
         )}
 
-        {/* ── Engine content (greyed when disabled) ── */}
+        {/* ── Engine content ── */}
         <div className={`space-y-5 transition-opacity ${engineEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none select-none'}`}>
 
-        {/* ── Tier Card ── */}
-        {status && (
-          <Card style={{ background: tierColors.bg, border: `1px solid ${tierColors.border}` }}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge style={{ background: tierColors.accent + '22', color: tierColors.accent, border: `1px solid ${tierColors.accent}44` }}>
-                      Tier {status.tier}
-                    </Badge>
-                    <span className="text-sm font-semibold text-white">{tierLabel}</span>
+          {/* ── Broker Account Connection Card ── */}
+          <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Server className="w-4 h-4 text-cyan-400" />
+                Live Broker Account
+                {mt5Tokens.length > 0
+                  ? <span className="ml-auto flex items-center gap-1 text-xs text-emerald-400"><Wifi className="w-3.5 h-3.5" /> {mt5Tokens.length} API key{mt5Tokens.length !== 1 ? 's' : ''} found</span>
+                  : <span className="ml-auto flex items-center gap-1 text-xs text-gray-500"><WifiOff className="w-3.5 h-3.5" /> Not connected</span>
+                }
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Connection how-to */}
+              <div className="rounded-lg p-3 space-y-2" style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)' }}>
+                <p className="text-xs font-semibold text-cyan-300">How to connect a live account:</p>
+                <div className="space-y-1.5 text-[11px] text-gray-400">
+                  <div className="flex items-start gap-2">
+                    <span className="text-cyan-400 font-bold shrink-0">MT5</span>
+                    <span>Go to <strong className="text-gray-300">Profile → MT5 API Keys</strong>, generate a key, then install the VEDD EA in MetaTrader 5. The EA polls for signals automatically.</span>
                   </div>
-                  <p className="text-xs text-gray-400">${status.balance >= 500 ? '500+' : `${[25,50,100,150,250,350,500][status.tier - 1]}–${[49,99,149,249,349,499,'∞'][status.tier - 1]}`} balance range</p>
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-400 font-bold shrink-0">TL</span>
+                    <span>Use the TradeLocker connection on the <strong className="text-gray-300">Weekly Strategy</strong> page — the Micro Engine shares the same TL session.</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold" style={{ color: tierColors.accent }}>${balance.toFixed(2)}</p>
-                  <p className="text-xs text-gray-400">current balance</p>
+                <div className="flex gap-2 mt-2">
+                  <Link href="/profile">
+                    <button className="flex items-center gap-1 text-[10px] bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-lg px-2.5 py-1.5 transition-colors">
+                      MT5 API Keys <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </Link>
+                  <Link href="/weekly-strategy">
+                    <button className="flex items-center gap-1 text-[10px] bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded-lg px-2.5 py-1.5 transition-colors">
+                      TradeLocker Connect <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </Link>
                 </div>
               </div>
 
-              {/* Stats row */}
-              <div className="grid grid-cols-4 gap-3 mb-4">
-                {[
-                  { label: 'Lot Size', value: status.lotSize },
-                  { label: 'Max Trades', value: status.maxTrades },
-                  { label: 'Pip Target', value: status.pipTarget },
-                  { label: 'SL Pips', value: status.slPips },
-                ].map(item => (
-                  <div key={item.label} className="text-center rounded-lg p-2" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                    <p className="text-base font-bold text-white">{item.value}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">{item.label}</p>
+              {/* MT5 tokens list */}
+              {mt5Tokens.length > 0 && (
+                <div className="space-y-1.5">
+                  {mt5Tokens.map((t: any) => (
+                    <div key={t.id} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.2)' }}>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                        <span className="text-xs text-white font-medium">{t.name}</span>
+                        <span className="text-[10px] text-gray-500 font-mono">{t.token}</span>
+                      </div>
+                      <span className="text-[10px] text-gray-500">{t.signalCount ?? 0} signals sent</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Auto-forward toggle */}
+              <div className="flex items-center justify-between rounded-lg px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div>
+                  <p className="text-xs text-white font-medium">Auto-forward signals to MT5</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">Each session signal fires immediately to your connected EA</p>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = !autoForwardMt5;
+                    setAutoForwardMt5(next);
+                    try { localStorage.setItem('micro_auto_forward_mt5', String(next)); } catch {}
+                  }}
+                  disabled={mt5Tokens.length === 0}
+                  className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${autoForwardMt5 && mt5Tokens.length > 0 ? 'bg-cyan-500' : 'bg-gray-700'} ${mt5Tokens.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform shadow ${autoForwardMt5 && mt5Tokens.length > 0 ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Tier Card ── */}
+          {status && (
+            <Card style={{ background: tierColors.bg, border: `1px solid ${tierColors.border}` }}>
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge style={{ background: tierColors.accent + '22', color: tierColors.accent, border: `1px solid ${tierColors.accent}44` }}>
+                        Tier {status.tier}
+                      </Badge>
+                      <span className="text-sm font-semibold text-white">{tierLabel}</span>
+                    </div>
+                    <p className="text-xs text-gray-400">${status.balance >= 500 ? '500+' : `${[25,50,100,150,250,350,500][status.tier - 1]}–${[49,99,149,249,349,499,'∞'][status.tier - 1]}`} balance range</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold" style={{ color: tierColors.accent }}>${balance.toFixed(2)}</p>
+                    <p className="text-xs text-gray-400">current balance</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: 'Lot Size', value: status.lotSize },
+                    { label: 'Max Trades', value: status.maxTrades },
+                    { label: 'Pip Target', value: status.pipTarget },
+                    { label: 'SL Pips', value: status.slPips },
+                  ].map(item => (
+                    <div key={item.label} className="text-center rounded-lg p-2" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <p className="text-base font-bold text-white">{item.value}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{item.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {status.nextTierBalance && (
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                      <span>Progress to Tier {status.tier + 1}</span>
+                      <span style={{ color: tierColors.accent }}>Next tier at ${status.nextTierBalance}</span>
+                    </div>
+                    <Progress value={status.progressPct} className="h-2" style={{ '--progress-color': tierColors.accent } as any} />
+                    <p className="text-xs text-gray-500 mt-1">{status.progressPct}% to next tier unlock</p>
+                  </div>
+                )}
+                {!status.nextTierBalance && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Trophy className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm text-yellow-400 font-semibold">Maximum tier reached!</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Stats Bar ── */}
+          {status && (
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { icon: DollarSign, label: "Today's P&L", value: fmtPnl(status.todayPnl), color: status.todayPnl >= 0 ? '#22c55e' : '#ef4444' },
+                { icon: BarChart3,  label: 'Total P&L',   value: fmtPnl(status.totalPnl), color: status.totalPnl >= 0 ? '#22c55e' : '#ef4444' },
+                { icon: Activity,   label: 'Sessions',    value: String(status.sessionCount), color: '#8b5cf6' },
+              ].map(item => (
+                <Card key={item.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: item.color + '18' }}>
+                      <item.icon className="w-4 h-4" style={{ color: item.color }} />
+                    </div>
+                    <div>
+                      <p className="text-base font-bold leading-tight" style={{ color: item.color }}>{item.value}</p>
+                      <p className="text-[10px] text-gray-500">{item.label}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* ── Volume Profile Context Card ── */}
+          <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-purple-400" />
+                Volume Profile — Market Context
+                {vpAvailableCount > 0
+                  ? <Badge className="ml-auto text-[10px]" style={{ background: 'rgba(139,92,246,0.2)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.35)' }}>{vpAvailableCount}/{selectedPairs.length} live</Badge>
+                  : <span className="ml-auto text-[10px] text-gray-600">No MT5 data yet — start MT5 EA to populate</span>
+                }
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {/* Order type legend */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                {Object.entries(ORDER_TYPE_META).map(([key, meta]) => (
+                  <div key={key} className="flex items-center gap-1.5 rounded-md px-2 py-1" style={{ background: meta.bg, border: `1px solid ${meta.color}33` }}>
+                    <span className="text-[10px]">{meta.emoji}</span>
+                    <span className="text-[10px] font-semibold" style={{ color: meta.color }}>{meta.label}</span>
+                    <span className="text-[9px] text-gray-500 hidden sm:block">— {meta.desc}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Progress to next tier */}
-              {status.nextTierBalance && (
-                <div>
-                  <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-                    <span>Progress to Tier {status.tier + 1}</span>
-                    <span style={{ color: tierColors.accent }}>Next tier at ${status.nextTierBalance}</span>
+              {/* Per-pair VP rows */}
+              {selectedPairs.map(sym => {
+                const vp = vpSignals[sym];
+                if (!vp?.available) {
+                  return (
+                    <div key={sym} className="flex items-center justify-between rounded-lg px-3 py-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <span className="text-xs text-white font-semibold w-20">{sym}</span>
+                      <span className="text-[10px] text-gray-600">No data — MT5 EA not sending chart data for this pair</span>
+                    </div>
+                  );
+                }
+                const meta = ORDER_TYPE_META[vp.orderType ?? 'market'];
+                return (
+                  <div key={sym} className="rounded-lg px-3 py-2.5 space-y-2" style={{ background: meta.bg, border: `1px solid ${meta.color}33` }}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white w-20">{sym}</span>
+                        <span className="text-[10px]">{meta.emoji}</span>
+                        <span className="text-[10px] font-bold" style={{ color: meta.color }}>{meta.label}</span>
+                        {vp.direction && (
+                          <span className={`text-[10px] font-bold ${vp.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {vp.direction === 'BUY' ? '↑ BUY' : '↓ SELL'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-gray-500">{vp.timeframe}</span>
+                        {vp.pocStrength !== undefined && (
+                          <span className="text-[9px] text-purple-400">{vp.pocStrength.toFixed(1)}% at POC</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* POC / VAH / VAL bar */}
+                    <div className="grid grid-cols-4 gap-1.5 text-center">
+                      {[
+                        { label: 'Price', val: fmtPrice(vp.currentPrice!, sym), color: '#fff' },
+                        { label: 'POC',   val: fmtPrice(vp.poc!,   sym), color: '#a855f7' },
+                        { label: 'VAH',   val: fmtPrice(vp.vah!,   sym), color: '#22c55e' },
+                        { label: 'VAL',   val: fmtPrice(vp.val!,   sym), color: '#ef4444' },
+                      ].map(cell => (
+                        <div key={cell.label} className="rounded p-1.5" style={{ background: 'rgba(0,0,0,0.25)' }}>
+                          <p className="text-[9px] text-gray-500 uppercase mb-0.5">{cell.label}</p>
+                          <p className="text-[11px] font-bold font-mono" style={{ color: cell.color }}>{cell.val}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {vp.entryNote && (
+                      <p className="text-[10px] text-gray-400 pl-0.5">{vp.entryNote}</p>
+                    )}
                   </div>
-                  <Progress value={status.progressPct} className="h-2" style={{ '--progress-color': tierColors.accent } as any} />
-                  <p className="text-xs text-gray-500 mt-1">{status.progressPct}% to next tier unlock</p>
-                </div>
-              )}
-              {!status.nextTierBalance && (
-                <div className="flex items-center gap-2 mt-2">
-                  <Trophy className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm text-yellow-400 font-semibold">Maximum tier reached!</span>
-                </div>
-              )}
+                );
+              })}
             </CardContent>
           </Card>
-        )}
 
-        {/* ── Stats Bar ── */}
-        {status && (
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { icon: DollarSign, label: "Today's P&L", value: fmtPnl(status.todayPnl), color: status.todayPnl >= 0 ? '#22c55e' : '#ef4444' },
-              { icon: BarChart3, label: 'Total P&L', value: fmtPnl(status.totalPnl), color: status.totalPnl >= 0 ? '#22c55e' : '#ef4444' },
-              { icon: Activity, label: 'Sessions', value: String(status.sessionCount), color: '#8b5cf6' },
-            ].map(item => (
-              <Card key={item.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <CardContent className="p-3 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: item.color + '18' }}>
-                    <item.icon className="w-4 h-4" style={{ color: item.color }} />
-                  </div>
-                  <div>
-                    <p className="text-base font-bold leading-tight" style={{ color: item.color }}>{item.value}</p>
-                    <p className="text-[10px] text-gray-500">{item.label}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* ── Session Setup / Controls ── */}
-        <Card style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-400" />
-              Session Controls
-              {activeSessionId && (
-                <Badge className="ml-auto animate-pulse" style={{ background: 'rgba(34,197,94,0.2)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.4)' }}>
-                  LIVE
-                </Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-
-            {/* Balance input — only shown when no active session */}
-            {!activeSessionId && (
-              <>
-                <div>
-                  <label className="text-xs text-gray-400 mb-1.5 block">Account Balance ($)</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={balanceInput}
-                    onChange={e => handleBalanceChange(e.target.value)}
-                    className="bg-gray-900 border-gray-700 text-white"
-                    placeholder="25"
-                  />
-                </div>
-
-                {/* Pairs selector */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1.5 block">Pairs to Trade</label>
-                  <div className="flex flex-wrap gap-2">
-                    {ALL_PAIRS.map(pair => (
-                      <button
-                        key={pair}
-                        onClick={() => togglePair(pair)}
-                        className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"
-                        style={{
-                          background: selectedPairs.includes(pair) ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.05)',
-                          border: selectedPairs.includes(pair) ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.1)',
-                          color: selectedPairs.includes(pair) ? '#c4b5fd' : '#9ca3af',
-                        }}
-                      >
-                        {pair}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Risk mode */}
-                <div>
-                  <label className="text-xs text-gray-400 mb-1.5 block">Risk Mode</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {RISK_MODES.map(mode => (
-                      <button
-                        key={mode.id}
-                        onClick={() => setRiskMode(mode.id)}
-                        className="text-xs p-2.5 rounded-lg text-center transition-all"
-                        style={{
-                          background: riskMode === mode.id ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
-                          border: riskMode === mode.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                          color: riskMode === mode.id ? '#93c5fd' : '#6b7280',
-                        }}
-                      >
-                        <p className="font-semibold">{mode.label}</p>
-                        <p className="text-[10px] mt-0.5 opacity-70">{mode.desc}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Active session info */}
-            {activeSessionId && status && (
-              <div className="space-y-3">
-                {/* Countdown */}
-                <div className="flex items-center justify-between rounded-xl p-4" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-green-400" />
-                    <span className="text-xs text-gray-400">{status.sessionDuration}-min session</span>
-                  </div>
-                  <span className="text-2xl font-mono font-bold text-green-400">{formatMs(timeLeftMs)}</span>
-                </div>
-
-                {/* Trades counter */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400">Trades this session</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-bold text-white">{tradesThisSession}</span>
-                    <span className="text-gray-600">/</span>
-                    <span className="text-gray-400">{status.maxTrades}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => { setTradesThisSession(t => Math.min(t + 1, status.maxTrades)); addActivity('pip', `Trade #${tradesThisSession + 1} executed`); }}
-                      className="h-6 w-6 p-0 text-green-400 hover:text-green-300"
-                    >
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Pip target */}
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-400 flex items-center gap-1">
-                    <Target className="w-3.5 h-3.5" />
-                    Target per trade
-                  </span>
-                  <span className="text-sm font-semibold text-cyan-400">{status.pipTarget} pips</span>
-                </div>
-
-                {/* Pip progress */}
-                <div>
-                  <div className="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>Pips this session</span>
-                    <span className="text-green-400 font-semibold">{pipsThisSession} / {pipTargetMax}</span>
-                  </div>
-                  <Progress value={Math.min(100, sessionPct)} className="h-1.5" />
-                </div>
-              </div>
-            )}
-
-            {/* Action buttons */}
-            <div className="flex gap-3">
-              {!activeSessionId ? (
-                <Button
-                  onClick={handleStartSession}
-                  disabled={startMutation.isPending || !engineEnabled}
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold h-11"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  {startMutation.isPending ? 'Starting…' : 'Start Session'}
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => { setPipsThisSession(p => p + 1); addActivity('pip', `+1 pip captured (total: ${pipsThisSession + 1})`); }}
-                    className="flex-1 border-cyan-700 text-cyan-400 hover:bg-cyan-900/20"
-                  >
-                    <ChevronUp className="w-4 h-4 mr-1" />
-                    +1 Pip
-                  </Button>
-                  <Button
-                    onClick={handleStopSession}
-                    variant="destructive"
-                    className="flex-1 h-11"
-                  >
-                    <Square className="w-4 h-4 mr-2" />
-                    Stop Session
-                  </Button>
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ── Live Feed ── */}
-        {activeSessionId && activity.length > 0 && (
-          <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Activity className="w-4 h-4 text-green-400" />
-                Live Session Feed
+          {/* ── Session Setup / Controls ── */}
+          <Card style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="w-4 h-4 text-yellow-400" />
+                Session Controls
+                {activeSessionId && (
+                  <Badge className="ml-auto animate-pulse" style={{ background: 'rgba(34,197,94,0.2)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.4)' }}>
+                    LIVE
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 space-y-1.5">
-              {activity.map((entry, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs">
-                  <span className="text-gray-600 flex-shrink-0 font-mono">{entry.time}</span>
-                  <span className={
-                    entry.type === 'start' ? 'text-green-400' :
-                    entry.type === 'signal' ? 'text-yellow-400' :
-                    entry.type === 'pip' ? 'text-cyan-400' :
-                    'text-gray-400'
-                  }>
-                    {entry.type === 'start' ? '▶' : entry.type === 'signal' ? '⚡' : entry.type === 'pip' ? '●' : '·'} {entry.message}
-                  </span>
+            <CardContent className="space-y-4">
+
+              {!activeSessionId && (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1.5 block">Account Balance ($)</label>
+                    <Input
+                      type="number" min={1}
+                      value={balanceInput}
+                      onChange={e => handleBalanceChange(e.target.value)}
+                      className="bg-gray-900 border-gray-700 text-white"
+                      placeholder="25"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1.5 block">Pairs to Trade</label>
+                    <div className="flex flex-wrap gap-2">
+                      {ALL_PAIRS.map(pair => (
+                        <button
+                          key={pair}
+                          onClick={() => togglePair(pair)}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"
+                          style={{
+                            background: selectedPairs.includes(pair) ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.05)',
+                            border: selectedPairs.includes(pair) ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                            color: selectedPairs.includes(pair) ? '#c4b5fd' : '#9ca3af',
+                          }}
+                        >
+                          {pair}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1.5 block">Risk Mode</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {RISK_MODES.map(mode => (
+                        <button
+                          key={mode.id}
+                          onClick={() => setRiskMode(mode.id)}
+                          className="text-xs p-2.5 rounded-lg text-center transition-all"
+                          style={{
+                            background: riskMode === mode.id ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.04)',
+                            border: riskMode === mode.id ? '1px solid rgba(59,130,246,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                            color: riskMode === mode.id ? '#93c5fd' : '#6b7280',
+                          }}
+                        >
+                          <p className="font-semibold">{mode.label}</p>
+                          <p className="text-[10px] mt-0.5 opacity-70">{mode.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Active session info */}
+              {activeSessionId && status && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between rounded-xl p-4" style={{ background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)' }}>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-green-400" />
+                      <span className="text-xs text-gray-400">{status.sessionDuration}-min session</span>
+                    </div>
+                    <span className="text-2xl font-mono font-bold text-green-400">{formatMs(timeLeftMs)}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400">Trades this session</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-bold text-white">{tradesThisSession}</span>
+                      <span className="text-gray-600">/</span>
+                      <span className="text-gray-400">{status.maxTrades}</span>
+                      <Button
+                        variant="ghost" size="sm"
+                        onClick={() => { setTradesThisSession(t => Math.min(t + 1, status.maxTrades)); addActivity('pip', `Trade #${tradesThisSession + 1} executed`); }}
+                        className="h-6 w-6 p-0 text-green-400 hover:text-green-300"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400 flex items-center gap-1">
+                      <Target className="w-3.5 h-3.5" />Target per trade
+                    </span>
+                    <span className="text-sm font-semibold text-cyan-400">{status.pipTarget} pips</span>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                      <span>Pips this session</span>
+                      <span className="text-green-400 font-semibold">{pipsThisSession} / {pipTargetMax}</span>
+                    </div>
+                    <Progress value={Math.min(100, sessionPct)} className="h-1.5" />
+                  </div>
                 </div>
-              ))}
+              )}
+
+              {/* Action buttons */}
+              <div className="flex gap-3">
+                {!activeSessionId ? (
+                  <Button
+                    onClick={handleStartSession}
+                    disabled={startMutation.isPending || !engineEnabled}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold h-11"
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    {startMutation.isPending ? 'Starting…' : 'Start Session'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => { setPipsThisSession(p => p + 1); addActivity('pip', `+1 pip captured (total: ${pipsThisSession + 1})`); }}
+                      className="flex-1 border-cyan-700 text-cyan-400 hover:bg-cyan-900/20"
+                    >
+                      <ChevronUp className="w-4 h-4 mr-1" />+1 Pip
+                    </Button>
+                    <Button onClick={handleStopSession} variant="destructive" className="flex-1 h-11">
+                      <Square className="w-4 h-4 mr-2" />Stop Session
+                    </Button>
+                  </>
+                )}
+              </div>
             </CardContent>
           </Card>
-        )}
 
-        {/* ── Session History ── */}
-        {sessions.length > 0 && (
+          {/* ── Live Feed ── */}
+          {activeSessionId && activity.length > 0 && (
+            <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-green-400" />
+                  Live Session Feed
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 space-y-1.5">
+                {activity.map((entry, i) => {
+                  const otMeta = entry.orderType ? ORDER_TYPE_META[entry.orderType] : null;
+                  return (
+                    <div key={i} className="flex items-start gap-2 text-xs">
+                      <span className="text-gray-600 flex-shrink-0 font-mono">{entry.time}</span>
+                      <div className="flex-1 flex flex-wrap items-center gap-1.5">
+                        {otMeta && (
+                          <span
+                            className="text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0"
+                            style={{ background: otMeta.bg, color: otMeta.color, border: `1px solid ${otMeta.color}44` }}
+                          >
+                            {otMeta.emoji} {otMeta.label}
+                          </span>
+                        )}
+                        <span className={
+                          entry.type === 'start' ? 'text-green-400' :
+                          entry.type === 'signal' ? 'text-yellow-300' :
+                          entry.type === 'pip' ? 'text-cyan-400' : 'text-gray-400'
+                        }>
+                          {entry.type === 'start' ? '▶' : entry.type === 'signal' ? '⚡' : entry.type === 'pip' ? '●' : '·'} {entry.message}
+                        </span>
+                        {/* Manual dispatch button for signals */}
+                        {entry.type === 'signal' && entry.pair && entry.direction && autoForwardMt5 === false && mt5Tokens.length > 0 && (
+                          <button
+                            onClick={() => dispatchSignalMutation.mutate({
+                              symbol: entry.pair,
+                              direction: entry.direction,
+                              orderType: entry.orderType ?? 'market',
+                              lotSize: status?.lotSize,
+                              slPips: status?.slPips,
+                            })}
+                            className="text-[9px] px-1.5 py-0.5 rounded border transition-colors"
+                            style={{ borderColor: 'rgba(6,182,212,0.4)', color: '#67e8f9', background: 'rgba(6,182,212,0.08)' }}
+                          >
+                            → MT5
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Session History ── */}
+          {sessions.length > 0 && (
+            <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-purple-400" />
+                  Session History
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                        {['Date/Time', 'Tier', 'Trades', 'Pips', 'P&L', 'Status'].map(h => (
+                          <th key={h} className="px-3 py-2.5 text-left text-gray-500 font-semibold uppercase tracking-wide">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sessions.slice(0, 10).map((s, i) => (
+                        <tr key={s.id} className="transition-colors" style={{ borderBottom: i < 9 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                          <td className="px-3 py-2.5 text-gray-400">{fmtDate(s.startedAt)}</td>
+                          <td className="px-3 py-2.5">
+                            <Badge style={{ background: TIER_COLORS[s.tier]?.accent + '18', color: TIER_COLORS[s.tier]?.accent, border: `1px solid ${TIER_COLORS[s.tier]?.accent}33` }}>
+                              T{s.tier}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2.5 text-white font-medium">{s.tradesCount}</td>
+                          <td className="px-3 py-2.5 text-cyan-400 font-medium">{s.pipsGained}</td>
+                          <td className="px-3 py-2.5 font-medium" style={{ color: s.pnl >= 0 ? '#22c55e' : '#ef4444' }}>{fmtPnl(s.pnl)}</td>
+                          <td className="px-3 py-2.5">
+                            {s.pipsGained > 0
+                              ? <CheckCircle2 className="w-4 h-4 text-green-400" />
+                              : <AlertTriangle className="w-4 h-4 text-yellow-500" />}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-4 py-3 flex gap-6" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <div>
+                    <p className="text-[10px] text-gray-500">Total Sessions</p>
+                    <p className="text-sm font-bold text-white">{sessions.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500">Avg Pips/Session</p>
+                    <p className="text-sm font-bold text-cyan-400">
+                      {sessions.length > 0 ? (sessions.reduce((a, s) => a + s.pipsGained, 0) / sessions.length).toFixed(1) : '0'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-500">Total P&L</p>
+                    <p className="text-sm font-bold" style={{ color: (status?.totalPnl ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {fmtPnl(status?.totalPnl ?? 0)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Growth Chart ── */}
           <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-400" />
-                Session History
+                <BarChart3 className="w-4 h-4 text-purple-400" />
+                Account Growth
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                      {['Date/Time', 'Tier', 'Trades', 'Pips', 'P&L', 'Status'].map(h => (
-                        <th key={h} className="px-3 py-2.5 text-left text-gray-500 font-semibold uppercase tracking-wide">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessions.slice(0, 10).map((s, i) => (
-                      <tr key={s.id} className="transition-colors" style={{ borderBottom: i < 9 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                        <td className="px-3 py-2.5 text-gray-400">{fmtDate(s.startedAt)}</td>
-                        <td className="px-3 py-2.5">
-                          <Badge style={{ background: TIER_COLORS[s.tier]?.accent + '18', color: TIER_COLORS[s.tier]?.accent, border: `1px solid ${TIER_COLORS[s.tier]?.accent}33` }}>
-                            T{s.tier}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2.5 text-white font-medium">{s.tradesCount}</td>
-                        <td className="px-3 py-2.5 text-cyan-400 font-medium">{s.pipsGained}</td>
-                        <td className="px-3 py-2.5 font-medium" style={{ color: s.pnl >= 0 ? '#22c55e' : '#ef4444' }}>{fmtPnl(s.pnl)}</td>
-                        <td className="px-3 py-2.5">
-                          {s.pipsGained > 0
-                            ? <CheckCircle2 className="w-4 h-4 text-green-400" />
-                            : <AlertTriangle className="w-4 h-4 text-yellow-500" />}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Totals row */}
-              <div className="px-4 py-3 flex gap-6" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-                <div>
-                  <p className="text-[10px] text-gray-500">Total Sessions</p>
-                  <p className="text-sm font-bold text-white">{sessions.length}</p>
+            <CardContent>
+              {chartData.length < 2 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-gray-600 text-sm gap-2">
+                  <TrendingUp className="w-8 h-8 opacity-30" />
+                  <p>Complete your first session to see the growth chart</p>
                 </div>
-                <div>
-                  <p className="text-[10px] text-gray-500">Avg Pips/Session</p>
-                  <p className="text-sm font-bold text-cyan-400">
-                    {sessions.length > 0 ? (sessions.reduce((a, s) => a + s.pipsGained, 0) / sessions.length).toFixed(1) : '0'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-500">Total P&L</p>
-                  <p className="text-sm font-bold" style={{ color: (status?.totalPnl ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
-                    {fmtPnl(status?.totalPnl ?? 0)}
-                  </p>
-                </div>
-              </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="session" label={{ value: 'Session #', position: 'insideBottom', offset: -2, style: { fontSize: 10, fill: '#6b7280' } }} tick={{ fill: '#6b7280', fontSize: 10 }} />
+                    <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `$${v}`} width={50} />
+                    <Tooltip
+                      contentStyle={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                      labelStyle={{ color: '#9ca3af' }}
+                      formatter={(val: number) => [`$${val.toFixed(2)}`, 'Balance']}
+                    />
+                    <ReferenceLine y={500} stroke="#8b5cf6" strokeDasharray="4 4" label={{ value: '$500 Target', fill: '#8b5cf6', fontSize: 10 }} />
+                    <Area type="monotone" dataKey="balance" stroke="#22c55e" strokeWidth={2} fill="url(#growthGrad)" dot={false} activeDot={{ r: 4, fill: '#22c55e' }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
-        )}
-
-        {/* ── Growth Chart ── */}
-        <Card style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-purple-400" />
-              Account Growth Projection
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {chartData.length < 2 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-gray-600 text-sm gap-2">
-                <TrendingUp className="w-8 h-8 opacity-30" />
-                <p>Complete your first session to see the growth chart</p>
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="session" label={{ value: 'Session #', position: 'insideBottom', offset: -2, style: { fontSize: 10, fill: '#6b7280' } }} tick={{ fill: '#6b7280', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `$${v}`} width={50} />
-                  <Tooltip
-                    contentStyle={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#9ca3af' }}
-                    formatter={(val: number) => [`$${val.toFixed(2)}`, 'Balance']}
-                  />
-                  <ReferenceLine y={500} stroke="#8b5cf6" strokeDasharray="4 4" label={{ value: '$500 Target', fill: '#8b5cf6', fontSize: 10 }} />
-                  <Area type="monotone" dataKey="balance" stroke="#22c55e" strokeWidth={2} fill="url(#growthGrad)" dot={false} activeDot={{ r: 4, fill: '#22c55e' }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
 
         </div>{/* end engine content wrapper */}
       </div>
 
       {/* ── Result Modal ── */}
-      <Dialog open={showResultModal} onOpenChange={open => { if (!open && !logMutation.isPending) { setShowResultModal(false); } }}>
+      <Dialog open={showResultModal} onOpenChange={open => { if (!open && !logMutation.isPending) setShowResultModal(false); }}>
         <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -779,40 +1031,17 @@ export default function MicroGrowthPage() {
           <div className="space-y-4 py-2">
             <div>
               <label className="text-xs text-gray-400 mb-1.5 block">Total Pips Gained</label>
-              <Input
-                type="number"
-                value={resultPips}
-                onChange={e => setResultPips(e.target.value)}
-                className="bg-gray-800 border-gray-700 text-white"
-                placeholder="0"
-              />
+              <Input type="number" value={resultPips} onChange={e => setResultPips(e.target.value)} className="bg-gray-800 border-gray-700 text-white" placeholder="0" />
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1.5 block">Trades Taken</label>
-              <Input
-                type="number"
-                value={resultTrades}
-                onChange={e => setResultTrades(e.target.value)}
-                className="bg-gray-800 border-gray-700 text-white"
-                placeholder="0"
-              />
+              <Input type="number" value={resultTrades} onChange={e => setResultTrades(e.target.value)} className="bg-gray-800 border-gray-700 text-white" placeholder="0" />
             </div>
             <div>
               <label className="text-xs text-gray-400 mb-1.5 block">Net P&L ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={resultPnl}
-                onChange={e => setResultPnl(e.target.value)}
-                className="bg-gray-800 border-gray-700 text-white"
-                placeholder="0.00"
-              />
+              <Input type="number" step="0.01" value={resultPnl} onChange={e => setResultPnl(e.target.value)} className="bg-gray-800 border-gray-700 text-white" placeholder="0.00" />
             </div>
-            <Button
-              onClick={handleSubmitResult}
-              disabled={logMutation.isPending}
-              className="w-full bg-green-600 hover:bg-green-700"
-            >
+            <Button onClick={handleSubmitResult} disabled={logMutation.isPending} className="w-full bg-green-600 hover:bg-green-700">
               {logMutation.isPending ? 'Saving…' : 'Save Session'}
             </Button>
           </div>

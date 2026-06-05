@@ -96,7 +96,6 @@ import TokenInvestmentsPage from "@/pages/token-investments";
 import AccountGrowthPlan from "@/pages/account-growth-plan";
 import MicroGrowthPage from "@/pages/micro-growth";
 import ActivityHubPage from "@/pages/activity-hub";
-import StopOrdersPage from "@/pages/stop-orders";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -295,7 +294,6 @@ function AppLayout() {
             <ProtectedRoute path="/futures-live-feed" component={FuturesLiveFeedPage} />
             <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
             <ProtectedRoute path="/activity" component={ActivityHubPage} />
-            <ProtectedRoute path="/stop-orders" component={StopOrdersPage} />
 
             <Route component={NotFound} />
           </Switch>

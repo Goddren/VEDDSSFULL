@@ -22903,6 +22903,123 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json({ success: true, session: completed });
   });
 
+  // GET /api/micro-growth/vp-signals?symbols=EURUSD,XAUUSD
+  // Returns VP (POC/VAH/VAL) + order-type recommendation per symbol from MT5 cache
+  app.get('/api/micro-growth/vp-signals', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const symbolsParam = (req.query.symbols as string) || 'EURUSD,XAUUSD';
+    const symbols = symbolsParam.split(',').map((s: string) => s.trim().toUpperCase()).filter(Boolean);
+    const mt5Cache = (global as any).mt5ChartDataCache || {};
+
+    let computeVP: ((candles: any[]) => { poc: number; vah: number; val: number; pocStrength: number } | undefined) | null = null;
+    try {
+      const ind = await import('./indicators');
+      computeVP = ind.computeTrueVolumeProfile;
+    } catch { /* indicators not loaded yet */ }
+
+    const results: Record<string, any> = {};
+
+    for (const sym of symbols) {
+      // Find best candles
+      let candles: any[] = [];
+      let usedTf = '';
+      for (const tf of ['M15', 'M30', 'H1', 'M5', 'M6', 'M1']) {
+        const key = `mt5_chart_${userId}_${sym}_${tf}`;
+        const entry = mt5Cache[key];
+        if (entry?.candles?.length >= 10) { candles = entry.candles; usedTf = tf; break; }
+      }
+
+      if (candles.length < 10 || !computeVP) {
+        results[sym] = { available: false, reason: candles.length < 10 ? 'no_data' : 'vp_unavailable' };
+        continue;
+      }
+
+      const vp = computeVP(candles);
+      if (!vp) { results[sym] = { available: false, reason: 'insufficient_candles' }; continue; }
+
+      const lastCandle = candles[candles.length - 1];
+      const currentPrice: number = lastCandle.close ?? lastCandle.c ?? 0;
+      const { poc, vah, val } = vp;
+      const range = vah - val || 0.0001;
+      const nearPct = range * 0.12; // within 12% of range = "AT" zone
+
+      let orderType: 'market' | 'stop_entry' | 'limit_entry' = 'market';
+      let direction: 'BUY' | 'SELL' | null = null;
+      let entryNote = '';
+
+      if (Math.abs(currentPrice - poc) <= nearPct) {
+        orderType = 'market';
+        direction = null;
+        entryNote = `Price AT POC ${poc.toFixed(5)} — market entry on breakout confirm`;
+      } else if (currentPrice < val) {
+        // Below value area — stop entry to buy when price re-enters
+        orderType = 'stop_entry';
+        direction = 'BUY';
+        entryNote = `Stop Entry BUY above VAL ${val.toFixed(5)} — value area re-entry`;
+      } else if (currentPrice > vah) {
+        // Above value area — stop entry to sell when price re-enters
+        orderType = 'stop_entry';
+        direction = 'SELL';
+        entryNote = `Stop Entry SELL below VAH ${vah.toFixed(5)} — value area re-entry`;
+      } else if (currentPrice > poc) {
+        // Between POC and VAH — limit buy on retest of POC
+        orderType = 'limit_entry';
+        direction = 'BUY';
+        entryNote = `Limit Entry BUY at POC retest ${poc.toFixed(5)}`;
+      } else {
+        // Between VAL and POC — limit sell on retest of POC
+        orderType = 'limit_entry';
+        direction = 'SELL';
+        entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
+      }
+
+      results[sym] = {
+        available: true,
+        poc, vah, val,
+        pocStrength: vp.pocStrength,
+        currentPrice,
+        timeframe: usedTf,
+        orderType,
+        direction,
+        entryNote,
+      };
+    }
+
+    res.json(results);
+  });
+
+  // POST /api/micro-growth/dispatch-signal
+  // Pushes a micro-engine signal into the MT5 pending-signal queue for the user's active EA
+  app.post('/api/micro-growth/dispatch-signal', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize, accountAlias } = req.body as {
+      symbol?: string; direction?: string; orderType?: string; entryPrice?: number;
+      slPips?: number; tpPips?: number; lotSize?: number; accountAlias?: string;
+    };
+
+    if (!symbol || !direction) return res.status(400).json({ message: 'symbol and direction required' });
+
+    // Use the same addMT5Signal helper used by the SS engine
+    if (typeof (global as any).addMT5Signal === 'function') {
+      (global as any).addMT5Signal(userId, {
+        symbol,
+        direction: direction.toUpperCase(),
+        orderType: orderType ?? 'market',
+        entryPrice: entryPrice ?? null,
+        stopLoss: slPips ?? null,
+        takeProfit: tpPips ?? null,
+        lotSize: lotSize ?? 0.01,
+        source: 'micro_growth',
+        timestamp: new Date().toISOString(),
+      }, accountAlias ?? 'default');
+      res.json({ success: true });
+    } else {
+      res.status(503).json({ message: 'MT5 signal dispatcher not available — ensure live engine is running' });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one
