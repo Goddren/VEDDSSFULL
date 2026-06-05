@@ -15148,6 +15148,58 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Polymarket / Composite wallet storage ─────────────────────────────────
+  // Helpers: load/save wallet map from data/polymarket_wallets.json
+  const _polyWalletsFile = path.join(process.cwd(), 'data', 'polymarket_wallets.json');
+  const _loadPolyWallets = (): Record<string, string> => {
+    try {
+      if (fs.existsSync(_polyWalletsFile)) return JSON.parse(fs.readFileSync(_polyWalletsFile, 'utf-8'));
+    } catch { /* ignore */ }
+    return {};
+  };
+  const _savePolyWallets = (map: Record<string, string>) => {
+    try {
+      const dir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+    } catch { /* ignore */ }
+  };
+
+  // GET /api/user/polymarket-wallet — return saved Polygon wallet address for current user
+  app.get("/api/user/polymarket-wallet", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const map = _loadPolyWallets();
+    res.json({ address: map[String(userId)] ?? null });
+  });
+
+  // POST /api/user/polymarket-wallet — save Polygon wallet address for current user
+  app.post("/api/user/polymarket-wallet", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { address } = req.body;
+    if (!address || typeof address !== 'string') {
+      return res.status(400).json({ error: "address is required" });
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return res.status(400).json({ error: "Invalid Ethereum address format" });
+    }
+    const map = _loadPolyWallets();
+    map[String(userId)] = address;
+    _savePolyWallets(map);
+    res.json({ success: true, address });
+  });
+
+  // DELETE /api/user/polymarket-wallet — remove saved wallet address
+  app.delete("/api/user/polymarket-wallet", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const map = _loadPolyWallets();
+    delete map[String(userId)];
+    _savePolyWallets(map);
+    res.json({ success: true });
+  });
+
   // SS Engine dual-vote consensus feed (quant + AI per signal)
   app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

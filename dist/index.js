@@ -45048,6 +45048,51 @@ Respond with ONLY valid JSON:
       });
     }
   });
+  const _polyWalletsFile = path4.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _loadPolyWallets = () => {
+    try {
+      if (fs4.existsSync(_polyWalletsFile)) return JSON.parse(fs4.readFileSync(_polyWalletsFile, "utf-8"));
+    } catch {
+    }
+    return {};
+  };
+  const _savePolyWallets = (map) => {
+    try {
+      const dir = path4.join(process.cwd(), "data");
+      if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
+      fs4.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+    } catch {
+    }
+  };
+  app2.get("/api/user/polymarket-wallet", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const map = _loadPolyWallets();
+    res.json({ address: map[String(userId)] ?? null });
+  });
+  app2.post("/api/user/polymarket-wallet", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { address } = req.body;
+    if (!address || typeof address !== "string") {
+      return res.status(400).json({ error: "address is required" });
+    }
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return res.status(400).json({ error: "Invalid Ethereum address format" });
+    }
+    const map = _loadPolyWallets();
+    map[String(userId)] = address;
+    _savePolyWallets(map);
+    res.json({ success: true, address });
+  });
+  app2.delete("/api/user/polymarket-wallet", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const map = _loadPolyWallets();
+    delete map[String(userId)];
+    _savePolyWallets(map);
+    res.json({ success: true });
+  });
   app2.get("/api/ss-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

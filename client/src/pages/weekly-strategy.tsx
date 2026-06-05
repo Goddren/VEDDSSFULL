@@ -5494,9 +5494,17 @@ export default function WeeklyStrategyPage() {
                       {engineCompositeMinEdge}<span className="text-gray-600 font-normal">/100</span>
                     </span>
                   </div>
-                  <p className="text-[9px] text-gray-600">
-                    Crypto pairs monitored: BTC · ETH · SOL · XRP · BNB · DOGE · ADA · MATIC · LINK
-                  </p>
+                  {/* Polymarket Wallet link */}
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-800">
+                    <p className="text-[9px] text-gray-600">
+                      Crypto pairs: BTC · ETH · SOL · XRP · BNB · DOGE · ADA · MATIC · LINK
+                    </p>
+                    <Link href="/polymarket-wallet">
+                      <button className="flex items-center gap-1.5 text-[10px] text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-lg px-2.5 py-1.5 transition-colors shrink-0">
+                        🔗 Connect Wallet
+                      </button>
+                    </Link>
+                  </div>
                 </div>
               );
             })()}
