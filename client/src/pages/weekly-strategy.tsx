@@ -2270,39 +2270,7 @@ export default function WeeklyStrategyPage() {
                     </div>
                   </div>
 
-                  {/* ── Composite Autonomous toggle ──────────────────────────────── */}
-                  <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-semibold text-purple-300">🤖 Composite Auto-Trade</span>
-                          <span className="text-[9px] bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded px-1.5 py-0.5">Markov × Polymarket</span>
-                        </div>
-                        <p className="text-[9px] text-gray-500 mt-0.5">
-                          When both Markov + Polymarket strongly agree on a crypto direction, fire trades autonomously — no AI call needed. 5-min cooldown per pair.
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => setEngineCompositeAutonomous(p => !p)}
-                        className={`ml-3 w-10 h-5 rounded-full relative transition-colors shrink-0 ${engineCompositeAutonomous ? 'bg-purple-500' : 'bg-gray-700'}`}
-                      >
-                        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${engineCompositeAutonomous ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                      </button>
-                    </div>
-                    {engineCompositeAutonomous && (
-                      <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[9px] text-gray-500 shrink-0">Min edge score:</span>
-                        <input
-                          type="range" min={55} max={90} step={1}
-                          value={engineCompositeMinEdge}
-                          onChange={e => setEngineCompositeMinEdge(Number(e.target.value))}
-                          className="flex-1 accent-purple-500 h-1"
-                        />
-                        <span className={`text-[10px] font-bold w-8 text-right ${engineCompositeMinEdge >= 80 ? 'text-emerald-400' : engineCompositeMinEdge >= 70 ? 'text-purple-300' : 'text-yellow-400'}`}>{engineCompositeMinEdge}</span>
-                        <span className="text-[9px] text-gray-600">/100</span>
-                      </div>
-                    )}
-                  </div>
+                  {/* Composite Auto-Trade moved to its own section below Composite Edge card */}
 
                   <div>
                     <Label className="text-gray-400 text-xs">Trading Pairs</Label>
@@ -5417,6 +5385,117 @@ export default function WeeklyStrategyPage() {
 
                   <p className="text-[9px] text-gray-600 mt-2 text-right">
                     Markov: built from 50 closed candles · Polymarket: {polymarketSentiment?.fromCache ? 'cached' : 'live'} · 15s refresh
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* ── Composite Auto-Trade — standalone section ── */}
+            {(() => {
+              const alignment = btcComposite?.alignment ?? 'neutral';
+              const edgeScore = btcComposite?.compositeEdgeScore ?? 0;
+              const isLive = engineCompositeAutonomous;
+              const signalReady = alignment === 'strong_agree' && edgeScore >= engineCompositeMinEdge;
+              return (
+                <div className={`bg-gray-900/60 border rounded-xl p-4 ${isLive ? 'border-purple-500/40' : 'border-gray-800'}`}>
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white font-bold text-sm">🤖 Composite Auto-Trade</span>
+                      <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">Markov × Polymarket</span>
+                      {isLive && (
+                        <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded px-1.5 py-0.5 animate-pulse">● ACTIVE</span>
+                      )}
+                    </div>
+                    {/* Master on/off toggle */}
+                    <button
+                      onClick={async () => {
+                        const next = !engineCompositeAutonomous;
+                        setEngineCompositeAutonomous(next);
+                        try {
+                          await apiRequest('PATCH', '/api/vedd-live-engine/config', {
+                            enableCompositeAutonomous: next,
+                            compositeMinEdgeScore: engineCompositeMinEdge,
+                          });
+                        } catch { /* engine may not be running yet — setting saved locally */ }
+                      }}
+                      className={`w-12 h-6 rounded-full relative transition-colors shrink-0 ${isLive ? 'bg-purple-500' : 'bg-gray-700'}`}
+                    >
+                      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform shadow ${isLive ? 'translate-x-7' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+
+                  <p className="text-[10px] text-gray-400 mb-3">
+                    Fires crypto trades autonomously when Markov chain + Polymarket prediction markets <span className="text-purple-300 font-semibold">strongly agree</span> on direction — no AI call needed. Independent of the SS AI engine.
+                    <span className="text-gray-600"> 5-min cooldown per pair.</span>
+                  </p>
+
+                  {/* Current signal status */}
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="bg-black/30 rounded-lg p-2 text-center">
+                      <p className="text-[9px] text-gray-500 uppercase mb-0.5">Signal</p>
+                      <p className={`text-xs font-bold ${btcComposite?.direction === 'BUY' ? 'text-emerald-400' : btcComposite?.direction === 'SELL' ? 'text-red-400' : 'text-gray-500'}`}>
+                        {btcComposite?.direction ?? '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-lg p-2 text-center">
+                      <p className="text-[9px] text-gray-500 uppercase mb-0.5">Edge Score</p>
+                      <p className={`text-xs font-bold ${edgeScore >= 80 ? 'text-emerald-400' : edgeScore >= 65 ? 'text-purple-300' : 'text-gray-500'}`}>
+                        {btcComposite ? `${edgeScore}/100` : '—'}
+                      </p>
+                    </div>
+                    <div className="bg-black/30 rounded-lg p-2 text-center">
+                      <p className="text-[9px] text-gray-500 uppercase mb-0.5">Alignment</p>
+                      <p className={`text-[10px] font-bold ${
+                        alignment === 'strong_agree' ? 'text-emerald-400' :
+                        alignment === 'agree' ? 'text-green-400' :
+                        alignment === 'strong_disagree' ? 'text-red-400' :
+                        alignment === 'disagree' ? 'text-orange-400' : 'text-gray-500'
+                      }`}>
+                        {alignment === 'strong_agree' ? '🔥 STRONG' :
+                         alignment === 'agree' ? '✅ AGREE' :
+                         alignment === 'strong_disagree' ? '🚫 CONFLICT' :
+                         alignment === 'disagree' ? '⚠️ PARTIAL' : '— neutral'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Fire-ready indicator */}
+                  {btcComposite && (
+                    <div className={`rounded-lg px-3 py-2 mb-3 flex items-center gap-2 ${signalReady ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-gray-800/40 border border-gray-700/40'}`}>
+                      <span className={`text-sm ${signalReady ? 'text-emerald-400' : 'text-gray-600'}`}>{signalReady ? '✅' : '⏳'}</span>
+                      <span className={`text-[10px] ${signalReady ? 'text-emerald-300' : 'text-gray-500'}`}>
+                        {signalReady
+                          ? `Trade-ready — ${btcComposite.direction} BTC | edge ${edgeScore} ≥ threshold ${engineCompositeMinEdge}${isLive ? ' — will fire on next engine cycle' : ' — toggle ON to auto-trade'}`
+                          : `Not ready — need strong_agree alignment + edge ≥ ${engineCompositeMinEdge} (current: ${edgeScore})`}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Min edge score control */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-[10px] text-gray-400 shrink-0 w-24">Min edge score</span>
+                    <input
+                      type="range" min={55} max={90} step={1}
+                      value={engineCompositeMinEdge}
+                      onChange={async e => {
+                        const v = Number(e.target.value);
+                        setEngineCompositeMinEdge(v);
+                        try {
+                          await apiRequest('PATCH', '/api/vedd-live-engine/config', {
+                            enableCompositeAutonomous: isLive,
+                            compositeMinEdgeScore: v,
+                          });
+                        } catch { /* non-blocking */ }
+                      }}
+                      className="flex-1 accent-purple-500 h-1.5"
+                    />
+                    <span className={`text-xs font-bold w-10 text-right ${engineCompositeMinEdge >= 80 ? 'text-emerald-400' : engineCompositeMinEdge >= 70 ? 'text-purple-300' : 'text-yellow-400'}`}>
+                      {engineCompositeMinEdge}<span className="text-gray-600 font-normal">/100</span>
+                    </span>
+                  </div>
+                  <p className="text-[9px] text-gray-600">
+                    Crypto pairs monitored: BTC · ETH · SOL · XRP · BNB · DOGE · ADA · MATIC · LINK
                   </p>
                 </div>
               );
