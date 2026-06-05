@@ -59,6 +59,7 @@ interface ORBSetup {
   pattern?: string;
   tradeDirection?: "LONG" | "SHORT";
   tradeTaken: boolean;
+  tradeCount?: number;    // total trades logged on this symbol today (multi-setup mode)
   lastUpdated: string;
   aiScore?: number;
   aiChecks?: AICheck[];
@@ -590,6 +591,11 @@ function SetupCard({
               : <Minus className="w-4 h-4 text-gray-600" />}
             <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
             {isRetest && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse" style={{ background: "rgba(34,197,94,0.25)", color: "#22c55e", border: "1px solid #22c55e50" }}>ENTRY ZONE</span>}
+            {(setup.tradeCount ?? 0) > 0 && (
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>
+                {setup.tradeCount}× today
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {setup.lastUpdated && <p className="text-[9px] text-gray-600">Updated {setup.lastUpdated}</p>}
@@ -1305,6 +1311,11 @@ export default function ORBBreakoutPage() {
     return (localStorage.getItem('orb_data_source') as "mt5" | "tradelocker") || "mt5";
   });
 
+  // Multi-Setup Mode — allow a symbol to re-arm after each trade, requiring full SS AI sequence each time
+  const [multiSetupMode, setMultiSetupMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('orb_multi_setup') === 'true'; } catch { return false; }
+  });
+
   // Persist setups whenever they change
   useEffect(() => {
     try { localStorage.setItem('orb_setups', JSON.stringify(setups)); } catch { /* quota */ }
@@ -1390,6 +1401,7 @@ export default function ORBBreakoutPage() {
   function logTrade(id: string) {
     const setup = setups.find(s => s.id === id);
     if (!setup || !setup.tradeDirection || !setup.entryPrice) return;
+    const newCount = (setup.tradeCount ?? 0) + 1;
     const trade: DailyTrade = {
       symbol: setup.symbol,
       direction: setup.tradeDirection,
@@ -1403,11 +1415,31 @@ export default function ORBBreakoutPage() {
       result: "PENDING",
     };
     setDailyTrades(prev => [...prev, trade]);
-    updateSetup(id, { tradeTaken: true, phase: "TRADE_TAKEN" });
-    toast({
-      title: `✅ ${setup.symbol} ${setup.tradeDirection} logged!`,
-      description: `Entry ${setup.entryPrice} | Stop ${setup.stopLoss} | T1 ${setup.target1}`,
-    });
+
+    if (multiSetupMode) {
+      // Re-arm: reset to RANGE_SET so the symbol can pick up another setup
+      // The full sequence (breakout → retest → SS AI ≥ 70) is required before the next signal fires
+      autoFiredRef.current.delete(id);
+      autoAnalyzingRef.current.delete(id);
+      updateSetup(id, {
+        tradeTaken: false,
+        tradeCount: newCount,
+        phase: "RANGE_SET",
+        aiScore: undefined,
+        aiChecks: undefined,
+        aiNote: undefined,
+      });
+      toast({
+        title: `✅ Trade #${newCount} logged — ${setup.symbol} re-armed`,
+        description: `Entry ${setup.entryPrice} | Stop ${setup.stopLoss} | T1 ${setup.target1} | Watching for next setup…`,
+      });
+    } else {
+      updateSetup(id, { tradeTaken: true, tradeCount: newCount, phase: "TRADE_TAKEN" });
+      toast({
+        title: `✅ ${setup.symbol} ${setup.tradeDirection} logged!`,
+        description: `Entry ${setup.entryPrice} | Stop ${setup.stopLoss} | T1 ${setup.target1}`,
+      });
+    }
   }
 
   // Track which setups have already had auto-webhook fired this session (prevent repeated fires)
@@ -1702,7 +1734,10 @@ export default function ORBBreakoutPage() {
   }
 
   const activeSetups = setups.filter(s => s.phase !== "TRADE_TAKEN" && s.phase !== "WINDOW_CLOSED");
-  const tradesTaken = setups.filter(s => s.tradeTaken).length;
+  // In multi-setup mode count all trade logs; in single mode count locked symbols
+  const tradesTaken = multiSetupMode
+    ? setups.reduce((acc, s) => acc + (s.tradeCount ?? 0), 0)
+    : setups.filter(s => s.tradeTaken).length;
   const retestSignals = setups.filter(s => s.phase === "RETEST_LONG" || s.phase === "RETEST_SHORT").length;
   const mt5AutoCount = setups.filter(s => s.autoMode && s.mt5Status === "connected").length;
 
@@ -1728,10 +1763,39 @@ export default function ORBBreakoutPage() {
                 </Badge>
               </div>
               <p className="text-gray-400 text-sm mt-1">
-                15-min opening range · 6-min breakout · Retest entry · 1 trade/pair/day — US30, NAS100, SPX, Stocks, Commodities
+                15-min opening range · 6-min breakout · Retest entry ·{" "}
+                {multiSetupMode
+                  ? <span className="text-yellow-400 font-semibold">Multi-setup/day — re-arms after each trade</span>
+                  : "1 trade/pair/day"
+                }{" "}
+                — US30, NAS100, SPX, Stocks, Commodities
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+              {/* Multi-Setup Mode toggle */}
+              <button
+                onClick={() => {
+                  const next = !multiSetupMode;
+                  setMultiSetupMode(next);
+                  try { localStorage.setItem('orb_multi_setup', String(next)); } catch {}
+                  toast({
+                    title: next ? "🔄 Multi-Setup Mode ON" : "1️⃣ Single-Trade Mode ON",
+                    description: next
+                      ? "Symbols re-arm after each trade — full SS AI sequence required each time"
+                      : "Each symbol locks after one trade per day",
+                  });
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                style={{
+                  background: multiSetupMode ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.05)",
+                  border: multiSetupMode ? "1px solid rgba(251,191,36,0.4)" : "1px solid rgba(255,255,255,0.12)",
+                  color: multiSetupMode ? "#fbbf24" : "#6b7280",
+                }}
+                title={multiSetupMode ? "Multi-Setup Mode: symbols re-arm after each trade" : "Single-Trade Mode: one trade per symbol per day"}
+              >
+                <span>{multiSetupMode ? "🔄" : "1️⃣"}</span>
+                {multiSetupMode ? "Multi-Setup" : "Single Trade"}
+              </button>
               {/* Data source toggle */}
               <div className="flex items-center rounded-lg overflow-hidden border border-gray-700/50 text-[10px] font-bold">
                 <button
