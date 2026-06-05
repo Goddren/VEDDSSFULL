@@ -15197,6 +15197,7 @@ __export(tradelocker_exports, {
   decryptPassword: () => decryptPassword,
   encryptPassword: () => encryptPassword,
   executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
+  getOrCreateService: () => getOrCreateService,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
 import crypto3 from "crypto";
@@ -15327,17 +15328,22 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
   try {
     const service = await getOrCreateService(connection2);
     if (signal.action === "OPEN" || signal.action.toUpperCase() === "OPEN") {
+      const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
+      const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
+      const resolvedType = usePrice ? tlOrderType : "market";
       console.log("[TradeLocker Execute] Placing order:", {
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
-        type: "market",
+        type: resolvedType,
+        price: usePrice,
         quantity: signal.volume
       });
       const orderResult = await service.placeOrder({
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
-        type: "market",
+        type: resolvedType,
         quantity: signal.volume,
+        price: usePrice,
         stopLoss: signal.stopLoss || void 0,
         takeProfit: signal.takeProfit || void 0
       });
@@ -15790,7 +15796,7 @@ var init_tradelocker = __esm({
             price: 0
             // Required field - 0 for market orders
           };
-          if (order.type === "limit" && order.price) {
+          if ((order.type === "limit" || order.type === "stop") && order.price) {
             orderPayload.price = order.price;
           }
           if (order.stopLoss) {
@@ -17303,6 +17309,7 @@ __export(indicators_exports, {
   calculateVolatilityContext: () => calculateVolatilityContext,
   calculateVolumeProfile: () => calculateVolumeProfile,
   computeAllAdvancedIndicators: () => computeAllAdvancedIndicators,
+  computeTrueVolumeProfile: () => computeTrueVolumeProfile,
   detectCandlePatterns: () => detectCandlePatterns,
   detectMarketOpenBreakout: () => detectMarketOpenBreakout,
   findSupportResistance: () => findSupportResistance,
@@ -17654,12 +17661,66 @@ function calculateVolumeProfile(candles) {
   const recentAvg = candles.slice(0, 5).reduce((s, c) => s + (c.v || 0), 0) / 5;
   const olderAvg = candles.slice(5, 15).reduce((s, c) => s + (c.v || 0), 0) / Math.min(10, Math.max(1, candles.length - 5));
   const volumeTrend = recentAvg > olderAvg * 1.2 ? "INCREASING" : recentAvg < olderAvg * 0.8 ? "DECREASING" : "STABLE";
+  const vp = computeTrueVolumeProfile(candles);
   return {
     avgVolume: Math.round(avgVolume),
     currentVolume: Math.round(currentVolume),
     volumeRatio: Math.round(volumeRatio * 100) / 100,
-    volumeTrend
+    volumeTrend,
+    poc: vp?.poc,
+    vah: vp?.vah,
+    val: vp?.val,
+    pocStrength: vp?.pocStrength
   };
+}
+function computeTrueVolumeProfile(candles) {
+  if (candles.length < 10) return void 0;
+  const NUM_BUCKETS = 50;
+  const priceHigh = Math.max(...candles.map((c) => c.h));
+  const priceLow = Math.min(...candles.map((c) => c.l));
+  const priceRange = priceHigh - priceLow;
+  const totalVol = candles.reduce((s, c) => s + (c.v || 0), 0);
+  if (priceRange <= 0 || totalVol === 0) return void 0;
+  const bucketSize = priceRange / NUM_BUCKETS;
+  const buckets = new Array(NUM_BUCKETS).fill(0);
+  for (const candle of candles) {
+    const vol = candle.v || 0;
+    if (vol === 0) continue;
+    const candleRange = candle.h - candle.l;
+    if (candleRange <= 0) {
+      const bi = Math.min(Math.floor((candle.c - priceLow) / bucketSize), NUM_BUCKETS - 1);
+      if (bi >= 0) buckets[bi] += vol;
+      continue;
+    }
+    const startBi = Math.max(0, Math.floor((candle.l - priceLow) / bucketSize));
+    const endBi = Math.min(NUM_BUCKETS - 1, Math.floor((candle.h - priceLow) / bucketSize));
+    const span = endBi - startBi + 1;
+    const volPerBucket = vol / span;
+    for (let bi = startBi; bi <= endBi; bi++) {
+      buckets[bi] += volPerBucket;
+    }
+  }
+  const maxVol = Math.max(...buckets);
+  const pocIdx = buckets.indexOf(maxVol);
+  const poc = priceLow + (pocIdx + 0.5) * bucketSize;
+  const pocStrength = Math.round(maxVol / totalVol * 100);
+  let vaVol = maxVol;
+  let loIdx = pocIdx, hiIdx = pocIdx;
+  while (vaVol < totalVol * 0.7 && (loIdx > 0 || hiIdx < NUM_BUCKETS - 1)) {
+    const loNext = loIdx > 0 ? buckets[loIdx - 1] : 0;
+    const hiNext = hiIdx < NUM_BUCKETS - 1 ? buckets[hiIdx + 1] : 0;
+    if (loNext >= hiNext) {
+      loIdx = Math.max(0, loIdx - 1);
+      vaVol += loNext;
+    } else {
+      hiIdx = Math.min(NUM_BUCKETS - 1, hiIdx + 1);
+      vaVol += hiNext;
+    }
+  }
+  const vah = priceLow + (hiIdx + 1) * bucketSize;
+  const val = priceLow + loIdx * bucketSize;
+  const r = (n) => Math.round(n * 1e5) / 1e5;
+  return { poc: r(poc), vah: r(vah), val: r(val), pocStrength };
 }
 function calculateRSI(candles, period = 14) {
   if (candles.length < period + 1) return void 0;
@@ -32084,11 +32145,42 @@ var streamingService = new StreamingService();
 
 // server/routes.ts
 init_solana_scanner();
+
+// server/version.ts
+var SERVER_START_VERSION = Date.now().toString();
+
+// server/routes.ts
 var scryptAsync = promisify(scrypt);
 async function hashPasswordForWallet(password) {
   const salt = randomBytes(16).toString("hex");
   const buf = await scryptAsync(password, salt, 64);
   return `${buf.toString("hex")}.${salt}`;
+}
+var PAIR_SESSION_WINDOWS = {
+  EURUSD: [[7, 20]],
+  GBPUSD: [[7, 17]],
+  USDCHF: [[7, 20]],
+  USDCAD: [[13, 20]],
+  AUDUSD: [[0, 4], [7, 17]],
+  NZDUSD: [[0, 4], [7, 17]],
+  USDJPY: [[0, 3], [7, 20]],
+  GBPJPY: [[7, 16]],
+  EURJPY: [[7, 20]],
+  XAUUSD: [[7, 20]],
+  GOLD: [[7, 20]],
+  NAS100: [[13, 20]],
+  US30: [[13, 20]],
+  SPX500: [[13, 20]],
+  US500: [[13, 20]],
+  BTCUSD: [[7, 22]],
+  BTCUSDT: [[7, 22]],
+  ETHUSD: [[7, 22]]
+};
+function isInTradingSession(symbol, hourUTC) {
+  const sym = symbol.toUpperCase().replace("/", "");
+  const windows = PAIR_SESSION_WINDOWS[sym];
+  if (!windows) return true;
+  return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
 }
 function tlSignalGuard(params) {
   const {
@@ -32097,25 +32189,53 @@ function tlSignalGuard(params) {
     stopLoss,
     takeProfit,
     minConfidence = 70,
-    requireSLTP = true
+    requireSLTP = true,
+    checkSession = false,
+    riskScore
   } = params;
+  const sym = params.symbol || "";
+  const dir = (params.direction || "").toUpperCase();
   if (confidence2 < minConfidence) {
-    return { allow: false, reason: `Confidence ${confidence2}% is below the ${minConfidence}% minimum \u2014 signal blocked` };
+    return { allow: false, reason: `Confidence ${confidence2}% below ${minConfidence}% minimum \u2014 blocked` };
   }
   if (requireSLTP && (!stopLoss || stopLoss <= 0)) {
-    return { allow: false, reason: `No stop loss provided for ${params.symbol || ""} \u2014 trade blocked (undefined risk)` };
+    return { allow: false, reason: `No stop loss on ${sym} \u2014 undefined risk, blocked` };
   }
   if (requireSLTP && (!takeProfit || takeProfit <= 0)) {
-    return { allow: false, reason: `No take profit provided for ${params.symbol || ""} \u2014 trade blocked (no exit target)` };
+    return { allow: false, reason: `No take profit on ${sym} \u2014 no exit target, blocked` };
   }
-  if (entryPrice && stopLoss && takeProfit && entryPrice > 0 && stopLoss > 0 && takeProfit > 0) {
+  if (entryPrice && entryPrice > 0 && stopLoss && stopLoss > 0 && takeProfit && takeProfit > 0) {
+    if (dir === "BUY") {
+      if (stopLoss >= entryPrice) {
+        return { allow: false, reason: `BUY ${sym}: SL ${stopLoss} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+      }
+      if (takeProfit <= entryPrice) {
+        return { allow: false, reason: `BUY ${sym}: TP ${takeProfit} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+      }
+    } else if (dir === "SELL") {
+      if (stopLoss <= entryPrice) {
+        return { allow: false, reason: `SELL ${sym}: SL ${stopLoss} <= entry ${entryPrice} \u2014 inverted levels, blocked` };
+      }
+      if (takeProfit >= entryPrice) {
+        return { allow: false, reason: `SELL ${sym}: TP ${takeProfit} >= entry ${entryPrice} \u2014 inverted levels, blocked` };
+      }
+    }
     const riskDist = Math.abs(entryPrice - stopLoss);
     const rewardDist = Math.abs(takeProfit - entryPrice);
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
-      if (rr < 1.5) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${params.symbol || ""} ${params.direction || ""} is below the 1.5 minimum \u2014 trade blocked` };
+      if (rr < 2) {
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below 2.0 minimum \u2014 blocked` };
       }
+    }
+  }
+  if (riskScore != null && riskScore > 7) {
+    return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 \u2014 blocked` };
+  }
+  if (checkSession) {
+    const hourUTC = (/* @__PURE__ */ new Date()).getUTCHours();
+    if (!isInTradingSession(sym, hourUTC)) {
+      return { allow: false, reason: `${sym} outside its best session at ${hourUTC}:00 UTC \u2014 low liquidity, blocked` };
     }
   }
   return { allow: true, reason: "Passed all signal quality gates" };
@@ -32942,6 +33062,14 @@ async function registerRoutes(app2, existingServer) {
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
   app2.use("/api/vedd", vedd_token_default);
   app2.use("/api", tradovate_default);
+  app2.get("/api/build-version", (_req, res) => {
+    res.set({
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
+    res.json({ version: SERVER_START_VERSION });
+  });
   app2.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
@@ -40904,22 +41032,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
       for (const conn of activeTlConns) {
         try {
-          const tlSvc = new TradeLockerService(
-            conn.accountType || "live",
-            conn.accountId,
-            conn.serverId,
-            conn.accNum?.toString()
-          );
+          const tlSvc = await getOrCreateService(conn);
           const positions = await tlSvc.getPositions().catch(() => []);
-          tlUnrealizedPnL += positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          const connUnrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          tlUnrealizedPnL += connUnrealized;
+          console.log(`[daily-summary] TL ${conn.accountId}: unrealized=$${connUnrealized.toFixed(2)} (${positions.length} positions)`);
           const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          let connTodayPnL = 0;
+          let connWeekPnL = 0;
           for (const order of filledOrders) {
             const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
-            if (closeTs >= todayStart.getTime()) tlTodayClosedPnL += order.profit || 0;
-            if (closeTs >= weekStart.getTime()) tlWeekClosedPnL += order.profit || 0;
+            if (closeTs >= todayStart.getTime()) {
+              tlTodayClosedPnL += order.profit || 0;
+              connTodayPnL += order.profit || 0;
+            }
+            if (closeTs >= weekStart.getTime()) {
+              tlWeekClosedPnL += order.profit || 0;
+              connWeekPnL += order.profit || 0;
+            }
           }
+          console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
         } catch (connErr) {
-          console.error("[daily-summary] TL conn error:", connErr.message);
+          console.error(`[daily-summary] TL ${conn.accountId} error:`, connErr.message);
         }
       }
     } catch (tlErr) {
@@ -42983,6 +43117,41 @@ Rules:
     const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => c);
     res.json(safe);
   });
+  app2.get("/api/tradelocker/account-balance", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const connections = await storage.getUserTradelockerConnections(userId);
+      const activeConns = connections.filter((c) => c.isActive);
+      if (activeConns.length === 0) return res.json({ totalBalance: 0, totalEquity: 0, accounts: [] });
+      const accounts = [];
+      let totalBalance = 0;
+      let totalEquity = 0;
+      for (const conn of activeConns) {
+        try {
+          const tlSvc = await getOrCreateService(conn);
+          const info = await tlSvc.getAccountInfo();
+          accounts.push({
+            accountId: conn.accountId,
+            accountType: conn.accountType,
+            balance: info.balance || 0,
+            equity: info.equity || 0,
+            currency: info.currency || "USD"
+          });
+          totalBalance += info.balance || 0;
+          totalEquity += info.equity || 0;
+          console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
+        } catch (err) {
+          console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);
+          accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: 0, equity: 0, error: err.message });
+        }
+      }
+      res.json({ totalBalance, totalEquity, accounts });
+    } catch (err) {
+      console.error("[TL account-balance]", err);
+      res.status(500).json({ error: "Failed to fetch TL balance" });
+    }
+  });
   app2.get("/api/tradelocker/connection", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -43861,7 +44030,18 @@ Format each recommendation as a clear, concise action item.`;
     if (!brain || !brain.pairKnowledge || Object.keys(brain.pairKnowledge).length === 0) {
       return res.status(400).json({ error: "Brain hasn't learned yet. Run learning first." });
     }
-    const { strategyMode = "aggressive", autoExecute = false } = req.body;
+    const rawModes = req.body.strategyModes;
+    const rawMode = req.body.strategyMode;
+    const strategyModesArr = Array.isArray(rawModes) && rawModes.length > 0 ? rawModes : [rawMode || "aggressive"];
+    const autoExecute = req.body.autoExecute || false;
+    const userMinConfidence = Math.min(95, Math.max(50, Number(req.body.minConfidence) || 75));
+    const userRiskPerTrade = Math.min(10, Math.max(0.1, Number(req.body.engineRiskPerTrade) || 1));
+    const userAccountBalance = Math.max(100, Number(req.body.engineAccountBalance) || 1e3);
+    const userMaxLotSize = Math.min(10, Math.max(0.01, Number(req.body.engineMaxLotSize) || 0.1));
+    const userBaseLotSize = Math.min(1, Math.max(0.01, Number(req.body.engineBaseLotSize) || 0.01));
+    const userMaxTrades = Math.min(20, Math.max(1, Number(req.body.engineMaxTrades) || 5));
+    const userPairs = Array.isArray(req.body.enginePairs) && req.body.enginePairs.length > 0 ? req.body.enginePairs.map((p) => p.toUpperCase().replace("/", "")) : [];
+    const strategyMode = strategyModesArr[0];
     try {
       const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       let openaiInstance, selectedModel;
@@ -43872,28 +44052,56 @@ Format each recommendation as a clear, concise action item.`;
         return res.status(500).json({ error: "No AI API key configured." });
       }
       const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
-      const lastChartData = global.mt5LastChartData?.[userId] || {};
+      const mt5Cache = global.mt5ChartDataCache || {};
       const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+      const getBestCandles = (sym) => {
+        for (const tf of ["M15", "M30", "H1", "M5", "M6", "M1"]) {
+          const entry = mt5Cache[`mt5_chart_${userId}_${sym}_${tf}`];
+          if (entry?.candles?.length >= 10) return entry.candles;
+        }
+        return [];
+      };
       const liveContext = {};
       for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
         const pairData = Object.values(connectedPairs).find(
           (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
         );
-        const chartSnap = lastChartData[sym];
         const hasOpenPos = openPositions.some(
           (p) => (p.symbol || "").toUpperCase().replace("/", "") === sym
         );
+        const candles = getBestCandles(sym);
+        const latest = candles[0];
+        const atr = latest?.atr || null;
+        const rsi = latest?.rsi || null;
+        const trend = latest?.trend || null;
+        const close = latest?.c || latest?.close || null;
+        let vpData = {};
+        if (candles.length >= 10) {
+          const { computeTrueVolumeProfile: computeTrueVolumeProfile2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+          const vp = computeTrueVolumeProfile2(candles.slice(0, 100));
+          if (vp) vpData = vp;
+        }
+        const {
+          lastSignal: _ls,
+          lastConfidence: _lc,
+          lastPrice: _lp,
+          currentSpread: _cs,
+          maxLossStreak: _mls,
+          minProfitableATR: _mpa,
+          lastLossAt: _lla,
+          topDays: _td,
+          buyWinRate: _bwr,
+          sellWinRate: _swr,
+          ...cleanKnowledge
+        } = knowledge || {};
         liveContext[sym] = {
-          ...knowledge,
-          currentPrice: pairData?.price || chartSnap?.close || null,
-          currentSignal: pairData?.signal || null,
-          currentConfidence: pairData?.confidence || null,
-          spread: pairData?.spread || null,
-          atr: chartSnap?.atr || null,
-          rsi: chartSnap?.rsi || null,
-          trend: chartSnap?.trend || null,
-          hasOpenPosition: hasOpenPos,
-          lastUpdateAge: pairData?.lastUpdated ? Math.round((Date.now() - new Date(pairData.lastUpdated).getTime()) / 6e4) : null
+          ...cleanKnowledge,
+          currentPrice: pairData?.price || close || null,
+          atr,
+          rsi,
+          trend,
+          hasOpenPosition: hasOpenPos
+          // volumeProfile excluded here — already surfaced in vpSection above
         };
       }
       const nowUTC = /* @__PURE__ */ new Date();
@@ -43902,36 +44110,125 @@ Format each recommendation as a clear, concise action item.`;
       const currentDay = signalDayNames[nowUTC.getUTCDay()];
       const currentSession = currentHour < 7 ? "Asian" : currentHour < 13 ? "London" : currentHour < 20 ? "New York" : "Late NY";
       const strategyDescriptions = {
-        scalping: `SCALPING MODE (HFT): Target 3-8 pips per trade, 10-20+ trades/day. Quick entries/exits within 5-30 minutes. Use tight stops (5-10 pips). Focus on spread-friendly pairs. Exploit micro-movements during high-volatility sessions.`,
-        momentum: `MOMENTUM SURFING: Ride strong directional moves. 5-15 trades/day, hold 15min-2hrs. Enter on breakouts and continuations. Larger pip targets (15-40 pips). Trail stops aggressively. Stack positions when momentum confirms.`,
-        session_breakout: `SESSION OPEN BREAKOUT: Trade the first 30-60 minutes of London/NY opens. 3-6 high-conviction trades. Capture the initial move from session open. Wide targets (20-50 pips), tight relative stops.`,
-        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth focus. Combine scalping, momentum, and breakout strategies dynamically. Increase lot sizes as balance grows intraday. Push for 5-20% daily account growth. High trade frequency.`,
-        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence of learned patterns. Larger position sizes, precise entries, tight risk. Quality over quantity - each trade is a kill shot.`
+        scalping: `SCALPING MODE: 3-8 pips/trade, 10-20+ trades/day, hold 5-30min, tight stops 5-10 pips. Focus spread-friendly pairs. VP: Use POC bounces as micro-targets; VAH/VAL as profit exits. Enter market orders when price taps POC or value-area edge with volume surge.`,
+        momentum: `MOMENTUM SURFING: Ride strong directional moves, 15-40 pip targets, hold 15min-2hrs, trail stops aggressively. VP: Momentum is strongest ABOVE VAH (breakout long) or BELOW VAL (breakdown short). Avoid entries between POC and VAH/VAL when ADX is weak. Use stop_entry orders above VAH or below VAL for breakout confirmation.`,
+        session_breakout: `SESSION OPEN BREAKOUT: Trade first 30-60min of London/NY opens, 3-6 trades, 20-50 pip targets. VP: Highest-probability breakouts clear VAH (long) or VAL (short). Previous session's POC is the key retest zone after breakout \u2014 use limit_entry at prior POC for pullback re-entry.`,
+        aggressive: `AGGRESSIVE COMPOUND GROWTH: Maximum growth, 5-20% daily target. Combine scalping/momentum/breakout dynamically. VP: Regardless of sub-strategy, always align the final entry with the nearest VP level (POC/VAH/VAL) \u2014 this is the high-confluence anchor for all aggressive entries.`,
+        sniper: `SNIPER MODE: 2-4 ultra-high-confidence trades only. Wait for perfect confluence. Large size, precise entries, tight risk. VP: Sniper entries MUST align with a VP level \u2014 POC retest, VAH, or VAL. Entry at POC or value-area edge = maximum statistical edge. If no VP confluence, do NOT take the trade. Use limit_entry orders positioned at VP levels.`,
+        orb: `ORB (OPENING RANGE BREAKOUT): Trade the VEDD ORB strategy. Opening range = first 15min of NYSE open (9:30-9:45 AM EST).
+RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 2) Entry on RETEST of broken ORB level. entryPrice = ORB High (longs) or ORB Low (shorts). 3) SL = 10% of range beyond broken level. 4) TP = 2:1 R:R. 5) Valid 9:45 AM\u20132:00 PM EST only. 6) One trade per instrument/day. 7) Do NOT fabricate ORB levels. VP bonus: If ORB High/Low aligns with VAH/VAL, the setup has double confluence \u2014 increase confidence.`
       };
-      const prompt = `You are VEDD SS AI - a self-learning autonomous trading engine. You have analyzed the trader's entire history and built deep knowledge. Now GENERATE PROACTIVE TRADE SIGNALS using what you've learned.
+      const mt5ChartCacheBrain = global.mt5ChartDataCache || {};
+      const orbContextLines = [];
+      const trackedSymsBrain = Object.keys(mt5ChartCacheBrain).filter((k) => k.startsWith(`mt5_chart_${userId}_`)).map((k) => k.replace(`mt5_chart_${userId}_`, "").replace(/_[A-Z0-9]+$/, "")).filter((v, i, a) => a.indexOf(v) === i);
+      for (const sym of trackedSymsBrain.slice(0, 8)) {
+        for (const tf of ["M6", "M5", "M1", "M15"]) {
+          const entry = mt5ChartCacheBrain[`mt5_chart_${userId}_${sym}_${tf}`];
+          if (!entry?.candles?.length) continue;
+          const candles = entry.candles;
+          const currPrice = candles[0]?.c || candles[0]?.close || 0;
+          if (!currPrice) continue;
+          const todayUTCStart = Math.floor(Date.now() / 864e5) * 86400;
+          const todayC = candles.filter((c) => (c.t || c.time || 0) >= todayUTCStart).sort((a, b) => (a.t || a.time) - (b.t || b.time));
+          let orbH = 0, orbL = 0;
+          for (const off of [-5, -4]) {
+            const oc = todayC.find((c) => {
+              const ts = c.t || c.time || 0;
+              if (!ts) return false;
+              const d = new Date(ts * 1e3);
+              const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
+              return h === 9 && d.getUTCMinutes() <= 30;
+            });
+            if (oc) {
+              orbH = oc.h || oc.high || 0;
+              orbL = oc.l || oc.low || 0;
+              break;
+            }
+          }
+          if (orbH > 0 && orbL > 0) {
+            const range = (orbH - orbL).toFixed(4);
+            const slLong = (orbL - (orbH - orbL) * 0.1).toFixed(4);
+            const slShort = (orbH + (orbH - orbL) * 0.1).toFixed(4);
+            const tp1Long = (orbH + (orbH - orbL) * 2).toFixed(4);
+            const tp1Short = (orbL - (orbH - orbL) * 2).toFixed(4);
+            let phase = "Range Set";
+            if (currPrice > orbH * 1.001) phase = "BREAKOUT LONG \u2014 retest entry zone";
+            else if (currPrice < orbL * 0.999) phase = "BREAKOUT SHORT \u2014 retest entry zone";
+            else if (Math.abs(currPrice - orbH) / orbH < 2e-3) phase = "AT ORB HIGH \u2014 breakout watch";
+            else if (Math.abs(currPrice - orbL) / orbL < 2e-3) phase = "AT ORB LOW \u2014 breakdown watch";
+            orbContextLines.push(
+              `${sym}: ORB_HIGH=${orbH} ORB_LOW=${orbL} RANGE=${range} PRICE=${currPrice.toFixed(4)} PHASE="${phase}" | Suggested BUY STOP entryPrice=${orbH} SL=${slLong} TP=${tp1Long} | Suggested SELL STOP entryPrice=${orbL} SL=${slShort} TP=${tp1Short}`
+            );
+          }
+          break;
+        }
+      }
+      const orbSection = orbContextLines.length > 0 ? `
+LIVE ORB DATA (use these exact levels for ORB signals \u2014 do NOT fabricate):
+${orbContextLines.join("\n")}` : `
+ORB DATA: No ORB data available (MT5 EA not connected or market not open). Do not generate ORB signals.`;
+      const vpLines = [];
+      for (const [sym, ctx] of Object.entries(liveContext)) {
+        const vp = ctx.volumeProfile;
+        if (!vp?.poc) continue;
+        const price = ctx.currentPrice;
+        let priceRelation = "";
+        if (price && vp.poc) {
+          if (price > vp.vah) priceRelation = " \u2014 price ABOVE value area (extended, fade or wait for pullback to VAH)";
+          else if (price < vp.val) priceRelation = " \u2014 price BELOW value area (extended, fade or wait for bounce to VAL)";
+          else if (Math.abs(price - vp.poc) / vp.poc < 1e-3) priceRelation = " \u2014 price AT POC (maximum liquidity zone, high probability mean-reversion)";
+          else if (price > vp.poc) priceRelation = " \u2014 price between POC and VAH (bullish value area, support near POC)";
+          else priceRelation = " \u2014 price between POC and VAL (bearish value area, resistance near POC)";
+        }
+        vpLines.push(`${sym}: POC=${vp.poc} VAH=${vp.vah} VAL=${vp.val} (POC strength: ${vp.pocStrength}% of vol)${priceRelation}`);
+      }
+      const vpSection = vpLines.length > 0 ? `
+VOLUME PROFILE (computed from live candles \u2014 highest-volume price nodes):
+${vpLines.join("\n")}` : "";
+      const buildContextTable = () => Object.entries(liveContext).map(([sym, c]) => {
+        const live = [
+          c.currentPrice ? `px=${c.currentPrice}` : "",
+          c.rsi ? `rsi=${c.rsi}` : "",
+          c.trend ? `trend=${c.trend}` : "",
+          c.atr ? `atr=${c.atr}` : ""
+        ].filter(Boolean).join(" ");
+        const hist = [
+          c.winRate != null ? `wr=${c.winRate}%(${c.totalTrades || 0}t)` : "",
+          c.preferredDirection ? `bias=${c.preferredDirection}` : "",
+          c.riskRewardRatio ? `rr=${c.riskRewardRatio}` : "",
+          c.avgWinPips ? `avgW=${c.avgWinPips}pips` : "",
+          c.avgLossPips ? `avgL=${c.avgLossPips}pips` : "",
+          c.topSessions?.length ? `bestSess=${c.topSessions.slice(0, 2).join("/")}` : "",
+          c.worstHours?.length ? `avoidUTC=${c.worstHours.slice(0, 3).join(",")}` : "",
+          c.recommendedLotMultiplier ? `lotMult=${c.recommendedLotMultiplier}` : "",
+          c.consecutiveLossesToday ? `lossesToday=${c.consecutiveLossesToday}` : "",
+          c.bestStrategies?.length ? `edge=${c.bestStrategies.slice(0, 2).join("/")}` : "",
+          c.hasOpenPosition ? "OPEN_POS" : ""
+        ].filter(Boolean).join(" ");
+        return `${sym}: ${live} | ${hist}`;
+      }).join("\n");
+      const buildPrompt = (mode) => `GENERATE TRADE SIGNALS \u2014 ${mode.toUpperCase()} MODE
+Time: ${nowUTC.toISOString()} (${currentSession} session, ${currentDay}, UTC${currentHour})
+Strategy: ${strategyDescriptions[mode] || strategyDescriptions.aggressive}
+${orbSection}
+${vpSection}
 
-CURRENT CONTEXT:
-- Time: ${nowUTC.toISOString()} (${currentSession} session)
-- Day: ${currentDay}
-- Hour: ${currentHour} UTC
-- Strategy Mode: ${strategyMode.toUpperCase()}
-- ${strategyDescriptions[strategyMode] || strategyDescriptions.aggressive}
+PAIR DATA (${brain.totalTradesAnalyzed} historical trades analyzed):
+${buildContextTable()}
 
-LEARNED BRAIN DATA (from ${brain.totalTradesAnalyzed} historical trades):
-${JSON.stringify(liveContext, null, 2)}
-
-KEY INSIGHTS FROM LEARNING:
+KEY INSIGHTS:
 ${brain.learningInsights.join("\n")}
 
-RULES:
-1. Generate signals ONLY for pairs where you have learned data OR live market data
-2. Use learned win rates, best sessions, direction biases to maximize edge
-3. Avoid pairs/hours/days with historically poor performance
-4. If a pair has an open position, don't signal the same direction (could add to winners only if momentum mode)
-5. Prioritize pairs currently in their historically best-performing session
-6. If no clear signal exists, return fewer signals - quality > quantity
-7. Each signal must explain WHY based on learned patterns
-8. Factor in current market data (RSI, trend, ATR) when available
+VP LEVELS (apply to all strategies):
+- POC=max-volume magnet (limit entries, mean-reversion targets). VAH=70%-area top (TP/sell-limit/buy-stop trigger). VAL=70%-area bottom (TP/buy-limit/sell-stop trigger).
+- Outside value area (above VAH or below VAL) = overextended \u2192 fade toward POC or wait for VAH/VAL re-entry.
+
+ORDER TYPE:
+- market: price AT entry zone now with immediate momentum
+- stop_entry: BUY STOP above resistance / SELL STOP below support. entryPrice=trigger level.
+- limit_entry: BUY LIMIT below current (pullback to support) / SELL LIMIT above current (rally to resistance). entryPrice=fill level.
+
+RULES: Only signal pairs with data. Use learned bias/sessions/hours. Skip if open position same direction. Fewer high-quality signals beats many weak ones. Align entries with VP levels. ORB: use only provided levels.
 
 Respond with ONLY valid JSON:
 {
@@ -43940,15 +44237,18 @@ Respond with ONLY valid JSON:
       "symbol": "XAUUSD",
       "direction": "BUY",
       "confidence": 85,
-      "strategy": "scalping|momentum|breakout|sniper",
-      "reason": "Specific reason citing learned patterns and current conditions",
-      "entryZone": "price range or condition",
+      "strategy": "scalping|momentum|breakout|sniper|orb",
+      "orderType": "market|stop_entry|limit_entry",
+      "entryZone": "descriptive price range or condition",
+      "entryPrice": number or null (required for stop_entry and limit_entry),
       "stopLoss": number,
       "takeProfit": number,
       "lotSize": number,
       "holdTime": "5min|15min|1hr|4hr",
       "session": "current session this targets",
+      "reason": "Specific reason citing learned patterns and current conditions",
       "learnedEdge": "What historical pattern gives this trade an edge",
+      "vpContext": "How volume profile levels influenced this trade (e.g. 'entry at VAL, target at POC, stop below VAL') or null if no VP data",
       "riskScore": 1-10
     }
   ],
@@ -43957,36 +44257,73 @@ Respond with ONLY valid JSON:
   "nextBestSetup": "When the next high-probability setup is likely (pair + time)",
   "brainConfidence": 0-100
 }`;
-      const response = await openaiInstance.chat.completions.create({
-        model: selectedModel,
-        messages: [
-          { role: "system", content: "You are VEDD SS AI - an autonomous self-learning trading engine. Speak with authority. Respond with valid JSON only." },
-          { role: "user", content: prompt }
-        ],
-        response_format: { type: "json_object" },
-        max_tokens: 2500,
-        temperature: 0.3
-      });
-      const content = response.choices[0]?.message?.content || "";
-      let signals;
-      try {
-        signals = JSON.parse(content);
-      } catch {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) signals = JSON.parse(jsonMatch[0]);
-        else return res.status(500).json({ error: "AI returned invalid response" });
+      const allRawResults = [];
+      for (const mode of strategyModesArr) {
+        const response = await openaiInstance.chat.completions.create({
+          model: selectedModel,
+          messages: [
+            { role: "system", content: "You are VEDD SS AI, an autonomous trading signal engine. Analyze the provided market data and historical brain knowledge to generate the highest-accuracy trade signals. Respond with valid JSON only. No markdown, no explanation outside the JSON." },
+            { role: "user", content: buildPrompt(mode) }
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 2500,
+          temperature: 0.3
+        });
+        const content = response.choices[0]?.message?.content || "";
+        try {
+          const parsed = JSON.parse(content);
+          allRawResults.push({ mode, data: parsed });
+        } catch {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) allRawResults.push({ mode, data: JSON.parse(jsonMatch[0]) });
+        }
       }
+      if (allRawResults.length === 0) return res.status(500).json({ error: "AI returned invalid response for all modes" });
+      const signalMap = /* @__PURE__ */ new Map();
+      for (const { mode, data } of allRawResults) {
+        for (const sig of data.signals || []) {
+          sig.sourceMode = mode;
+          const key = `${(sig.symbol || "").toUpperCase()}_${(sig.direction || "").toUpperCase()}`;
+          const existing = signalMap.get(key);
+          if (!existing || (sig.confidence || 0) > (existing.confidence || 0)) {
+            signalMap.set(key, sig);
+          }
+        }
+      }
+      const bestMeta = allRawResults.reduce(
+        (best, cur) => (cur.data.brainConfidence || 0) > (best.data.brainConfidence || 0) ? cur : best
+      );
+      let mergedSignals = Array.from(signalMap.values());
+      if (userPairs.length > 0) {
+        const before = mergedSignals.length;
+        mergedSignals = mergedSignals.filter(
+          (s) => userPairs.some((p) => (s.symbol || "").toUpperCase().replace("/", "") === p)
+        );
+        if (before !== mergedSignals.length) {
+          console.log(`[VEDD Brain] Pair filter: kept ${mergedSignals.length}/${before} signals matching user pairs [${userPairs.join(",")}]`);
+        }
+      }
+      const signals = {
+        signals: mergedSignals,
+        marketRead: bestMeta.data.marketRead || "",
+        activeSessionAdvice: bestMeta.data.activeSessionAdvice || "",
+        nextBestSetup: bestMeta.data.nextBestSetup || "",
+        brainConfidence: bestMeta.data.brainConfidence || 0,
+        strategiesScanned: strategyModesArr
+      };
       const executionResults = [];
       if (autoExecute && signals.signals && signals.signals.length > 0) {
         const tlConnections = await storage.getUserTradelockerConnections(userId);
-        const activeTlConns = tlConnections.filter((c) => c.isActive && c.autoExecute);
+        const activeTlConns = tlConnections.filter((c) => c.isActive);
         for (const c of tlConnections) {
-          if (!c.isActive || !c.autoExecute) {
-            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) \u2014 isActive=${c.isActive} autoExecute=${c.autoExecute}`);
+          if (!c.isActive) {
+            console.log(`[VEDD Brain AutoExec] SKIPPING account ${c.accountId} (id=${c.id}) \u2014 isActive=${c.isActive} (disabled)`);
+          } else {
+            console.log(`[VEDD Brain AutoExec] QUEUED account ${c.accountId} (id=${c.id}) \u2014 isActive=true lotMult=${c.lotMultiplier || 1}`);
           }
         }
         if (activeTlConns.length > 0) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} autonomous signals on ${activeTlConns.length} TradeLocker account(s) for user ${userId}: ${activeTlConns.map((c) => c.accountId).join(", ")}`);
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% R:R\u22652.0 session-filtered | accounts: ${activeTlConns.map((c) => c.accountId).join(", ")}`);
           const parseNum = (v) => {
             if (typeof v === "number") return v;
             if (typeof v === "string") {
@@ -44003,7 +44340,30 @@ Respond with ONLY valid JSON:
             const entryPrice = parseNum(sig.entryZone);
             const stopLoss = parseNum(sig.stopLoss);
             const takeProfit = parseNum(sig.takeProfit);
-            const baseLotSize = Math.max(0.01, Math.min(parseNum(sig.lotSize) || 0.01, 1));
+            const currentOpenPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+            if (currentOpenPositions.length >= userMaxTrades) {
+              console.log(`[VEDD Brain AutoExec] MAX TRADES reached (${currentOpenPositions.length}/${userMaxTrades}) \u2014 skipping ${sig.symbol}`);
+              executionResults.push({ sigId, symbol: sig.symbol, direction: sig.direction, status: "skipped", reason: `Max open trades (${userMaxTrades}) reached` });
+              continue;
+            }
+            const aiSuggestedLot = parseNum(sig.lotSize);
+            let baseLotSize;
+            if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
+              const slDistance = Math.abs(entryPrice - stopLoss);
+              const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
+              const sym = (sig.symbol || "").toUpperCase();
+              if (sym.includes("XAU") || sym.includes("GOLD")) {
+                baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+              } else if (sym.includes("BTC") || sym.includes("ETH") || sym.includes("NAS") || sym.includes("US30") || sym.includes("SPX")) {
+                baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+              } else {
+                const estimatedLot = slDistance > 0 ? riskAmount / (slDistance * 1e5 * 1e-4 * 10) : userBaseLotSize;
+                baseLotSize = Math.max(userBaseLotSize, Math.min(estimatedLot, userMaxLotSize));
+              }
+            } else {
+              baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
+            }
+            baseLotSize = Math.round(baseLotSize * 100) / 100;
             const brainGuard = tlSignalGuard({
               confidence: confidence2,
               entryPrice: entryPrice ?? null,
@@ -44011,9 +44371,12 @@ Respond with ONLY valid JSON:
               takeProfit: takeProfit ?? null,
               symbol: sig.symbol,
               direction: sig.direction,
-              minConfidence: 75,
-              // raised from 70 → 75 to reduce bad trades
-              requireSLTP: true
+              riskScore: typeof sig.riskScore === "number" ? sig.riskScore : null,
+              minConfidence: userMinConfidence,
+              // from user's UI engine setting (not hardcoded)
+              requireSLTP: true,
+              checkSession: true
+              // block trades outside instrument's best liquidity window
             });
             if (!brainGuard.allow) {
               console.log(`[VEDD Brain AutoExec Guard] BLOCKED ${sig.symbol} ${sig.direction}: ${brainGuard.reason}`);
@@ -44037,18 +44400,23 @@ Respond with ONLY valid JSON:
               signalLogId = signalLog.id;
             } catch (logErr) {
             }
+            let aiTradeResultRecorded = false;
             for (const tlConnection of activeTlConns) {
               const accountLotSize = Math.max(0.01, Math.min(baseLotSize * (tlConnection.lotMultiplier || 1), 5));
               console.log(`[VEDD Brain AutoExec] \u2192 Account ${tlConnection.accountId} (id=${tlConnection.id}) | lot=${accountLotSize} (base=${baseLotSize} \xD7 mult=${tlConnection.lotMultiplier || 1})`);
               try {
+                const sigOrderType = sig.orderType === "stop_entry" || sig.orderType === "limit_entry" ? sig.orderType : "market";
+                const sigEntryPrice = sigOrderType !== "market" ? parseNum(sig.entryPrice) ?? entryPrice : entryPrice;
+                console.log(`[VEDD Brain AutoExec] \u2192 ${sig.symbol} ${sig.direction} | orderType=${sigOrderType} entryPrice=${sigEntryPrice} lot=${accountLotSize}`);
                 const tradeResult = await executeMT5SignalOnTradeLocker(tlConnection, {
                   action: "OPEN",
                   symbol: sig.symbol,
                   direction: sig.direction,
                   volume: accountLotSize,
-                  entryPrice,
+                  entryPrice: sigEntryPrice,
                   stopLoss,
-                  takeProfit
+                  takeProfit,
+                  orderType: sigOrderType
                 });
                 await storage.createTradelockerTradeLog({
                   connectionId: tlConnection.id,
@@ -44072,6 +44440,21 @@ Respond with ONLY valid JSON:
                     lastError: null
                   });
                   console.log(`[VEDD Brain AutoExec] \u2705 EXECUTED ${sig.direction} ${sig.symbol} on ${tlConnection.accountId} @ lot ${accountLotSize} | Order: ${tradeResult.orderId}`);
+                  if (!aiTradeResultRecorded) {
+                    aiTradeResultRecorded = true;
+                    storage.createAiTradeResult({
+                      userId,
+                      symbol: sig.symbol.toUpperCase().replace("/", ""),
+                      direction: sig.direction.toUpperCase(),
+                      entryPrice: sigEntryPrice || entryPrice || 0,
+                      stopLoss: stopLoss || null,
+                      takeProfit: takeProfit || null,
+                      aiConfidence: confidence2,
+                      result: "PENDING",
+                      source: "brain_autoexec",
+                      notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join("+")} | orderId:${tradeResult.orderId || "n/a"} | reason:${(sig.reason || "").slice(0, 120)}`
+                    }).catch((err) => console.error("[Brain AutoExec] Failed to save ai_trade_result:", err));
+                  }
                 } else {
                   await storage.updateTradelockerConnection(tlConnection.id, { lastError: tradeResult.error });
                   console.log(`[VEDD Brain AutoExec] \u274C FAILED ${sig.symbol} on ${tlConnection.accountId}: ${tradeResult.error}`);
@@ -44099,9 +44482,18 @@ Respond with ONLY valid JSON:
               }
             }
           }
+          const anyExecuted = executionResults.some((r) => r.status === "executed");
+          if (anyExecuted) {
+            setTimeout(() => {
+              runBrainLearning(userId).catch(
+                (err) => console.error("[Brain AutoExec] Post-execution re-learn failed:", err)
+              );
+            }, 4e3);
+          }
           triggerWebhooks(userId, "vedd_brain_signals", {
             type: "autonomous_signals",
             strategyMode,
+            strategyModes: strategyModesArr,
             signals: signals.signals,
             executionResults
           }).catch((err) => console.error("Webhook trigger error:", err));
@@ -44110,19 +44502,25 @@ Respond with ONLY valid JSON:
           executionResults.push({ status: "skipped", reason: "No active TradeLocker connection with auto-execute enabled" });
         }
       }
-      global.veddAutonomousSignals = global.veddAutonomousSignals || {};
-      global.veddAutonomousSignals[userId] = {
+      const cachedSignalPayload = {
         ...signals,
         generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         strategyMode,
+        strategyModes: strategyModesArr,
         tradesLearned: brain.totalTradesAnalyzed,
         executionResults: executionResults.length > 0 ? executionResults : void 0
       };
-      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyMode}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter((r) => r.status === "executed").length}` : ""}`);
+      global.veddAutonomousSignals = global.veddAutonomousSignals || {};
+      global.veddAutonomousSignals[userId] = cachedSignalPayload;
+      if (global.veddAIBrain?.[userId]) {
+        global.veddAIBrain[userId].lastAutonomousSignals = cachedSignalPayload;
+      }
+      console.log(`[VEDD Brain] Generated ${signals.signals?.length || 0} autonomous signals (${strategyModesArr.join("+")}) for user ${userId}${autoExecute ? ` | Auto-executed: ${executionResults.filter((r) => r.status === "executed").length}` : ""}`);
       res.json({
         ...signals,
         generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         strategyMode,
+        strategyModes: strategyModesArr,
         tradesLearned: brain.totalTradesAnalyzed,
         autoExecuted: autoExecute,
         executionResults: executionResults.length > 0 ? executionResults : void 0
@@ -51076,18 +51474,55 @@ function serveStatic(app2) {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
         res.setHeader("Pragma", "no-cache");
         res.setHeader("Expires", "0");
+      } else if (filePath.endsWith("sw.js") || filePath.endsWith("service-worker.js")) {
+        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.setHeader("Service-Worker-Allowed", "/");
       } else if (/\.[0-9a-f]{8,}\.(js|css|woff2?|ttf|svg|png|jpg|webp)$/i.test(filePath)) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       }
     }
   }));
-  app2.use("*", (_req, res) => {
-    res.set({
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      "Pragma": "no-cache",
-      "Expires": "0"
-    });
-    res.sendFile(path6.resolve(distPath, "index.html"));
+  const indexPath = path6.resolve(distPath, "index.html");
+  const versionScript = `<script>
+(function(){
+  try{
+    var v='${SERVER_START_VERSION}';
+    var k='vedd-build-version';
+    var stored=localStorage.getItem(k);
+    if(stored&&stored!==v){
+      localStorage.setItem(k,v);
+      var done=function(){location.href=location.href.split('?')[0]+'?v='+v;};
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){return r.unregister();}));
+        }).then(function(){
+          return 'caches' in window ? caches.keys().then(function(ks){
+            return Promise.all(ks.map(function(k){return caches.delete(k);}));
+          }) : null;
+        }).then(done).catch(done);
+      } else { done(); }
+    } else {
+      localStorage.setItem(k,v);
+    }
+  }catch(e){}
+})();
+</script>`;
+  app2.use("*", async (_req, res) => {
+    try {
+      res.set({
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Content-Type": "text/html; charset=utf-8"
+      });
+      let html = await fs5.promises.readFile(indexPath, "utf-8");
+      html = html.replace("<head>", "<head>" + versionScript);
+      res.send(html);
+    } catch {
+      res.send(`<!DOCTYPE html><html><head>${versionScript}</head><body><script>setTimeout(function(){location.reload()},2000)</script></body></html>`);
+    }
   });
 }
 

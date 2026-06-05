@@ -14459,7 +14459,7 @@ Respond with ONLY valid JSON:
                     aiConfidence: confidence,
                     result: 'PENDING',
                     source: 'brain_autoexec',
-                    notes: `Brain AutoExec | ${sig.strategy || mode} | orderId:${tradeResult.orderId || 'n/a'} | reason:${(sig.reason || '').slice(0, 120)}`,
+                    notes: `Brain AutoExec | ${sig.strategy || strategyModesArr.join('+')} | orderId:${tradeResult.orderId || 'n/a'} | reason:${(sig.reason || '').slice(0, 120)}`,
                   }).catch(err => console.error('[Brain AutoExec] Failed to save ai_trade_result:', err));
                 }
               } else {
