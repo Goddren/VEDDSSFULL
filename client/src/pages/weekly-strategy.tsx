@@ -1188,6 +1188,40 @@ export default function WeeklyStrategyPage() {
     queryKey: ['/api/vedd-brain/strategy-modes'],
   });
 
+  const { data: weeklyScan, isLoading: scanLoading, refetch: runWeeklyScan } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/weekly-scan'],
+    enabled: false, // manual trigger only
+    staleTime: 5 * 60 * 1000, // cache for 5 min
+  });
+
+  const [showWeeklyScan, setShowWeeklyScan] = useState(false);
+  const [showEnforcementLog, setShowEnforcementLog] = useState(false);
+
+  const { data: enforcementLog } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/enforcement-log'],
+    enabled: !!brainStatus?.learned,
+    refetchInterval: 60000,
+  });
+
+  // Helper: color-code brain freshness
+  const getBrainFreshnessColor = (lastLearned: string | undefined) => {
+    if (!lastLearned) return 'bg-gray-400';
+    const diffMins = (Date.now() - new Date(lastLearned).getTime()) / 60000;
+    if (diffMins < 35) return 'bg-emerald-400'; // fresh (within 30min auto-cycle)
+    if (diffMins < 120) return 'bg-yellow-400';  // slightly stale
+    return 'bg-red-400';                          // needs re-learn
+  };
+  const getBrainFreshnessLabel = (lastLearned: string | undefined) => {
+    if (!lastLearned) return 'Never';
+    const diffMins = (Date.now() - new Date(lastLearned).getTime()) / 60000;
+    const hrs = Math.floor(diffMins / 60);
+    const days = Math.floor(hrs / 24);
+    if (days > 0) return `${days}d ${hrs % 24}h ago`;
+    if (hrs > 0) return `${hrs}h ${Math.floor(diffMins % 60)}m ago`;
+    if (diffMins >= 1) return `${Math.floor(diffMins)}m ago`;
+    return 'just now';
+  };
+
   const learnMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest('POST', '/api/vedd-brain/learn', {});
@@ -4343,20 +4377,21 @@ export default function WeeklyStrategyPage() {
               </div>
             )}
             {brainStatus?.learned && brainStatus?.lastLearned && (
-              <p className="text-[10px] text-gray-500 mt-1.5 flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                Last updated:{' '}
-                {(() => {
-                  const diff = Date.now() - new Date(brainStatus.lastLearned).getTime();
-                  const mins = Math.floor(diff / 60000);
-                  const hrs = Math.floor(mins / 60);
-                  const days = Math.floor(hrs / 24);
-                  if (days > 0) return `${days}d ${hrs % 24}h ago`;
-                  if (hrs > 0) return `${hrs}h ${mins % 60}m ago`;
-                  if (mins > 0) return `${mins}m ago`;
-                  return 'just now';
-                })()}
-              </p>
+              <div className="flex items-center justify-between mt-1.5">
+                <p className="text-[10px] text-gray-500 flex items-center gap-1">
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full animate-pulse ${getBrainFreshnessColor(brainStatus.lastLearned)}`} />
+                  <span className={
+                    getBrainFreshnessColor(brainStatus.lastLearned) === 'bg-emerald-400' ? 'text-emerald-400' :
+                    getBrainFreshnessColor(brainStatus.lastLearned) === 'bg-yellow-400' ? 'text-yellow-400' : 'text-red-400'
+                  }>
+                    Updated {getBrainFreshnessLabel(brainStatus.lastLearned)}
+                  </span>
+                  {getBrainFreshnessColor(brainStatus.lastLearned) === 'bg-red-400' && (
+                    <span className="text-red-400 text-[9px]">— click Re-Learn</span>
+                  )}
+                </p>
+                <span className="text-[9px] text-gray-600">Auto-refreshes every 30min</span>
+              </div>
             )}
           </CardHeader>
           <AnimatePresence>
@@ -4374,6 +4409,133 @@ export default function WeeklyStrategyPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* ── Enforcement Log — shows what the guard blocked and why ── */}
+                  {enforcementLog?.log?.length > 0 && (
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => setShowEnforcementLog(v => !v)}
+                        className="flex items-center gap-1.5 text-xs text-orange-400 hover:text-orange-300 font-semibold w-full text-left"
+                      >
+                        <Shield className="w-3.5 h-3.5" />
+                        Blocked Signals ({enforcementLog.log.length})
+                        <ChevronDown className={`w-3 h-3 ml-auto transition-transform ${showEnforcementLog ? '' : '-rotate-90'}`} />
+                      </button>
+                      {showEnforcementLog && (
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {enforcementLog.log.slice(-8).reverse().map((entry: any, i: number) => (
+                            <div key={i} className="flex items-start gap-2 text-[11px] bg-orange-500/10 border border-orange-500/20 rounded p-1.5">
+                              <XCircle className="w-3 h-3 text-orange-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <span className="text-orange-300 font-medium">{entry.symbol || '?'} {entry.direction || ''}</span>
+                                <span className="text-gray-400 ml-1">— {entry.reason}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Weekly Scan button + results ── */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-400 font-semibold flex items-center gap-1.5">
+                        <BarChart3 className="w-3.5 h-3.5 text-cyan-400" /> Weekly Trade Scan
+                      </p>
+                      <button
+                        onClick={() => { runWeeklyScan(); setShowWeeklyScan(true); }}
+                        disabled={scanLoading}
+                        className="flex items-center gap-1 text-[11px] bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/30 text-cyan-400 rounded px-2 py-1 transition-colors"
+                      >
+                        {scanLoading ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />}
+                        {scanLoading ? 'Scanning...' : weeklyScan ? 'Re-Scan' : 'Run Scan'}
+                      </button>
+                    </div>
+
+                    {weeklyScan && showWeeklyScan && (
+                      <div className="space-y-2 bg-black/30 rounded-lg p-3 border border-cyan-500/20">
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          {[
+                            { label: 'Week W/L', value: `${weeklyScan.wins}W / ${weeklyScan.losses}L`, color: weeklyScan.weeklyWinRate >= 55 ? 'text-emerald-400' : 'text-red-400' },
+                            { label: 'Win Rate', value: `${weeklyScan.weeklyWinRate}%`, color: weeklyScan.weeklyWinRate >= 55 ? 'text-emerald-400' : weeklyScan.weeklyWinRate >= 45 ? 'text-yellow-400' : 'text-red-400' },
+                            { label: 'Net P&L', value: `$${weeklyScan.netPnL}`, color: weeklyScan.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                          ].map(s => (
+                            <div key={s.label} className="bg-black/20 rounded p-1.5">
+                              <p className={`text-sm font-bold ${s.color}`}>{s.value}</p>
+                              <p className="text-[9px] text-gray-500">{s.label}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {weeklyScan.scanInsights?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-cyan-400 font-semibold uppercase tracking-wider">Scan Insights</p>
+                            {weeklyScan.scanInsights.map((ins: string, i: number) => (
+                              <p key={i} className="text-[11px] text-gray-300 flex items-start gap-1.5">
+                                <span className="text-cyan-400 mt-0.5">›</span>{ins}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        {weeklyScan.blockedPatterns?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-orange-400 font-semibold uppercase tracking-wider">Blocked Signals This Week</p>
+                            {weeklyScan.blockedPatterns.map((bp: string, i: number) => (
+                              <p key={i} className="text-[11px] text-orange-300 flex items-start gap-1.5">
+                                <XCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />{bp}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        {weeklyScan.trailingOpportunities?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-yellow-400 font-semibold uppercase tracking-wider">Trailing Stop Opportunities</p>
+                            {weeklyScan.trailingOpportunities.map((op: string, i: number) => (
+                              <p key={i} className="text-[11px] text-yellow-300 flex items-start gap-1.5">
+                                <TrendingUp className="w-3 h-3 mt-0.5 flex-shrink-0" />{op}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        {weeklyScan.accuracyImprovements?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-purple-400 font-semibold uppercase tracking-wider">AI Accuracy Improvements</p>
+                            {weeklyScan.accuracyImprovements.map((imp: string, i: number) => (
+                              <p key={i} className="text-[11px] text-purple-300 flex items-start gap-1.5">
+                                <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" />{imp}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Per-pair breakdown */}
+                        {Object.keys(weeklyScan.pairAnalysis || {}).length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Pair Breakdown</p>
+                            <div className="space-y-1">
+                              {Object.entries(weeklyScan.pairAnalysis).map(([sym, pa]: any) => (
+                                <div key={sym} className="flex items-center justify-between bg-black/20 rounded px-2 py-1">
+                                  <span className="text-[11px] font-medium text-white w-20">{sym}</span>
+                                  <span className={`text-[11px] font-bold ${pa.winRate >= 55 ? 'text-emerald-400' : pa.winRate >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{pa.winRate}%</span>
+                                  <span className="text-[10px] text-gray-500">{pa.wins}W/{pa.losses}L</span>
+                                  <span className={`text-[10px] ${pa.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${pa.netPnL}</span>
+                                  {pa.trailingOpportunity && <TrendingUp className="w-3 h-3 text-yellow-400" title="Trailing stop opportunity" />}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <p className="text-[9px] text-gray-600 text-right">
+                          Scanned: {weeklyScan.period} · Scan triggers brain re-learn
+                        </p>
+                      </div>
+                    )}
+                  </div>
                   <div className="border-t border-purple-500/20 pt-3 space-y-3">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">

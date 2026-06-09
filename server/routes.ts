@@ -81,6 +81,15 @@ const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
   EURJPY:  [[7, 20]],
   XAUUSD:  [[7, 20]],
   GOLD:    [[7, 20]],
+  XAUUSDM: [[7, 20]],
+  XAUUSDPRO: [[7, 20]],
+  XAUC:    [[7, 20]],
+  XAUI:    [[7, 20]],
+  GOLDM:   [[7, 20]],
+  GOLDC:   [[7, 20]],
+  GOLDPRO: [[7, 20]],
+  XAUUSDC: [[7, 20]],
+  XAUUSDRAW: [[7, 20]],
   NAS100:  [[12, 21]],   // pre-market 12:00 UTC → close 21:00 UTC
   US30:    [[12, 21]],
   SPX500:  [[12, 21]],
@@ -100,9 +109,17 @@ const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
 };
 
 function isInTradingSession(symbol: string, hourUTC: number): boolean {
-  const sym = symbol.toUpperCase().replace('/', '');
+  // Normalize: strip broker suffixes (.raw, .c, .pro, .m, #, .i, etc.) and slashes
+  const raw = symbol.toUpperCase().replace('/', '').replace(/[#.]/g, '').replace(/(RAW|PRO|C|M|I|SB|ECN|MT5)$/, '');
+  // Gold alias
+  const sym = raw === 'GOLD' ? 'XAUUSD' : raw;
   const windows = PAIR_SESSION_WINDOWS[sym];
-  if (!windows) return true; // unknown symbol — don't block
+  if (!windows) {
+    // Partial match fallback: find first key that starts with or contains sym
+    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find(k => k.startsWith(sym) || sym.startsWith(k));
+    if (fallback) return PAIR_SESSION_WINDOWS[fallback].some(([s, e]) => hourUTC >= s && hourUTC < e);
+    return true; // unknown symbol — don't block
+  }
   return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
 }
 
@@ -117,6 +134,8 @@ function tlSignalGuard(params: {
   minConfidence?: number;
   requireSLTP?: boolean;
   checkSession?: boolean;
+  /** Override minimum R:R — pass 1.5 for ranging/tight-range conditions */
+  minRR?: number;
 }): { allow: boolean; reason: string } {
   const {
     confidence = 0,
@@ -127,6 +146,7 @@ function tlSignalGuard(params: {
     requireSLTP = true,
     checkSession = false,
     riskScore,
+    minRR,
   } = params;
   const sym = params.symbol || '';
   const dir = (params.direction || '').toUpperCase();
@@ -164,13 +184,21 @@ function tlSignalGuard(params: {
       }
     }
 
-    // 5. R:R gate — raised to 2.0 minimum (was 1.5)
+    // 5. Dynamic R:R gate
+    // Default 2.0; auto-relax to 1.5 when SL is tight (< 0.15% of price = ranging/compressed
+    // conditions). Caller can also explicitly pass minRR to override.
     const riskDist = Math.abs(entryPrice - stopLoss);
     const rewardDist = Math.abs(takeProfit - entryPrice);
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
-      if (rr < 2.0) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below 2.0 minimum — blocked` };
+      const slPct = riskDist / entryPrice;
+      // Auto-detect tight range: SL is < 0.15% of price (Forex) or < 0.3% (crypto/commodities)
+      const isCryptoOrComm = ['BTC','ETH','XAU','GOLD','OIL','SILVER'].some(t => sym.toUpperCase().includes(t));
+      const tightRangeThreshold = isCryptoOrComm ? 0.003 : 0.0015;
+      const effectiveMinRR = minRR !== undefined ? minRR
+        : (slPct < tightRangeThreshold ? 1.5 : 2.0);
+      if (rr < effectiveMinRR) {
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? ' (ranging market)' : ''} — blocked` };
       }
     }
   }
@@ -13240,6 +13268,16 @@ Rules:
         return res.status(404).json({ error: "Trade result not found or access denied" });
       }
       res.json(updated);
+      // ── Trigger brain re-learn when a trade is closed (WIN/LOSS recorded) ──
+      // This keeps win-rate, pair stats, and session stats current without user action.
+      const newResult = req.body.result;
+      if (newResult === 'WIN' || newResult === 'LOSS' || newResult === 'BREAKEVEN') {
+        setTimeout(() => {
+          runBrainLearning(userId).catch(err =>
+            console.error('[Brain] Auto re-learn after trade close failed:', err)
+          );
+        }, 2000); // 2s delay lets DB write settle
+      }
     } catch (error: any) {
       console.error("Error updating AI trade result:", error);
       res.status(500).json({ error: "Failed to update trade result" });
@@ -13910,6 +13948,18 @@ Format each recommendation as a clear, concise action item.`;
       return brain;
     } catch (_) { return null; }
   };
+
+  // ── Auto re-learn every 30 min for all users who have a brain loaded ────────
+  // This ensures brain stats stay fresh even when no manual re-learn is triggered.
+  setInterval(async () => {
+    const brains = (global as any).veddAIBrain || {};
+    for (const userId of Object.keys(brains)) {
+      try {
+        await runBrainLearning(parseInt(userId));
+        console.log(`[Brain AutoRefresh] Re-learned for user ${userId}`);
+      } catch (_) { /* non-critical */ }
+    }
+  }, 30 * 60 * 1000); // 30 minutes
 
   app.post("/api/vedd-brain/learn", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -14641,6 +14691,160 @@ Respond with ONLY valid JSON:
       tradesLearned: brain?.totalTradesAnalyzed || 0,
       recommendedMode: brain?.overallWinRate >= 60 ? 'aggressive' : brain?.hftReadiness?.scalpingViable ? 'scalping' : 'session_breakout',
     });
+  });
+
+  // ── Weekly Trade Scan — diagnostic analysis of the past 7 days ────────────
+  // Queries ai_trade_results for the week, detects why signals were blocked/missed,
+  // generates actionable insights, and writes them back to the brain.
+  app.get("/api/vedd-brain/weekly-scan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const allResults = await storage.getAiTradeResults(userId, 500);
+      const weekResults = allResults.filter((t: any) => new Date(t.createdAt) >= sevenDaysAgo);
+
+      const scan: {
+        period: string;
+        totalTrades: number;
+        wins: number;
+        losses: number;
+        pending: number;
+        weeklyWinRate: number;
+        netPnL: number;
+        pairAnalysis: Record<string, any>;
+        scanInsights: string[];
+        accuracyImprovements: string[];
+        trailingOpportunities: string[];
+        blockedPatterns: string[];
+        generatedAt: string;
+      } = {
+        period: `${sevenDaysAgo.toISOString().slice(0,10)} → ${new Date().toISOString().slice(0,10)}`,
+        totalTrades: weekResults.length,
+        wins: 0, losses: 0, pending: 0,
+        weeklyWinRate: 0,
+        netPnL: 0,
+        pairAnalysis: {},
+        scanInsights: [],
+        accuracyImprovements: [],
+        trailingOpportunities: [],
+        blockedPatterns: [],
+        generatedAt: new Date().toISOString(),
+      };
+
+      // ── Count outcomes ──
+      for (const t of weekResults) {
+        if (t.result === 'WIN') scan.wins++;
+        else if (t.result === 'LOSS') scan.losses++;
+        else scan.pending++;
+        scan.netPnL += Number(t.profitLoss ?? 0);
+      }
+      const completed = scan.wins + scan.losses;
+      scan.weeklyWinRate = completed > 0 ? Math.round((scan.wins / completed) * 100) : 0;
+      scan.netPnL = Math.round(scan.netPnL * 100) / 100;
+
+      // ── Per-pair breakdown ──
+      const pairGroups: Record<string, any[]> = {};
+      for (const t of weekResults) {
+        const sym = (t.symbol || 'UNKNOWN').toUpperCase().replace('/', '');
+        if (!pairGroups[sym]) pairGroups[sym] = [];
+        pairGroups[sym].push(t);
+      }
+
+      for (const [sym, trades] of Object.entries(pairGroups)) {
+        const w = trades.filter((t:any) => t.result === 'WIN');
+        const l = trades.filter((t:any) => t.result === 'LOSS');
+        const tot = w.length + l.length;
+        const wr = tot > 0 ? Math.round(w.length / tot * 100) : 0;
+
+        // Detect R:R issues from notes/source
+        const rrIssues = trades.filter((t:any) => (t.notes || '').toLowerCase().includes('r:r') && (t.notes || '').toLowerCase().includes('below'));
+        // Detect confidence blocks
+        const confIssues = trades.filter((t:any) => (t.notes || '').toLowerCase().includes('confidence') && (t.notes || '').toLowerCase().includes('below'));
+        // Detect risk score blocks
+        const riskIssues = trades.filter((t:any) => (t.notes || '').toLowerCase().includes('risk score'));
+        // Average entry confidence
+        const avgConf = trades.length > 0 ? Math.round(trades.reduce((s:number, t:any) => s + (t.aiConfidence || 0), 0) / trades.length) : 0;
+        // Net PnL for this pair
+        const pairPnL = Math.round(trades.reduce((s:number, t:any) => s + Number(t.profitLoss ?? 0), 0) * 100) / 100;
+        // Avg profit pips on wins
+        const avgWinPips = w.length > 0 ? Math.round(w.reduce((s:number, t:any) => s + Number(t.profitLossPips ?? 0), 0) / w.length * 10) / 10 : 0;
+        // Trailing stop opportunity: wins that closed at TP but had significant run beyond
+        const potentialTrailTrades = w.filter((t:any) => avgWinPips > 20); // rough proxy
+
+        scan.pairAnalysis[sym] = {
+          total: trades.length, wins: w.length, losses: l.length, winRate: wr,
+          avgConfidence: avgConf, netPnL: pairPnL, avgWinPips,
+          rrBlockCount: rrIssues.length, confBlockCount: confIssues.length, riskBlockCount: riskIssues.length,
+          trailingOpportunity: potentialTrailTrades.length > 0,
+        };
+
+        // Build insights
+        if (tot === 0 && trades.length > 0) {
+          scan.scanInsights.push(`${sym}: ${trades.length} signal(s) this week but 0 completed trades — check if pending or blocked before execution`);
+        }
+        if (wr < 40 && tot >= 3) {
+          scan.scanInsights.push(`${sym}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) — likely entering at wrong session or against trend`);
+          scan.accuracyImprovements.push(`${sym}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
+        }
+        if (wr >= 70 && tot >= 2) {
+          scan.scanInsights.push(`${sym}: Strong week — ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
+        }
+        if (avgConf < 72 && trades.length >= 2) {
+          scan.accuracyImprovements.push(`${sym}: Average confidence this week was ${avgConf}% — consider raising minimum confidence gate to 75%+ for this pair`);
+        }
+        if (potentialTrailTrades.length > 0) {
+          scan.trailingOpportunities.push(`${sym}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips — a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
+        }
+      }
+
+      // ── Global weekly insights ──
+      if (scan.weeklyWinRate < 50 && completed >= 5) {
+        scan.scanInsights.unshift(`⚠️ Below 50% win rate this week (${scan.weeklyWinRate}%). Brain is auto-triggering re-learn to recalibrate signal thresholds.`);
+        scan.accuracyImprovements.push('Raise minimum confidence gate to 78%+ until win rate recovers above 55%');
+        scan.accuracyImprovements.push('Avoid trading during high-impact news events (check ForexFactory calendar before each session)');
+      }
+      if (scan.weeklyWinRate >= 60 && completed >= 5) {
+        scan.scanInsights.unshift(`✅ Strong week: ${scan.weeklyWinRate}% win rate on ${completed} completed trades. Brain reinforcing current settings.`);
+      }
+      if (scan.pending > 3) {
+        scan.scanInsights.push(`${scan.pending} trades still pending close — update results to WIN/LOSS so the brain can incorporate this week's full data`);
+      }
+      // Blocked pattern analysis from enforcement log
+      const enforcementLog: any[] = (global as any).veddAIBrain?.[userId]?.enforcementLog || [];
+      const weekEnf = enforcementLog.filter((e: any) => e.timestamp && new Date(e.timestamp) >= sevenDaysAgo);
+      if (weekEnf.length > 0) {
+        const rrBlocks = weekEnf.filter((e:any) => e.reason?.includes('R:R')).length;
+        const confBlocks = weekEnf.filter((e:any) => e.reason?.includes('onfidence')).length;
+        const riskBlocks = weekEnf.filter((e:any) => e.reason?.includes('isk score')).length;
+        const sessBlocks = weekEnf.filter((e:any) => e.reason?.includes('ession')).length;
+        if (rrBlocks > 0) scan.blockedPatterns.push(`${rrBlocks} signal(s) blocked by R:R gate — market conditions compressed risk/reward ratio below minimum`);
+        if (confBlocks > 0) scan.blockedPatterns.push(`${confBlocks} signal(s) blocked for low confidence — indicators were misaligned at entry time`);
+        if (riskBlocks > 0) scan.blockedPatterns.push(`${riskBlocks} signal(s) blocked for high risk score — AI flagged unfavorable conditions (high volatility or news)`);
+        if (sessBlocks > 0) scan.blockedPatterns.push(`${sessBlocks} signal(s) blocked outside trading session window — signals attempted outside optimal liquidity hours`);
+      }
+
+      // ── Write scan insights back to brain so future signals use them ──
+      if ((global as any).veddAIBrain?.[userId]) {
+        (global as any).veddAIBrain[userId].lastWeeklyScan = scan;
+        (global as any).veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
+        // Persist to disk
+        try {
+          const brainDir = path.join(process.cwd(), 'data', 'brains');
+          if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+          fs.writeFileSync(path.join(brainDir, `brain_${userId}.json`), JSON.stringify((global as any).veddAIBrain[userId]));
+        } catch (_) { /* non-critical */ }
+      }
+      // Trigger full brain re-learn to incorporate any newly closed trades
+      setTimeout(() => {
+        runBrainLearning(userId).catch(() => {});
+      }, 1000);
+
+      res.json(scan);
+    } catch (err: any) {
+      console.error('[Weekly Scan]', err);
+      res.status(500).json({ error: 'Weekly scan failed: ' + (err.message || 'Unknown error') });
+    }
   });
 
   // Brain learning summary — win rates by trade source, symbol, grade
