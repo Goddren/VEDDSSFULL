@@ -10892,6 +10892,110 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // ── MT5/TL Decision Feed — last 30 events from all sources ────────────────
+  app.get("/api/mt5/decision-feed", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as User).id;
+
+    try {
+      const events: any[] = [];
+
+      // Source 1: DB trades (ai_trade_results) — last 30
+      const dbTrades = await storage.getAiTradeResults(userId, 30);
+      for (const t of dbTrades) {
+        events.push({
+          id: `db-${t.id}`,
+          timestamp: t.closedAt || t.createdAt,
+          type: t.result === 'PENDING' ? 'SIGNAL' : 'TRADE',
+          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+          direction: t.direction || '—',
+          confidence: t.confidence ?? null,
+          profit: t.profitLoss ?? null,
+          lots: t.lotSize ?? null,
+          result: t.result || null,
+          source: t.source || 'SS_AI',
+          reason: t.result === 'WIN' ? `+${(t.profitLoss||0).toFixed(2)}` : t.result === 'LOSS' ? `${(t.profitLoss||0).toFixed(2)}` : t.notes || '',
+        });
+      }
+
+      // Source 2: MT5 closed trades cache (in-memory, recent)
+      const cacheTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const dbTickets = new Set(dbTrades.map((t: any) => t.mt5Ticket).filter(Boolean));
+      for (const t of cacheTrades.slice(0, 20)) {
+        const ticket = t.ticket?.toString();
+        if (ticket && dbTickets.has(ticket)) continue; // already in DB source
+        events.push({
+          id: `cache-${ticket || Math.random()}`,
+          timestamp: t.closeTime || t.timestamp || new Date().toISOString(),
+          type: 'TRADE',
+          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+          direction: t.direction || (t.type === 0 ? 'BUY' : 'SELL'),
+          confidence: null,
+          profit: t.profit ?? null,
+          lots: t.lots ?? null,
+          result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
+          source: 'MT5',
+          reason: t.profit != null ? (t.profit > 0 ? `+${t.profit.toFixed(2)}` : `${t.profit.toFixed(2)}`) : '',
+        });
+      }
+
+      // Source 3: Current open positions
+      const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      for (const p of openPositions.slice(0, 10)) {
+        events.push({
+          id: `open-${p.ticket || p.id || Math.random()}`,
+          timestamp: p.openTime || new Date().toISOString(),
+          type: 'OPEN',
+          symbol: (p.symbol || '').toUpperCase().replace('/', ''),
+          direction: p.direction || (p.type === 0 ? 'BUY' : 'SELL'),
+          confidence: null,
+          profit: p.profit ?? p.unrealizedPnL ?? null,
+          lots: p.lots ?? null,
+          result: 'OPEN',
+          source: p.source || 'MT5',
+          reason: `Open @ ${p.openPrice || '?'} · P&L: ${p.profit != null ? (p.profit >= 0 ? '+' : '') + p.profit.toFixed(2) : '?'}`,
+        });
+      }
+
+      // Source 4: Brain enforcement log (blocked signals)
+      const brain = (global as any).veddAIBrain?.[userId];
+      if (brain?.recentEnforcementLog?.length > 0) {
+        for (const log of brain.recentEnforcementLog.slice(0, 10)) {
+          events.push({
+            id: `enf-${log.timestamp || Math.random()}`,
+            timestamp: log.timestamp || new Date().toISOString(),
+            type: log.action === 'BLOCKED' ? 'BLOCKED' : 'ALLOWED',
+            symbol: (log.symbol || '').toUpperCase().replace('/', ''),
+            direction: log.signal || '—',
+            confidence: log.confidence ?? null,
+            profit: null,
+            lots: null,
+            result: log.action || 'BLOCKED',
+            source: 'BRAIN',
+            reason: log.reason || log.message || '',
+          });
+        }
+      }
+
+      // Sort by timestamp descending, take top 30
+      events.sort((a, b) => {
+        const ta = new Date(a.timestamp).getTime() || 0;
+        const tb = new Date(b.timestamp).getTime() || 0;
+        return tb - ta;
+      });
+
+      res.json({
+        events: events.slice(0, 30),
+        count: events.length,
+        openCount: openPositions.length,
+        unrealizedPnL: openPositions.reduce((s: number, p: any) => s + (p.profit || p.unrealizedPnL || 0), 0),
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── MT5 Balance History — reconstructs balance curve from trade results ──
   app.get("/api/mt5/balance-history", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -11882,7 +11986,42 @@ Respond with ONLY valid JSON:
     let strategy = (global as any).mt5WeeklyStrategies?.[userId];
     if (!strategy) {
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
-      if (!dbStrat) return res.status(404).json({ error: "No active strategy" });
+      if (!dbStrat) {
+        // No active strategy — still compute live profit so dashboard isn't dead
+        const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
+        const weekStartFallback = new Date(); weekStartFallback.setDate(weekStartFallback.getDate() - weekStartFallback.getDay() + 1); weekStartFallback.setUTCHours(0,0,0,0);
+        const todayStartFallback = new Date(); todayStartFallback.setUTCHours(0,0,0,0);
+        const weekTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= weekStartFallback && t.result !== 'PENDING'; });
+        const todayTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= todayStartFallback && t.result !== 'PENDING'; });
+        const weekProfitFallback = weekTradesFallback.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
+        const todayProfitFallback = todayTradesFallback.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0);
+        const openPositionsFallback: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+        const unrealizedPnLFallback = openPositionsFallback.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+        return res.json({
+          hasStrategy: false,
+          currentProfit: Math.round(weekProfitFallback * 100) / 100,
+          progressTrades: weekTradesFallback.length,
+          progressWinRate: weekTradesFallback.length > 0 ? Math.round(weekTradesFallback.filter((t: any) => t.result === 'WIN').length / weekTradesFallback.length * 100) : 0,
+          progressPercentage: 0,
+          targetRemaining: 0,
+          daysRemaining: Math.max(1, 5 - new Date().getDay()),
+          unrealizedPnL: Math.round(unrealizedPnLFallback * 100) / 100,
+          totalPnL: Math.round((weekProfitFallback + unrealizedPnLFallback) * 100) / 100,
+          activeTradeCount: openPositionsFallback.length,
+          activeTrades: openPositionsFallback.slice(0, 5),
+          todayClosedProfit: Math.round(todayProfitFallback * 100) / 100,
+          todayTotalProfit: Math.round((todayProfitFallback + unrealizedPnLFallback) * 100) / 100,
+          todayTrades: todayTradesFallback.length,
+          todayWins: todayTradesFallback.filter((t: any) => t.result === 'WIN').length,
+          todayWinRate: todayTradesFallback.length > 0 ? Math.round(todayTradesFallback.filter((t: any) => t.result === 'WIN').length / todayTradesFallback.length * 100) : 0,
+          dailyTarget: 0,
+          dailyProgressClosed: 0,
+          dailyProgressTotal: 0,
+          veddSSAILive: false,
+          lastPositionUpdate: null,
+          pairDailyStats: {},
+        });
+      }
       strategy = {
         profitTarget: dbStrat.profitTarget, accountBalance: dbStrat.accountBalance,
         pairs: dbStrat.pairs, riskLevel: dbStrat.riskLevel, lotSize: dbStrat.lotSize,
@@ -15103,6 +15242,134 @@ Respond with ONLY valid JSON:
     } catch (err: any) {
       console.error('[Weekly Scan]', err);
       res.status(500).json({ error: 'Weekly scan failed: ' + (err.message || 'Unknown error') });
+    }
+  });
+
+  // ── Weekly Goal Guidance — week-to-week issue tracking + acceleration ──────
+  app.get("/api/vedd-brain/weekly-guidance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    const userId = (req.user as User).id;
+
+    try {
+      const brain = (global as any).veddAIBrain?.[userId];
+      const strategy = (global as any).mt5WeeklyStrategies?.[userId];
+      const goalIntelligence = (global as any).veddGoalIntelligence?.[userId];
+      const aiPathControl = (global as any).veddAiPathControl?.[userId];
+
+      // Gather week trades
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+      weekStart.setUTCHours(0, 0, 0, 0);
+
+      const dbTrades = await storage.getAiTradeResults(userId, 500);
+      const weekDbTrades = dbTrades.filter((t: any) => {
+        const d = new Date(t.closedAt || t.createdAt);
+        return d >= weekStart && t.result && t.result !== 'PENDING';
+      });
+      const cacheTrades: any[] = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
+      const weekCacheTrades = cacheTrades.filter((t: any) => {
+        const d = new Date(t.closeTime || t.timestamp || 0);
+        return d >= weekStart;
+      });
+
+      const allWeekTrades = [
+        ...weekDbTrades.map((t: any) => ({
+          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+          profit: t.profitLoss || 0,
+          result: t.result,
+          confidence: t.confidence,
+          direction: t.direction,
+        })),
+        ...weekCacheTrades.map((t: any) => ({
+          symbol: (t.symbol || '').toUpperCase().replace('/', ''),
+          profit: t.profit || 0,
+          result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',
+          confidence: null,
+          direction: t.direction || (t.type === 0 ? 'BUY' : 'SELL'),
+        })),
+      ];
+
+      const totalTrades = allWeekTrades.length;
+      const wins = allWeekTrades.filter(t => t.result === 'WIN').length;
+      const losses = allWeekTrades.filter(t => t.result === 'LOSS').length;
+      const closedProfit = allWeekTrades.reduce((s, t) => s + (t.profit || 0), 0);
+      const weekTarget = strategy?.profitTarget || goalIntelligence?.weeklyTarget || 0;
+      const remaining = Math.max(0, weekTarget - closedProfit);
+      const winRate = totalTrades > 0 ? Math.round(wins / totalTrades * 100) : 0;
+
+      // Per-pair breakdown
+      const pairMap: Record<string, { trades: number; wins: number; profit: number }> = {};
+      for (const t of allWeekTrades) {
+        if (!pairMap[t.symbol]) pairMap[t.symbol] = { trades: 0, wins: 0, profit: 0 };
+        pairMap[t.symbol].trades++;
+        if (t.result === 'WIN') pairMap[t.symbol].wins++;
+        pairMap[t.symbol].profit += t.profit || 0;
+      }
+
+      // Top performing pairs this week
+      const pairList = Object.entries(pairMap).map(([sym, d]) => ({
+        symbol: sym, ...d,
+        winRate: d.trades > 0 ? Math.round(d.wins / d.trades * 100) : 0,
+      }));
+      const topPairs = pairList.filter(p => p.profit > 0 && p.winRate >= 50).sort((a, b) => b.profit - a.profit).slice(0, 3).map(p => p.symbol);
+      const avoidPairs = pairList.filter(p => p.profit < 0 && p.winRate < 40).sort((a, b) => a.profit - b.profit).slice(0, 3).map(p => p.symbol);
+
+      // Brain pair knowledge
+      const optimalConf = (brain as any)?.optimalMinConfidence || {};
+
+      // Identify week-to-week issues
+      const weeklyIssues: string[] = [];
+      if (winRate < 50 && totalTrades >= 3) weeklyIssues.push(`Win rate at ${winRate}% this week — consider reducing to your best 2-3 pairs`);
+      if (remaining > closedProfit * 0.5 && totalTrades < 5) weeklyIssues.push(`Only ${totalTrades} trades this week — engine may need wider pair selection or lower confidence threshold`);
+      if (avoidPairs.length > 0) weeklyIssues.push(`${avoidPairs.join(', ')} running losses this week — AI path control can steer away from these`);
+      if (totalTrades === 0) weeklyIssues.push('No trades logged yet this week — verify MT5 EA and TradeLocker connections are active');
+      const highLossTradeCount = allWeekTrades.filter(t => (t.profit || 0) < -50).length;
+      if (highLossTradeCount > 0) weeklyIssues.push(`${highLossTradeCount} large loss trade(s) detected — check stop loss sizing and session windows`);
+
+      // Goal acceleration guidance
+      let goalAcceleration = '';
+      if (weekTarget > 0 && remaining > 0) {
+        const today = new Date().getDay(); // 0=Sun, 1=Mon ... 5=Fri
+        const daysLeft = Math.max(1, 5 - Math.min(today, 5));
+        const needPerDay = remaining / daysLeft;
+        const avgWin = wins > 0 ? allWeekTrades.filter(t => t.result === 'WIN').reduce((s, t) => s + t.profit, 0) / wins : 0;
+        if (avgWin > 0) {
+          const tradesNeeded = Math.ceil(needPerDay / (avgWin * (winRate / 100)));
+          goalAcceleration = `Need $${remaining.toFixed(0)} in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} ($${needPerDay.toFixed(0)}/day). At your $${avgWin.toFixed(0)} avg win × ${winRate}% win rate → ~${tradesNeeded} trades/day needed.`;
+        } else {
+          goalAcceleration = `$${remaining.toFixed(0)} remaining with ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left. Run brain learning and activate MODERATE or AGGRESSIVE path in Goal Pacing tab.`;
+        }
+      } else if (closedProfit >= weekTarget && weekTarget > 0) {
+        goalAcceleration = `Weekly goal ACHIEVED! $${closedProfit.toFixed(2)} / $${weekTarget}. Consider switching to SAFE path to protect profits.`;
+      }
+
+      // Brain insights for guidance
+      const brainInsights: string[] = brain?.learningInsights?.slice(0, 4) || [];
+      const pairOptimalConfs = Object.entries(optimalConf).slice(0, 5).map(([sym, conf]) => `${sym}: ${conf}%+ confidence`);
+
+      res.json({
+        weeklyIssues,
+        goalAcceleration,
+        topPairs,
+        avoidPairs,
+        brainInsights,
+        pairOptimalConfs,
+        weekSummary: {
+          totalTrades,
+          wins,
+          losses,
+          winRate,
+          closedProfit: Math.round(closedProfit * 100) / 100,
+          weekTarget,
+          remaining: Math.round(remaining * 100) / 100,
+          progressPct: weekTarget > 0 ? Math.min(100, Math.round(closedProfit / weekTarget * 100)) : 0,
+        },
+        aiPathActive: aiPathControl?.enabled || false,
+        aiPathType: aiPathControl?.pathType || null,
+        lastUpdated: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

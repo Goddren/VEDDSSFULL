@@ -1569,6 +1569,22 @@ export default function WeeklyStrategyPage() {
     refetchInterval: 30000,
   });
 
+  // Weekly guidance — brain-powered goal acceleration
+  const { data: weeklyGuidance } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/weekly-guidance'],
+    refetchInterval: 60000,
+    staleTime: 0,
+    enabled: !!user,
+  });
+
+  // Decision feed — live 8s
+  const { data: decisionFeed } = useQuery<any>({
+    queryKey: ['/api/mt5/decision-feed'],
+    refetchInterval: 8000,
+    staleTime: 0,
+    enabled: !!user,
+  });
+
   const [shareOpen, setShareOpen] = useState(false);
   const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
   const [sharePost, setSharePost] = useState('');
@@ -4975,6 +4991,70 @@ export default function WeeklyStrategyPage() {
           </Card>
         )}
 
+          {/* ── Weekly Goal Acceleration Insights (Plan Tab) ── */}
+          {weeklyGuidance && (
+            <div className="space-y-3 mt-4">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-orange-400" />
+                <h3 className="text-white font-bold text-sm">Goal Acceleration This Week</h3>
+              </div>
+
+              {weeklyGuidance.goalAcceleration && (
+                <div className="bg-orange-950/30 border border-orange-500/30 rounded-xl p-3">
+                  <p className="text-orange-300 text-xs font-semibold mb-1">Pace Analysis</p>
+                  <p className="text-gray-300 text-xs leading-relaxed">{weeklyGuidance.goalAcceleration}</p>
+                </div>
+              )}
+
+              {weeklyGuidance.weeklyIssues?.length > 0 && (
+                <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Issues Detected This Week</p>
+                  <div className="space-y-1.5">
+                    {weeklyGuidance.weeklyIssues.map((issue: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <AlertCircle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-gray-300 leading-snug">{issue}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                {weeklyGuidance.topPairs?.length > 0 && (
+                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3">
+                    <p className="text-[10px] text-emerald-400 font-semibold mb-2">Best Pairs This Week</p>
+                    <div className="flex flex-wrap gap-1">
+                      {weeklyGuidance.topPairs.map((p: string) => (
+                        <span key={p} className="text-[10px] bg-emerald-500/20 text-emerald-300 rounded px-1.5 py-0.5 font-mono font-bold">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {weeklyGuidance.avoidPairs?.length > 0 && (
+                  <div className="bg-red-950/20 border border-red-500/30 rounded-xl p-3">
+                    <p className="text-[10px] text-red-400 font-semibold mb-2">Avoid This Week</p>
+                    <div className="flex flex-wrap gap-1">
+                      {weeklyGuidance.avoidPairs.map((p: string) => (
+                        <span key={p} className="text-[10px] bg-red-500/20 text-red-300 rounded px-1.5 py-0.5 font-mono">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {weeklyGuidance.pairOptimalConfs?.length > 0 && (
+                <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Brain-Calibrated Confidence Gates</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {weeklyGuidance.pairOptimalConfs.map((c: string, i: number) => (
+                      <span key={i} className="text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded px-2 py-0.5 font-mono">{c}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           </>
         )}
 
@@ -5076,6 +5156,71 @@ export default function WeeklyStrategyPage() {
                 </div>
               </div>
             </div>
+
+            {/* ── Weekly Goal Acceleration Insights ── */}
+            {weeklyGuidance && (
+              <div className="space-y-3 mt-4">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-orange-400" />
+                  <h3 className="text-white font-bold text-sm">Goal Acceleration This Week</h3>
+                </div>
+
+                {weeklyGuidance.goalAcceleration && (
+                  <div className="bg-orange-950/30 border border-orange-500/30 rounded-xl p-3">
+                    <p className="text-orange-300 text-xs font-semibold mb-1">Pace Analysis</p>
+                    <p className="text-gray-300 text-xs leading-relaxed">{weeklyGuidance.goalAcceleration}</p>
+                  </div>
+                )}
+
+                {weeklyGuidance.weeklyIssues?.length > 0 && (
+                  <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Issues Detected This Week</p>
+                    <div className="space-y-1.5">
+                      {weeklyGuidance.weeklyIssues.map((issue: string, i: number) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <AlertCircle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                          <p className="text-xs text-gray-300 leading-snug">{issue}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2">
+                  {weeklyGuidance.topPairs?.length > 0 && (
+                    <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3">
+                      <p className="text-[10px] text-emerald-400 font-semibold mb-2">Best Pairs This Week</p>
+                      <div className="flex flex-wrap gap-1">
+                        {weeklyGuidance.topPairs.map((p: string) => (
+                          <span key={p} className="text-[10px] bg-emerald-500/20 text-emerald-300 rounded px-1.5 py-0.5 font-mono font-bold">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {weeklyGuidance.avoidPairs?.length > 0 && (
+                    <div className="bg-red-950/20 border border-red-500/30 rounded-xl p-3">
+                      <p className="text-[10px] text-red-400 font-semibold mb-2">Avoid This Week</p>
+                      <div className="flex flex-wrap gap-1">
+                        {weeklyGuidance.avoidPairs.map((p: string) => (
+                          <span key={p} className="text-[10px] bg-red-500/20 text-red-300 rounded px-1.5 py-0.5 font-mono">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {weeklyGuidance.pairOptimalConfs?.length > 0 && (
+                  <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-3">
+                    <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-2">Brain-Calibrated Confidence Gates</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {weeklyGuidance.pairOptimalConfs.map((c: string, i: number) => (
+                        <span key={i} className="text-[10px] bg-purple-500/15 text-purple-300 border border-purple-500/20 rounded px-2 py-0.5 font-mono">{c}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -6280,6 +6425,71 @@ export default function WeeklyStrategyPage() {
                 </div>
               );
             })()}
+
+            {/* ── Live Decision Feed in Monitor ── */}
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+                <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  Live Decision Feed
+                  {(decisionFeed?.openCount ?? 0) > 0 && (
+                    <span className="text-[9px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded px-1.5 py-0.5 animate-pulse">
+                      ● {decisionFeed.openCount} OPEN
+                    </span>
+                  )}
+                </h3>
+                <div className="flex items-center gap-3">
+                  {(decisionFeed?.unrealizedPnL ?? 0) !== 0 && (
+                    <span className={`text-xs font-bold ${(decisionFeed?.unrealizedPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(decisionFeed?.unrealizedPnL ?? 0) >= 0 ? '+' : ''}${(decisionFeed?.unrealizedPnL ?? 0).toFixed(2)} open P&L
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-600">8s refresh</span>
+                </div>
+              </div>
+              {(!decisionFeed?.events?.length) ? (
+                <div className="px-4 py-8 text-center">
+                  <Radio className="w-8 h-8 mx-auto text-gray-700 mb-2" />
+                  <p className="text-gray-600 text-sm">No decisions yet</p>
+                  <p className="text-gray-700 text-xs mt-1">Trades, signals, and blocks appear here live</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-800/50 max-h-96 overflow-y-auto">
+                  {decisionFeed.events.slice(0, 20).map((ev: any) => {
+                    const isWin = ev.result === 'WIN';
+                    const isLoss = ev.result === 'LOSS';
+                    const isOpen = ev.type === 'OPEN';
+                    const isBlocked = ev.type === 'BLOCKED';
+                    return (
+                      <div key={ev.id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-gray-800/20 transition-colors ${
+                        isWin ? 'border-l-2 border-emerald-500' : isLoss ? 'border-l-2 border-red-500' : isOpen ? 'border-l-2 border-yellow-500' : isBlocked ? 'border-l-2 border-red-800' : 'border-l-2 border-gray-700'
+                      }`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-white text-xs font-bold font-mono">{ev.symbol}</span>
+                            <span className={`text-[11px] font-bold ${ev.direction === 'BUY' ? 'text-emerald-400' : ev.direction === 'SELL' ? 'text-red-400' : 'text-gray-400'}`}>{ev.direction}</span>
+                            {ev.confidence != null && <span className="text-[10px] text-gray-500">{ev.confidence}%</span>}
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              isWin ? 'bg-emerald-500/20 text-emerald-300' : isLoss ? 'bg-red-500/20 text-red-300' : isOpen ? 'bg-yellow-500/20 text-yellow-300' : isBlocked ? 'bg-red-900/40 text-red-400' : 'bg-purple-500/20 text-purple-300'
+                            }`}>{isOpen ? 'OPEN' : isBlocked ? 'BLOCKED' : ev.result || ev.type}</span>
+                            <span className="text-[9px] text-gray-600">{ev.source}</span>
+                          </div>
+                          {ev.reason && <p className="text-[10px] text-gray-500 mt-0.5 truncate">{ev.reason}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          {ev.profit != null && (
+                            <p className={`text-sm font-bold ${ev.profit > 0 ? 'text-emerald-400' : ev.profit < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                              {ev.profit > 0 ? '+' : ''}${ev.profit.toFixed(2)}
+                            </p>
+                          )}
+                          <p className="text-[9px] text-gray-600">{new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
           </div>
         )}

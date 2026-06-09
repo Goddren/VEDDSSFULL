@@ -394,10 +394,26 @@ const Dashboard: React.FC = () => {
     refetchInterval: 30000,
   });
 
-  const { data: brainStatus } = useQuery<{ learned: boolean; totalTradesAnalyzed?: number; pairsLearned?: number }>({
+  const { data: brainStatus } = useQuery<{ learned: boolean; totalTradesAnalyzed?: number; pairsLearned?: number; lastLearned?: string }>({
     queryKey: ['/api/vedd-live-engine/brain-status'],
     enabled: !!user,
     refetchInterval: 30000,
+  });
+
+  // Decision feed — live 8s refresh
+  const { data: decisionFeed } = useQuery<any>({
+    queryKey: ['/api/mt5/decision-feed'],
+    refetchInterval: 8000,
+    staleTime: 0,
+    enabled: !!user,
+  });
+
+  // Weekly guidance — brain-powered goal acceleration + week issues
+  const { data: weeklyGuidance } = useQuery<any>({
+    queryKey: ['/api/vedd-brain/weekly-guidance'],
+    refetchInterval: 60000,
+    staleTime: 0,
+    enabled: !!user,
   });
 
   const { data: breakoutStatus } = useQuery<{ active: boolean; monitored?: number }>({
@@ -473,12 +489,12 @@ const Dashboard: React.FC = () => {
   });
 
   React.useEffect(() => {
-    if (!activeStrategy?.hasStrategy) return;
+    if (!user) return;
     syncProgressMutation.mutate();
     const interval = setInterval(() => syncProgressMutation.mutate(), 30000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStrategy?.hasStrategy]);
+  }, [user?.id]);
 
   // Merge: prefer strategy's live progress over daily-summary recalc when available
   const weekProgressPct   = activeStrategy?.progressPercentage ?? dailySummary?.weekProgressPct ?? 0;
@@ -984,6 +1000,182 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           </Link>
+
+          {/* ── VEDD SS AI EA Guidance ──────────────────────────────────── */}
+          {weeklyGuidance && (
+            <div className="bg-gray-900/60 border border-purple-700/30 rounded-xl p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-purple-400" />
+                  VEDD SS AI EA Guidance
+                  {weeklyGuidance.aiPathActive && (
+                    <span className="text-[9px] bg-violet-500/20 text-violet-300 border border-violet-500/30 rounded px-1.5 py-0.5 font-bold">
+                      {weeklyGuidance.aiPathType} PATH
+                    </span>
+                  )}
+                </h3>
+                <span className="text-[10px] text-gray-600">{new Date(weeklyGuidance.lastUpdated).toLocaleTimeString()}</span>
+              </div>
+
+              {weeklyGuidance.goalAcceleration && (
+                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-3 mb-3">
+                  <p className="text-orange-300 text-xs font-semibold mb-1">Goal Acceleration</p>
+                  <p className="text-gray-300 text-xs leading-relaxed">{weeklyGuidance.goalAcceleration}</p>
+                </div>
+              )}
+
+              {weeklyGuidance.weeklyIssues?.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">This Week's Issues</p>
+                  <div className="space-y-1">
+                    {weeklyGuidance.weeklyIssues.slice(0, 3).map((issue: string, i: number) => (
+                      <div key={i} className="flex items-start gap-2 bg-red-500/8 border border-red-500/20 rounded px-2.5 py-1.5">
+                        <span className="text-red-400 text-xs mt-0.5 shrink-0">•</span>
+                        <p className="text-gray-300 text-xs leading-snug">{issue}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {weeklyGuidance.topPairs?.length > 0 && (
+                  <div className="bg-emerald-500/8 border border-emerald-500/20 rounded-lg p-2">
+                    <p className="text-[10px] text-emerald-400 font-semibold mb-1">Focus Pairs</p>
+                    <div className="flex flex-wrap gap-1">
+                      {weeklyGuidance.topPairs.map((p: string) => (
+                        <span key={p} className="text-[10px] bg-emerald-500/20 text-emerald-300 rounded px-1.5 py-0.5 font-mono">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {weeklyGuidance.avoidPairs?.length > 0 && (
+                  <div className="bg-red-500/8 border border-red-500/20 rounded-lg p-2">
+                    <p className="text-[10px] text-red-400 font-semibold mb-1">Avoid This Week</p>
+                    <div className="flex flex-wrap gap-1">
+                      {weeklyGuidance.avoidPairs.map((p: string) => (
+                        <span key={p} className="text-[10px] bg-red-500/20 text-red-300 rounded px-1.5 py-0.5 font-mono">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {weeklyGuidance.brainInsights?.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Brain Insights</p>
+                  <div className="space-y-1">
+                    {weeklyGuidance.brainInsights.slice(0, 3).map((insight: string, i: number) => (
+                      <p key={i} className="text-[11px] text-gray-400 flex items-start gap-1.5">
+                        <span className="text-purple-500 shrink-0">›</span>{insight}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {!weeklyGuidance.weeklyIssues?.length && !weeklyGuidance.goalAcceleration && (
+                <p className="text-gray-600 text-xs text-center py-2">Run brain learning and log trades to get guidance</p>
+              )}
+            </div>
+          )}
+
+          {/* ── MT5 / TL Decision Feed ──────────────────────────────────── */}
+          <div className="bg-gray-900/60 border border-gray-800 rounded-xl overflow-hidden mb-4">
+            <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+              <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                <Activity className="w-4 h-4 text-emerald-400" />
+                MT5 / TL Decision Feed
+                {(decisionFeed?.openCount ?? 0) > 0 && (
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded px-1.5 py-0.5 animate-pulse">
+                    ● {decisionFeed.openCount} OPEN
+                  </span>
+                )}
+              </h3>
+              <div className="flex items-center gap-2">
+                {(decisionFeed?.unrealizedPnL ?? 0) !== 0 && (
+                  <span className={`text-xs font-bold ${(decisionFeed?.unrealizedPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(decisionFeed?.unrealizedPnL ?? 0) >= 0 ? '+' : ''}${(decisionFeed?.unrealizedPnL ?? 0).toFixed(2)} unrealized
+                  </span>
+                )}
+                <span className="text-[10px] text-gray-600">Live · 8s</span>
+              </div>
+            </div>
+
+            {(!decisionFeed?.events?.length) ? (
+              <div className="px-4 py-6 text-center">
+                <Activity className="w-8 h-8 mx-auto text-gray-700 mb-2" />
+                <p className="text-gray-600 text-xs">Waiting for trades from MT5 and TradeLocker…</p>
+                <p className="text-gray-700 text-[10px] mt-1">Trades appear here as they execute</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-800/50 max-h-72 overflow-y-auto">
+                {decisionFeed.events.slice(0, 15).map((ev: any) => {
+                  const typeColor = ev.type === 'TRADE' ? (ev.result === 'WIN' ? 'text-emerald-400' : ev.result === 'LOSS' ? 'text-red-400' : 'text-gray-400')
+                    : ev.type === 'OPEN' ? 'text-yellow-400'
+                    : ev.type === 'BLOCKED' ? 'text-red-500'
+                    : ev.type === 'SIGNAL' ? 'text-purple-400'
+                    : 'text-gray-500';
+                  const typeBg = ev.type === 'TRADE' ? (ev.result === 'WIN' ? 'bg-emerald-500/10' : ev.result === 'LOSS' ? 'bg-red-500/10' : 'bg-gray-700/20')
+                    : ev.type === 'OPEN' ? 'bg-yellow-500/10'
+                    : ev.type === 'BLOCKED' ? 'bg-red-500/10'
+                    : 'bg-purple-500/10';
+                  const typeLabel = ev.type === 'OPEN' ? 'OPEN' : ev.type === 'BLOCKED' ? 'BLOCKED' : ev.type === 'SIGNAL' ? 'SIGNAL' : ev.result || ev.type;
+                  return (
+                    <div key={ev.id} className={`flex items-center gap-3 px-4 py-2.5 ${typeBg}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white text-xs font-bold font-mono">{ev.symbol}</span>
+                          <span className={`text-[10px] font-bold ${ev.direction === 'BUY' ? 'text-emerald-400' : ev.direction === 'SELL' ? 'text-red-400' : 'text-gray-400'}`}>{ev.direction}</span>
+                          {ev.confidence != null && <span className="text-[10px] text-gray-500">{ev.confidence}%</span>}
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${typeColor}`}>{typeLabel}</span>
+                        </div>
+                        {ev.reason && <p className="text-[10px] text-gray-500 mt-0.5 truncate">{ev.reason}</p>}
+                      </div>
+                      <div className="text-right shrink-0">
+                        {ev.profit != null && (
+                          <p className={`text-xs font-bold ${ev.profit > 0 ? 'text-emerald-400' : ev.profit < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                            {ev.profit > 0 ? '+' : ''}${ev.profit.toFixed(2)}
+                          </p>
+                        )}
+                        <p className="text-[9px] text-gray-600">{new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ── Self-Learning Brain Card ─────────────────────────────────── */}
+          {brainStatus && (
+            <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-3 flex items-center gap-3 mb-4">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${brainStatus.learned ? 'bg-purple-500/20' : 'bg-gray-800'}`}>
+                <Brain className={`w-4 h-4 ${brainStatus.learned ? 'text-purple-400' : 'text-gray-600'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-xs font-semibold">
+                  Self-Learning Brain
+                  {brainStatus.learned ? (
+                    <span className="ml-2 text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">ACTIVE</span>
+                  ) : (
+                    <span className="ml-2 text-[9px] bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded-full">NOT TRAINED</span>
+                  )}
+                </p>
+                <p className="text-gray-500 text-[10px] mt-0.5">
+                  {brainStatus.learned
+                    ? `${brainStatus.totalTradesAnalyzed ?? 0} trades analyzed · ${Array.isArray(brainStatus.pairsLearned) ? brainStatus.pairsLearned.length : (brainStatus.pairsLearned ?? 0)} pairs`
+                    : 'Go to Weekly Strategy → Brain tab to train'
+                  }
+                </p>
+              </div>
+              {brainStatus.learned && brainStatus.lastLearned && (
+                <span className="text-[9px] text-gray-600 shrink-0">
+                  {Math.round((Date.now() - new Date(brainStatus.lastLearned).getTime()) / 60000)}m ago
+                </span>
+              )}
+            </div>
+          )}
 
           {/* ── SS AI Engine All-Time Scoreboard ──────────────────────── */}
           {(dailySummary?.allTimeTrades ?? 0) > 0 && (
