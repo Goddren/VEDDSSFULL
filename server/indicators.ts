@@ -22,6 +22,24 @@ export interface AdvancedIndicators {
   volatilityContext?: { currentATR: number; atr30Avg: number; volatilityPercentile: string; isExpanding: boolean };
   swingPoints?: { lastSwingHigh: number; lastSwingLow: number; swingHighIndex: number; swingLowIndex: number };
   volumeProfile?: { avgVolume: number; currentVolume: number; volumeRatio: number; volumeTrend: string; poc?: number; vah?: number; val?: number; pocStrength?: number };
+  cvd?: {
+    cumulativeDelta: number;
+    deltaPerBar: number;
+    cvdTrend: 'RISING' | 'FALLING' | 'FLAT';
+    cvdDivergence: 'BULLISH' | 'BEARISH' | 'NONE';
+    aggressionSide: 'BUYERS' | 'SELLERS' | 'NEUTRAL';
+    aggressionStrength: 'STRONG' | 'MODERATE' | 'WEAK';
+    signal: 'BUY' | 'SELL' | 'NEUTRAL';
+  };
+  locationAggression?: {
+    location: 'PREMIUM' | 'HIGH_VALUE' | 'FAIR_VALUE' | 'LOW_VALUE' | 'DISCOUNT';
+    locationDescription: string;
+    locationBias: 'BUY' | 'SELL' | 'NEUTRAL';
+    aggression: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
+    alignment: 'ALIGNED' | 'CONFLICTED' | 'NEUTRAL';
+    confidenceVotes: number;
+    note: string;
+  };
   recentTradeContext?: { openPositionsOnSymbol: number; recentWinRate: number; recentTradeCount: number; avgHoldingPeriod: string };
   breakoutDetection?: {
     isBreakoutWindow: boolean;
@@ -801,12 +819,184 @@ export function detectMarketOpenBreakout(
   };
 }
 
+/**
+ * Cumulative Volume Delta (CVD)
+ * Estimates buy/sell pressure per candle using OHLCV data.
+ * Formula: delta = vol × (close − low) / (high − low)  − vol × (high − close) / (high − low)
+ * A rising CVD while price rises = genuine buying pressure (aligned).
+ * A falling CVD while price rises = hidden selling (bearish divergence).
+ */
+export function computeCVD(candles: CandleData[]): AdvancedIndicators['cvd'] {
+  if (candles.length < 5) return undefined;
+
+  const chronological = [...candles].reverse(); // oldest first
+  const deltas: number[] = [];
+
+  for (const c of chronological) {
+    const vol = c.v || 0;
+    const range = c.h - c.l;
+    if (range <= 0 || vol === 0) { deltas.push(0); continue; }
+    const buyVol  = vol * (c.c - c.l) / range;
+    const sellVol = vol * (c.h - c.c) / range;
+    deltas.push(buyVol - sellVol);
+  }
+
+  // Cumulative delta (most recent candles = candles[0..4] = last in array)
+  const cumulativeDelta = deltas.reduce((s, d) => s + d, 0);
+  const deltaPerBar = deltas[deltas.length - 1] ?? 0;
+
+  // 5-bar CVD trend
+  const last5 = deltas.slice(-5);
+  const cvd5 = last5.reduce((s, d) => s + d, 0);
+  const cvd5Start = deltas.slice(-10, -5).reduce((s, d) => s + d, 0);
+  const cvdTrend: 'RISING' | 'FALLING' | 'FLAT' =
+    cvd5 > cvd5Start * 1.1 ? 'RISING' : cvd5 < cvd5Start * 0.9 ? 'FALLING' : 'FLAT';
+
+  // Price direction over same window (for divergence)
+  const priceChange = chronological[chronological.length - 1].c - chronological[Math.max(0, chronological.length - 6)].c;
+  let cvdDivergence: 'BULLISH' | 'BEARISH' | 'NONE' = 'NONE';
+  if (priceChange > 0 && cvdTrend === 'FALLING') cvdDivergence = 'BEARISH';  // price up but CVD down = hidden selling
+  if (priceChange < 0 && cvdTrend === 'RISING')  cvdDivergence = 'BULLISH';  // price down but CVD up = hidden buying
+
+  // Aggression classification
+  const totalVol = chronological.reduce((s, c) => s + (c.v || 0), 0);
+  const deltaRatio = totalVol > 0 ? cumulativeDelta / totalVol : 0; // -1 to +1
+  const aggressionSide: 'BUYERS' | 'SELLERS' | 'NEUTRAL' =
+    deltaRatio > 0.1 ? 'BUYERS' : deltaRatio < -0.1 ? 'SELLERS' : 'NEUTRAL';
+  const aggressionStrength: 'STRONG' | 'MODERATE' | 'WEAK' =
+    Math.abs(deltaRatio) > 0.35 ? 'STRONG' : Math.abs(deltaRatio) > 0.15 ? 'MODERATE' : 'WEAK';
+
+  // Signal
+  let signal: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+  if (aggressionSide === 'BUYERS' && aggressionStrength !== 'WEAK' && cvdDivergence !== 'BEARISH') signal = 'BUY';
+  else if (aggressionSide === 'SELLERS' && aggressionStrength !== 'WEAK' && cvdDivergence !== 'BULLISH') signal = 'SELL';
+
+  return {
+    cumulativeDelta: Math.round(cumulativeDelta),
+    deltaPerBar: Math.round(deltaPerBar),
+    cvdTrend,
+    cvdDivergence,
+    aggressionSide,
+    aggressionStrength,
+    signal,
+  };
+}
+
+/**
+ * Location & Aggression Analysis
+ * Combines Volume Profile (where price is relative to POC/VAH/VAL = LOCATION)
+ * with CVD (how aggressively buyers/sellers are entering = AGGRESSION)
+ * to generate a directional bias and confidence vote modifier.
+ *
+ * LOCATION:
+ *   DISCOUNT  = price < VAL  → structural demand zone, expect buying
+ *   LOW_VALUE = VAL ≤ price < POC → inside value area, below equilibrium
+ *   FAIR_VALUE = price ≈ POC (±10% of range) → equilibrium, no location edge
+ *   HIGH_VALUE = POC < price ≤ VAH → inside value area, above equilibrium
+ *   PREMIUM   = price > VAH → structural supply zone, expect selling
+ *
+ * ALIGNMENT: location bias + CVD aggression pointing same direction = ALIGNED (+votes)
+ *            opposing = CONFLICTED (−votes, warning)
+ */
+export function analyzeLocationAggression(
+  vp: { poc: number; vah: number; val: number } | undefined,
+  cvd: AdvancedIndicators['cvd'] | undefined,
+  currentPrice: number
+): AdvancedIndicators['locationAggression'] {
+  if (!vp || !currentPrice) return undefined;
+
+  const { poc, vah, val } = vp;
+  const range = vah - val;
+  if (range <= 0) return undefined;
+
+  // ── Location ──────────────────────────────────────────────────────────────
+  const fairBand = range * 0.10; // ±10% of range = fair value zone
+  let location: 'PREMIUM' | 'HIGH_VALUE' | 'FAIR_VALUE' | 'LOW_VALUE' | 'DISCOUNT';
+  let locationBias: 'BUY' | 'SELL' | 'NEUTRAL';
+  let locationDescription: string;
+
+  if (currentPrice > vah) {
+    location = 'PREMIUM';
+    locationBias = 'SELL';
+    locationDescription = `Price above VAH (${vah.toFixed(5)}) — supply zone, sellers in control`;
+  } else if (currentPrice > poc + fairBand) {
+    location = 'HIGH_VALUE';
+    locationBias = 'SELL';
+    locationDescription = `Price in high-value area (above POC ${poc.toFixed(5)}) — slight sell bias`;
+  } else if (Math.abs(currentPrice - poc) <= fairBand) {
+    location = 'FAIR_VALUE';
+    locationBias = 'NEUTRAL';
+    locationDescription = `Price at POC (${poc.toFixed(5)}) — equilibrium, no location edge`;
+  } else if (currentPrice >= val) {
+    location = 'LOW_VALUE';
+    locationBias = 'BUY';
+    locationDescription = `Price in low-value area (below POC, above VAL ${val.toFixed(5)}) — slight buy bias`;
+  } else {
+    location = 'DISCOUNT';
+    locationBias = 'BUY';
+    locationDescription = `Price below VAL (${val.toFixed(5)}) — demand zone, buyers expected`;
+  }
+
+  // ── Aggression from CVD ───────────────────────────────────────────────────
+  let aggression: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL' = 'NEUTRAL';
+  if (cvd) {
+    if (cvd.aggressionSide === 'BUYERS') {
+      aggression = cvd.aggressionStrength === 'STRONG' ? 'STRONG_BUY' : 'BUY';
+    } else if (cvd.aggressionSide === 'SELLERS') {
+      aggression = cvd.aggressionStrength === 'STRONG' ? 'STRONG_SELL' : 'SELL';
+    }
+    // CVD divergence overrides: if price/CVD disagree, downgrade aggression
+    if (cvd.cvdDivergence === 'BEARISH' && (aggression === 'STRONG_BUY' || aggression === 'BUY')) {
+      aggression = 'NEUTRAL'; // hidden selling negates buy aggression
+    }
+    if (cvd.cvdDivergence === 'BULLISH' && (aggression === 'STRONG_SELL' || aggression === 'SELL')) {
+      aggression = 'NEUTRAL'; // hidden buying negates sell aggression
+    }
+  }
+
+  // ── Alignment ─────────────────────────────────────────────────────────────
+  const agrBias = aggression === 'STRONG_BUY' || aggression === 'BUY' ? 'BUY'
+                : aggression === 'STRONG_SELL' || aggression === 'SELL' ? 'SELL' : 'NEUTRAL';
+  let alignment: 'ALIGNED' | 'CONFLICTED' | 'NEUTRAL';
+  if (locationBias === 'NEUTRAL' || agrBias === 'NEUTRAL') {
+    alignment = 'NEUTRAL';
+  } else if (locationBias === agrBias) {
+    alignment = 'ALIGNED';
+  } else {
+    alignment = 'CONFLICTED';
+  }
+
+  // ── Confidence vote modifier ───────────────────────────────────────────────
+  // Aligned DISCOUNT/PREMIUM + STRONG aggression = +3 votes (highest quality)
+  // Aligned LOW_VALUE/HIGH_VALUE + strong = +2, moderate = +1.5
+  // Conflicted = −2 (fighting structure)
+  let confidenceVotes = 0;
+  if (alignment === 'ALIGNED') {
+    const isExtreme = location === 'DISCOUNT' || location === 'PREMIUM';
+    const isStrong  = aggression === 'STRONG_BUY' || aggression === 'STRONG_SELL';
+    confidenceVotes = isExtreme && isStrong ? 3 : isExtreme ? 2 : isStrong ? 2 : 1.5;
+  } else if (alignment === 'CONFLICTED') {
+    confidenceVotes = -2; // fighting the structure reduces confidence
+  }
+
+  const note = `${location} (${locationBias} bias) + ${aggression} CVD → ${alignment} (${confidenceVotes > 0 ? '+' : ''}${confidenceVotes} votes)`;
+
+  return { location, locationDescription, locationBias, aggression, alignment, confidenceVotes, note };
+}
+
 export function computeAllAdvancedIndicators(
   candles: CandleData[],
   currentATR: number,
   symbol: string,
   timeframe: string = 'H1'
 ): AdvancedIndicators {
+  const cvd = computeCVD(candles);
+  const vp  = calculateVolumeProfile(candles);
+  const currentPrice = candles[0]?.c ?? 0;
+  const vpForLA = (vp?.poc && vp?.vah && vp?.val)
+    ? { poc: vp.poc, vah: vp.vah, val: vp.val }
+    : undefined;
+
   return {
     adx: calculateADX(candles),
     rsi: calculateRSI(candles),
@@ -821,7 +1011,9 @@ export function computeAllAdvancedIndicators(
     swingPoints: findSwingPoints(candles),
     sessionContext: getSessionContext(symbol),
     volatilityContext: calculateVolatilityContext(candles, currentATR),
-    volumeProfile: calculateVolumeProfile(candles),
+    volumeProfile: vp,
+    cvd,
+    locationAggression: analyzeLocationAggression(vpForLA, cvd, currentPrice),
     breakoutDetection: detectMarketOpenBreakout(candles, symbol, timeframe),
   };
 }

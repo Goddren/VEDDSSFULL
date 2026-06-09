@@ -1203,6 +1203,11 @@ export default function WeeklyStrategyPage() {
     refetchInterval: 60000,
   });
 
+  const { data: trailingStopSetting } = useQuery<any>({
+    queryKey: ['/api/user/trailing-stop-setting'],
+    enabled: !!brainStatus?.learned,
+  });
+
   // Helper: color-code brain freshness
   const getBrainFreshnessColor = (lastLearned: string | undefined) => {
     if (!lastLearned) return 'bg-gray-400';
@@ -4391,6 +4396,28 @@ export default function WeeklyStrategyPage() {
                   )}
                 </p>
                 <span className="text-[9px] text-gray-600">Auto-refreshes every 30min</span>
+              </div>
+            )}
+            {/* Trailing Stop Recommendation Banner */}
+            {brainStatus?.learned && trailingStopSetting?.trailingStop === false &&
+              Object.values(brainStatus?.pairKnowledge || {}).some((pk: any) => pk.avgWinPips > 25 && pk.topSessions?.length > 0) && (
+              <div className="mt-2 flex items-start gap-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-3 py-2">
+                <TrendingUp className="w-3.5 h-3.5 text-yellow-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-yellow-300 font-semibold">Trailing Stop Disabled — Missing Profit</p>
+                  <p className="text-[10px] text-yellow-400/80 mt-0.5">
+                    Your brain shows {Object.entries(brainStatus.pairKnowledge as Record<string, any>)
+                      .filter(([, pk]) => pk.avgWinPips > 25)
+                      .map(([sym]) => sym).slice(0, 3).join(', ')} averaging {Math.round(
+                      Math.max(...Object.values(brainStatus.pairKnowledge as Record<string, any>).map((pk: any) => pk.avgWinPips || 0))
+                    )} pip wins — a trailing stop would capture more on trend moves.
+                  </p>
+                </div>
+                <Link href="/profile">
+                  <button className="text-[10px] bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/30 rounded px-2 py-1 whitespace-nowrap transition-colors">
+                    Enable →
+                  </button>
+                </Link>
               </div>
             )}
           </CardHeader>

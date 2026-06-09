@@ -97,6 +97,20 @@ const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
   NDX:     [[12, 21]],
   DJ30:    [[12, 21]],
   SP500:   [[12, 21]],
+  // US30 broker variants (Dow Jones / Wall Street 30)
+  US30CASH: [[12, 21]], US30C: [[12, 21]], DOW30: [[12, 21]], DOWJONES: [[12, 21]],
+  DJIA: [[12, 21]], DJI: [[12, 21]], WS30: [[12, 21]], YM: [[12, 21]],
+  DOW: [[12, 21]], USA30: [[12, 21]], CASH30: [[12, 21]], US30USD: [[12, 21]],
+  DJA: [[12, 21]], WALLST30: [[12, 21]], WALLSTREET30: [[12, 21]], USWALL: [[12, 21]],
+  // NAS100 broker variants (Nasdaq 100)
+  NAS100CASH: [[12, 21]], NAS100C: [[12, 21]], NASDAQ100: [[12, 21]], USTEC: [[12, 21]],
+  NDX100: [[12, 21]], US100: [[12, 21]], NQ: [[12, 21]], NASDAQ: [[12, 21]],
+  NASUSD: [[12, 21]], NA100: [[12, 21]], NDAQ: [[12, 21]], QQQ: [[12, 21]],
+  TECH100: [[12, 21]], USTECH100: [[12, 21]], NASD100: [[12, 21]], NAS100USD: [[12, 21]],
+  // SPX / S&P 500 variants
+  SPXUSD: [[12, 21]], US500CASH: [[12, 21]], SP500USD: [[12, 21]],
+  USINDEX: [[12, 21]], SPX500USD: [[12, 21]], ES: [[12, 21]],
+  SPX: [[12, 21]], SPXC: [[12, 21]], SP500C: [[12, 21]], SPXUSDM: [[12, 21]],
   GER40:   [[6, 16]],    // Frankfurt open 07:00 CET = 06:00 UTC
   DE40:    [[6, 16]],
   UK100:   [[7, 16]],    // London open 07:00 UTC
@@ -111,8 +125,28 @@ const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
 function isInTradingSession(symbol: string, hourUTC: number): boolean {
   // Normalize: strip broker suffixes (.raw, .c, .pro, .m, #, .i, etc.) and slashes
   const raw = symbol.toUpperCase().replace('/', '').replace(/[#.]/g, '').replace(/(RAW|PRO|C|M|I|SB|ECN|MT5)$/, '');
-  // Gold alias
-  const sym = raw === 'GOLD' ? 'XAUUSD' : raw;
+  // Map known aliases to canonical symbols
+  const ALIAS_MAP: Record<string, string> = {
+    // Gold variants
+    'GOLD': 'XAUUSD', 'GOLDM': 'XAUUSD', 'GOLDC': 'XAUUSD', 'GOLDPRO': 'XAUUSD',
+    'XAUC': 'XAUUSD', 'XAUI': 'XAUUSD', 'XAUUSDC': 'XAUUSD', 'XAUUSDRAW': 'XAUUSD',
+    // US30 / Dow Jones variants
+    'WS30': 'US30', 'DJIA': 'US30', 'DJI': 'US30', 'DOW': 'US30',
+    'DOW30': 'US30', 'DOWJONES': 'US30', 'USA30': 'US30', 'CASH30': 'US30',
+    'DJA': 'US30', 'WALLST30': 'US30', 'WALLSTREET30': 'US30', 'USWALL': 'US30',
+    'US30CASH': 'US30', 'US30C': 'US30', 'US30USD': 'US30', 'YM': 'US30',
+    // NAS100 / Nasdaq variants
+    'USTEC': 'NAS100', 'NASDAQ100': 'NAS100', 'NDX100': 'NAS100',
+    'NASDAQ': 'NAS100', 'NQ': 'NAS100', 'QQQ': 'NAS100', 'NDAQ': 'NAS100',
+    'NA100': 'NAS100', 'NASUSD': 'NAS100', 'TECH100': 'NAS100',
+    'USTECH100': 'NAS100', 'NASD100': 'NAS100', 'NAS100USD': 'NAS100',
+    'NAS100CASH': 'NAS100', 'NAS100C': 'NAS100', 'US100': 'NAS100',
+    // S&P 500 variants
+    'SP500USD': 'SPX500', 'SPXUSD': 'SPX500', 'ES': 'SPX500',
+    'SPX': 'SPX500', 'SPXC': 'SPX500', 'SP500C': 'SPX500', 'SPXUSDM': 'SPX500',
+    'US500CASH': 'US500', 'USINDEX': 'SPX500', 'SPX500USD': 'SPX500',
+  };
+  const sym = ALIAS_MAP[raw] ?? raw;
   const windows = PAIR_SESSION_WINDOWS[sym];
   if (!windows) {
     // Partial match fallback: find first key that starts with or contains sym
@@ -208,7 +242,23 @@ function tlSignalGuard(params: {
     return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 — blocked` };
   }
 
-  // 7. Session filter — block trades outside the instrument's liquidity window
+  // 7. News event window gate — tighten filtering during historically high-volatility news hours
+  // High-impact windows (UTC): Tue 13-15 (CPI/Retail), Wed 13-15 & 17-20 (FOMC/ADP), Thu 11-14 (ECB/Claims), Fri 13-15 (NFP)
+  const nowForNews = new Date();
+  const dayUTC = nowForNews.getUTCDay(); // 0=Sun
+  const hourUTC_news = nowForNews.getUTCHours();
+  const HIGH_IMPACT_WINDOWS: Record<number, number[]> = {
+    2: [13, 14, 15],       // Tuesday
+    3: [13, 14, 17, 18, 19], // Wednesday
+    4: [11, 12, 13, 14],   // Thursday
+    5: [13, 14, 15],       // Friday (NFP)
+  };
+  const isNewsWindow = HIGH_IMPACT_WINDOWS[dayUTC]?.includes(hourUTC_news) ?? false;
+  if (isNewsWindow && riskScore != null && riskScore > 6) {
+    return { allow: false, reason: `Risk score ${riskScore} during high-impact news window (${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dayUTC]} ${hourUTC_news}:00 UTC) — threshold tightened to 6 — blocked` };
+  }
+
+  // 8. Session filter — block trades outside the instrument's liquidity window
   if (checkSession) {
     const hourUTC = new Date().getUTCHours();
     if (!isInTradingSession(sym, hourUTC)) {
@@ -8043,7 +8093,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // Advanced indicators (ADX, Stochastic, VWAP, OBV, Pivot Points, Fibonacci, S/R, Candle Patterns, Session Context)
           const { computeAllAdvancedIndicators } = await import('./indicators');
           advanced = computeAllAdvancedIndicators(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
-          
+
           if (advanced.adx) {
             analysis.indicators.adx = advanced.adx;
             if (advanced.adx.trend === 'WEAK') {
@@ -8129,15 +8179,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (advanced.obv?.divergence === 'BULLISH') buyVotes += 1;
           if (advanced.obv?.divergence === 'BEARISH') sellVotes += 1;
           
-          // Candle pattern votes
-          const bullishPatterns = (advanced.candlePatterns || []).filter(p => 
+          // News direction bias — fetch recent sentiment for this symbol (non-blocking)
+          let newsBiasVotes = 0;
+          try {
+            if (!newsService.isInitialized()) newsService.initialize();
+            const recentNews = await newsService.fetchCompanyNews(sanitizedSymbol, 3);
+            if (recentNews.length > 0) {
+              const sentiment = await newsService.analyzeNewsSentiment(recentNews, sanitizedSymbol);
+              if (sentiment.overallScore > 30) { buyVotes += 1; newsBiasVotes = 1; analysis.patterns.push(`News Bullish (score: ${sentiment.overallScore})`); }
+              else if (sentiment.overallScore < -30) { sellVotes += 1; newsBiasVotes = -1; analysis.patterns.push(`News Bearish (score: ${sentiment.overallScore})`); }
+            }
+          } catch (_) { /* news fetch is non-critical */ }
+
+          // Candle pattern votes — weighted by pattern strength
+          const CANDLE_WEIGHTS: Record<string, number> = {
+            'Morning Star': 2.5, 'Evening Star': 2.5,
+            'Bullish Engulfing': 2.0, 'Bearish Engulfing': 2.0,
+            'Hammer': 1.5, 'Shooting Star': 1.5,
+            'Bullish': 1.0, 'Bearish': 1.0,
+            'Doji': 0,  // indecision — no directional vote
+          };
+          let bullishCandleVotes = 0, bearishCandleVotes = 0;
+          for (const p of (advanced.candlePatterns || [])) {
+            const weight = Object.entries(CANDLE_WEIGHTS).find(([k]) => p.includes(k))?.[1] ?? 0.5;
+            if (p.includes('Bullish') || p.includes('Hammer') || p.includes('Morning Star')) {
+              bullishCandleVotes += weight;
+            } else if (p.includes('Bearish') || p.includes('Shooting Star') || p.includes('Evening Star')) {
+              bearishCandleVotes += weight;
+            }
+          }
+          buyVotes += Math.min(bullishCandleVotes, 3);
+          sellVotes += Math.min(bearishCandleVotes, 3);
+          // Keep legacy references for baseVotes calc below
+          const bullishPatterns = (advanced.candlePatterns || []).filter((p: string) =>
             p.includes('Bullish') || p.includes('Hammer') || p.includes('Morning Star')
           );
-          const bearishPatterns = (advanced.candlePatterns || []).filter(p => 
+          const bearishPatterns = (advanced.candlePatterns || []).filter((p: string) =>
             p.includes('Bearish') || p.includes('Shooting Star') || p.includes('Evening Star')
           );
-          if (bullishPatterns.length > 0) buyVotes += Math.min(bullishPatterns.length, 2);
-          if (bearishPatterns.length > 0) sellVotes += Math.min(bearishPatterns.length, 2);
           
           // Session context penalty for low-liquidity sessions
           if (advanced.sessionContext && !advanced.sessionContext.isSessionOpen) {
@@ -8269,12 +8348,86 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } catch (err) {}
           }
 
+          // Volume Profile alignment — price position relative to POC/VAH/VAL
+          if (advanced.volumeProfile && currentPrice) {
+            const vp = advanced.volumeProfile as any;
+            const poc = vp.poc ?? vp.pointOfControl;
+            const vah = vp.vah ?? vp.valueAreaHigh;
+            const val = vp.val ?? vp.valueAreaLow;
+            if (poc && vah && val) {
+              const range = vah - val;
+              if (range > 0) {
+                if (currentPrice < val) { buyVotes += 2.5; }       // below value area = strong buy (demand zone)
+                else if (currentPrice < poc) { buyVotes += 1.5; }  // inside value, below POC = mild buy
+                else if (currentPrice > vah) { sellVotes += 2.5; } // above value area = strong sell (supply zone)
+                else if (currentPrice > poc) { sellVotes += 1.5; } // inside value, above POC = mild sell
+                // At POC (within 10% of range) → neutral, no vote
+              }
+            }
+          }
+
+          // ── CVD (Cumulative Volume Delta) votes ─────────────────────────────
+          // CVD shows WHO is being aggressive — buyers or sellers — based on
+          // where price closes within each candle's range (order flow proxy).
+          if (advanced.cvd) {
+            const cvd = advanced.cvd;
+            if (cvd.signal === 'BUY') {
+              const cvdWeight = cvd.aggressionStrength === 'STRONG' ? 2.5 : 1.5;
+              buyVotes += cvdWeight;
+              analysis.patterns.push(`CVD: ${cvd.aggressionStrength} buyer aggression (delta: ${cvd.cumulativeDelta > 0 ? '+' : ''}${cvd.cumulativeDelta})`);
+            } else if (cvd.signal === 'SELL') {
+              const cvdWeight = cvd.aggressionStrength === 'STRONG' ? 2.5 : 1.5;
+              sellVotes += cvdWeight;
+              analysis.patterns.push(`CVD: ${cvd.aggressionStrength} seller aggression (delta: ${cvd.cumulativeDelta})`);
+            }
+            if (cvd.cvdDivergence === 'BEARISH') {
+              sellVotes += 1.5; // hidden selling = bearish divergence warning
+              analysis.alerts.push('CVD Bearish Divergence: price rising but sellers taking control — reversal risk');
+            } else if (cvd.cvdDivergence === 'BULLISH') {
+              buyVotes += 1.5; // hidden buying = bullish divergence
+              analysis.alerts.push('CVD Bullish Divergence: price falling but buyers absorbing — reversal potential');
+            }
+            analysis.indicators.cvd = cvd;
+          }
+
+          // ── Location + Aggression (VPALM) votes ─────────────────────────────
+          // Combines WHERE price is in the VP structure (location) with HOW aggressively
+          // players are entering (CVD aggression) for highest-quality entry confirmation.
+          if (advanced.locationAggression) {
+            const la = advanced.locationAggression;
+            analysis.indicators.locationAggression = la;
+            const laVotes = la.confidenceVotes;
+            if (laVotes > 0) {
+              // Positive votes go to whichever direction the alignment favours
+              if (la.locationBias === 'BUY') buyVotes += laVotes;
+              else if (la.locationBias === 'SELL') sellVotes += laVotes;
+            } else if (laVotes < 0) {
+              // Negative = conflict between location and aggression — reduce both
+              buyVotes  = Math.max(0, buyVotes  + laVotes);
+              sellVotes = Math.max(0, sellVotes + laVotes);
+              analysis.alerts.push(`VPALM Conflict: ${la.note} — location vs aggression mismatch, confidence reduced`);
+            }
+            if (la.alignment === 'ALIGNED') {
+              analysis.patterns.push(`VPALM Aligned: ${la.location} + ${la.aggression} (${laVotes > 0 ? '+' : ''}${laVotes} votes)`);
+            }
+          }
+
+          // ── Confluence bonus: all 3 core technicals agree ─────────────────
+          const coreAgree = [rsiSignal, macdSignalDir, maSignal];
+          if (coreAgree.filter(s => s === 'BUY').length === 3) buyVotes += 1.5;
+          else if (coreAgree.filter(s => s === 'SELL').length === 3) sellVotes += 1.5;
+
           let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
+          if (newsBiasVotes !== 0) baseVotes += 1;
+          if (advanced.cvd) baseVotes += 2;          // CVD is a new primary factor
+          if (advanced.locationAggression) baseVotes += 2; // VPALM is a new primary factor
           if (advanced.adx) baseVotes += 1;
           if (advanced.stochastic) baseVotes += 1.5;
           if (advanced.vwap) baseVotes += 0.5;
           if (advanced.obv?.divergence && advanced.obv.divergence !== 'NONE') baseVotes += 1;
-          if (bullishPatterns.length > 0 || bearishPatterns.length > 0) baseVotes += Math.min(Math.max(bullishPatterns.length, bearishPatterns.length), 2);
+          if (bullishCandleVotes > 0 || bearishCandleVotes > 0) baseVotes += Math.min(Math.max(bullishCandleVotes, bearishCandleVotes), 3);
+          if (advanced.volumeProfile) baseVotes += 2.5; // max VP contribution
+          baseVotes += 1.5; // confluence bonus slot
           if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
@@ -8288,6 +8441,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.confidence = 50;
           }
           
+          // Session quality multiplier — peak liquidity sessions produce higher-quality signals
+          if (advanced.sessionContext) {
+            const sess = (advanced.sessionContext.currentSession || '').toLowerCase();
+            const isOverlap = sess.includes('overlap') || (sess.includes('london') && sess.includes('new york'));
+            const isPrimary = sess.includes('london') || sess.includes('new york') || sess.includes('new_york') || sess.includes('ny');
+            const sessionMult = isOverlap ? 1.08 : isPrimary ? 1.04 : advanced.sessionContext.isSessionOpen === false ? 0.88 : 1.0;
+            if (sessionMult !== 1.0) {
+              analysis.confidence = Math.max(10, Math.min(95, Math.round(analysis.confidence * sessionMult)));
+              if (sessionMult > 1) analysis.patterns.push(`Session Quality Boost: ${sess} (+${Math.round((sessionMult-1)*100)}%)`);
+              else analysis.alerts.push(`Session Quality Penalty: off-session conditions (${Math.round((1-sessionMult)*100)}% conf reduction)`);
+            }
+          }
+
           // Boost confidence if multi-timeframe data confirms the signal
           if (multiTimeframeEnabled && mtfCount >= 2) {
             if ((analysis.signal === 'BUY' && mtfBullish >= mtfCount * 0.6) ||
@@ -13922,6 +14088,27 @@ Format each recommendation as a clear, concise action item.`;
       }
     }
 
+    // ── Per-pair optimal confidence threshold recalibration ──────────────────
+    // After 10+ trades, compute the lowest confidence threshold that still
+    // produces ≥ 60% win rate. Stored in brain.optimalMinConfidence for use
+    // by the autonomous signal generator.
+    const optimalMinConfidence: Record<string, number> = {};
+    for (const [sym, k] of Object.entries(pairKnowledge) as any[]) {
+      if (k.totalTrades < 10) continue; // not enough data
+      const symTrades = combinedTrades.filter((t: any) => t.symbol === sym);
+      for (const threshold of [85, 80, 75, 70, 65]) {
+        const above = symTrades.filter((t: any) => (t.confidence || 0) >= threshold);
+        if (above.length < 3) continue;
+        const wr = above.filter((t: any) => t.result === 'WIN').length / above.length;
+        if (wr >= 0.60) {
+          optimalMinConfidence[sym] = threshold;
+          if (wr >= 0.70) brain.learningInsights.push(`${sym}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr*100)}% WR above this threshold)`);
+          break;
+        }
+      }
+    }
+    (brain as any).optimalMinConfidence = optimalMinConfidence;
+
     (global as any).veddAIBrain[userId] = brain;
 
     // ── Persist brain to disk so it survives server restarts ──────────
@@ -14378,7 +14565,7 @@ Respond with ONLY valid JSON:
         }
 
         if (activeTlConns.length > 0) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% R:R≥2.0 session-filtered | accounts: ${activeTlConns.map((c: any) => c.accountId).join(', ')}`);
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% (per-pair calibrated) R:R≥2.0 session-filtered | accounts: ${activeTlConns.map((c: any) => c.accountId).join(', ')}`);
 
         // ── Move signal quality gate OUTSIDE the account loop so it runs once per signal ──
         // Then execute the approved signal on ALL active accounts
@@ -14409,13 +14596,13 @@ Respond with ONLY valid JSON:
           // ── Lot sizing: risk-based using user's engine settings ──
           // Calculate as % of account balance / estimated pip risk — fall back to baseLot
           const aiSuggestedLot = parseNum(sig.lotSize);
+          const sym = (sig.symbol || '').toUpperCase().replace('/', '');
           let baseLotSize: number;
           if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
             const slDistance = Math.abs(entryPrice - stopLoss);
             const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
             // Rough lot calculation: risk$ / (slDistance * 100000 * 0.0001) for majors
             // For non-majors/gold/crypto, use AI suggestion capped to userMaxLotSize
-            const sym = (sig.symbol || '').toUpperCase();
             if (sym.includes('XAU') || sym.includes('GOLD')) {
               // Gold: pip value ~$1/pip per 0.01 lot — use AI suggestion capped
               baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
@@ -14433,6 +14620,10 @@ Respond with ONLY valid JSON:
           }
           baseLotSize = Math.round(baseLotSize * 100) / 100; // round to 2 decimal places
 
+          // Per-pair confidence override from brain recalibration
+          const pairOptimalConf = brain.optimalMinConfidence?.[sym] ?? userMinConfidence;
+          const effectiveMinConf = Math.max(pairOptimalConf, userMinConfidence - 5); // never go more than 5% below user setting
+
           // ── Brain AutoExec signal quality gate — uses user's engine min confidence setting ──
           const brainGuard = tlSignalGuard({
             confidence,
@@ -14442,7 +14633,7 @@ Respond with ONLY valid JSON:
             symbol: sig.symbol,
             direction: sig.direction,
             riskScore: typeof sig.riskScore === 'number' ? sig.riskScore : null,
-            minConfidence: userMinConfidence, // from user's UI engine setting (not hardcoded)
+            minConfidence: effectiveMinConf, // per-pair brain-calibrated threshold
             requireSLTP: true,
             checkSession: true, // block trades outside instrument's best liquidity window
           });
