@@ -922,7 +922,8 @@ export default function WeeklyStrategyPage() {
 
   const { data: strategy, isLoading } = useQuery<WeeklyStrategy>({
     queryKey: ['/api/weekly-strategy'],
-    refetchInterval: 30000, // refresh strategy display every 30s
+    refetchInterval: 15000, // refresh strategy display every 15s for live profit
+    staleTime: 0,
   });
 
   const { data: liveMode } = useQuery<{ live: boolean; hasStrategy: boolean }>({
@@ -4980,6 +4981,50 @@ export default function WeeklyStrategyPage() {
         {/* ─── Tab: AI Config ──────────────────────────────── */}
         {activeTab === 'config' && (
           <div className="space-y-6">
+            {/* ── Apply to Live Engine Button ── */}
+            {isRunning && (
+              <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-emerald-300 text-xs font-semibold">Engine is running — settings apply immediately</p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">Click to push all current config changes to the live engine</p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await apiRequest('PATCH', '/api/vedd-live-engine/config', {
+                        pairs: enginePairs,
+                        strategyMode: engineMode,
+                        minConfidence: engineMinConf,
+                        maxOpenTrades: engineMaxTrades,
+                        maxLotSize: engineMaxLotSize,
+                        scanIntervalSeconds: engineInterval,
+                        weeklyProfitTarget: engineWeeklyTarget,
+                        accountBalance: engineAccountBalance,
+                        riskPerTrade: engineRiskPerTrade,
+                        baseLotSize: engineBaseLotSize,
+                        compounding: engineCompounding,
+                        drawdownShield: engineDrawdownShield,
+                        shieldThreshold: engineShieldThreshold,
+                        adaptiveScan: engineAdaptiveScan,
+                        brainLearningMode: engineBrainLearningMode,
+                        propFirmMode: enginePropFirmMode,
+                        aiMode: engineAiMode,
+                        trailMethod: engineTrailMethod,
+                        dailyLossLimit: engineDailyLossLimit,
+                      });
+                      toast({ title: '✅ Engine Updated', description: 'All config changes pushed to the running engine.' });
+                    } catch (e: any) {
+                      toast({ title: 'Update failed', description: e?.message, variant: 'destructive' });
+                    }
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 gap-1.5"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  Apply to Engine
+                </Button>
+              </div>
+            )}
             <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-6">
               <h2 className="text-white font-bold text-lg mb-1 flex items-center gap-2">⚙️ AI Signal Configuration</h2>
               <p className="text-gray-400 text-sm mb-6">Your ICT/SMC grade requirements and breakout thresholds automatically tighten as your account grows — protecting gains as the balance increases.</p>
@@ -5465,8 +5510,8 @@ export default function WeeklyStrategyPage() {
                           }} />
                         <div className="absolute left-1/2 top-0 h-full w-px bg-gray-500" />
                       </div>
-                      {/* Markov + Polymarket side by side */}
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      {/* Markov signal */}
+                      <div className="text-[11px]">
                         <div className="bg-purple-500/10 rounded px-2 py-1.5">
                           <p className="text-purple-300 font-semibold mb-0.5">🎲 Markov</p>
                           <p className="text-white font-mono">
@@ -5478,20 +5523,6 @@ export default function WeeklyStrategyPage() {
                           <p className={`font-bold mt-0.5 ${btcComposite.markov?.adjustment > 0 ? 'text-emerald-400' : btcComposite.markov?.adjustment < 0 ? 'text-red-400' : 'text-gray-400'}`}>
                             {btcComposite.markov?.adjustment > 0 ? '+' : ''}{btcComposite.markov?.adjustment ?? 0}%
                           </p>
-                        </div>
-                        <div className="bg-yellow-500/10 rounded px-2 py-1.5">
-                          <p className="text-yellow-300 font-semibold mb-0.5">🏦 Polymarket</p>
-                          {btcComposite.polymarket?.available ? (
-                            <>
-                              <p className="text-white">{btcComposite.polymarket.sentimentLabel}</p>
-                              <p className="text-gray-400">{btcComposite.polymarket.overallBullishScore}% bullish</p>
-                              <p className={`font-bold mt-0.5 ${btcComposite.polymarket.adjustment > 0 ? 'text-emerald-400' : btcComposite.polymarket.adjustment < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                                {btcComposite.polymarket.adjustment > 0 ? '+' : ''}{btcComposite.polymarket.adjustment}%
-                              </p>
-                            </>
-                          ) : (
-                            <p className="text-gray-500 text-[10px]">No data</p>
-                          )}
                         </div>
                       </div>
                       {/* Alignment badge */}
@@ -5550,30 +5581,19 @@ export default function WeeklyStrategyPage() {
                     </>
                   )}
 
-                  {/* Polymarket markets list */}
-                  {polymarketSentiment?.markets?.length > 0 && (
-                    <div className="mt-3">
-                      <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider mb-1.5">Polymarket BTC Markets</p>
-                      <div className="space-y-1">
-                        {polymarketSentiment.markets.slice(0, 4).map((m: any) => (
-                          <div key={m.id} className="flex items-center gap-2 bg-gray-800/30 rounded px-2 py-1.5">
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                              m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'bg-emerald-400' : 'bg-gray-600') :
-                                                          (m.yesProbability >= 55 ? 'bg-red-400' : 'bg-gray-600')
-                            }`} />
-                            <span className="text-[11px] text-gray-300 flex-1 truncate">{m.question}</span>
-                            <span className={`text-[11px] font-bold shrink-0 ${
-                              m.direction === 'bullish' ? (m.yesProbability >= 55 ? 'text-emerald-400' : 'text-gray-500') :
-                                                          (m.yesProbability >= 55 ? 'text-red-400' : 'text-gray-500')
-                            }`}>{m.yesProbability}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {/* → Full Polymarket Markets on dedicated page */}
+                  <div className="mt-3 pt-3 border-t border-gray-800/60 flex items-center justify-between">
+                    <p className="text-[10px] text-gray-500">View prediction markets & BTC sentiment signals</p>
+                    <a
+                      href="/polymarket-wallet"
+                      className="text-[11px] font-semibold text-yellow-400 hover:text-yellow-300 flex items-center gap-1 transition-colors"
+                    >
+                      🏦 Polymarket Markets →
+                    </a>
+                  </div>
 
                   <p className="text-[9px] text-gray-600 mt-2 text-right">
-                    Markov: built from 50 closed candles · Polymarket: {polymarketSentiment?.fromCache ? 'cached' : 'live'} · 15s refresh
+                    Markov: built from 50 closed candles · 15s refresh · Polymarket data on dedicated page
                   </p>
                 </div>
               );
@@ -5688,11 +5708,12 @@ export default function WeeklyStrategyPage() {
                     <p className="text-[9px] text-gray-600">
                       Crypto pairs: BTC · ETH · SOL · XRP · BNB · DOGE · ADA · MATIC · LINK
                     </p>
-                    <Link href="/polymarket-wallet">
-                      <button className="flex items-center gap-1.5 text-[10px] text-purple-300 hover:text-purple-200 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-lg px-2.5 py-1.5 transition-colors shrink-0">
-                        🔗 Connect Wallet
-                      </button>
-                    </Link>
+                    <a
+                      href="/polymarket-wallet"
+                      className="text-[10px] font-semibold text-yellow-400 hover:text-yellow-300 bg-yellow-400/10 hover:bg-yellow-400/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                    >
+                      🏦 Polymarket →
+                    </a>
                   </div>
                 </div>
               );

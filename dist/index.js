@@ -42678,6 +42678,16 @@ Respond with ONLY valid JSON:
       activatedBy: "user"
     };
     global.veddAiPathControl[userId] = pathState;
+    try {
+      const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      if (enabled && resolvedPairs.length > 0) {
+        updateLiveEngineConfig3(userId, {
+          pairs: resolvedPairs
+          // Don't override lot size directly — let the path control multiplier handle it
+        });
+      }
+    } catch (_) {
+    }
     console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(",")} lotMult=${resolvedLotMult}`);
     res.json({ success: true, ...pathState });
   });
@@ -51248,6 +51258,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return ts >= todayUTCStart;
     }).sort((a, b) => (a.t || a.time) - (b.t || b.time));
     const estOffsets = [-5, -4];
+    const fallbackH1Hours = [9, 10];
     let orbHigh = 0, orbLow = 0, orbOpen = 0;
     let foundOrbCandle = false;
     let orbCandle = null;
@@ -51266,7 +51277,43 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         break;
       }
     }
-    if (!foundOrbCandle && todayCandles.length > 0) {
+    if (!foundOrbCandle) {
+      for (const offsetHours of estOffsets) {
+        orbCandle = todayCandles.find((c) => {
+          const ts = c.t || c.time || 0;
+          if (!ts) return false;
+          const { h } = toEST(ts, offsetHours);
+          return h === 9;
+        });
+        if (orbCandle) {
+          orbHigh = orbCandle.h || orbCandle.high || 0;
+          orbLow = orbCandle.l || orbCandle.low || 0;
+          orbOpen = orbCandle.o || orbCandle.open || 0;
+          foundOrbCandle = true;
+          break;
+        }
+      }
+    }
+    const isUSEquity = [
+      "US30",
+      "NAS100",
+      "SPX500",
+      "US500",
+      "NDX",
+      "DJ30",
+      "SP500",
+      "NAS100CASH",
+      "US30CASH",
+      "SPXUSD",
+      "AAPL",
+      "TSLA",
+      "AMZN",
+      "MSFT",
+      "NVDA",
+      "META",
+      "GOOGL"
+    ].includes(rawSymbol.toUpperCase().replace("/", "").replace(".", ""));
+    if (!foundOrbCandle && isUSEquity && todayCandles.length > 0) {
       orbCandle = todayCandles[0];
       orbHigh = orbCandle.h || orbCandle.high || 0;
       orbLow = orbCandle.l || orbCandle.low || 0;
@@ -51366,12 +51413,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const latestCandle = candles[0] || null;
     const prevCandle = candles[1] || null;
     const detectedPattern = latestCandle ? detectCandlePattern(latestCandle, prevCandle) : null;
+    const dayHigh = todayCandles.length > 0 ? Math.max(...todayCandles.map((c) => c.h || c.high || 0)) : 0;
+    const dayLow = todayCandles.length > 0 ? Math.min(...todayCandles.map((c) => c.l || c.low || Infinity)) : 0;
     let orbPhase = "RANGE_SET";
     if (orbHigh > 0 && orbLow > 0 && currentPrice > 0) {
-      if (currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
-      else if (currentPrice < orbLow * 0.999) orbPhase = "BREAKOUT_SHORT";
-      else if (currentPrice >= orbHigh * 0.998 && currentPrice <= orbHigh * 1.002) orbPhase = "RETEST_LONG";
-      else if (currentPrice >= orbLow * 0.998 && currentPrice <= orbLow * 1.002) orbPhase = "RETEST_SHORT";
+      const confirmedClose = (candles[1]?.c || candles[1]?.close) ?? currentPrice;
+      if (confirmedClose > orbHigh * 1.001) {
+        const reversedFromHigh = dayHigh > orbHigh * 1.002 && currentPrice < dayHigh * 0.9965;
+        orbPhase = reversedFromHigh ? "RETEST_LONG" : "BREAKOUT_LONG";
+      } else if (confirmedClose < orbLow * 0.999) {
+        const reversedFromLow = dayLow > 0 && dayLow < orbLow * 0.998 && currentPrice > dayLow * 1.0035;
+        orbPhase = reversedFromLow ? "RETEST_SHORT" : "BREAKOUT_SHORT";
+      } else if (currentPrice >= orbHigh * 0.998 && currentPrice <= orbHigh * 1.002) {
+        orbPhase = "RETEST_LONG";
+      } else if (currentPrice >= orbLow * 0.998 && currentPrice <= orbLow * 1.002) {
+        orbPhase = "RETEST_SHORT";
+      }
     }
     res.json({
       symbol: rawSymbol,
@@ -51390,6 +51447,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       candleCount: candles.length,
       todayCandleCount: todayCandles.length,
       foundOrbCandle,
+      dayHigh: dayHigh > 0 ? Math.round(dayHigh * 1e5) / 1e5 : 0,
+      dayLow: dayLow < Infinity && dayLow > 0 ? Math.round(dayLow * 1e5) / 1e5 : 0,
       broker: found.broker
     });
   });
@@ -51447,7 +51506,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           break;
         }
       }
-      if (!foundOrbCandle && todayCandles.length > 0) {
+      if (!foundOrbCandle) {
+        for (const off of estOffsets) {
+          orbCandle = todayCandles.find((c) => {
+            const { h } = toEST2(c.t || 0, off);
+            return h === 9;
+          });
+          if (orbCandle) {
+            orbHigh = orbCandle.h || 0;
+            orbLow = orbCandle.l || 0;
+            foundOrbCandle = true;
+            break;
+          }
+        }
+      }
+      const tlIsUSEquity = [
+        "US30",
+        "NAS100",
+        "SPX500",
+        "US500",
+        "NDX",
+        "DJ30",
+        "SP500",
+        "NAS100CASH",
+        "US30CASH",
+        "SPXUSD",
+        "AAPL",
+        "TSLA",
+        "AMZN",
+        "MSFT",
+        "NVDA",
+        "META",
+        "GOOGL"
+      ].includes(rawSymbol.toUpperCase().replace("/", "").replace(".", ""));
+      if (!foundOrbCandle && tlIsUSEquity && todayCandles.length > 0) {
         orbCandle = todayCandles[0];
         orbHigh = orbCandle.h || 0;
         orbLow = orbCandle.l || 0;

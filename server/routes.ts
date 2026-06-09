@@ -12167,6 +12167,17 @@ Respond with ONLY valid JSON:
 
     (global as any).veddAiPathControl[userId] = pathState;
 
+    // Also sync to live engine config if it's running
+    try {
+      const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
+      if (enabled && resolvedPairs.length > 0) {
+        updateLiveEngineConfig(userId, {
+          pairs: resolvedPairs,
+          // Don't override lot size directly — let the path control multiplier handle it
+        });
+      }
+    } catch (_) { /* live engine may not be loaded */ }
+
     console.log(`[AI Path Control] User ${userId} activated path=${resolvedPathType} pairs=${resolvedPairs.join(',')} lotMult=${resolvedLotMult}`);
     res.json({ success: true, ...pathState });
   });
@@ -22448,6 +22459,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
     // ── Find the 9:30 AM ORB candle ──────────────────────────────────────────
     const estOffsets = [-5, -4]; // try EST then EDT
+    // For H1 candles: also try 9:00 AM EST = 13:00 UTC (EDT) or 14:00 UTC (EST)
+    // and 10:00 AM EST = 14:00 UTC (EDT) or 15:00 UTC (EST)
+    const fallbackH1Hours = [9, 10]; // EST hours for H1 fallback
     let orbHigh = 0, orbLow = 0, orbOpen = 0;
     let foundOrbCandle = false;
     let orbCandle: any = null;
@@ -22468,13 +22482,37 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
     }
 
-    // Fallback: use first candle of today if no exact 9:30 found
-    if (!foundOrbCandle && todayCandles.length > 0) {
+    // H1 candle fallback: find candle whose EST hour is 9 (= 9:00-9:59 AM EST)
+    if (!foundOrbCandle) {
+      for (const offsetHours of estOffsets) {
+        orbCandle = todayCandles.find((c: any) => {
+          const ts = c.t || c.time || 0;
+          if (!ts) return false;
+          const { h } = toEST(ts, offsetHours);
+          return h === 9; // any minute within 9 AM EST hour = valid ORB for H1
+        });
+        if (orbCandle) {
+          orbHigh = orbCandle.h || orbCandle.high || 0;
+          orbLow  = orbCandle.l || orbCandle.low  || 0;
+          orbOpen = orbCandle.o || orbCandle.open || 0;
+          foundOrbCandle = true;
+          break;
+        }
+      }
+    }
+
+    // Only use first-candle fallback for US indices/stocks, NOT for Gold/Forex
+    // For commodity/forex the first candle is meaningless as an ORB reference
+    const isUSEquity = ['US30','NAS100','SPX500','US500','NDX','DJ30','SP500',
+      'NAS100CASH','US30CASH','SPXUSD','AAPL','TSLA','AMZN','MSFT','NVDA','META','GOOGL'].includes(rawSymbol.toUpperCase().replace('/','').replace('.',''));
+    if (!foundOrbCandle && isUSEquity && todayCandles.length > 0) {
+      // Only for US equity indices — they open at 9:30 AM EST so first candle of the day is close enough
       orbCandle = todayCandles[0];
       orbHigh = orbCandle.h || orbCandle.high || 0;
       orbLow  = orbCandle.l || orbCandle.low  || 0;
       orbOpen = orbCandle.o || orbCandle.open || 0;
     }
+    // For Gold/Forex: if no 9 AM candle found, orbHigh/orbLow stay 0 — no fake ORB data
 
     // ── Pre-market bias ───────────────────────────────────────────────────────
     // Look at candles from 4:00 AM to 9:29 AM EST. Compare open of first candle
@@ -22588,13 +22626,32 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const prevCandle    = candles[1] || null;
     const detectedPattern: string | null = latestCandle ? detectCandlePattern(latestCandle, prevCandle) : null;
 
+    // ── Day high/low context ──────────────────────────────────────────────────────
+    const dayHigh = todayCandles.length > 0 ? Math.max(...todayCandles.map((c: any) => c.h || c.high || 0)) : 0;
+    const dayLow  = todayCandles.length > 0 ? Math.min(...todayCandles.map((c: any) => c.l || c.low  || Infinity)) : 0;
+
     // ── Determine current ORB phase ───────────────────────────────────────────
     let orbPhase = "RANGE_SET";
     if (orbHigh > 0 && orbLow > 0 && currentPrice > 0) {
-      if (currentPrice > orbHigh * 1.001) orbPhase = "BREAKOUT_LONG";
-      else if (currentPrice < orbLow * 0.999) orbPhase = "BREAKOUT_SHORT";
-      else if (currentPrice >= orbHigh * 0.998 && currentPrice <= orbHigh * 1.002) orbPhase = "RETEST_LONG";
-      else if (currentPrice >= orbLow * 0.998 && currentPrice <= orbLow * 1.002) orbPhase = "RETEST_SHORT";
+      // Use the most-recently CLOSED candle for phase confirmation (candles[0] may still be forming)
+      // candles array is newest-first, so candles[1] is the last confirmed close
+      const confirmedClose = (candles[1]?.c || candles[1]?.close) ?? currentPrice;
+
+      if (confirmedClose > orbHigh * 1.001) {
+        // Confirmed breakout — but check if price has reversed significantly from day high
+        // If current price is more than 0.35% below day's high AND day high was above ORB high,
+        // this is a reversal after breakout — show as RETEST not fresh BREAKOUT
+        const reversedFromHigh = dayHigh > orbHigh * 1.002 && currentPrice < dayHigh * 0.9965;
+        orbPhase = reversedFromHigh ? "RETEST_LONG" : "BREAKOUT_LONG";
+      } else if (confirmedClose < orbLow * 0.999) {
+        // Confirmed short breakout — check reversal from day low
+        const reversedFromLow = dayLow > 0 && dayLow < orbLow * 0.998 && currentPrice > dayLow * 1.0035;
+        orbPhase = reversedFromLow ? "RETEST_SHORT" : "BREAKOUT_SHORT";
+      } else if (currentPrice >= orbHigh * 0.998 && currentPrice <= orbHigh * 1.002) {
+        orbPhase = "RETEST_LONG";
+      } else if (currentPrice >= orbLow * 0.998 && currentPrice <= orbLow * 1.002) {
+        orbPhase = "RETEST_SHORT";
+      }
     }
 
     res.json({
@@ -22614,6 +22671,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       candleCount: candles.length,
       todayCandleCount: todayCandles.length,
       foundOrbCandle,
+      dayHigh: dayHigh > 0 ? Math.round(dayHigh * 100000) / 100000 : 0,
+      dayLow: (dayLow < Infinity && dayLow > 0) ? Math.round(dayLow * 100000) / 100000 : 0,
       broker: found.broker,
     });
   });
@@ -22684,11 +22743,30 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           break;
         }
       }
-      if (!foundOrbCandle && todayCandles.length > 0) {
+      // H1 candle fallback: find candle whose EST hour is 9 (= 9:00-9:59 AM EST)
+      if (!foundOrbCandle) {
+        for (const off of estOffsets) {
+          orbCandle = todayCandles.find((c: any) => {
+            const { h } = toEST(c.t || 0, off);
+            return h === 9; // any minute within 9 AM EST hour = valid ORB for H1
+          });
+          if (orbCandle) {
+            orbHigh = orbCandle.h || 0;
+            orbLow  = orbCandle.l || 0;
+            foundOrbCandle = true;
+            break;
+          }
+        }
+      }
+      // Only use first-candle fallback for US equity indices, NOT for Gold/Forex
+      const tlIsUSEquity = ['US30','NAS100','SPX500','US500','NDX','DJ30','SP500',
+        'NAS100CASH','US30CASH','SPXUSD','AAPL','TSLA','AMZN','MSFT','NVDA','META','GOOGL'].includes(rawSymbol.toUpperCase().replace('/','').replace('.',''));
+      if (!foundOrbCandle && tlIsUSEquity && todayCandles.length > 0) {
         orbCandle = todayCandles[0];
         orbHigh = orbCandle.h || 0;
         orbLow  = orbCandle.l || 0;
       }
+      // For Gold/Forex: if no 9 AM candle found, orbHigh/orbLow stay 0 — no fake ORB data
 
       // ── Pre-market bias ──
       let preMarketBias: "bullish" | "bearish" | "neutral" = "neutral";
