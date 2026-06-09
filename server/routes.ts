@@ -8366,6 +8366,39 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
 
+          // ── Keltner Channel votes ────────────────────────────────────────────
+          // KC adds confidence on breakouts (price outside bands) and warns on squeezes.
+          // Squeeze = volatility so compressed a major move is imminent — hold off or wait for direction.
+          if (advanced.keltner) {
+            const kc = advanced.keltner;
+            analysis.indicators.keltner = kc;
+
+            if (kc.signal === 'BUY') {
+              const kcWeight = kc.squeeze ? 3.0  // post-squeeze breakout = highest quality
+                             : kc.position === 'ABOVE_UPPER' ? 2.0  // confirmed breakout
+                             : 1.5;  // near upper, expanding
+              buyVotes += kcWeight;
+              analysis.patterns.push(`KC: ${kc.note}`);
+            } else if (kc.signal === 'SELL') {
+              const kcWeight = kc.squeeze ? 3.0
+                             : kc.position === 'BELOW_LOWER' ? 2.0
+                             : 1.5;
+              sellVotes += kcWeight;
+              analysis.patterns.push(`KC: ${kc.note}`);
+            } else if (kc.squeeze) {
+              // Squeeze with no confirmed direction = reduce confidence, wait for breakout
+              analysis.alerts.push(`⚡ Keltner SQUEEZE active — volatility compressed, breakout imminent. Wait for KC direction before entry.`);
+            } else if (kc.volatilityPhase === 'CONTRACTION') {
+              // Inside contracting bands = ranging = reduce overall confidence
+              // Apply a mild penalty to whichever direction is leading
+              const penalty = 1.0;
+              buyVotes  = Math.max(0, buyVotes  - penalty);
+              sellVotes = Math.max(0, sellVotes - penalty);
+              analysis.alerts.push(`KC inside contracting bands — ranging market, reduced signal quality`);
+            }
+            // baseVotes slot added below
+          }
+
           // ── CVD (Cumulative Volume Delta) votes ─────────────────────────────
           // CVD shows WHO is being aggressive — buyers or sellers — based on
           // where price closes within each candle's range (order flow proxy).
@@ -8419,6 +8452,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
           let baseVotes = 6.5; // Core: RSI 1.5 + MACD 2 + MA 2 + BB 1
           if (newsBiasVotes !== 0) baseVotes += 1;
+          if (advanced.keltner) baseVotes += 3;      // KC max contribution (post-squeeze breakout)
           if (advanced.cvd) baseVotes += 2;          // CVD is a new primary factor
           if (advanced.locationAggression) baseVotes += 2; // VPALM is a new primary factor
           if (advanced.adx) baseVotes += 1;
@@ -14273,10 +14307,16 @@ Format each recommendation as a clear, concise action item.`;
         const close   = latest?.c || latest?.close || null;
 
         let vpData: { poc?: number; vah?: number; val?: number; pocStrength?: number } = {};
+        let keltnerData: { position?: string; squeeze?: boolean; signal?: string; note?: string; volatilityPhase?: string } = {};
+        let cvdData: { aggressionSide?: string; aggressionStrength?: string; cvdDivergence?: string; signal?: string } = {};
         if (candles.length >= 10) {
-          const { computeTrueVolumeProfile } = await import('./indicators');
+          const { computeTrueVolumeProfile, computeKeltnerChannels, computeCVD } = await import('./indicators');
           const vp = computeTrueVolumeProfile(candles.slice(0, 100));
           if (vp) vpData = vp;
+          const kc = computeKeltnerChannels(candles.slice(0, 100));
+          if (kc) keltnerData = { position: kc.position, squeeze: kc.squeeze, signal: kc.signal, note: kc.note, volatilityPhase: kc.volatilityPhase };
+          const cvd = computeCVD(candles.slice(0, 50));
+          if (cvd) cvdData = { aggressionSide: cvd.aggressionSide, aggressionStrength: cvd.aggressionStrength, cvdDivergence: cvd.cvdDivergence, signal: cvd.signal };
         }
 
         // Strip stale/low-value fields from knowledge
@@ -14293,6 +14333,8 @@ Format each recommendation as a clear, concise action item.`;
           atr, rsi, trend,
           hasOpenPosition: hasOpenPos,
           volumeProfile: vpData.poc ? vpData : undefined,
+          keltner: keltnerData.signal ? keltnerData : undefined,
+          cvd: cvdData.signal ? cvdData : undefined,
         };
       };
 
@@ -14410,10 +14452,16 @@ RULES: 1) Only trade instruments where ORB High/Low is in the ORB DATA section. 
           c.rsi          ? `rsi=${c.rsi}` : '',
           c.trend        ? `trend=${c.trend}` : '',
           c.atr          ? `atr=${c.atr}` : '',
+          // Keltner channel state — gives AI context on volatility phase and breakout
+          c.keltner?.signal && c.keltner.signal !== 'NEUTRAL'
+            ? `KC=${c.keltner.signal}(${c.keltner.position}${c.keltner.squeeze ? ',SQUEEZE' : ''},${c.keltner.volatilityPhase})` : '',
+          // CVD aggression — who is actively pushing price
+          c.cvd?.signal && c.cvd.signal !== 'NEUTRAL'
+            ? `CVD=${c.cvd.signal}(${c.cvd.aggressionStrength}_${c.cvd.aggressionSide}${c.cvd.cvdDivergence !== 'NONE' ? ',DIV:' + c.cvd.cvdDivergence : ''})` : '',
         ].filter(Boolean).join(' ');
         // Pairs with no trading history get a clear NEW label so AI still signals them using price/VP/session
         if (c.noHistory) {
-          return `${sym}: ${live || 'no live data'} | NEW PAIR — no trade history, signal based on price action and VP levels`;
+          return `${sym}: ${live || 'no live data'} | NEW PAIR — no trade history, signal based on price action, KC, CVD and VP levels`;
         }
         const hist = [
           c.winRate != null           ? `wr=${c.winRate}%(${c.totalTrades||0}t)` : '',
@@ -14447,6 +14495,15 @@ ${brain.learningInsights.join('\n')}
 VP LEVELS (apply to all strategies):
 - POC=max-volume magnet (limit entries, mean-reversion targets). VAH=70%-area top (TP/sell-limit/buy-stop trigger). VAL=70%-area bottom (TP/buy-limit/sell-stop trigger).
 - Outside value area (above VAH or below VAL) = overextended → fade toward POC or wait for VAH/VAL re-entry.
+
+KELTNER CHANNEL (KC) CONTEXT:
+- KC=BUY/ABOVE_UPPER = bullish momentum breakout confirmed — add confidence to BUY signal.
+- KC=SELL/BELOW_LOWER = bearish breakdown confirmed — add confidence to SELL signal.
+- KC=NEUTRAL/SQUEEZE = volatility compressed, major move imminent — DO NOT enter until KC gives direction.
+- KC CONTRACTION = ranging market, reduce lot size and tighten targets.
+- CVD=BUY(STRONG_BUYERS) = aggressive buying pressure detected — confirms BUY entries.
+- CVD=SELL(STRONG_SELLERS) = aggressive selling pressure — confirms SELL entries.
+- CVD divergence (DIV:BULLISH or DIV:BEARISH) = hidden order flow against price — reversal warning, reduce confidence on trend-following entry.
 
 ORDER TYPE:
 - market: price AT entry zone now with immediate momentum

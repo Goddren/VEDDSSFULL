@@ -40,6 +40,17 @@ export interface AdvancedIndicators {
     confidenceVotes: number;
     note: string;
   };
+  keltner?: {
+    upper: number;
+    middle: number;
+    lower: number;
+    bandwidth: number;
+    position: 'ABOVE_UPPER' | 'NEAR_UPPER' | 'INSIDE' | 'NEAR_LOWER' | 'BELOW_LOWER';
+    squeeze: boolean;
+    volatilityPhase: 'EXPANSION' | 'CONTRACTION' | 'SQUEEZE';
+    signal: 'BUY' | 'SELL' | 'NEUTRAL';
+    note: string;
+  };
   recentTradeContext?: { openPositionsOnSymbol: number; recentWinRate: number; recentTradeCount: number; avgHoldingPeriod: string };
   breakoutDetection?: {
     isBreakoutWindow: boolean;
@@ -820,6 +831,133 @@ export function detectMarketOpenBreakout(
 }
 
 /**
+ * Keltner Channels
+ * Volatility envelope built on EMA (middle) ± ATR multiplier.
+ * Used to classify market phase: trending breakout, ranging, or squeeze.
+ *
+ * Key signals:
+ *   ABOVE_UPPER  — price breaking above KC = momentum / bullish breakout
+ *   BELOW_LOWER  — price breaking below KC = momentum / bearish breakout
+ *   NEAR_UPPER   — price approaching upper band = potential breakout or resistance
+ *   NEAR_LOWER   — price approaching lower band = potential bounce or breakdown
+ *   SQUEEZE      — Bollinger Bands inside Keltner = compressed volatility, big move imminent
+ *
+ * Bandwidth contraction → consolidation → lower confidence on directional signals.
+ * Bandwidth expansion after squeeze → strongest signal context.
+ */
+export function computeKeltnerChannels(
+  candles: CandleData[],
+  emaPeriod = 20,
+  atrPeriod = 10,
+  multiplier = 2.0
+): AdvancedIndicators['keltner'] {
+  if (candles.length < emaPeriod + 2) return undefined;
+  const chronological = [...candles].reverse(); // oldest first
+
+  // ── EMA (middle line) ────────────────────────────────────────────────────
+  const k = 2 / (emaPeriod + 1);
+  let ema = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  for (let i = emaPeriod; i < chronological.length; i++) {
+    ema = chronological[i].c * k + ema * (1 - k);
+  }
+
+  // ── ATR (True Range average) ──────────────────────────────────────────────
+  const trValues: number[] = [];
+  for (let i = 1; i < chronological.length; i++) {
+    const h = chronological[i].h, l = chronological[i].l, pc = chronological[i - 1].c;
+    trValues.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atrSlice = trValues.slice(-atrPeriod);
+  const atr = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
+  if (atr === 0) return undefined;
+
+  const upper = ema + multiplier * atr;
+  const lower = ema - multiplier * atr;
+  const currentPrice = chronological[chronological.length - 1].c;
+
+  // Bandwidth as % of middle — used to detect contraction/expansion
+  const bandwidth = ((upper - lower) / ema) * 100;
+  const prevBandwidths: number[] = [];
+  let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  for (let i = emaPeriod; i < chronological.length - 5; i++) {
+    prevEma = chronological[i].c * k + prevEma * (1 - k);
+    const tr = trValues[i - 1] ?? atr;
+    const bw = ((prevEma + multiplier * tr - (prevEma - multiplier * tr)) / prevEma) * 100;
+    prevBandwidths.push(bw);
+  }
+  const avgPrevBW = prevBandwidths.length > 0
+    ? prevBandwidths.slice(-10).reduce((s, v) => s + v, 0) / Math.min(10, prevBandwidths.length)
+    : bandwidth;
+
+  // ── Bollinger Bands for squeeze detection ─────────────────────────────────
+  // Squeeze = BB upper < KC upper AND BB lower > KC lower
+  let squeeze = false;
+  if (candles.length >= 20) {
+    const bbPeriod = 20;
+    const recentCloses = chronological.slice(-bbPeriod).map(c => c.c);
+    const bbMid = recentCloses.reduce((s, v) => s + v, 0) / bbPeriod;
+    const std  = Math.sqrt(recentCloses.reduce((s, v) => s + (v - bbMid) ** 2, 0) / bbPeriod);
+    const bbUpper = bbMid + 2 * std;
+    const bbLower = bbMid - 2 * std;
+    squeeze = bbUpper < upper && bbLower > lower;
+  }
+
+  // ── Position classification ────────────────────────────────────────────────
+  const nearBand = atr * 0.3; // within 0.3× ATR of a band = "near"
+  let position: 'ABOVE_UPPER' | 'NEAR_UPPER' | 'INSIDE' | 'NEAR_LOWER' | 'BELOW_LOWER';
+  if (currentPrice > upper)                    position = 'ABOVE_UPPER';
+  else if (currentPrice >= upper - nearBand)   position = 'NEAR_UPPER';
+  else if (currentPrice <= lower)              position = 'BELOW_LOWER';
+  else if (currentPrice <= lower + nearBand)   position = 'NEAR_LOWER';
+  else                                          position = 'INSIDE';
+
+  // ── Volatility phase ──────────────────────────────────────────────────────
+  let volatilityPhase: 'EXPANSION' | 'CONTRACTION' | 'SQUEEZE';
+  if (squeeze)                         volatilityPhase = 'SQUEEZE';
+  else if (bandwidth > avgPrevBW * 1.1) volatilityPhase = 'EXPANSION';
+  else if (bandwidth < avgPrevBW * 0.9) volatilityPhase = 'CONTRACTION';
+  else                                  volatilityPhase = 'EXPANSION'; // stable → treat as expansion
+
+  // ── Signal ────────────────────────────────────────────────────────────────
+  let signal: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+  let note = '';
+
+  if (position === 'ABOVE_UPPER') {
+    signal = 'BUY';
+    note = squeeze ? 'Post-squeeze BULLISH BREAKOUT — strongest signal' : 'Bullish KC breakout — momentum up';
+  } else if (position === 'BELOW_LOWER') {
+    signal = 'SELL';
+    note = squeeze ? 'Post-squeeze BEARISH BREAKDOWN — strongest signal' : 'Bearish KC breakdown — momentum down';
+  } else if (position === 'NEAR_UPPER' && volatilityPhase === 'EXPANSION') {
+    signal = 'BUY';
+    note = 'Approaching KC upper — bullish momentum building';
+  } else if (position === 'NEAR_LOWER' && volatilityPhase === 'EXPANSION') {
+    signal = 'SELL';
+    note = 'Approaching KC lower — bearish pressure building';
+  } else if (squeeze) {
+    signal = 'NEUTRAL';
+    note = 'Keltner SQUEEZE — volatility compressed, major move imminent, wait for direction';
+  } else if (position === 'INSIDE' && volatilityPhase === 'CONTRACTION') {
+    signal = 'NEUTRAL';
+    note = 'Price inside KC, bandwidth contracting — ranging market, lower signal quality';
+  } else {
+    note = `Price inside Keltner (${position}), ${volatilityPhase.toLowerCase()} phase`;
+  }
+
+  return {
+    upper:  Math.round(upper  * 100000) / 100000,
+    middle: Math.round(ema    * 100000) / 100000,
+    lower:  Math.round(lower  * 100000) / 100000,
+    bandwidth: Math.round(bandwidth * 100) / 100,
+    position,
+    squeeze,
+    volatilityPhase,
+    signal,
+    note,
+  };
+}
+
+/**
  * Cumulative Volume Delta (CVD)
  * Estimates buy/sell pressure per candle using OHLCV data.
  * Formula: delta = vol × (close − low) / (high − low)  − vol × (high − close) / (high − low)
@@ -1012,6 +1150,7 @@ export function computeAllAdvancedIndicators(
     sessionContext: getSessionContext(symbol),
     volatilityContext: calculateVolatilityContext(candles, currentATR),
     volumeProfile: vp,
+    keltner: computeKeltnerChannels(candles),
     cvd,
     locationAggression: analyzeLocationAggression(vpForLA, cvd, currentPrice),
     breakoutDetection: detectMarketOpenBreakout(candles, symbol, timeframe),

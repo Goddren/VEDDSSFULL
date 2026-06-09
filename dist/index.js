@@ -17298,6 +17298,7 @@ var init_service = __esm({
 // server/indicators.ts
 var indicators_exports = {};
 __export(indicators_exports, {
+  analyzeLocationAggression: () => analyzeLocationAggression,
   calculateADX: () => calculateADX,
   calculateFibonacci: () => calculateFibonacci,
   calculateMACD: () => calculateMACD,
@@ -17309,6 +17310,8 @@ __export(indicators_exports, {
   calculateVolatilityContext: () => calculateVolatilityContext,
   calculateVolumeProfile: () => calculateVolumeProfile,
   computeAllAdvancedIndicators: () => computeAllAdvancedIndicators,
+  computeCVD: () => computeCVD,
+  computeKeltnerChannels: () => computeKeltnerChannels,
   computeTrueVolumeProfile: () => computeTrueVolumeProfile,
   detectCandlePatterns: () => detectCandlePatterns,
   detectMarketOpenBreakout: () => detectMarketOpenBreakout,
@@ -17937,7 +17940,203 @@ function detectMarketOpenBreakout(candles, symbol, timeframe) {
     rangePosition: Math.round(rangePosition * 100) / 100
   };
 }
+function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multiplier = 2) {
+  if (candles.length < emaPeriod + 2) return void 0;
+  const chronological = [...candles].reverse();
+  const k = 2 / (emaPeriod + 1);
+  let ema = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  for (let i = emaPeriod; i < chronological.length; i++) {
+    ema = chronological[i].c * k + ema * (1 - k);
+  }
+  const trValues = [];
+  for (let i = 1; i < chronological.length; i++) {
+    const h = chronological[i].h, l = chronological[i].l, pc = chronological[i - 1].c;
+    trValues.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  const atrSlice = trValues.slice(-atrPeriod);
+  const atr = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
+  if (atr === 0) return void 0;
+  const upper = ema + multiplier * atr;
+  const lower = ema - multiplier * atr;
+  const currentPrice = chronological[chronological.length - 1].c;
+  const bandwidth = (upper - lower) / ema * 100;
+  const prevBandwidths = [];
+  let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  for (let i = emaPeriod; i < chronological.length - 5; i++) {
+    prevEma = chronological[i].c * k + prevEma * (1 - k);
+    const tr = trValues[i - 1] ?? atr;
+    const bw = (prevEma + multiplier * tr - (prevEma - multiplier * tr)) / prevEma * 100;
+    prevBandwidths.push(bw);
+  }
+  const avgPrevBW = prevBandwidths.length > 0 ? prevBandwidths.slice(-10).reduce((s, v) => s + v, 0) / Math.min(10, prevBandwidths.length) : bandwidth;
+  let squeeze = false;
+  if (candles.length >= 20) {
+    const bbPeriod = 20;
+    const recentCloses = chronological.slice(-bbPeriod).map((c) => c.c);
+    const bbMid = recentCloses.reduce((s, v) => s + v, 0) / bbPeriod;
+    const std = Math.sqrt(recentCloses.reduce((s, v) => s + (v - bbMid) ** 2, 0) / bbPeriod);
+    const bbUpper = bbMid + 2 * std;
+    const bbLower = bbMid - 2 * std;
+    squeeze = bbUpper < upper && bbLower > lower;
+  }
+  const nearBand = atr * 0.3;
+  let position;
+  if (currentPrice > upper) position = "ABOVE_UPPER";
+  else if (currentPrice >= upper - nearBand) position = "NEAR_UPPER";
+  else if (currentPrice <= lower) position = "BELOW_LOWER";
+  else if (currentPrice <= lower + nearBand) position = "NEAR_LOWER";
+  else position = "INSIDE";
+  let volatilityPhase;
+  if (squeeze) volatilityPhase = "SQUEEZE";
+  else if (bandwidth > avgPrevBW * 1.1) volatilityPhase = "EXPANSION";
+  else if (bandwidth < avgPrevBW * 0.9) volatilityPhase = "CONTRACTION";
+  else volatilityPhase = "EXPANSION";
+  let signal = "NEUTRAL";
+  let note = "";
+  if (position === "ABOVE_UPPER") {
+    signal = "BUY";
+    note = squeeze ? "Post-squeeze BULLISH BREAKOUT \u2014 strongest signal" : "Bullish KC breakout \u2014 momentum up";
+  } else if (position === "BELOW_LOWER") {
+    signal = "SELL";
+    note = squeeze ? "Post-squeeze BEARISH BREAKDOWN \u2014 strongest signal" : "Bearish KC breakdown \u2014 momentum down";
+  } else if (position === "NEAR_UPPER" && volatilityPhase === "EXPANSION") {
+    signal = "BUY";
+    note = "Approaching KC upper \u2014 bullish momentum building";
+  } else if (position === "NEAR_LOWER" && volatilityPhase === "EXPANSION") {
+    signal = "SELL";
+    note = "Approaching KC lower \u2014 bearish pressure building";
+  } else if (squeeze) {
+    signal = "NEUTRAL";
+    note = "Keltner SQUEEZE \u2014 volatility compressed, major move imminent, wait for direction";
+  } else if (position === "INSIDE" && volatilityPhase === "CONTRACTION") {
+    signal = "NEUTRAL";
+    note = "Price inside KC, bandwidth contracting \u2014 ranging market, lower signal quality";
+  } else {
+    note = `Price inside Keltner (${position}), ${volatilityPhase.toLowerCase()} phase`;
+  }
+  return {
+    upper: Math.round(upper * 1e5) / 1e5,
+    middle: Math.round(ema * 1e5) / 1e5,
+    lower: Math.round(lower * 1e5) / 1e5,
+    bandwidth: Math.round(bandwidth * 100) / 100,
+    position,
+    squeeze,
+    volatilityPhase,
+    signal,
+    note
+  };
+}
+function computeCVD(candles) {
+  if (candles.length < 5) return void 0;
+  const chronological = [...candles].reverse();
+  const deltas = [];
+  for (const c of chronological) {
+    const vol = c.v || 0;
+    const range = c.h - c.l;
+    if (range <= 0 || vol === 0) {
+      deltas.push(0);
+      continue;
+    }
+    const buyVol = vol * (c.c - c.l) / range;
+    const sellVol = vol * (c.h - c.c) / range;
+    deltas.push(buyVol - sellVol);
+  }
+  const cumulativeDelta = deltas.reduce((s, d) => s + d, 0);
+  const deltaPerBar = deltas[deltas.length - 1] ?? 0;
+  const last5 = deltas.slice(-5);
+  const cvd5 = last5.reduce((s, d) => s + d, 0);
+  const cvd5Start = deltas.slice(-10, -5).reduce((s, d) => s + d, 0);
+  const cvdTrend = cvd5 > cvd5Start * 1.1 ? "RISING" : cvd5 < cvd5Start * 0.9 ? "FALLING" : "FLAT";
+  const priceChange = chronological[chronological.length - 1].c - chronological[Math.max(0, chronological.length - 6)].c;
+  let cvdDivergence = "NONE";
+  if (priceChange > 0 && cvdTrend === "FALLING") cvdDivergence = "BEARISH";
+  if (priceChange < 0 && cvdTrend === "RISING") cvdDivergence = "BULLISH";
+  const totalVol = chronological.reduce((s, c) => s + (c.v || 0), 0);
+  const deltaRatio = totalVol > 0 ? cumulativeDelta / totalVol : 0;
+  const aggressionSide = deltaRatio > 0.1 ? "BUYERS" : deltaRatio < -0.1 ? "SELLERS" : "NEUTRAL";
+  const aggressionStrength = Math.abs(deltaRatio) > 0.35 ? "STRONG" : Math.abs(deltaRatio) > 0.15 ? "MODERATE" : "WEAK";
+  let signal = "NEUTRAL";
+  if (aggressionSide === "BUYERS" && aggressionStrength !== "WEAK" && cvdDivergence !== "BEARISH") signal = "BUY";
+  else if (aggressionSide === "SELLERS" && aggressionStrength !== "WEAK" && cvdDivergence !== "BULLISH") signal = "SELL";
+  return {
+    cumulativeDelta: Math.round(cumulativeDelta),
+    deltaPerBar: Math.round(deltaPerBar),
+    cvdTrend,
+    cvdDivergence,
+    aggressionSide,
+    aggressionStrength,
+    signal
+  };
+}
+function analyzeLocationAggression(vp, cvd, currentPrice) {
+  if (!vp || !currentPrice) return void 0;
+  const { poc, vah, val } = vp;
+  const range = vah - val;
+  if (range <= 0) return void 0;
+  const fairBand = range * 0.1;
+  let location;
+  let locationBias;
+  let locationDescription;
+  if (currentPrice > vah) {
+    location = "PREMIUM";
+    locationBias = "SELL";
+    locationDescription = `Price above VAH (${vah.toFixed(5)}) \u2014 supply zone, sellers in control`;
+  } else if (currentPrice > poc + fairBand) {
+    location = "HIGH_VALUE";
+    locationBias = "SELL";
+    locationDescription = `Price in high-value area (above POC ${poc.toFixed(5)}) \u2014 slight sell bias`;
+  } else if (Math.abs(currentPrice - poc) <= fairBand) {
+    location = "FAIR_VALUE";
+    locationBias = "NEUTRAL";
+    locationDescription = `Price at POC (${poc.toFixed(5)}) \u2014 equilibrium, no location edge`;
+  } else if (currentPrice >= val) {
+    location = "LOW_VALUE";
+    locationBias = "BUY";
+    locationDescription = `Price in low-value area (below POC, above VAL ${val.toFixed(5)}) \u2014 slight buy bias`;
+  } else {
+    location = "DISCOUNT";
+    locationBias = "BUY";
+    locationDescription = `Price below VAL (${val.toFixed(5)}) \u2014 demand zone, buyers expected`;
+  }
+  let aggression = "NEUTRAL";
+  if (cvd) {
+    if (cvd.aggressionSide === "BUYERS") {
+      aggression = cvd.aggressionStrength === "STRONG" ? "STRONG_BUY" : "BUY";
+    } else if (cvd.aggressionSide === "SELLERS") {
+      aggression = cvd.aggressionStrength === "STRONG" ? "STRONG_SELL" : "SELL";
+    }
+    if (cvd.cvdDivergence === "BEARISH" && (aggression === "STRONG_BUY" || aggression === "BUY")) {
+      aggression = "NEUTRAL";
+    }
+    if (cvd.cvdDivergence === "BULLISH" && (aggression === "STRONG_SELL" || aggression === "SELL")) {
+      aggression = "NEUTRAL";
+    }
+  }
+  const agrBias = aggression === "STRONG_BUY" || aggression === "BUY" ? "BUY" : aggression === "STRONG_SELL" || aggression === "SELL" ? "SELL" : "NEUTRAL";
+  let alignment;
+  if (locationBias === "NEUTRAL" || agrBias === "NEUTRAL") {
+    alignment = "NEUTRAL";
+  } else if (locationBias === agrBias) {
+    alignment = "ALIGNED";
+  } else {
+    alignment = "CONFLICTED";
+  }
+  let confidenceVotes = 0;
+  if (alignment === "ALIGNED") {
+    const isExtreme = location === "DISCOUNT" || location === "PREMIUM";
+    const isStrong = aggression === "STRONG_BUY" || aggression === "STRONG_SELL";
+    confidenceVotes = isExtreme && isStrong ? 3 : isExtreme ? 2 : isStrong ? 2 : 1.5;
+  } else if (alignment === "CONFLICTED") {
+    confidenceVotes = -2;
+  }
+  const note = `${location} (${locationBias} bias) + ${aggression} CVD \u2192 ${alignment} (${confidenceVotes > 0 ? "+" : ""}${confidenceVotes} votes)`;
+  return { location, locationDescription, locationBias, aggression, alignment, confidenceVotes, note };
+}
 function computeAllAdvancedIndicators(candles, currentATR, symbol, timeframe = "H1") {
+  const cvd = computeCVD(candles);
+  const vp = calculateVolumeProfile(candles);
+  const currentPrice = candles[0]?.c ?? 0;
+  const vpForLA = vp?.poc && vp?.vah && vp?.val ? { poc: vp.poc, vah: vp.vah, val: vp.val } : void 0;
   return {
     adx: calculateADX(candles),
     rsi: calculateRSI(candles),
@@ -17952,7 +18151,10 @@ function computeAllAdvancedIndicators(candles, currentATR, symbol, timeframe = "
     swingPoints: findSwingPoints(candles),
     sessionContext: getSessionContext(symbol),
     volatilityContext: calculateVolatilityContext(candles, currentATR),
-    volumeProfile: calculateVolumeProfile(candles),
+    volumeProfile: vp,
+    keltner: computeKeltnerChannels(candles),
+    cvd,
+    locationAggression: analyzeLocationAggression(vpForLA, cvd, currentPrice),
     breakoutDetection: detectMarketOpenBreakout(candles, symbol, timeframe)
   };
 }
@@ -32168,6 +32370,15 @@ var PAIR_SESSION_WINDOWS = {
   EURJPY: [[7, 20]],
   XAUUSD: [[7, 20]],
   GOLD: [[7, 20]],
+  XAUUSDM: [[7, 20]],
+  XAUUSDPRO: [[7, 20]],
+  XAUC: [[7, 20]],
+  XAUI: [[7, 20]],
+  GOLDM: [[7, 20]],
+  GOLDC: [[7, 20]],
+  GOLDPRO: [[7, 20]],
+  XAUUSDC: [[7, 20]],
+  XAUUSDRAW: [[7, 20]],
   NAS100: [[12, 21]],
   // pre-market 12:00 UTC → close 21:00 UTC
   US30: [[12, 21]],
@@ -32176,6 +32387,51 @@ var PAIR_SESSION_WINDOWS = {
   NDX: [[12, 21]],
   DJ30: [[12, 21]],
   SP500: [[12, 21]],
+  // US30 broker variants (Dow Jones / Wall Street 30)
+  US30CASH: [[12, 21]],
+  US30C: [[12, 21]],
+  DOW30: [[12, 21]],
+  DOWJONES: [[12, 21]],
+  DJIA: [[12, 21]],
+  DJI: [[12, 21]],
+  WS30: [[12, 21]],
+  YM: [[12, 21]],
+  DOW: [[12, 21]],
+  USA30: [[12, 21]],
+  CASH30: [[12, 21]],
+  US30USD: [[12, 21]],
+  DJA: [[12, 21]],
+  WALLST30: [[12, 21]],
+  WALLSTREET30: [[12, 21]],
+  USWALL: [[12, 21]],
+  // NAS100 broker variants (Nasdaq 100)
+  NAS100CASH: [[12, 21]],
+  NAS100C: [[12, 21]],
+  NASDAQ100: [[12, 21]],
+  USTEC: [[12, 21]],
+  NDX100: [[12, 21]],
+  US100: [[12, 21]],
+  NQ: [[12, 21]],
+  NASDAQ: [[12, 21]],
+  NASUSD: [[12, 21]],
+  NA100: [[12, 21]],
+  NDAQ: [[12, 21]],
+  QQQ: [[12, 21]],
+  TECH100: [[12, 21]],
+  USTECH100: [[12, 21]],
+  NASD100: [[12, 21]],
+  NAS100USD: [[12, 21]],
+  // SPX / S&P 500 variants
+  SPXUSD: [[12, 21]],
+  US500CASH: [[12, 21]],
+  SP500USD: [[12, 21]],
+  USINDEX: [[12, 21]],
+  SPX500USD: [[12, 21]],
+  ES: [[12, 21]],
+  SPX: [[12, 21]],
+  SPXC: [[12, 21]],
+  SP500C: [[12, 21]],
+  SPXUSDM: [[12, 21]],
   GER40: [[6, 16]],
   // Frankfurt open 07:00 CET = 06:00 UTC
   DE40: [[6, 16]],
@@ -32190,9 +32446,70 @@ var PAIR_SESSION_WINDOWS = {
   ETHUSD: [[7, 22]]
 };
 function isInTradingSession(symbol, hourUTC) {
-  const sym = symbol.toUpperCase().replace("/", "");
+  const raw = symbol.toUpperCase().replace("/", "").replace(/[#.]/g, "").replace(/(RAW|PRO|C|M|I|SB|ECN|MT5)$/, "");
+  const ALIAS_MAP = {
+    // Gold variants
+    "GOLD": "XAUUSD",
+    "GOLDM": "XAUUSD",
+    "GOLDC": "XAUUSD",
+    "GOLDPRO": "XAUUSD",
+    "XAUC": "XAUUSD",
+    "XAUI": "XAUUSD",
+    "XAUUSDC": "XAUUSD",
+    "XAUUSDRAW": "XAUUSD",
+    // US30 / Dow Jones variants
+    "WS30": "US30",
+    "DJIA": "US30",
+    "DJI": "US30",
+    "DOW": "US30",
+    "DOW30": "US30",
+    "DOWJONES": "US30",
+    "USA30": "US30",
+    "CASH30": "US30",
+    "DJA": "US30",
+    "WALLST30": "US30",
+    "WALLSTREET30": "US30",
+    "USWALL": "US30",
+    "US30CASH": "US30",
+    "US30C": "US30",
+    "US30USD": "US30",
+    "YM": "US30",
+    // NAS100 / Nasdaq variants
+    "USTEC": "NAS100",
+    "NASDAQ100": "NAS100",
+    "NDX100": "NAS100",
+    "NASDAQ": "NAS100",
+    "NQ": "NAS100",
+    "QQQ": "NAS100",
+    "NDAQ": "NAS100",
+    "NA100": "NAS100",
+    "NASUSD": "NAS100",
+    "TECH100": "NAS100",
+    "USTECH100": "NAS100",
+    "NASD100": "NAS100",
+    "NAS100USD": "NAS100",
+    "NAS100CASH": "NAS100",
+    "NAS100C": "NAS100",
+    "US100": "NAS100",
+    // S&P 500 variants
+    "SP500USD": "SPX500",
+    "SPXUSD": "SPX500",
+    "ES": "SPX500",
+    "SPX": "SPX500",
+    "SPXC": "SPX500",
+    "SP500C": "SPX500",
+    "SPXUSDM": "SPX500",
+    "US500CASH": "US500",
+    "USINDEX": "SPX500",
+    "SPX500USD": "SPX500"
+  };
+  const sym = ALIAS_MAP[raw] ?? raw;
   const windows = PAIR_SESSION_WINDOWS[sym];
-  if (!windows) return true;
+  if (!windows) {
+    const fallback = Object.keys(PAIR_SESSION_WINDOWS).find((k) => k.startsWith(sym) || sym.startsWith(k));
+    if (fallback) return PAIR_SESSION_WINDOWS[fallback].some(([s, e]) => hourUTC >= s && hourUTC < e);
+    return true;
+  }
   return windows.some(([start, end]) => hourUTC >= start && hourUTC < end);
 }
 function tlSignalGuard(params) {
@@ -32204,7 +32521,8 @@ function tlSignalGuard(params) {
     minConfidence = 70,
     requireSLTP = true,
     checkSession = false,
-    riskScore
+    riskScore,
+    minRR
   } = params;
   const sym = params.symbol || "";
   const dir = (params.direction || "").toUpperCase();
@@ -32237,13 +32555,34 @@ function tlSignalGuard(params) {
     const rewardDist = Math.abs(takeProfit - entryPrice);
     if (riskDist > 0) {
       const rr = rewardDist / riskDist;
-      if (rr < 2) {
-        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below 2.0 minimum \u2014 blocked` };
+      const slPct = riskDist / entryPrice;
+      const isCryptoOrComm = ["BTC", "ETH", "XAU", "GOLD", "OIL", "SILVER"].some((t) => sym.toUpperCase().includes(t));
+      const tightRangeThreshold = isCryptoOrComm ? 3e-3 : 15e-4;
+      const effectiveMinRR = minRR !== void 0 ? minRR : slPct < tightRangeThreshold ? 1.5 : 2;
+      if (rr < effectiveMinRR) {
+        return { allow: false, reason: `R:R ${rr.toFixed(2)} on ${sym} ${dir} below ${effectiveMinRR.toFixed(1)} minimum${slPct < tightRangeThreshold ? " (ranging market)" : ""} \u2014 blocked` };
       }
     }
   }
   if (riskScore != null && riskScore > 7) {
     return { allow: false, reason: `AI risk score ${riskScore}/10 on ${sym} exceeds max 7 \u2014 blocked` };
+  }
+  const nowForNews = /* @__PURE__ */ new Date();
+  const dayUTC = nowForNews.getUTCDay();
+  const hourUTC_news = nowForNews.getUTCHours();
+  const HIGH_IMPACT_WINDOWS = {
+    2: [13, 14, 15],
+    // Tuesday
+    3: [13, 14, 17, 18, 19],
+    // Wednesday
+    4: [11, 12, 13, 14],
+    // Thursday
+    5: [13, 14, 15]
+    // Friday (NFP)
+  };
+  const isNewsWindow = HIGH_IMPACT_WINDOWS[dayUTC]?.includes(hourUTC_news) ?? false;
+  if (isNewsWindow && riskScore != null && riskScore > 6) {
+    return { allow: false, reason: `Risk score ${riskScore} during high-impact news window (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dayUTC]} ${hourUTC_news}:00 UTC) \u2014 threshold tightened to 6 \u2014 blocked` };
   }
   if (checkSession) {
     const hourUTC = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -38944,14 +39283,53 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (advanced.vwap?.signal === "SELL") sellVotes += 0.5;
           if (advanced.obv?.divergence === "BULLISH") buyVotes += 1;
           if (advanced.obv?.divergence === "BEARISH") sellVotes += 1;
+          let newsBiasVotes = 0;
+          try {
+            if (!newsService.isInitialized()) newsService.initialize();
+            const recentNews = await newsService.fetchCompanyNews(sanitizedSymbol, 3);
+            if (recentNews.length > 0) {
+              const sentiment = await newsService.analyzeNewsSentiment(recentNews, sanitizedSymbol);
+              if (sentiment.overallScore > 30) {
+                buyVotes += 1;
+                newsBiasVotes = 1;
+                analysis.patterns.push(`News Bullish (score: ${sentiment.overallScore})`);
+              } else if (sentiment.overallScore < -30) {
+                sellVotes += 1;
+                newsBiasVotes = -1;
+                analysis.patterns.push(`News Bearish (score: ${sentiment.overallScore})`);
+              }
+            }
+          } catch (_) {
+          }
+          const CANDLE_WEIGHTS = {
+            "Morning Star": 2.5,
+            "Evening Star": 2.5,
+            "Bullish Engulfing": 2,
+            "Bearish Engulfing": 2,
+            "Hammer": 1.5,
+            "Shooting Star": 1.5,
+            "Bullish": 1,
+            "Bearish": 1,
+            "Doji": 0
+            // indecision — no directional vote
+          };
+          let bullishCandleVotes = 0, bearishCandleVotes = 0;
+          for (const p of advanced.candlePatterns || []) {
+            const weight = Object.entries(CANDLE_WEIGHTS).find(([k]) => p.includes(k))?.[1] ?? 0.5;
+            if (p.includes("Bullish") || p.includes("Hammer") || p.includes("Morning Star")) {
+              bullishCandleVotes += weight;
+            } else if (p.includes("Bearish") || p.includes("Shooting Star") || p.includes("Evening Star")) {
+              bearishCandleVotes += weight;
+            }
+          }
+          buyVotes += Math.min(bullishCandleVotes, 3);
+          sellVotes += Math.min(bearishCandleVotes, 3);
           const bullishPatterns = (advanced.candlePatterns || []).filter(
             (p) => p.includes("Bullish") || p.includes("Hammer") || p.includes("Morning Star")
           );
           const bearishPatterns = (advanced.candlePatterns || []).filter(
             (p) => p.includes("Bearish") || p.includes("Shooting Star") || p.includes("Evening Star")
           );
-          if (bullishPatterns.length > 0) buyVotes += Math.min(bullishPatterns.length, 2);
-          if (bearishPatterns.length > 0) sellVotes += Math.min(bearishPatterns.length, 2);
           if (advanced.sessionContext && !advanced.sessionContext.isSessionOpen) {
             analysis.alerts.push("Market session closed or weekend - reduced liquidity");
           }
@@ -39061,12 +39439,97 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } catch (err) {
             }
           }
+          if (advanced.volumeProfile && currentPrice) {
+            const vp = advanced.volumeProfile;
+            const poc = vp.poc ?? vp.pointOfControl;
+            const vah = vp.vah ?? vp.valueAreaHigh;
+            const val = vp.val ?? vp.valueAreaLow;
+            if (poc && vah && val) {
+              const range = vah - val;
+              if (range > 0) {
+                if (currentPrice < val) {
+                  buyVotes += 2.5;
+                } else if (currentPrice < poc) {
+                  buyVotes += 1.5;
+                } else if (currentPrice > vah) {
+                  sellVotes += 2.5;
+                } else if (currentPrice > poc) {
+                  sellVotes += 1.5;
+                }
+              }
+            }
+          }
+          if (advanced.keltner) {
+            const kc = advanced.keltner;
+            analysis.indicators.keltner = kc;
+            if (kc.signal === "BUY") {
+              const kcWeight = kc.squeeze ? 3 : kc.position === "ABOVE_UPPER" ? 2 : 1.5;
+              buyVotes += kcWeight;
+              analysis.patterns.push(`KC: ${kc.note}`);
+            } else if (kc.signal === "SELL") {
+              const kcWeight = kc.squeeze ? 3 : kc.position === "BELOW_LOWER" ? 2 : 1.5;
+              sellVotes += kcWeight;
+              analysis.patterns.push(`KC: ${kc.note}`);
+            } else if (kc.squeeze) {
+              analysis.alerts.push(`\u26A1 Keltner SQUEEZE active \u2014 volatility compressed, breakout imminent. Wait for KC direction before entry.`);
+            } else if (kc.volatilityPhase === "CONTRACTION") {
+              const penalty = 1;
+              buyVotes = Math.max(0, buyVotes - penalty);
+              sellVotes = Math.max(0, sellVotes - penalty);
+              analysis.alerts.push(`KC inside contracting bands \u2014 ranging market, reduced signal quality`);
+            }
+          }
+          if (advanced.cvd) {
+            const cvd = advanced.cvd;
+            if (cvd.signal === "BUY") {
+              const cvdWeight = cvd.aggressionStrength === "STRONG" ? 2.5 : 1.5;
+              buyVotes += cvdWeight;
+              analysis.patterns.push(`CVD: ${cvd.aggressionStrength} buyer aggression (delta: ${cvd.cumulativeDelta > 0 ? "+" : ""}${cvd.cumulativeDelta})`);
+            } else if (cvd.signal === "SELL") {
+              const cvdWeight = cvd.aggressionStrength === "STRONG" ? 2.5 : 1.5;
+              sellVotes += cvdWeight;
+              analysis.patterns.push(`CVD: ${cvd.aggressionStrength} seller aggression (delta: ${cvd.cumulativeDelta})`);
+            }
+            if (cvd.cvdDivergence === "BEARISH") {
+              sellVotes += 1.5;
+              analysis.alerts.push("CVD Bearish Divergence: price rising but sellers taking control \u2014 reversal risk");
+            } else if (cvd.cvdDivergence === "BULLISH") {
+              buyVotes += 1.5;
+              analysis.alerts.push("CVD Bullish Divergence: price falling but buyers absorbing \u2014 reversal potential");
+            }
+            analysis.indicators.cvd = cvd;
+          }
+          if (advanced.locationAggression) {
+            const la = advanced.locationAggression;
+            analysis.indicators.locationAggression = la;
+            const laVotes = la.confidenceVotes;
+            if (laVotes > 0) {
+              if (la.locationBias === "BUY") buyVotes += laVotes;
+              else if (la.locationBias === "SELL") sellVotes += laVotes;
+            } else if (laVotes < 0) {
+              buyVotes = Math.max(0, buyVotes + laVotes);
+              sellVotes = Math.max(0, sellVotes + laVotes);
+              analysis.alerts.push(`VPALM Conflict: ${la.note} \u2014 location vs aggression mismatch, confidence reduced`);
+            }
+            if (la.alignment === "ALIGNED") {
+              analysis.patterns.push(`VPALM Aligned: ${la.location} + ${la.aggression} (${laVotes > 0 ? "+" : ""}${laVotes} votes)`);
+            }
+          }
+          const coreAgree = [rsiSignal, macdSignalDir, maSignal];
+          if (coreAgree.filter((s) => s === "BUY").length === 3) buyVotes += 1.5;
+          else if (coreAgree.filter((s) => s === "SELL").length === 3) sellVotes += 1.5;
           let baseVotes = 6.5;
+          if (newsBiasVotes !== 0) baseVotes += 1;
+          if (advanced.keltner) baseVotes += 3;
+          if (advanced.cvd) baseVotes += 2;
+          if (advanced.locationAggression) baseVotes += 2;
           if (advanced.adx) baseVotes += 1;
           if (advanced.stochastic) baseVotes += 1.5;
           if (advanced.vwap) baseVotes += 0.5;
           if (advanced.obv?.divergence && advanced.obv.divergence !== "NONE") baseVotes += 1;
-          if (bullishPatterns.length > 0 || bearishPatterns.length > 0) baseVotes += Math.min(Math.max(bullishPatterns.length, bearishPatterns.length), 2);
+          if (bullishCandleVotes > 0 || bearishCandleVotes > 0) baseVotes += Math.min(Math.max(bullishCandleVotes, bearishCandleVotes), 3);
+          if (advanced.volumeProfile) baseVotes += 2.5;
+          baseVotes += 1.5;
           if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + mtfCount * 0.75 : baseVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
@@ -39078,6 +39541,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } else {
             analysis.signal = "NEUTRAL";
             analysis.confidence = 50;
+          }
+          if (advanced.sessionContext) {
+            const sess = (advanced.sessionContext.currentSession || "").toLowerCase();
+            const isOverlap = sess.includes("overlap") || sess.includes("london") && sess.includes("new york");
+            const isPrimary = sess.includes("london") || sess.includes("new york") || sess.includes("new_york") || sess.includes("ny");
+            const sessionMult = isOverlap ? 1.08 : isPrimary ? 1.04 : advanced.sessionContext.isSessionOpen === false ? 0.88 : 1;
+            if (sessionMult !== 1) {
+              analysis.confidence = Math.max(10, Math.min(95, Math.round(analysis.confidence * sessionMult)));
+              if (sessionMult > 1) analysis.patterns.push(`Session Quality Boost: ${sess} (+${Math.round((sessionMult - 1) * 100)}%)`);
+              else analysis.alerts.push(`Session Quality Penalty: off-session conditions (${Math.round((1 - sessionMult) * 100)}% conf reduction)`);
+            }
           }
           if (multiTimeframeEnabled && mtfCount >= 2) {
             if (analysis.signal === "BUY" && mtfBullish >= mtfCount * 0.6 || analysis.signal === "SELL" && mtfBearish >= mtfCount * 0.6) {
@@ -43416,6 +43890,14 @@ Rules:
         return res.status(404).json({ error: "Trade result not found or access denied" });
       }
       res.json(updated);
+      const newResult = req.body.result;
+      if (newResult === "WIN" || newResult === "LOSS" || newResult === "BREAKEVEN") {
+        setTimeout(() => {
+          runBrainLearning(userId).catch(
+            (err) => console.error("[Brain] Auto re-learn after trade close failed:", err)
+          );
+        }, 2e3);
+      }
     } catch (error) {
       console.error("Error updating AI trade result:", error);
       res.status(500).json({ error: "Failed to update trade result" });
@@ -43966,6 +44448,22 @@ Format each recommendation as a clear, concise action item.`;
         brain.learningInsights.push(`${sym}: Avoid ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR - loss zone)`);
       }
     }
+    const optimalMinConfidence = {};
+    for (const [sym, k] of Object.entries(pairKnowledge)) {
+      if (k.totalTrades < 10) continue;
+      const symTrades = combinedTrades.filter((t) => t.symbol === sym);
+      for (const threshold of [85, 80, 75, 70, 65]) {
+        const above = symTrades.filter((t) => (t.confidence || 0) >= threshold);
+        if (above.length < 3) continue;
+        const wr = above.filter((t) => t.result === "WIN").length / above.length;
+        if (wr >= 0.6) {
+          optimalMinConfidence[sym] = threshold;
+          if (wr >= 0.7) brain.learningInsights.push(`${sym}: optimal confidence gate auto-set to ${threshold}% (${Math.round(wr * 100)}% WR above this threshold)`);
+          break;
+        }
+      }
+    }
+    brain.optimalMinConfidence = optimalMinConfidence;
     global.veddAIBrain[userId] = brain;
     try {
       const brainDir = path4.join(process.cwd(), "data", "brains");
@@ -43989,6 +44487,16 @@ Format each recommendation as a clear, concise action item.`;
       return null;
     }
   };
+  setInterval(async () => {
+    const brains = global.veddAIBrain || {};
+    for (const userId of Object.keys(brains)) {
+      try {
+        await runBrainLearning(parseInt(userId));
+        console.log(`[Brain AutoRefresh] Re-learned for user ${userId}`);
+      } catch (_) {
+      }
+    }
+  }, 30 * 60 * 1e3);
   app2.post("/api/vedd-brain/learn", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -44089,10 +44597,16 @@ Format each recommendation as a clear, concise action item.`;
         const trend = latest?.trend || null;
         const close = latest?.c || latest?.close || null;
         let vpData = {};
+        let keltnerData = {};
+        let cvdData = {};
         if (candles.length >= 10) {
-          const { computeTrueVolumeProfile: computeTrueVolumeProfile2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
+          const { computeTrueVolumeProfile: computeTrueVolumeProfile2, computeKeltnerChannels: computeKeltnerChannels2, computeCVD: computeCVD2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
           const vp = computeTrueVolumeProfile2(candles.slice(0, 100));
           if (vp) vpData = vp;
+          const kc = computeKeltnerChannels2(candles.slice(0, 100));
+          if (kc) keltnerData = { position: kc.position, squeeze: kc.squeeze, signal: kc.signal, note: kc.note, volatilityPhase: kc.volatilityPhase };
+          const cvd = computeCVD2(candles.slice(0, 50));
+          if (cvd) cvdData = { aggressionSide: cvd.aggressionSide, aggressionStrength: cvd.aggressionStrength, cvdDivergence: cvd.cvdDivergence, signal: cvd.signal };
         }
         const {
           lastSignal: _ls,
@@ -44114,7 +44628,9 @@ Format each recommendation as a clear, concise action item.`;
           rsi,
           trend,
           hasOpenPosition: hasOpenPos,
-          volumeProfile: vpData.poc ? vpData : void 0
+          volumeProfile: vpData.poc ? vpData : void 0,
+          keltner: keltnerData.signal ? keltnerData : void 0,
+          cvd: cvdData.signal ? cvdData : void 0
         };
       };
       for (const [sym, knowledge] of Object.entries(brain.pairKnowledge)) {
@@ -44215,10 +44731,14 @@ ${vpLines.join("\n")}` : "";
           c.currentPrice ? `px=${c.currentPrice}` : "",
           c.rsi ? `rsi=${c.rsi}` : "",
           c.trend ? `trend=${c.trend}` : "",
-          c.atr ? `atr=${c.atr}` : ""
+          c.atr ? `atr=${c.atr}` : "",
+          // Keltner channel state — gives AI context on volatility phase and breakout
+          c.keltner?.signal && c.keltner.signal !== "NEUTRAL" ? `KC=${c.keltner.signal}(${c.keltner.position}${c.keltner.squeeze ? ",SQUEEZE" : ""},${c.keltner.volatilityPhase})` : "",
+          // CVD aggression — who is actively pushing price
+          c.cvd?.signal && c.cvd.signal !== "NEUTRAL" ? `CVD=${c.cvd.signal}(${c.cvd.aggressionStrength}_${c.cvd.aggressionSide}${c.cvd.cvdDivergence !== "NONE" ? ",DIV:" + c.cvd.cvdDivergence : ""})` : ""
         ].filter(Boolean).join(" ");
         if (c.noHistory) {
-          return `${sym}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action and VP levels`;
+          return `${sym}: ${live || "no live data"} | NEW PAIR \u2014 no trade history, signal based on price action, KC, CVD and VP levels`;
         }
         const hist = [
           c.winRate != null ? `wr=${c.winRate}%(${c.totalTrades || 0}t)` : "",
@@ -44250,6 +44770,15 @@ ${brain.learningInsights.join("\n")}
 VP LEVELS (apply to all strategies):
 - POC=max-volume magnet (limit entries, mean-reversion targets). VAH=70%-area top (TP/sell-limit/buy-stop trigger). VAL=70%-area bottom (TP/buy-limit/sell-stop trigger).
 - Outside value area (above VAH or below VAL) = overextended \u2192 fade toward POC or wait for VAH/VAL re-entry.
+
+KELTNER CHANNEL (KC) CONTEXT:
+- KC=BUY/ABOVE_UPPER = bullish momentum breakout confirmed \u2014 add confidence to BUY signal.
+- KC=SELL/BELOW_LOWER = bearish breakdown confirmed \u2014 add confidence to SELL signal.
+- KC=NEUTRAL/SQUEEZE = volatility compressed, major move imminent \u2014 DO NOT enter until KC gives direction.
+- KC CONTRACTION = ranging market, reduce lot size and tighten targets.
+- CVD=BUY(STRONG_BUYERS) = aggressive buying pressure detected \u2014 confirms BUY entries.
+- CVD=SELL(STRONG_SELLERS) = aggressive selling pressure \u2014 confirms SELL entries.
+- CVD divergence (DIV:BULLISH or DIV:BEARISH) = hidden order flow against price \u2014 reversal warning, reduce confidence on trend-following entry.
 
 ORDER TYPE:
 - market: price AT entry zone now with immediate momentum
@@ -44351,7 +44880,7 @@ Respond with ONLY valid JSON:
           }
         }
         if (activeTlConns.length > 0) {
-          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% R:R\u22652.0 session-filtered | accounts: ${activeTlConns.map((c) => c.accountId).join(", ")}`);
+          console.log(`[VEDD Brain AutoExec] Executing ${signals.signals.length} signals on ${activeTlConns.length} account(s) | minConf=${userMinConfidence}% (per-pair calibrated) R:R\u22652.0 session-filtered | accounts: ${activeTlConns.map((c) => c.accountId).join(", ")}`);
           const parseNum = (v) => {
             if (typeof v === "number") return v;
             if (typeof v === "string") {
@@ -44375,11 +44904,11 @@ Respond with ONLY valid JSON:
               continue;
             }
             const aiSuggestedLot = parseNum(sig.lotSize);
+            const sym = (sig.symbol || "").toUpperCase().replace("/", "");
             let baseLotSize;
             if (stopLoss && entryPrice && entryPrice > 0 && stopLoss > 0) {
               const slDistance = Math.abs(entryPrice - stopLoss);
               const riskAmount = userAccountBalance * (userRiskPerTrade / 100);
-              const sym = (sig.symbol || "").toUpperCase();
               if (sym.includes("XAU") || sym.includes("GOLD")) {
                 baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
               } else if (sym.includes("BTC") || sym.includes("ETH") || sym.includes("NAS") || sym.includes("US30") || sym.includes("SPX")) {
@@ -44392,6 +44921,8 @@ Respond with ONLY valid JSON:
               baseLotSize = Math.max(userBaseLotSize, Math.min(aiSuggestedLot || userBaseLotSize, userMaxLotSize));
             }
             baseLotSize = Math.round(baseLotSize * 100) / 100;
+            const pairOptimalConf = brain.optimalMinConfidence?.[sym] ?? userMinConfidence;
+            const effectiveMinConf = Math.max(pairOptimalConf, userMinConfidence - 5);
             const brainGuard = tlSignalGuard({
               confidence: confidence2,
               entryPrice: entryPrice ?? null,
@@ -44400,8 +44931,8 @@ Respond with ONLY valid JSON:
               symbol: sig.symbol,
               direction: sig.direction,
               riskScore: typeof sig.riskScore === "number" ? sig.riskScore : null,
-              minConfidence: userMinConfidence,
-              // from user's UI engine setting (not hardcoded)
+              minConfidence: effectiveMinConf,
+              // per-pair brain-calibrated threshold
               requireSLTP: true,
               checkSession: true
               // block trades outside instrument's best liquidity window
@@ -44634,6 +45165,128 @@ Respond with ONLY valid JSON:
       tradesLearned: brain?.totalTradesAnalyzed || 0,
       recommendedMode: brain?.overallWinRate >= 60 ? "aggressive" : brain?.hftReadiness?.scalpingViable ? "scalping" : "session_breakout"
     });
+  });
+  app2.get("/api/vedd-brain/weekly-scan", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1e3);
+      const allResults = await storage.getAiTradeResults(userId, 500);
+      const weekResults = allResults.filter((t) => new Date(t.createdAt) >= sevenDaysAgo);
+      const scan = {
+        period: `${sevenDaysAgo.toISOString().slice(0, 10)} \u2192 ${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}`,
+        totalTrades: weekResults.length,
+        wins: 0,
+        losses: 0,
+        pending: 0,
+        weeklyWinRate: 0,
+        netPnL: 0,
+        pairAnalysis: {},
+        scanInsights: [],
+        accuracyImprovements: [],
+        trailingOpportunities: [],
+        blockedPatterns: [],
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      for (const t of weekResults) {
+        if (t.result === "WIN") scan.wins++;
+        else if (t.result === "LOSS") scan.losses++;
+        else scan.pending++;
+        scan.netPnL += Number(t.profitLoss ?? 0);
+      }
+      const completed = scan.wins + scan.losses;
+      scan.weeklyWinRate = completed > 0 ? Math.round(scan.wins / completed * 100) : 0;
+      scan.netPnL = Math.round(scan.netPnL * 100) / 100;
+      const pairGroups = {};
+      for (const t of weekResults) {
+        const sym = (t.symbol || "UNKNOWN").toUpperCase().replace("/", "");
+        if (!pairGroups[sym]) pairGroups[sym] = [];
+        pairGroups[sym].push(t);
+      }
+      for (const [sym, trades] of Object.entries(pairGroups)) {
+        const w = trades.filter((t) => t.result === "WIN");
+        const l = trades.filter((t) => t.result === "LOSS");
+        const tot = w.length + l.length;
+        const wr = tot > 0 ? Math.round(w.length / tot * 100) : 0;
+        const rrIssues = trades.filter((t) => (t.notes || "").toLowerCase().includes("r:r") && (t.notes || "").toLowerCase().includes("below"));
+        const confIssues = trades.filter((t) => (t.notes || "").toLowerCase().includes("confidence") && (t.notes || "").toLowerCase().includes("below"));
+        const riskIssues = trades.filter((t) => (t.notes || "").toLowerCase().includes("risk score"));
+        const avgConf = trades.length > 0 ? Math.round(trades.reduce((s, t) => s + (t.aiConfidence || 0), 0) / trades.length) : 0;
+        const pairPnL = Math.round(trades.reduce((s, t) => s + Number(t.profitLoss ?? 0), 0) * 100) / 100;
+        const avgWinPips = w.length > 0 ? Math.round(w.reduce((s, t) => s + Number(t.profitLossPips ?? 0), 0) / w.length * 10) / 10 : 0;
+        const potentialTrailTrades = w.filter((t) => avgWinPips > 20);
+        scan.pairAnalysis[sym] = {
+          total: trades.length,
+          wins: w.length,
+          losses: l.length,
+          winRate: wr,
+          avgConfidence: avgConf,
+          netPnL: pairPnL,
+          avgWinPips,
+          rrBlockCount: rrIssues.length,
+          confBlockCount: confIssues.length,
+          riskBlockCount: riskIssues.length,
+          trailingOpportunity: potentialTrailTrades.length > 0
+        };
+        if (tot === 0 && trades.length > 0) {
+          scan.scanInsights.push(`${sym}: ${trades.length} signal(s) this week but 0 completed trades \u2014 check if pending or blocked before execution`);
+        }
+        if (wr < 40 && tot >= 3) {
+          scan.scanInsights.push(`${sym}: Win rate only ${wr}% this week (${w.length}W/${l.length}L) \u2014 likely entering at wrong session or against trend`);
+          scan.accuracyImprovements.push(`${sym}: Wait for strong session confirmation before entry; current signals may be fighting the higher-timeframe trend`);
+        }
+        if (wr >= 70 && tot >= 2) {
+          scan.scanInsights.push(`${sym}: Strong week \u2014 ${wr}% win rate. Brain will auto-increase lot recommendation for this pair`);
+        }
+        if (avgConf < 72 && trades.length >= 2) {
+          scan.accuracyImprovements.push(`${sym}: Average confidence this week was ${avgConf}% \u2014 consider raising minimum confidence gate to 75%+ for this pair`);
+        }
+        if (potentialTrailTrades.length > 0) {
+          scan.trailingOpportunities.push(`${sym}: ${potentialTrailTrades.length} winning trade(s) averaged ${avgWinPips} pips \u2014 a trailing stop would have captured more. Enable trailing stop in Profile settings.`);
+        }
+      }
+      if (scan.weeklyWinRate < 50 && completed >= 5) {
+        scan.scanInsights.unshift(`\u26A0\uFE0F Below 50% win rate this week (${scan.weeklyWinRate}%). Brain is auto-triggering re-learn to recalibrate signal thresholds.`);
+        scan.accuracyImprovements.push("Raise minimum confidence gate to 78%+ until win rate recovers above 55%");
+        scan.accuracyImprovements.push("Avoid trading during high-impact news events (check ForexFactory calendar before each session)");
+      }
+      if (scan.weeklyWinRate >= 60 && completed >= 5) {
+        scan.scanInsights.unshift(`\u2705 Strong week: ${scan.weeklyWinRate}% win rate on ${completed} completed trades. Brain reinforcing current settings.`);
+      }
+      if (scan.pending > 3) {
+        scan.scanInsights.push(`${scan.pending} trades still pending close \u2014 update results to WIN/LOSS so the brain can incorporate this week's full data`);
+      }
+      const enforcementLog = global.veddAIBrain?.[userId]?.enforcementLog || [];
+      const weekEnf = enforcementLog.filter((e) => e.timestamp && new Date(e.timestamp) >= sevenDaysAgo);
+      if (weekEnf.length > 0) {
+        const rrBlocks = weekEnf.filter((e) => e.reason?.includes("R:R")).length;
+        const confBlocks = weekEnf.filter((e) => e.reason?.includes("onfidence")).length;
+        const riskBlocks = weekEnf.filter((e) => e.reason?.includes("isk score")).length;
+        const sessBlocks = weekEnf.filter((e) => e.reason?.includes("ession")).length;
+        if (rrBlocks > 0) scan.blockedPatterns.push(`${rrBlocks} signal(s) blocked by R:R gate \u2014 market conditions compressed risk/reward ratio below minimum`);
+        if (confBlocks > 0) scan.blockedPatterns.push(`${confBlocks} signal(s) blocked for low confidence \u2014 indicators were misaligned at entry time`);
+        if (riskBlocks > 0) scan.blockedPatterns.push(`${riskBlocks} signal(s) blocked for high risk score \u2014 AI flagged unfavorable conditions (high volatility or news)`);
+        if (sessBlocks > 0) scan.blockedPatterns.push(`${sessBlocks} signal(s) blocked outside trading session window \u2014 signals attempted outside optimal liquidity hours`);
+      }
+      if (global.veddAIBrain?.[userId]) {
+        global.veddAIBrain[userId].lastWeeklyScan = scan;
+        global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
+        try {
+          const brainDir = path4.join(process.cwd(), "data", "brains");
+          if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
+          fs4.writeFileSync(path4.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+        } catch (_) {
+        }
+      }
+      setTimeout(() => {
+        runBrainLearning(userId).catch(() => {
+        });
+      }, 1e3);
+      res.json(scan);
+    } catch (err) {
+      console.error("[Weekly Scan]", err);
+      res.status(500).json({ error: "Weekly scan failed: " + (err.message || "Unknown error") });
+    }
   });
   app2.get("/api/brain/summary", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
