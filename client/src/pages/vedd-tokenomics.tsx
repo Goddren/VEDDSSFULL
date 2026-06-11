@@ -36,7 +36,8 @@ import {
   ShoppingBag,
   QrCode,
   Copy,
-  ExternalLink
+  ExternalLink,
+  AlertTriangle,
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 
@@ -84,7 +85,7 @@ const rewardActions = [
     actions: [
       { name: 'Referral Signup', reward: '50 VEDD', description: 'Referred user creates account, up to 5/day' },
       { name: 'Referral Subscribes', reward: '200 VEDD', description: 'Referred user pays for a plan, up to 5/day' },
-      { name: 'Trade Profit Share', reward: '5% of profits', description: 'Ongoing share of referral trading profits' }
+      { name: 'Trade Referral Bonus', reward: '25 VEDD flat', description: 'Flat VEDD bonus per referral profitable trade' }
     ]
   },
   {
@@ -352,6 +353,25 @@ export default function VeddTokenomics() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-purple-900/5 to-background">
       <div className="container mx-auto px-4 py-8">
+        {/* ── Regulatory & Legal Disclaimer — TOP OF PAGE ── */}
+        <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <div className="flex items-start gap-3">
+            <Shield className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-300 mb-1 text-sm">Regulatory Notice — Read Before Proceeding</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                <strong className="text-white">VEDD tokens are platform utility and reward tokens, NOT securities or investment products.</strong>{" "}
+                They are not registered with the U.S. Securities and Exchange Commission (SEC), the Financial Industry Regulatory Authority (FINRA),
+                or any other securities regulator. Purchase or acquisition of VEDD tokens does not constitute an investment in any company,
+                fund, or enterprise, and confers no ownership rights, profit-sharing rights, or dividends.
+                All price roadmaps, growth scenarios, and community projections shown on this page are
+                <strong className="text-white"> illustrative milestones only</strong> — they are not forecasts,
+                guarantees of returns, or promises of future value. Cryptocurrency tokens carry substantial risk of total loss.
+                <strong className="text-white"> This page does not constitute investment advice.</strong> Always consult a licensed financial advisor.
+              </p>
+            </div>
+          </div>
+        </div>
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
@@ -582,10 +602,10 @@ export default function VeddTokenomics() {
               <Card className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-purple-500/30">
                 <CardContent className="py-6">
                   <div className="text-center mb-4">
-                    <h2 className="text-2xl font-bold mb-2">12-Month VEDD Price Projection</h2>
+                    <h2 className="text-2xl font-bold mb-2">12-Month Milestone Roadmap</h2>
                     <p className="text-muted-foreground max-w-2xl mx-auto">
-                      Price expectations backed by platform build-out milestones, ambassador-driven community growth, 
-                      and expanding token utility throughout the VEDD ecosystem.
+                      Illustrative community and platform milestone targets — <strong>not price forecasts or guaranteed returns.</strong>{" "}
+                      Token market prices are determined solely by open market activity and are not controlled or guaranteed by VEDD.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
@@ -595,13 +615,14 @@ export default function VeddTokenomics() {
                         <p className="text-xs text-muted-foreground mb-1">{q.subtitle}</p>
                         <p className="font-bold text-lg">{q.priceEnd}</p>
                         <p className="text-xs text-muted-foreground">{q.priceStart} → {q.priceEnd}</p>
-                        <Badge variant="outline" className="mt-2 text-green-400 border-green-500/30">+{q.growth}</Badge>
+                        <Badge variant="outline" className="mt-2 text-green-400 border-green-500/30">+{q.growth} <span className="text-[9px] text-amber-400/60 font-normal ml-0.5">*scenario</span></Badge>
                       </div>
                     ))}
                   </div>
                 </CardContent>
               </Card>
-              
+              <p className="text-[11px] text-amber-400/50 text-center -mt-4 mb-2">* These are illustrative milestone scenarios, not price forecasts or guaranteed returns. Open market prices may differ significantly.</p>
+
               <div className="grid md:grid-cols-4 gap-3 mb-4">
                 {quarterSummary.map((q, idx) => (
                   <Card key={idx} className={`${q.bgColor}`}>
@@ -705,8 +726,8 @@ export default function VeddTokenomics() {
                   <div className="grid md:grid-cols-4 gap-6">
                     <div className="text-center">
                       <p className="text-3xl font-bold text-green-400">250x</p>
-                      <p className="text-sm text-muted-foreground">Price Growth Target</p>
-                      <p className="text-xs text-muted-foreground">$0.001 → $0.25</p>
+                      <p className="text-sm text-muted-foreground">Illustrative Scenario</p>
+                      <p className="text-xs text-muted-foreground text-amber-400/70">Not a forecast or guarantee</p>
                     </div>
                     <div className="text-center">
                       <p className="text-3xl font-bold text-blue-400">250K</p>
@@ -727,18 +748,18 @@ export default function VeddTokenomics() {
                 </CardContent>
               </Card>
               
-              <Card className="bg-yellow-500/5 border-yellow-500/20">
-                <CardContent className="py-4">
+              <Card className="bg-red-500/5 border-red-500/30">
+                <CardContent className="py-5">
                   <div className="flex items-start gap-3">
-                    <Shield className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-medium text-yellow-400">Important Disclaimer</p>
-                      <p className="text-sm text-muted-foreground">
-                        These price projections are based on planned development milestones, community growth targets, 
-                        and utility expansion. Actual token prices are determined by market conditions and are not guaranteed. 
-                        Cryptocurrency investments carry significant risk. Always do your own research (DYOR) and never 
-                        invest more than you can afford to lose. Past performance does not guarantee future results.
-                      </p>
+                      <p className="font-bold text-red-400 mb-2">Important Legal Notice — Not Investment Advice</p>
+                      <div className="space-y-2 text-sm text-muted-foreground">
+                        <p><strong className="text-white">VEDD tokens are NOT securities.</strong> They are platform utility and reward tokens. Nothing on this page is investment advice, a solicitation to invest, or a guarantee of any financial return.</p>
+                        <p>All price scenarios, roadmap milestones, community growth projections, and percentage figures shown are <strong className="text-white">illustrative only</strong>. Actual token prices are determined entirely by open market activity and cannot be predicted or guaranteed.</p>
+                        <p>Purchasing VEDD tokens involves <strong className="text-white">substantial risk of total financial loss</strong>. VEDD tokens may have zero monetary value. Past performance does not indicate future results. Never acquire more tokens than you can afford to lose completely.</p>
+                        <p className="text-xs text-muted-foreground/60 border-t border-border/40 pt-2 mt-2">VEDD tokens are not registered with or approved by the U.S. Securities and Exchange Commission, FINRA, or any other securities regulatory authority. This page has not been reviewed by any financial regulatory authority.</p>
+                      </div>
                     </div>
                   </div>
                 </CardContent>

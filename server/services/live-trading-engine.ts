@@ -219,6 +219,7 @@ export interface PendingMT5Signal {
   status: 'pending' | 'executed' | 'rejected' | 'expired';
   modifyAction?: string;
   positionId?: string | null;
+  orderType?: 'market' | 'stop_entry' | 'limit_entry';
 }
 
 // Legacy flat queue kept for backwards-compat reads (alias = 'default')
@@ -3087,6 +3088,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "modifyAction": "trail_stop|move_sl|partial_close|full_close",
       "newStopLoss": number,
       "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING",
+      "orderType": "market|stop_entry|limit_entry",
       "tradingWindow": "prime|good|marginal|avoid",
       "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
       "pyramidOf": "signal ID if adding to existing winning trade"
@@ -3570,10 +3572,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     (decision as any)._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     (decision as any)._brainTrailPips = postEnforcement.recommendedTrailPips;
 
-    // Hard floor: never execute below 78% regardless of user config
-    // Below 78%, the statistical edge is not reliable enough to overcome spread + slippage
-    // Raised from 72% → 78% after analysis showed 72% signals had near-coin-flip real accuracy
-    const HARD_CONFIDENCE_FLOOR = 78;
+    // Hard floor: never execute below 74% regardless of user config
+    // Below 74%, the statistical edge is not reliable enough to overcome spread + slippage
+    // Adjusted from 78% → 74% to restore moderate signal volume while keeping quality gate
+    const HARD_CONFIDENCE_FLOOR = 74;
     const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity(userId, {
@@ -3715,23 +3717,21 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
-    // ── GATE 2: Post-loss same-direction lock (45–90 min) ────────────────────
-    // After a loss on this pair+direction, same direction is locked.
-    // Yesterday: GBPUSD BUY lost → engine fired another GBPUSD BUY 3 min later.
-    // Same market conditions = same result. Need a structural reset first.
-    // Override ONLY if: 85%+ confidence AND volume is SURGING (≥2x average).
+    // ── GATE 2: Post-loss elevated confidence gate ───────────────────────────
+    // After a loss on this pair+direction, require 82% confidence before re-entering.
+    // No hard time block — don't miss valid session setups. Just filter out low-quality re-entries.
+    // 2nd consecutive loss in same direction raises the bar to 86%.
     if (!state.pairDirectionLock) state.pairDirectionLock = {};
     const dirLock = state.pairDirectionLock[decision.symbol];
     if (dirLock && dirLock.direction === signalDirection && Date.now() < dirLock.lockedUntil) {
+      const lossCount = dirLock.lossCount || 1;
+      const postLossFloor = lossCount >= 2 ? 86 : 82;
       const minsRemaining = Math.ceil((dirLock.lockedUntil - Date.now()) / 60000);
-      const volTrend = snap?.volumeTrend || 'unknown';
-      const relVol = snap?.relativeVolume || 0;
-      const canOverride = adjustedConfidence >= 85 && (volTrend === 'surging' || relVol >= 2.0);
-      if (!canOverride) {
+      if (adjustedConfidence < postLossFloor) {
         addActivity(userId, {
           type: 'info',
           symbol: decision.symbol,
-          message: `🔒 DIRECTION LOCK: ${decision.symbol} ${signalDirection} locked for ${minsRemaining} more min (${dirLock.lossCount} loss(es) in this direction). Need 85%+ conf + surging volume to override (have ${adjustedConfidence}% + ${volTrend} vol).`,
+          message: `📊 POST-LOSS GATE: ${decision.symbol} ${signalDirection} — need ${postLossFloor}% after ${lossCount} loss(es), have ${adjustedConfidence}%. Waiting for high-conviction setup (${minsRemaining} min window remaining).`,
         });
         state.signalsGenerated++;
         return;
@@ -3739,7 +3739,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
-        message: `🔓 DIRECTION LOCK OVERRIDE: ${decision.symbol} ${signalDirection} — ${adjustedConfidence}% conf + ${volTrend} volume clears the lock. High-conviction entry allowed.`,
+        message: `✅ POST-LOSS ENTRY: ${decision.symbol} ${signalDirection} — ${adjustedConfidence}% clears ${postLossFloor}% post-loss gate (${lossCount} prior loss(es)). High-conviction re-entry allowed.`,
       });
     }
 
@@ -3834,6 +3834,28 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── Volatile-pair risk caps (hard-coded, cannot be overridden by user config) ──
+    // XAUUSD at 2.5 lots lost $7,000+ on a single 28-point Gold move.
+    // These hard caps prevent any single volatile-pair trade from blowing the account.
+    // hardMaxLot: absolute lot ceiling regardless of user config or dynamic sizing
+    // minSlPips:  minimum SL distance in pips — trade must have room to breathe
+    // slBreath:   multiplier applied ON TOP of the minSlPips floor for extra room
+    // preferPending: force stop/limit entries for better price on fast-moving pairs
+    const _volSym = (decision.symbol || '').toUpperCase();
+    const _volCap: { hardMaxLot: number; minSlPips: number; slBreath: number; preferPending: boolean } | null = (
+      (_volSym.includes('XAU') || _volSym.includes('GOLD'))
+        ? { hardMaxLot: 0.10, minSlPips: 500, slBreath: 1.5, preferPending: true } :
+      (_volSym.includes('BTC') || _volSym.includes('XBT'))
+        ? { hardMaxLot: 0.02, minSlPips: 500, slBreath: 2.0, preferPending: true } :
+      (_volSym.includes('US30') || _volSym.includes('DOW') || _volSym.includes('WALLST') || _volSym.includes('DJ30'))
+        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+      (_volSym.includes('NAS100') || _volSym.includes('USTEC') || _volSym.includes('US100') || _volSym.includes('NDX'))
+        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+      (_volSym.includes('US500') || _volSym.includes('SPX') || _volSym.includes('SP500'))
+        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+      null
+    );
 
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);
@@ -3931,6 +3953,56 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         decision.takeProfit = expandedTP ? Math.round(expandedTP * 100000) / 100000 : takeProfit;
         stopLoss = decision.stopLoss;
         takeProfit = decision.takeProfit;
+      }
+    }
+
+    // ── Volatile-pair SL breathing room enforcement ──────────────────────────
+    // Even after ATR expansion, Gold/BTC/indices need WIDER room — their normal
+    // candle noise is far larger than standard forex. This is the gate that would
+    // have prevented the $7,000 XAUUSD loss: SL must be at least minSlPips × slBreath.
+    if (_volCap && entryPrice && stopLoss) {
+      const _vpPipSz  = getPipSize(decision.symbol || '');
+      const _vpPipVal = getPipValue(decision.symbol || '');
+      const _minSlDist = _volCap.minSlPips * _vpPipSz * _volCap.slBreath;
+      const _actualSlDist = Math.abs(entryPrice - stopLoss);
+      if (_actualSlDist < _minSlDist) {
+        const _expandedSL = decision.direction === 'BUY'
+          ? entryPrice - _minSlDist
+          : entryPrice + _minSlDist;
+        const _oldPips = Math.round(_actualSlDist / _vpPipSz);
+        const _newPips = Math.round(_minSlDist / _vpPipSz);
+        // Scale TP proportionally to preserve R:R (minimum 2:1 after expansion)
+        if (takeProfit) {
+          const _origRR    = Math.abs(takeProfit - entryPrice) / Math.max(_actualSlDist, 0.00001);
+          const _newRR     = Math.max(_origRR, 2.0);
+          const _newTpDist = _minSlDist * _newRR;
+          const _expandedTP = decision.direction === 'BUY'
+            ? entryPrice + _newTpDist
+            : entryPrice - _newTpDist;
+          decision.takeProfit = Math.round(_expandedTP * 100000) / 100000;
+          takeProfit = decision.takeProfit;
+        }
+        // Scale lot down proportionally so dollar risk stays the same after SL widening
+        if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
+          const _ratio      = _actualSlDist / _minSlDist; // < 1 means SL got wider
+          const _scaledLot  = Math.max(0.01, Math.round((decision.lotSize * _ratio) * 100) / 100);
+          const _oldRisk    = Math.round(decision.lotSize * _oldPips * _vpPipVal);
+          const _newRisk    = Math.round(_scaledLot * _newPips * _vpPipVal);
+          decision.lotSize = _scaledLot;
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🛡️ VOLATILE SL GUARD [${decision.symbol}]: SL ${_oldPips}→${_newPips} pips (${_volCap.slBreath}× breath room). Lot ${(decision.lotSize / _ratio).toFixed(2)}→${_scaledLot} to keep risk $${_oldRisk}≈$${_newRisk}. TP scaled to 2:1+ R:R.`,
+          });
+        } else {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🛡️ VOLATILE SL GUARD [${decision.symbol}]: SL widened ${_oldPips}→${_newPips} pips (${_volCap.slBreath}× breathing room for ${decision.symbol}). TP scaled to maintain R:R.`,
+          });
+        }
+        decision.stopLoss = Math.round(_expandedSL * 100000) / 100000;
+        stopLoss = decision.stopLoss;
       }
     }
 
@@ -4132,7 +4204,18 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       });
     }
 
-    const lotSize = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    // Apply volatile-pair hard lot cap — this overrides user config and dynamic sizing.
+    // No XAUUSD trade can exceed 0.10 lots, no BTCUSD above 0.02, no index above 0.20.
+    const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
+    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    const lotSize = Math.min(preCappedLot, volHardMax);
+    if (_volCap && preCappedLot > volHardMax) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `⚠️ LOT CAP [${decision.symbol}]: ${preCappedLot} lots capped to ${volHardMax} (volatile-pair hard limit). Dynamic sizing requested ${preCappedLot} but ${decision.symbol} max is ${volHardMax} to prevent account-damaging losses.`,
+      });
+    }
 
     const mt5Signal: PendingMT5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -4205,6 +4288,32 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       (global as any).recentTrades[_leCooldownKey] = _leNow;
     }
 
+    // ── Determine optimal order type for best entry ──────────────────────────
+    // market      = fill immediately (momentum/prime setups)
+    // stop_entry  = pending trigger above/below current price (breakout confirmation)
+    // limit_entry = pending trigger at a better retracement price (pullback entries)
+    // Volatile pairs (XAUUSD, BTCUSD, US30, NAS100) always prefer pending orders
+    // to avoid chasing fast-moving prices and getting filled at terrible levels.
+    const resolvedOrderType = ((): 'market' | 'stop_entry' | 'limit_entry' => {
+      // Respect AI-provided orderType if explicit
+      if (decision.orderType === 'stop_entry' || decision.orderType === 'limit_entry') return decision.orderType;
+      // Immediate urgency or prime entry → fill now (but NOT for volatile pairs — too risky to chase)
+      if (!_volCap && (decision.urgency === 'IMMEDIATE' || decision.entryTiming === 'PRIME_ENTRY')) return 'market';
+      // AI says wait for pullback → set a limit at the entry price
+      if (decision.urgency === 'WAIT_FOR_PULLBACK' || decision.entryTiming === 'WAIT_PULLBACK') return 'limit_entry';
+      // Use entry price vs current price to infer type
+      if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+        const pctGap = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+        if (pctGap > 0.0002) { // more than ~2 pips away
+          if (decision.direction === 'BUY') return entryPrice > snap.lastPrice ? 'stop_entry' : 'limit_entry';
+          return entryPrice < snap.lastPrice ? 'stop_entry' : 'limit_entry';
+        }
+      }
+      // Volatile pairs with no price gap info → default to limit for better entry
+      if (_volCap?.preferPending) return 'limit_entry';
+      return 'market';
+    })();
+
     try {
       const signalLog = await storage.createMt5SignalLog({
         userId,
@@ -4235,6 +4344,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             entryPrice,
             stopLoss,
             takeProfit,
+            orderType: resolvedOrderType,
           });
 
           await storage.createTradelockerTradeLog({
@@ -4270,8 +4380,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               symbol: decision.symbol,
               direction: decision.direction,
               confidence: adjustedConfidence,
-              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
-              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences },
+              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || 'market'} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'} | Order: ${tradeResult.orderId}`,
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences },
             });
           } else {
             addActivity(userId, {

@@ -167,7 +167,7 @@ export default function TokenInvestmentsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/investments/pools"] });
       setDialogOpen(false);
       setInvestAmount("");
-      toast({ title: "Investment created!", description: `Your VEDD tokens are now earning yield.` });
+      toast({ title: "Vault lock created!", description: `Your VEDD tokens are now locked and earning platform rewards.` });
     },
     onError: (err: any) => toast({ title: "Investment failed", description: err.message, variant: "destructive" }),
   });
@@ -187,7 +187,7 @@ export default function TokenInvestmentsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/wallet/balance"] });
       toast({
         title: "Withdrawal successful!",
-        description: `${formatVedd(data.returned)} VEDD returned to your wallet (${formatVedd(data.yieldEarned)} yield earned).`,
+        description: `${formatVedd(data.returned)} VEDD returned to your wallet (${formatVedd(data.yieldEarned)} rewards earned).`,
       });
     },
     onError: (err: any) => toast({ title: "Withdrawal failed", description: err.message, variant: "destructive" }),
@@ -207,10 +207,24 @@ export default function TokenInvestmentsPage() {
 
   return (
     <div className="container max-w-5xl mx-auto px-4 py-6 pb-24">
+      {/* ── SEC / Legal Compliance Notice ── */}
+      <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-red-300 font-bold text-sm mb-1">NOT AN INVESTMENT — Platform Rewards Only</p>
+          <p className="text-xs text-gray-400 leading-relaxed">
+            VEDD tokens are <strong className="text-white">platform utility reward tokens</strong>, not securities or investment products.
+            Locking VEDD earns community pool reward bonuses distributed by the platform — this is <strong className="text-white">not</strong> a
+            return on investment. VEDD tokens are not registered with the U.S. Securities and Exchange Commission (SEC) or
+            any securities regulator. Nothing on this page constitutes investment advice. Consult a licensed financial advisor before
+            making any financial decisions.
+          </p>
+        </div>
+      </div>
       <TokenomicsBanner
-        highlight="VEDD is a Solana pump.fun token — 1 billion supply. Invest in pools backed by VEDD tokens."
+        highlight="Lock VEDD tokens to earn platform reward bonuses from the community reward pool."
         rewards={[
-          { label: 'Staking APY', amount: '12–25%', color: 'text-emerald-400' },
+          { label: 'Reward Rate', amount: '12–25%', color: 'text-emerald-400' },
           { label: 'Total supply', amount: '1B VEDD' },
           { label: 'Rewards pool', amount: '50M VEDD', color: 'text-purple-400' },
         ]}
@@ -221,10 +235,10 @@ export default function TokenInvestmentsPage() {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Coins className="w-6 h-6 text-amber-400" />
-              <h1 className="text-2xl font-bold">Token-Backed Investments</h1>
+              <h1 className="text-2xl font-bold">VEDD Reward Vaults</h1>
             </div>
             <p className="text-muted-foreground text-sm">
-              Put your VEDD tokens to work. Earn yield while holding.
+              Lock your VEDD tokens to earn platform reward bonuses from the community reward pool.
             </p>
           </div>
           {veddPrice && (
@@ -244,10 +258,10 @@ export default function TokenInvestmentsPage() {
       {/* Portfolio Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         {[
-          { label: "Total Invested", value: formatVedd(summary?.totalInvested || 0), sub: veddToUsd(summary?.totalInvested || 0, priceUsd), icon: Coins, color: "text-blue-400", bg: "bg-blue-500/10" },
-          { label: "Current Value", value: formatVedd(summary?.totalCurrentValue || 0), sub: veddToUsd(summary?.totalCurrentValue || 0, priceUsd), icon: BarChart3, color: "text-green-400", bg: "bg-green-500/10" },
-          { label: "Yield Earned", value: formatVedd(summary?.totalYieldEarned || 0), sub: veddToUsd(summary?.totalYieldEarned || 0, priceUsd), icon: TrendingUp, color: "text-amber-400", bg: "bg-amber-500/10" },
-          { label: "ROI", value: `${(summary?.roiPercent || 0).toFixed(2)}%`, sub: `${summary?.activeCount || 0} active`, icon: Zap, color: "text-purple-400", bg: "bg-purple-500/10" },
+          { label: "Total Locked", value: formatVedd(summary?.totalInvested || 0), sub: veddToUsd(summary?.totalInvested || 0, priceUsd), icon: Coins, color: "text-blue-400", bg: "bg-blue-500/10" },
+          { label: "Current Balance", value: formatVedd(summary?.totalCurrentValue || 0), sub: veddToUsd(summary?.totalCurrentValue || 0, priceUsd), icon: BarChart3, color: "text-green-400", bg: "bg-green-500/10" },
+          { label: "Rewards Earned", value: formatVedd(summary?.totalYieldEarned || 0), sub: veddToUsd(summary?.totalYieldEarned || 0, priceUsd), icon: TrendingUp, color: "text-amber-400", bg: "bg-amber-500/10" },
+          { label: "Reward Rate", value: `${(summary?.roiPercent || 0).toFixed(2)}%`, sub: `${summary?.activeCount || 0} active`, icon: Zap, color: "text-purple-400", bg: "bg-purple-500/10" },
         ].map((card) => (
           <Card key={card.label} className="border-border/50">
             <CardContent className="p-4">
@@ -266,7 +280,7 @@ export default function TokenInvestmentsPage() {
       <div className="mb-6 p-3 bg-muted/40 rounded-lg flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Coins className="w-4 h-4 text-amber-400" />
-          <span className="text-sm">Available to invest:</span>
+          <span className="text-sm">Available to lock:</span>
           <span className="font-bold text-amber-400">{formatVedd(walletBalance)} VEDD</span>
           <span className="text-xs text-muted-foreground">≈ {veddToUsd(walletBalance, priceUsd)}</span>
         </div>
@@ -277,12 +291,12 @@ export default function TokenInvestmentsPage() {
 
       <Tabs defaultValue="invest">
         <TabsList className="mb-4">
-          <TabsTrigger value="invest">Investment Pools</TabsTrigger>
-          <TabsTrigger value="portfolio">My Portfolio {activePositions.length > 0 && `(${activePositions.length})`}</TabsTrigger>
+          <TabsTrigger value="invest">Reward Vaults</TabsTrigger>
+          <TabsTrigger value="portfolio">My Locks {activePositions.length > 0 && `(${activePositions.length})`}</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
         </TabsList>
 
-        {/* ── INVESTMENT POOLS ── */}
+        {/* ── REWARD VAULTS ── */}
         <TabsContent value="invest">
           {poolsLoading ? (
             <div className="grid md:grid-cols-2 gap-4">
@@ -311,7 +325,7 @@ export default function TokenInvestmentsPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-3xl font-bold text-amber-400">{(pool.apyRate * 100).toFixed(0)}%</p>
-                          <p className="text-xs text-muted-foreground">APY</p>
+                          <p className="text-xs text-muted-foreground">Reward Rate</p>
                         </div>
                       </div>
                     </CardHeader>
@@ -330,7 +344,7 @@ export default function TokenInvestmentsPage() {
                           </p>
                         </div>
                         <div className="bg-background/40 rounded-lg p-2">
-                          <p className="text-muted-foreground mb-0.5">Min Investment</p>
+                          <p className="text-muted-foreground mb-0.5">Min Lock Amount</p>
                           <p className="font-semibold">{formatVedd(pool.minInvestment)} VEDD</p>
                         </div>
                       </div>
@@ -350,7 +364,7 @@ export default function TokenInvestmentsPage() {
                         disabled={pool.isPaused || !pool.isActive || walletBalance < pool.minInvestment}
                         onClick={() => { setSelectedPool(pool); setInvestAmount(""); setDialogOpen(true); }}
                       >
-                        {pool.isPaused ? "Paused" : walletBalance < pool.minInvestment ? `Need ${formatVedd(pool.minInvestment)} VEDD` : "Invest Now"}
+                        {pool.isPaused ? "Paused" : walletBalance < pool.minInvestment ? `Need ${formatVedd(pool.minInvestment)} VEDD` : "Lock for Rewards"}
                         <ChevronRight className="w-3.5 h-3.5" />
                       </Button>
                     </CardContent>
@@ -364,7 +378,8 @@ export default function TokenInvestmentsPage() {
           <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground">
-              <span className="font-semibold text-amber-400">Investment Disclaimer:</span> VEDD token investments carry risk. APY rates are projected targets and not guaranteed. Token value may fluctuate. Only invest what you can afford to hold.
+              <span className="font-semibold text-amber-400">Important Notice:</span>{" "}
+              VEDD tokens are <strong>platform utility and reward tokens</strong> — they are NOT securities, NOT investment contracts, and NOT registered with the SEC or any regulatory authority. Locking VEDD earns platform-distributed reward bonuses from the community pool. Reward rates are targets set by the platform and are not guaranteed returns. Token market value is determined by open market activity and may fluctuate significantly. <strong>This is not investment advice. Do not lock more VEDD than you can afford to lose entirely.</strong> VEDD tokens have no guaranteed monetary value.
             </p>
           </div>
         </TabsContent>
@@ -377,8 +392,8 @@ export default function TokenInvestmentsPage() {
             <Card className="border-dashed border-2">
               <CardContent className="py-12 text-center">
                 <Coins className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
-                <p className="text-sm font-semibold mb-1">No active investments yet</p>
-                <p className="text-xs text-muted-foreground mb-4">Choose a pool and start earning yield on your VEDD tokens</p>
+                <p className="text-sm font-semibold mb-1">No active reward locks yet</p>
+                <p className="text-xs text-muted-foreground mb-4">Choose a vault and start earning platform reward bonuses on your locked VEDD</p>
                 <Button size="sm" onClick={() => document.querySelector('[value="invest"]')?.dispatchEvent(new MouseEvent('click'))}>
                   Browse Pools <ChevronRight className="w-3.5 h-3.5 ml-1" />
                 </Button>
@@ -435,7 +450,7 @@ export default function TokenInvestmentsPage() {
                           <p className="text-muted-foreground">{veddToUsd(pos.amountInvested, priceUsd)}</p>
                         </div>
                         <div className="bg-muted/40 rounded p-2 text-center">
-                          <p className="text-muted-foreground">Yield Earned</p>
+                          <p className="text-muted-foreground">Rewards Earned</p>
                           <p className="font-semibold text-green-400">+{formatVedd(pos.yieldEarned)}</p>
                           <p className="text-muted-foreground">{veddToUsd(pos.yieldEarned, priceUsd)}</p>
                         </div>
@@ -444,7 +459,7 @@ export default function TokenInvestmentsPage() {
                           <p className={`font-semibold ${profitPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                             {profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%
                           </p>
-                          <p className="text-muted-foreground">{pool ? `${(pool.apyRate * 100).toFixed(0)}% APY` : ''}</p>
+                          <p className="text-muted-foreground">{pool ? `${(pool.apyRate * 100).toFixed(0)}% Reward Rate` : ''}</p>
                         </div>
                       </div>
 
@@ -496,7 +511,7 @@ export default function TokenInvestmentsPage() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-bold">{formatVedd(pos.amountInvested)} VEDD</p>
-                        <p className="text-xs text-green-400">+{formatVedd(pos.yieldEarned)} yield</p>
+                        <p className="text-xs text-green-400">+{formatVedd(pos.yieldEarned)} rewards</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -514,10 +529,10 @@ export default function TokenInvestmentsPage() {
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Coins className="w-5 h-5 text-amber-400" />
-                Invest in {selectedPool.name}
+                Lock in {selectedPool.name}
               </DialogTitle>
               <DialogDescription>
-                {(selectedPool.apyRate * 100).toFixed(0)}% APY ·{" "}
+                {(selectedPool.apyRate * 100).toFixed(0)}% Reward Rate ·{" "}
                 {selectedPool.lockPeriodDays === 0 ? "Flexible withdrawal" : `${selectedPool.lockPeriodDays}-day lock`}
               </DialogDescription>
             </DialogHeader>
@@ -550,7 +565,7 @@ export default function TokenInvestmentsPage() {
                     <span className="font-semibold">{formatVedd(amount)} VEDD <span className="text-xs text-muted-foreground">≈ {veddToUsd(amount, priceUsd)}</span></span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Est. yield{selectedPool.lockPeriodDays > 0 ? ` (${selectedPool.lockPeriodDays}d)` : ' (1yr)'}</span>
+                    <span className="text-muted-foreground">Est. platform rewards{selectedPool.lockPeriodDays > 0 ? ` (${selectedPool.lockPeriodDays}d)` : ' (1yr)'}</span>
                     <span className="font-semibold text-green-400">+{formatVedd(estimatedYield)} VEDD</span>
                   </div>
                   <div className="flex justify-between">
@@ -580,7 +595,7 @@ export default function TokenInvestmentsPage() {
                 }
               >
                 {investMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Coins className="w-4 h-4" />}
-                Confirm Investment
+                Confirm Lock
               </Button>
             </DialogFooter>
           </DialogContent>

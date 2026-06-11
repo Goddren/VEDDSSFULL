@@ -435,8 +435,9 @@ router.post('/referral/trade-profit', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Self-referral not allowed' });
     }
     
-    const referralSharePercent = 0.05;
-    const referralReward = profitAmount * referralSharePercent;
+    // Flat VEDD reward per qualifying referral trade — NOT a percentage of profits
+    // (percentage-of-profits structure resembles an investment return; flat bonus is a platform reward)
+    const referralReward = 25; // flat 25 VEDD bonus per referral's profitable trade
     
     const result = await veddTokenService.enqueueReward(
       referrerId,
@@ -448,7 +449,7 @@ router.post('/referral/trade-profit', async (req: Request, res: Response) => {
     if (result) {
       res.json({ 
         success: true, 
-        message: `Referral reward of ${referralReward.toFixed(4)} VEDD queued for referrer`,
+        message: `Referral bonus of ${referralReward} VEDD queued for referrer`,
         rewardId: result.rewardId,
         referrerId
       });

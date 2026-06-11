@@ -16177,7 +16177,7 @@ function getPipSize(symbol) {
   if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
   return 1e-4;
 }
-function getPipValue(symbol) {
+function getPipValue2(symbol) {
   if (!symbol) return 10;
   if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
   if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
@@ -22431,6 +22431,7 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
       "modifyAction": "trail_stop|move_sl|partial_close|full_close",
       "newStopLoss": number,
       "urgency": "IMMEDIATE" | "WAIT_FOR_PULLBACK" | "MONITORING",
+      "orderType": "market|stop_entry|limit_entry",
       "tradingWindow": "prime|good|marginal|avoid",
       "entryTiming": "PRIME_ENTRY|WAIT_PULLBACK|WAIT_STRUCTURE|AVOID",
       "pyramidOf": "signal ID if adding to existing winning trade"
@@ -22845,7 +22846,7 @@ async function processDecision(userId, decision, newsCtx) {
     }
     decision._brainLotMultiplier = postEnforcement.adjustedLotMultiplier;
     decision._brainTrailPips = postEnforcement.recommendedTrailPips;
-    const HARD_CONFIDENCE_FLOOR = 78;
+    const HARD_CONFIDENCE_FLOOR = 74;
     const effectiveMinConf2 = Math.max(config.minConfidence, HARD_CONFIDENCE_FLOOR);
     if (adjustedConfidence < effectiveMinConf2) {
       addActivity2(userId, {
@@ -22959,15 +22960,14 @@ async function processDecision(userId, decision, newsCtx) {
     if (!state.pairDirectionLock) state.pairDirectionLock = {};
     const dirLock = state.pairDirectionLock[decision.symbol];
     if (dirLock && dirLock.direction === signalDirection && Date.now() < dirLock.lockedUntil) {
+      const lossCount = dirLock.lossCount || 1;
+      const postLossFloor = lossCount >= 2 ? 86 : 82;
       const minsRemaining = Math.ceil((dirLock.lockedUntil - Date.now()) / 6e4);
-      const volTrend = snap?.volumeTrend || "unknown";
-      const relVol = snap?.relativeVolume || 0;
-      const canOverride = adjustedConfidence >= 85 && (volTrend === "surging" || relVol >= 2);
-      if (!canOverride) {
+      if (adjustedConfidence < postLossFloor) {
         addActivity2(userId, {
           type: "info",
           symbol: decision.symbol,
-          message: `\u{1F512} DIRECTION LOCK: ${decision.symbol} ${signalDirection} locked for ${minsRemaining} more min (${dirLock.lossCount} loss(es) in this direction). Need 85%+ conf + surging volume to override (have ${adjustedConfidence}% + ${volTrend} vol).`
+          message: `\u{1F4CA} POST-LOSS GATE: ${decision.symbol} ${signalDirection} \u2014 need ${postLossFloor}% after ${lossCount} loss(es), have ${adjustedConfidence}%. Waiting for high-conviction setup (${minsRemaining} min window remaining).`
         });
         state.signalsGenerated++;
         return;
@@ -22975,7 +22975,7 @@ async function processDecision(userId, decision, newsCtx) {
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F513} DIRECTION LOCK OVERRIDE: ${decision.symbol} ${signalDirection} \u2014 ${adjustedConfidence}% conf + ${volTrend} volume clears the lock. High-conviction entry allowed.`
+        message: `\u2705 POST-LOSS ENTRY: ${decision.symbol} ${signalDirection} \u2014 ${adjustedConfidence}% clears ${postLossFloor}% post-loss gate (${lossCount} prior loss(es)). High-conviction re-entry allowed.`
       });
     }
     {
@@ -23048,6 +23048,8 @@ async function processDecision(userId, decision, newsCtx) {
         }
       }
     }
+    const _volSym = (decision.symbol || "").toUpperCase();
+    const _volCap = _volSym.includes("XAU") || _volSym.includes("GOLD") ? { hardMaxLot: 0.1, minSlPips: 500, slBreath: 1.5, preferPending: true } : _volSym.includes("BTC") || _volSym.includes("XBT") ? { hardMaxLot: 0.02, minSlPips: 500, slBreath: 2, preferPending: true } : _volSym.includes("US30") || _volSym.includes("DOW") || _volSym.includes("WALLST") || _volSym.includes("DJ30") ? { hardMaxLot: 0.2, minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("NAS100") || _volSym.includes("USTEC") || _volSym.includes("US100") || _volSym.includes("NDX") ? { hardMaxLot: 0.2, minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("US500") || _volSym.includes("SPX") || _volSym.includes("SP500") ? { hardMaxLot: 0.2, minSlPips: 300, slBreath: 1.5, preferPending: true } : null;
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);
     let takeProfit = parseNum(decision.takeProfit);
@@ -23115,6 +23117,45 @@ async function processDecision(userId, decision, newsCtx) {
         decision.takeProfit = expandedTP ? Math.round(expandedTP * 1e5) / 1e5 : takeProfit;
         stopLoss = decision.stopLoss;
         takeProfit = decision.takeProfit;
+      }
+    }
+    if (_volCap && entryPrice && stopLoss) {
+      const _vpPipSz = getPipSize(decision.symbol || "");
+      const _vpPipVal = getPipValue(decision.symbol || "");
+      const _minSlDist = _volCap.minSlPips * _vpPipSz * _volCap.slBreath;
+      const _actualSlDist = Math.abs(entryPrice - stopLoss);
+      if (_actualSlDist < _minSlDist) {
+        const _expandedSL = decision.direction === "BUY" ? entryPrice - _minSlDist : entryPrice + _minSlDist;
+        const _oldPips = Math.round(_actualSlDist / _vpPipSz);
+        const _newPips = Math.round(_minSlDist / _vpPipSz);
+        if (takeProfit) {
+          const _origRR = Math.abs(takeProfit - entryPrice) / Math.max(_actualSlDist, 1e-5);
+          const _newRR = Math.max(_origRR, 2);
+          const _newTpDist = _minSlDist * _newRR;
+          const _expandedTP = decision.direction === "BUY" ? entryPrice + _newTpDist : entryPrice - _newTpDist;
+          decision.takeProfit = Math.round(_expandedTP * 1e5) / 1e5;
+          takeProfit = decision.takeProfit;
+        }
+        if (decision.lotSize && decision.lotSize > 0 && _actualSlDist > 0) {
+          const _ratio = _actualSlDist / _minSlDist;
+          const _scaledLot = Math.max(0.01, Math.round(decision.lotSize * _ratio * 100) / 100);
+          const _oldRisk = Math.round(decision.lotSize * _oldPips * _vpPipVal);
+          const _newRisk = Math.round(_scaledLot * _newPips * _vpPipVal);
+          decision.lotSize = _scaledLot;
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F6E1}\uFE0F VOLATILE SL GUARD [${decision.symbol}]: SL ${_oldPips}\u2192${_newPips} pips (${_volCap.slBreath}\xD7 breath room). Lot ${(decision.lotSize / _ratio).toFixed(2)}\u2192${_scaledLot} to keep risk $${_oldRisk}\u2248$${_newRisk}. TP scaled to 2:1+ R:R.`
+          });
+        } else {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F6E1}\uFE0F VOLATILE SL GUARD [${decision.symbol}]: SL widened ${_oldPips}\u2192${_newPips} pips (${_volCap.slBreath}\xD7 breathing room for ${decision.symbol}). TP scaled to maintain R:R.`
+          });
+        }
+        decision.stopLoss = Math.round(_expandedSL * 1e5) / 1e5;
+        stopLoss = decision.stopLoss;
       }
     }
     if (entryPrice && stopLoss && takeProfit) {
@@ -23272,7 +23313,16 @@ async function processDecision(userId, decision, newsCtx) {
         message: `\u{1F4D0} Dynamic sizing: ${compoundedLot} base \xD7 [Conf:${confTier.label}] \xD7 [Strat:${stratTier.label}] \xD7 [Exp:${expTier.label}] = ${dynamicLot} lots`
       });
     }
-    const lotSize = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
+    const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
+    const lotSize = Math.min(preCappedLot, volHardMax);
+    if (_volCap && preCappedLot > volHardMax) {
+      addActivity2(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u26A0\uFE0F LOT CAP [${decision.symbol}]: ${preCappedLot} lots capped to ${volHardMax} (volatile-pair hard limit). Dynamic sizing requested ${preCappedLot} but ${decision.symbol} max is ${volHardMax} to prevent account-damaging losses.`
+      });
+    }
     const mt5Signal = {
       id: `sig_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -23328,6 +23378,20 @@ async function processDecision(userId, decision, newsCtx) {
       }
       global.recentTrades[_leCooldownKey] = _leNow;
     }
+    const resolvedOrderType = (() => {
+      if (decision.orderType === "stop_entry" || decision.orderType === "limit_entry") return decision.orderType;
+      if (!_volCap && (decision.urgency === "IMMEDIATE" || decision.entryTiming === "PRIME_ENTRY")) return "market";
+      if (decision.urgency === "WAIT_FOR_PULLBACK" || decision.entryTiming === "WAIT_PULLBACK") return "limit_entry";
+      if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+        const pctGap = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+        if (pctGap > 2e-4) {
+          if (decision.direction === "BUY") return entryPrice > snap.lastPrice ? "stop_entry" : "limit_entry";
+          return entryPrice < snap.lastPrice ? "stop_entry" : "limit_entry";
+        }
+      }
+      if (_volCap?.preferPending) return "limit_entry";
+      return "market";
+    })();
     try {
       const signalLog = await storage.createMt5SignalLog({
         userId,
@@ -23352,7 +23416,8 @@ async function processDecision(userId, decision, newsCtx) {
             volume: acctLot,
             entryPrice,
             stopLoss,
-            takeProfit
+            takeProfit,
+            orderType: resolvedOrderType
           });
           await storage.createTradelockerTradeLog({
             connectionId: tlConn.id,
@@ -23385,8 +23450,8 @@ async function processDecision(userId, decision, newsCtx) {
               symbol: decision.symbol,
               direction: decision.direction,
               confidence: adjustedConfidence,
-              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
-              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, confluences: decision.confluences }
+              message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
             });
           } else {
             addActivity2(userId, {
@@ -30343,8 +30408,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (referrerId === traderId) {
       return res.status(400).json({ error: "Self-referral not allowed" });
     }
-    const referralSharePercent = 0.05;
-    const referralReward = profitAmount * referralSharePercent;
+    const referralReward = 25;
     const result = await veddTokenService.enqueueReward(
       referrerId,
       "referral_profit_share",
@@ -30354,7 +30418,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (result) {
       res.json({
         success: true,
-        message: `Referral reward of ${referralReward.toFixed(4)} VEDD queued for referrer`,
+        message: `Referral bonus of ${referralReward} VEDD queued for referrer`,
         rewardId: result.rewardId,
         referrerId
       });
@@ -38550,7 +38614,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const relaySlDist = Math.abs(entryPrice - stopLoss);
           const relaySym = (symbol || "").toUpperCase().replace("/", "");
           const relayPipSz = getPipSize(relaySym);
-          const relayPipVal = getPipValue(relaySym);
+          const relayPipVal = getPipValue2(relaySym);
           const relaySlPips = relaySlDist / relayPipSz;
           if (relaySlPips > 0 && relayPipVal > 0) {
             const calc = relayRiskAmt / (relaySlPips * relayPipVal);
@@ -40830,7 +40894,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const sl = analysis.tradePlan.stopLoss;
         const slDistance = Math.abs(entry - sl);
         const symPipSize = getPipSize(sanitizedSymbol);
-        const symPipValue = getPipValue(sanitizedSymbol);
+        const symPipValue = getPipValue2(sanitizedSymbol);
         const slPips = slDistance / symPipSize;
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
@@ -41034,8 +41098,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
           global.recentTrades = global.recentTrades || {};
           const now = Date.now();
-          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
-          const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1e3;
+          const BASE_COOLDOWN_MS = 30 * 60 * 1e3;
+          const POST_LOSS_CONF_FLOOR = 82;
           if (global.recentTrades[recentTradeKey] === void 0) {
             try {
               const _cooldownLogs = await storage.getTradelockerTradeLogs(token.userId, 100);
@@ -41048,8 +41112,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           const lastTradeTime = global.recentTrades[recentTradeKey];
-          if (!lastTradeTime || now - lastTradeTime > TRADE_COOLDOWN_MS) {
+          if (!lastTradeTime || now - lastTradeTime > BASE_COOLDOWN_MS) {
             global.recentTrades[recentTradeKey] = now;
+            let lastTradeWasLoss = false;
+            try {
+              const _recentResults = await storage.getAiTradeResults(token.userId, 30);
+              const _lastSymResult = _recentResults.filter(
+                (t) => (t.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol.toUpperCase().replace("/", "") && (t.outcome || t.profitLoss !== void 0)
+              ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              if (_lastSymResult) {
+                lastTradeWasLoss = _lastSymResult.outcome === "loss" || typeof _lastSymResult.profitLoss === "number" && _lastSymResult.profitLoss < 0 || typeof _lastSymResult.profitLoss === "string" && parseFloat(_lastSymResult.profitLoss) < 0;
+              }
+            } catch (_) {
+            }
             const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 100);
             const symTrades = recentTrades.filter(
               (t) => (t.symbol || "").toUpperCase().replace("/", "") === sanitizedSymbol.toUpperCase().replace("/", "") && t.status === "executed" && t.createdAt && now - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
@@ -41060,7 +41135,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
-              const tradeVolume = mt5Volume;
+              const effectiveConfFloor = lastTradeWasLoss ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, POST_LOSS_CONF_FLOOR) : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
+              if (lastTradeWasLoss) {
+                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: need ${POST_LOSS_CONF_FLOOR}% (have ${analysis.confidence}%)`);
+              }
               const analysisGuard = tlSignalGuard({
                 confidence: analysis.confidence,
                 entryPrice: analysis.tradePlan.entry ?? null,
@@ -41068,19 +41146,41 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 takeProfit: analysis.tradePlan.takeProfit ?? null,
                 symbol: sanitizedSymbol,
                 direction: analysis.signal,
-                minConfidence: Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70),
+                minConfidence: effectiveConfFloor,
                 requireSLTP: true
               });
               if (!analysisGuard.allow) {
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
                 tradelockerResult = null;
               } else {
+                const _eaSym = sanitizedSymbol.toUpperCase();
+                const _eaVolCap = _eaSym.includes("XAU") || _eaSym.includes("GOLD") ? { hardMaxLot: 0.1, preferPending: true } : _eaSym.includes("BTC") || _eaSym.includes("XBT") ? { hardMaxLot: 0.02, preferPending: true } : _eaSym.includes("US30") || _eaSym.includes("DOW") || _eaSym.includes("WALLST") ? { hardMaxLot: 0.2, preferPending: true } : _eaSym.includes("NAS100") || _eaSym.includes("USTEC") || _eaSym.includes("US100") ? { hardMaxLot: 0.2, preferPending: true } : _eaSym.includes("US500") || _eaSym.includes("SPX") ? { hardMaxLot: 0.2, preferPending: true } : null;
+                const rawEaVolume = mt5Volume;
+                const tradeVolume = _eaVolCap ? Math.min(rawEaVolume, _eaVolCap.hardMaxLot) : rawEaVolume;
+                if (_eaVolCap && rawEaVolume > _eaVolCap.hardMaxLot) {
+                  console.log(`[MT5 AutoTrade] LOT CAP: ${sanitizedSymbol} ${rawEaVolume} \u2192 ${tradeVolume} (volatile pair hard limit ${_eaVolCap.hardMaxLot})`);
+                }
+                const _entryPrice = analysis.tradePlan.entry;
+                const _currentPrice = analysis.currentPrice ?? analysis.price ?? null;
+                const _eaOrderType = (() => {
+                  if (analysis.orderType === "stop_entry" || analysis.orderType === "limit_entry") return analysis.orderType;
+                  if (_entryPrice && _currentPrice && _currentPrice > 0) {
+                    const pctGap = Math.abs(_entryPrice - _currentPrice) / _currentPrice;
+                    if (pctGap > 2e-4) {
+                      if (analysis.signal === "BUY") return _entryPrice > _currentPrice ? "stop_entry" : "limit_entry";
+                      return _entryPrice < _currentPrice ? "stop_entry" : "limit_entry";
+                    }
+                  }
+                  if (_eaVolCap?.preferPending) return "limit_entry";
+                  return "market";
+                })();
                 for (const tlConn of tlActiveConns) {
                   console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
                     action: "OPEN",
                     symbol: sanitizedSymbol,
                     direction: analysis.signal,
-                    volume: tradeVolume
+                    volume: tradeVolume,
+                    orderType: _eaOrderType
                   });
                   try {
                     const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
@@ -41088,9 +41188,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       symbol: sanitizedSymbol,
                       direction: analysis.signal,
                       volume: tradeVolume,
-                      entryPrice: analysis.tradePlan.entry,
+                      entryPrice: _entryPrice,
                       stopLoss: analysis.tradePlan.stopLoss,
-                      takeProfit: analysis.tradePlan.takeProfit
+                      takeProfit: analysis.tradePlan.takeProfit,
+                      orderType: _eaOrderType
                     });
                     tradelockerResult = connResult;
                     await storage.createTradelockerTradeLog({

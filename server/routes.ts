@@ -10175,8 +10175,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const recentTradeKey = `last_trade_${token.userId}_${sanitizedSymbol}`;
           (global as any).recentTrades = (global as any).recentTrades || {};
           const now = Date.now();
-          const cooldownMinutes = matchingEA?.tradeCooldownMinutes ?? 240;
-          const TRADE_COOLDOWN_MS = cooldownMinutes * 60 * 1000;
+          // 30-min anti-double-entry cooldown (win or loss) — prevents re-firing the same signal
+          // After a loss: no hard time block beyond the 30 min, but confidence floor is raised to 82%
+          // After a win: normal confidence floor applies — don't miss the next valid session setup
+          const BASE_COOLDOWN_MS = 30 * 60 * 1000; // 30 min regardless of outcome
+          const POST_LOSS_CONF_FLOOR = 82; // elevated confidence required after a loss on this symbol
 
           // Hydrate in-memory cooldown from DB if missing (covers cold-start after restart)
           if ((global as any).recentTrades[recentTradeKey] === undefined) {
@@ -10198,9 +10201,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
           const lastTradeTime = (global as any).recentTrades[recentTradeKey];
 
-          if (!lastTradeTime || (now - lastTradeTime) > TRADE_COOLDOWN_MS) {
+          if (!lastTradeTime || (now - lastTradeTime) > BASE_COOLDOWN_MS) {
             // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
             (global as any).recentTrades[recentTradeKey] = now;
+
+            // Check if last closed trade on this symbol was a loss → elevate confidence floor
+            let lastTradeWasLoss = false;
+            try {
+              const _recentResults = await storage.getAiTradeResults(token.userId, 30);
+              const _lastSymResult = _recentResults
+                .filter((t: any) =>
+                  (t.symbol || '').toUpperCase().replace('/', '') === sanitizedSymbol.toUpperCase().replace('/', '') &&
+                  (t.outcome || t.profitLoss !== undefined)
+                )
+                .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+              if (_lastSymResult) {
+                lastTradeWasLoss =
+                  _lastSymResult.outcome === 'loss' ||
+                  (typeof _lastSymResult.profitLoss === 'number' && _lastSymResult.profitLoss < 0) ||
+                  (typeof _lastSymResult.profitLoss === 'string' && parseFloat(_lastSymResult.profitLoss) < 0);
+              }
+            } catch (_) { /* non-fatal — default to no elevation */ }
 
             // Check for existing open positions on this symbol — use larger window + net open/close check
             const recentTrades = await storage.getTradelockerTradeLogs(token.userId, 100);
@@ -10217,9 +10238,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
-              const tradeVolume = mt5Volume;
+              // tradeVolume is computed below after volatile-pair cap check
 
               // ── Signal quality gate (same standard as live engine) ──────
+              // After a loss on this symbol: require 82% confidence before re-entering
+              // Keeps you in the session without risking low-quality revenge setups
+              const effectiveConfFloor = lastTradeWasLoss
+                ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, POST_LOSS_CONF_FLOOR)
+                : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
+              if (lastTradeWasLoss) {
+                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: need ${POST_LOSS_CONF_FLOOR}% (have ${analysis.confidence}%)`);
+              }
               const analysisGuard = tlSignalGuard({
                 confidence: analysis.confidence,
                 entryPrice: analysis.tradePlan.entry ?? null,
@@ -10227,7 +10256,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 takeProfit: analysis.tradePlan.takeProfit ?? null,
                 symbol: sanitizedSymbol,
                 direction: analysis.signal,
-                minConfidence: Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70),
+                minConfidence: effectiveConfFloor,
                 requireSLTP: true,
               });
               if (!analysisGuard.allow) {
@@ -10235,10 +10264,45 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 tradelockerResult = null;
               } else {
 
+              // ── Volatile-pair lot cap for EA path ───────────────────────
+              // Mirrors the live engine hard caps — prevents a 2.5 lot XAUUSD trade
+              const _eaSym = sanitizedSymbol.toUpperCase();
+              const _eaVolCap: { hardMaxLot: number; preferPending: boolean } | null = (
+                (_eaSym.includes('XAU') || _eaSym.includes('GOLD'))      ? { hardMaxLot: 0.10, preferPending: true } :
+                (_eaSym.includes('BTC') || _eaSym.includes('XBT'))       ? { hardMaxLot: 0.02, preferPending: true } :
+                (_eaSym.includes('US30') || _eaSym.includes('DOW') || _eaSym.includes('WALLST')) ? { hardMaxLot: 0.20, preferPending: true } :
+                (_eaSym.includes('NAS100') || _eaSym.includes('USTEC') || _eaSym.includes('US100')) ? { hardMaxLot: 0.20, preferPending: true } :
+                (_eaSym.includes('US500') || _eaSym.includes('SPX'))     ? { hardMaxLot: 0.20, preferPending: true } :
+                null
+              );
+              const rawEaVolume = mt5Volume;
+              const tradeVolume = _eaVolCap
+                ? Math.min(rawEaVolume, _eaVolCap.hardMaxLot)
+                : rawEaVolume;
+              if (_eaVolCap && rawEaVolume > _eaVolCap.hardMaxLot) {
+                console.log(`[MT5 AutoTrade] LOT CAP: ${sanitizedSymbol} ${rawEaVolume} → ${tradeVolume} (volatile pair hard limit ${_eaVolCap.hardMaxLot})`);
+              }
+
+              // Determine optimal order type — volatile pairs always prefer pending for better entry
+              const _entryPrice = analysis.tradePlan.entry;
+              const _currentPrice = analysis.currentPrice ?? analysis.price ?? null;
+              const _eaOrderType = ((): 'market' | 'stop_entry' | 'limit_entry' => {
+                if (analysis.orderType === 'stop_entry' || analysis.orderType === 'limit_entry') return analysis.orderType;
+                if (_entryPrice && _currentPrice && _currentPrice > 0) {
+                  const pctGap = Math.abs(_entryPrice - _currentPrice) / _currentPrice;
+                  if (pctGap > 0.0002) {
+                    if (analysis.signal === 'BUY') return _entryPrice > _currentPrice ? 'stop_entry' : 'limit_entry';
+                    return _entryPrice < _currentPrice ? 'stop_entry' : 'limit_entry';
+                  }
+                }
+                if (_eaVolCap?.preferPending) return 'limit_entry';
+                return 'market';
+              })();
+
               // Execute on ALL active TradeLocker connections
               for (const tlConn of tlActiveConns) {
               console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
-                action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal, volume: tradeVolume,
+                action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal, volume: tradeVolume, orderType: _eaOrderType,
               });
 
               try {
@@ -10247,9 +10311,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   symbol: sanitizedSymbol,
                   direction: analysis.signal,
                   volume: tradeVolume,
-                  entryPrice: analysis.tradePlan.entry,
+                  entryPrice: _entryPrice,
                   stopLoss: analysis.tradePlan.stopLoss,
                   takeProfit: analysis.tradePlan.takeProfit,
+                  orderType: _eaOrderType,
                 });
                 tradelockerResult = connResult; // keep last result for response compat
 

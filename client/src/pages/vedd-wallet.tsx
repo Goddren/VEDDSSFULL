@@ -186,18 +186,26 @@ export default function VeddWalletPage() {
               <Wallet className="w-8 h-8 text-purple-400" />
               VEDD Wallet
             </h1>
-            <p className="text-gray-400 mt-1">Manage your VEDD tokens and earned rewards</p>
+            <p className="text-gray-400 mt-1">Manage your VEDD platform reward tokens — <span className="text-amber-400/70 text-xs">utility tokens, not securities</span></p>
           </div>
-          <a
-            href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500">
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Buy VEDD on Pump.fun
-            </Button>
-          </a>
+          <div>
+            <div className="mb-3 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                <strong>Notice:</strong> VEDD tokens are platform utility/reward tokens, not securities or investment products.
+                Buying VEDD on external markets is speculative. Token value may be zero. Not financial advice.
+              </p>
+            </div>
+            <a
+              href="https://pump.fun/coin/Ch7WbPBy5XjL1UULwWYwh75DsVdXhFUVXtiNvNGopump"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500">
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Buy VEDD on Pump.fun
+              </Button>
+            </a>
+          </div>
         </motion.div>
 
         {/* Wallet Connection Card */}
