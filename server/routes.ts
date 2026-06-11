@@ -10264,15 +10264,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 tradelockerResult = null;
               } else {
 
-              // ── Volatile-pair lot cap for EA path ───────────────────────
-              // Mirrors the live engine hard caps — prevents a 2.5 lot XAUUSD trade
+              // ── Volatile-pair lot cap for EA path — account-size scaled ────
+              // Cap scales with account balance: bigger account = larger allowed lots.
+              // Formula: maxLot = (balance × 1.5%) / (minSlPips × slBreath × pipValue)
+              // Same 1.5% risk ceiling as the live engine. No fixed numbers.
               const _eaSym = sanitizedSymbol.toUpperCase();
+              const _eaAcctBal = accountBalance || 0;
+              const VOLATILE_RISK_PCT_EA = 0.015;
+              const _calcEaVolMax = (minSlPips: number, slBreath: number): number => {
+                if (_eaAcctBal <= 0) return 0.10;
+                const pipVal = getPipValue(_eaSym);
+                const maxRisk = _eaAcctBal * VOLATILE_RISK_PCT_EA;
+                const slRiskPerLot = minSlPips * slBreath * pipVal;
+                return Math.max(0.01, Math.floor((maxRisk / slRiskPerLot) * 100) / 100);
+              };
               const _eaVolCap: { hardMaxLot: number; preferPending: boolean } | null = (
-                (_eaSym.includes('XAU') || _eaSym.includes('GOLD'))      ? { hardMaxLot: 0.10, preferPending: true } :
-                (_eaSym.includes('BTC') || _eaSym.includes('XBT'))       ? { hardMaxLot: 0.02, preferPending: true } :
-                (_eaSym.includes('US30') || _eaSym.includes('DOW') || _eaSym.includes('WALLST')) ? { hardMaxLot: 0.20, preferPending: true } :
-                (_eaSym.includes('NAS100') || _eaSym.includes('USTEC') || _eaSym.includes('US100')) ? { hardMaxLot: 0.20, preferPending: true } :
-                (_eaSym.includes('US500') || _eaSym.includes('SPX'))     ? { hardMaxLot: 0.20, preferPending: true } :
+                (_eaSym.includes('XAU') || _eaSym.includes('GOLD'))                                  ? { hardMaxLot: _calcEaVolMax(500, 1.5), preferPending: true } :
+                (_eaSym.includes('BTC') || _eaSym.includes('XBT'))                                   ? { hardMaxLot: _calcEaVolMax(500, 2.0), preferPending: true } :
+                (_eaSym.includes('US30') || _eaSym.includes('DOW') || _eaSym.includes('WALLST'))     ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } :
+                (_eaSym.includes('NAS100') || _eaSym.includes('USTEC') || _eaSym.includes('US100'))  ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } :
+                (_eaSym.includes('US500') || _eaSym.includes('SPX'))                                 ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } :
                 null
               );
               const rawEaVolume = mt5Volume;
@@ -10280,7 +10291,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 ? Math.min(rawEaVolume, _eaVolCap.hardMaxLot)
                 : rawEaVolume;
               if (_eaVolCap && rawEaVolume > _eaVolCap.hardMaxLot) {
-                console.log(`[MT5 AutoTrade] LOT CAP: ${sanitizedSymbol} ${rawEaVolume} → ${tradeVolume} (volatile pair hard limit ${_eaVolCap.hardMaxLot})`);
+                console.log(`[MT5 AutoTrade] LOT CAP: ${sanitizedSymbol} ${rawEaVolume} → ${tradeVolume} (1.5% risk cap on $${_eaAcctBal.toFixed(0)} = max ${_eaVolCap.hardMaxLot} lots)`);
               }
 
               // Determine optimal order type — volatile pairs always prefer pending for better entry

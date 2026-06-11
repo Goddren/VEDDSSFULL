@@ -3835,25 +3835,33 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // ── Volatile-pair risk caps (hard-coded, cannot be overridden by user config) ──
-    // XAUUSD at 2.5 lots lost $7,000+ on a single 28-point Gold move.
-    // These hard caps prevent any single volatile-pair trade from blowing the account.
-    // hardMaxLot: absolute lot ceiling regardless of user config or dynamic sizing
-    // minSlPips:  minimum SL distance in pips — trade must have room to breathe
-    // slBreath:   multiplier applied ON TOP of the minSlPips floor for extra room
-    // preferPending: force stop/limit entries for better price on fast-moving pairs
+    // ── Volatile-pair risk caps — account-size scaled ────────────────────────
+    // Cap = (accountBalance × VOLATILE_RISK_PCT) / (minSlPips × slBreath × pipValue)
+    // Scales with account: $10k → smaller lots, $100k → larger lots. Same % risk either way.
+    // VOLATILE_RISK_PCT: max % of account to risk on a single volatile-pair trade (1.5%)
+    // minSlPips × slBreath: effective minimum SL distance used as the risk denominator
     const _volSym = (decision.symbol || '').toUpperCase();
+    const VOLATILE_RISK_PCT = 0.015; // 1.5% of account per volatile pair trade
+    const _acctBal = config.accountBalance || 0;
+
+    const _calcVolMaxLot = (minSlPips: number, slBreath: number, pipVal: number): number => {
+      if (_acctBal <= 0) return 0.10; // fallback if balance unknown
+      const maxRiskUSD    = _acctBal * VOLATILE_RISK_PCT;
+      const slRiskPerLot  = minSlPips * slBreath * pipVal; // $ risk per lot at min SL
+      return Math.max(0.01, Math.floor((maxRiskUSD / slRiskPerLot) * 100) / 100);
+    };
+
     const _volCap: { hardMaxLot: number; minSlPips: number; slBreath: number; preferPending: boolean } | null = (
       (_volSym.includes('XAU') || _volSym.includes('GOLD'))
-        ? { hardMaxLot: 0.10, minSlPips: 500, slBreath: 1.5, preferPending: true } :
+        ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } :
       (_volSym.includes('BTC') || _volSym.includes('XBT'))
-        ? { hardMaxLot: 0.02, minSlPips: 500, slBreath: 2.0, preferPending: true } :
+        ? { hardMaxLot: _calcVolMaxLot(500, 2.0, getPipValue(_volSym)), minSlPips: 500, slBreath: 2.0, preferPending: true } :
       (_volSym.includes('US30') || _volSym.includes('DOW') || _volSym.includes('WALLST') || _volSym.includes('DJ30'))
-        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
       (_volSym.includes('NAS100') || _volSym.includes('USTEC') || _volSym.includes('US100') || _volSym.includes('NDX'))
-        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
       (_volSym.includes('US500') || _volSym.includes('SPX') || _volSym.includes('SP500'))
-        ? { hardMaxLot: 0.20, minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
       null
     );
 
