@@ -709,7 +709,7 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   lastError: text("last_error"),
   tradeCount: integer("trade_count").notNull().default(0),
   lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1.0), // Per-account lot size multiplier (0.1–5.0)
-  gateMode: text("gate_mode").notNull().default('full'), // 'full' = strict gates (74%+brain+HTF) | 'basic' = original EA permissive mode (65%)
+  gateMode: text("gate_mode").notNull().default('basic'), // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

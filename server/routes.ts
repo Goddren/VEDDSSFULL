@@ -10443,7 +10443,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // Execute on ALL active TradeLocker connections
               for (const tlConn of tlActiveConns) {
                 // Per-connection gate mode check — 'full' applies strict gates, 'basic' copies like MT5
-                const _connGateMode = (tlConn as any).gateMode ?? 'full';
+                const _connGateMode = (tlConn as any).gateMode ?? 'basic';
                 if (_connGateMode === 'full') {
                   const _connEffConf = analysis.confidence - _tlM15ConfPenalty;
                   if (tlFullGatesBlocked) {
