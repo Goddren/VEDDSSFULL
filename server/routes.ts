@@ -10271,6 +10271,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const _eaSym = sanitizedSymbol.toUpperCase();
               const _eaAcctBal = accountBalance || 0;
               const VOLATILE_RISK_PCT_EA = 0.015;
+
+              // Check user's volatileCapMode setting — if 'user_only', skip all volatile caps
+              let _eaVolatileCapMode: string = 'risk_scaled';
+              try {
+                const { getLiveEngineState } = await import('./services/live-trading-engine');
+                const _leState = getLiveEngineState(token.userId);
+                if (_leState?.config?.volatileCapMode) _eaVolatileCapMode = _leState.config.volatileCapMode;
+              } catch (_) { /* non-fatal */ }
+
               const _calcEaVolMax = (minSlPips: number, slBreath: number): number => {
                 if (_eaAcctBal <= 0) return 0.10;
                 const pipVal = getPipValue(_eaSym);
@@ -10278,7 +10287,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const slRiskPerLot = minSlPips * slBreath * pipVal;
                 return Math.max(0.01, Math.floor((maxRisk / slRiskPerLot) * 100) / 100);
               };
-              const _eaVolCap: { hardMaxLot: number; preferPending: boolean } | null = (
+              const _eaVolCap: { hardMaxLot: number; preferPending: boolean } | null = _eaVolatileCapMode === 'user_only' ? null : (
                 (_eaSym.includes('XAU') || _eaSym.includes('GOLD'))                                  ? { hardMaxLot: _calcEaVolMax(500, 1.5), preferPending: true } :
                 (_eaSym.includes('BTC') || _eaSym.includes('XBT'))                                   ? { hardMaxLot: _calcEaVolMax(500, 2.0), preferPending: true } :
                 (_eaSym.includes('US30') || _eaSym.includes('DOW') || _eaSym.includes('WALLST'))     ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } :

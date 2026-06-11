@@ -20526,7 +20526,8 @@ function getDefaultConfig(userId) {
     trailProfitLockPct: 60,
     trailActivationPips: 15,
     trailSarInitialAF: 0.02,
-    trailSarMaxAF: 0.2
+    trailSarMaxAF: 0.2,
+    volatileCapMode: "risk_scaled"
   };
 }
 function createGoalTracker(config) {
@@ -23057,7 +23058,7 @@ async function processDecision(userId, decision, newsCtx) {
       const slRiskPerLot = minSlPips * slBreath * pipVal;
       return Math.max(0.01, Math.floor(maxRiskUSD / slRiskPerLot * 100) / 100);
     };
-    const _volCap = _volSym.includes("XAU") || _volSym.includes("GOLD") ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } : _volSym.includes("BTC") || _volSym.includes("XBT") ? { hardMaxLot: _calcVolMaxLot(500, 2, getPipValue(_volSym)), minSlPips: 500, slBreath: 2, preferPending: true } : _volSym.includes("US30") || _volSym.includes("DOW") || _volSym.includes("WALLST") || _volSym.includes("DJ30") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("NAS100") || _volSym.includes("USTEC") || _volSym.includes("US100") || _volSym.includes("NDX") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("US500") || _volSym.includes("SPX") || _volSym.includes("SP500") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : null;
+    const _volCap = config.volatileCapMode === "user_only" ? null : _volSym.includes("XAU") || _volSym.includes("GOLD") ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } : _volSym.includes("BTC") || _volSym.includes("XBT") ? { hardMaxLot: _calcVolMaxLot(500, 2, getPipValue(_volSym)), minSlPips: 500, slBreath: 2, preferPending: true } : _volSym.includes("US30") || _volSym.includes("DOW") || _volSym.includes("WALLST") || _volSym.includes("DJ30") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("NAS100") || _volSym.includes("USTEC") || _volSym.includes("US100") || _volSym.includes("NDX") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : _volSym.includes("US500") || _volSym.includes("SPX") || _volSym.includes("SP500") ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } : null;
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);
     let takeProfit = parseNum(decision.takeProfit);
@@ -41164,6 +41165,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _eaSym = sanitizedSymbol.toUpperCase();
                 const _eaAcctBal = accountBalance || 0;
                 const VOLATILE_RISK_PCT_EA = 0.015;
+                let _eaVolatileCapMode = "risk_scaled";
+                try {
+                  const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+                  const _leState = getLiveEngineState3(token.userId);
+                  if (_leState?.config?.volatileCapMode) _eaVolatileCapMode = _leState.config.volatileCapMode;
+                } catch (_) {
+                }
                 const _calcEaVolMax = (minSlPips, slBreath) => {
                   if (_eaAcctBal <= 0) return 0.1;
                   const pipVal = getPipValue2(_eaSym);
@@ -41171,7 +41179,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const slRiskPerLot = minSlPips * slBreath * pipVal;
                   return Math.max(0.01, Math.floor(maxRisk / slRiskPerLot * 100) / 100);
                 };
-                const _eaVolCap = _eaSym.includes("XAU") || _eaSym.includes("GOLD") ? { hardMaxLot: _calcEaVolMax(500, 1.5), preferPending: true } : _eaSym.includes("BTC") || _eaSym.includes("XBT") ? { hardMaxLot: _calcEaVolMax(500, 2), preferPending: true } : _eaSym.includes("US30") || _eaSym.includes("DOW") || _eaSym.includes("WALLST") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : _eaSym.includes("NAS100") || _eaSym.includes("USTEC") || _eaSym.includes("US100") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : _eaSym.includes("US500") || _eaSym.includes("SPX") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : null;
+                const _eaVolCap = _eaVolatileCapMode === "user_only" ? null : _eaSym.includes("XAU") || _eaSym.includes("GOLD") ? { hardMaxLot: _calcEaVolMax(500, 1.5), preferPending: true } : _eaSym.includes("BTC") || _eaSym.includes("XBT") ? { hardMaxLot: _calcEaVolMax(500, 2), preferPending: true } : _eaSym.includes("US30") || _eaSym.includes("DOW") || _eaSym.includes("WALLST") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : _eaSym.includes("NAS100") || _eaSym.includes("USTEC") || _eaSym.includes("US100") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : _eaSym.includes("US500") || _eaSym.includes("SPX") ? { hardMaxLot: _calcEaVolMax(300, 1.5), preferPending: true } : null;
                 const rawEaVolume = mt5Volume;
                 const tradeVolume = _eaVolCap ? Math.min(rawEaVolume, _eaVolCap.hardMaxLot) : rawEaVolume;
                 if (_eaVolCap && rawEaVolume > _eaVolCap.hardMaxLot) {

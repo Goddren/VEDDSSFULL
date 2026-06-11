@@ -188,6 +188,10 @@ interface LiveEngineConfig {
   trailActivationPips: number;   // all server-side methods: don't activate trail until X pips in profit
   trailSarInitialAF: number;     // parabolic_sar: starting acceleration factor (default 0.02)
   trailSarMaxAF: number;         // parabolic_sar: maximum acceleration factor (default 0.20)
+  // Volatile pair risk cap mode:
+  // 'risk_scaled' = engine enforces 1.5% account risk cap on Gold/BTC/indices (default, prevents blowouts)
+  // 'user_only'   = no engine override — user's lot size setting is used as-is, no cap applied
+  volatileCapMode: 'risk_scaled' | 'user_only';
 }
 
 interface LiveActivity {
@@ -768,6 +772,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     trailActivationPips: 15,
     trailSarInitialAF: 0.02,
     trailSarMaxAF: 0.20,
+    volatileCapMode: 'risk_scaled',
   };
 }
 
@@ -3841,29 +3846,33 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // VOLATILE_RISK_PCT: max % of account to risk on a single volatile-pair trade (1.5%)
     // minSlPips × slBreath: effective minimum SL distance used as the risk denominator
     const _volSym = (decision.symbol || '').toUpperCase();
-    const VOLATILE_RISK_PCT = 0.015; // 1.5% of account per volatile pair trade
+
+    // volatileCapMode === 'user_only': skip all engine lot caps — user's setting is law
+    // volatileCapMode === 'risk_scaled' (default): cap = (balance × 1.5%) / (minSlPips × slBreath × pipValue)
+    const VOLATILE_RISK_PCT = 0.015;
     const _acctBal = config.accountBalance || 0;
 
     const _calcVolMaxLot = (minSlPips: number, slBreath: number, pipVal: number): number => {
-      if (_acctBal <= 0) return 0.10; // fallback if balance unknown
+      if (_acctBal <= 0) return 0.10;
       const maxRiskUSD    = _acctBal * VOLATILE_RISK_PCT;
       const slRiskPerLot  = minSlPips * slBreath * pipVal; // $ risk per lot at min SL
       return Math.max(0.01, Math.floor((maxRiskUSD / slRiskPerLot) * 100) / 100);
     };
 
-    const _volCap: { hardMaxLot: number; minSlPips: number; slBreath: number; preferPending: boolean } | null = (
-      (_volSym.includes('XAU') || _volSym.includes('GOLD'))
-        ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } :
-      (_volSym.includes('BTC') || _volSym.includes('XBT'))
-        ? { hardMaxLot: _calcVolMaxLot(500, 2.0, getPipValue(_volSym)), minSlPips: 500, slBreath: 2.0, preferPending: true } :
-      (_volSym.includes('US30') || _volSym.includes('DOW') || _volSym.includes('WALLST') || _volSym.includes('DJ30'))
-        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
-      (_volSym.includes('NAS100') || _volSym.includes('USTEC') || _volSym.includes('US100') || _volSym.includes('NDX'))
-        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
-      (_volSym.includes('US500') || _volSym.includes('SPX') || _volSym.includes('SP500'))
-        ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
-      null
-    );
+    const _volCap: { hardMaxLot: number; minSlPips: number; slBreath: number; preferPending: boolean } | null =
+      config.volatileCapMode === 'user_only' ? null : (
+        (_volSym.includes('XAU') || _volSym.includes('GOLD'))
+          ? { hardMaxLot: _calcVolMaxLot(500, 1.5, getPipValue(_volSym)), minSlPips: 500, slBreath: 1.5, preferPending: true } :
+        (_volSym.includes('BTC') || _volSym.includes('XBT'))
+          ? { hardMaxLot: _calcVolMaxLot(500, 2.0, getPipValue(_volSym)), minSlPips: 500, slBreath: 2.0, preferPending: true } :
+        (_volSym.includes('US30') || _volSym.includes('DOW') || _volSym.includes('WALLST') || _volSym.includes('DJ30'))
+          ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        (_volSym.includes('NAS100') || _volSym.includes('USTEC') || _volSym.includes('US100') || _volSym.includes('NDX'))
+          ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        (_volSym.includes('US500') || _volSym.includes('SPX') || _volSym.includes('SP500'))
+          ? { hardMaxLot: _calcVolMaxLot(300, 1.5, getPipValue(_volSym)), minSlPips: 300, slBreath: 1.5, preferPending: true } :
+        null
+      );
 
     let entryPrice = parseNum(decision.entryPrice);
     let stopLoss = parseNum(decision.stopLoss);

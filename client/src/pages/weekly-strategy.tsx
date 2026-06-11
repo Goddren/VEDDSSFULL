@@ -1332,6 +1332,7 @@ export default function WeeklyStrategyPage() {
   const [backtestTradeLogOpen, setBacktestTradeLogOpen] = useState(false);
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
+  const [engineVolatileCapMode, setEngineVolatileCapMode] = useState<'risk_scaled' | 'user_only'>('risk_scaled');
   // ORB Autonomous: 9:30 AM breakout+retest fires trades directly
   const [engineORBAutonomous, setEngineORBAutonomous] = useState(true);
   // Composite Autonomous: Markov×Polymarket fires crypto trades independently of AI
@@ -1360,11 +1361,12 @@ export default function WeeklyStrategyPage() {
     if (saved.adaptiveScan   != null) setEngineAdaptiveScan(saved.adaptiveScan);
     if (saved.propFirmMode   != null) setEnginePropFirmMode(saved.propFirmMode);
     if (saved.aiMode         != null) setEngineAiMode(saved.aiMode);
+    if (saved.volatileCapMode != null) setEngineVolatileCapMode(saved.volatileCapMode);
     if (saved.accountBalance != null) setEngineAccountBalance(saved.accountBalance);
   }, [setEngineAccountBalance, setEngineExecutionSource, setEngineRiskPerTrade,
       setEngineMaxLotSize, setEngineWeeklyTarget, setEngineBaseLotSize, setEngineInterval,
       setEngineMinConf, setEngineMaxTrades, setEngineCompounding, setEngineDrawdownShield,
-      setEngineShieldThreshold, setEngineAdaptiveScan, setEnginePropFirmMode, setEngineAiMode]);
+      setEngineShieldThreshold, setEngineAdaptiveScan, setEnginePropFirmMode, setEngineAiMode, setEngineVolatileCapMode]);
 
   const queueSaveAccountSettings = useCallback(() => {
     if (!selectedEngineAccount) return;
@@ -1377,13 +1379,14 @@ export default function WeeklyStrategyPage() {
         compounding: engineCompounding, drawdownShield: engineDrawdownShield,
         shieldThreshold: engineShieldThreshold, adaptiveScan: engineAdaptiveScan,
         propFirmMode: enginePropFirmMode, aiMode: engineAiMode,
+        volatileCapMode: engineVolatileCapMode,
         accountBalance: engineAccountBalance,
       });
     }, 800);
   }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
       engineBaseLotSize, engineInterval, engineMinConf, engineMaxTrades, engineCompounding,
       engineDrawdownShield, engineShieldThreshold, engineAdaptiveScan, enginePropFirmMode,
-      engineAiMode, engineAccountBalance]);
+      engineAiMode, engineVolatileCapMode, engineAccountBalance]);
 
   useEffect(() => { queueSaveAccountSettings(); }, [queueSaveAccountSettings]);
   // ── End per-account settings ──────────────────────────────────────────────
@@ -2674,6 +2677,39 @@ export default function WeeklyStrategyPage() {
                         <p className="text-[10px] text-gray-500 mt-1">Enable to load prop firm rules — daily DD limit, risk cap, overnight block, consistency enforcement. Pre-built for FTMO, MFF, The5ers, and Funded Next.</p>
                       )}
                     </div>
+                  </div>
+
+                  {/* Volatile Pair Cap Mode */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineVolatileCapMode === 'risk_scaled' ? 'border-emerald-500/60 bg-emerald-500/8' : 'border-orange-500/60 bg-orange-500/10'}`}>
+                    <div className="flex items-center justify-between cursor-pointer" onClick={() => {
+                      const next = engineVolatileCapMode === 'risk_scaled' ? 'user_only' : 'risk_scaled';
+                      setEngineVolatileCapMode(next);
+                    }}>
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={engineVolatileCapMode === 'risk_scaled'} onChange={() => {}} className="accent-emerald-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Volatile Pair Risk Cap</p>
+                          <p className="text-xs text-gray-400">
+                            {engineVolatileCapMode === 'risk_scaled'
+                              ? 'Engine caps Gold/BTC/Index lots to 1.5% account risk'
+                              : 'Your lot size settings used as-is — no engine override'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${engineVolatileCapMode === 'risk_scaled' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-orange-500/20 text-orange-300'}`}>
+                        {engineVolatileCapMode === 'risk_scaled' ? 'PROTECTED' : 'USER ONLY'}
+                      </span>
+                    </div>
+                    {engineVolatileCapMode === 'risk_scaled' && (
+                      <div className="mt-2 text-[11px] text-emerald-300/70 leading-relaxed border-t border-emerald-500/20 pt-2">
+                        Max lot = (Balance × 1.5%) ÷ (SL floor × pip value). Scales with your account size automatically.
+                      </div>
+                    )}
+                    {engineVolatileCapMode === 'user_only' && (
+                      <div className="mt-2 text-[11px] text-orange-300/70 leading-relaxed border-t border-orange-500/20 pt-2">
+                        ⚠️ Engine will NOT override your lot size on Gold, BTC, or indices. You are fully responsible for position sizing.
+                      </div>
+                    )}
                   </div>
 
                   {/* ── Auto-Pyramid Winners ── */}
@@ -5090,6 +5126,7 @@ export default function WeeklyStrategyPage() {
                         brainLearningMode: engineBrainLearningMode,
                         propFirmMode: enginePropFirmMode,
                         aiMode: engineAiMode,
+                        volatileCapMode: engineVolatileCapMode,
                         trailMethod: engineTrailMethod,
                         dailyLossLimit: engineDailyLossLimit,
                       });
