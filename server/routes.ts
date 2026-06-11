@@ -8909,12 +8909,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let tradelockerResult: { success: boolean; orderId?: string; error?: string } | null = null;
       let aiConfirmation: any = null;
       // Use MT5 EA's MIN_CONFIDENCE setting if provided, then fall back to saved EA's minConfidence, default to 70%
-      // Hard server-side floor of 65 — EA body cannot push this below minimum to cause over-trading
+      // Hard server-side floor of 74 — matches live engine HARD_CONFIDENCE_FLOOR; EA cannot push below this
       const mt5MinConfidence = eaSettings?.minConfidence;
+      // Basic floor — what MT5 EA uses to decide whether to trade on its own account
+      // Full-mode TL accounts apply a stricter 74% floor separately (per-connection gate check below)
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
         mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
-        65   // server-side floor — never auto-trade below 65% confidence
+        70   // MT5 EA basic floor — minimum 70% confidence for all EA signals
       );
+      const FULL_MODE_CONF_FLOOR = 74; // TL 'full' gate mode floor — matches live engine HARD_CONFIDENCE_FLOOR
       
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
@@ -10136,6 +10139,118 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch { /* non-blocking */ }
       }
 
+      // ── Full-mode gate evaluation (TL 'full' accounts only) ────────────────
+      // MT5 always gets the raw signal. Only TL accounts set to 'full' gate mode
+      // have these stricter checks applied. Results stored in tlFullGatesBlocked /
+      // tlFullGateReason / _tlM15ConfPenalty — never mutates analysis.confidence.
+      let tlFullGatesBlocked = false;
+      let tlFullGateReason = '';
+      let _tlM15ConfPenalty = 0; // applied locally per full-mode connection, not to analysis
+
+      // Gate 2e: Brain enforcement — mirrors live engine applyBrainEnforcement() rules
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const _eaBrain = (global as any).veddAIBrain?.[token.userId];
+          const _eaBrainK = _eaBrain?.pairKnowledge?.[sanitizedSymbol];
+          if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
+            const _eaNow = new Date();
+            const _eaHour = _eaNow.getUTCHours();
+            const _eaSession = _eaHour < 7 ? 'Asian' : _eaHour < 13 ? 'London' : _eaHour < 20 ? 'New York' : 'Late NY';
+
+            // Rule 1: Session win rate
+            const _eaSessionData = _eaBrainK.topSessions?.find((s: any) => s.session === _eaSession);
+            if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
+              tlFullGatesBlocked = true;
+              tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR — below 45% threshold`;
+              console.log(`[TL Gate 2e/session] ${tlFullGateReason}`);
+            }
+
+            // Rule 2: Hour win rate
+            if (!tlFullGatesBlocked) {
+              const _eaWorstHour = _eaBrainK.worstHours?.find((h: any) => h.hour === _eaHour && h.total >= 3 && h.winRate < 40);
+              if (_eaWorstHour) {
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} hour ${_eaHour}:00 UTC ${_eaWorstHour.winRate}% WR — loss zone`;
+                console.log(`[TL Gate 2e/hour] ${tlFullGateReason}`);
+              }
+            }
+
+            // Rule 3: Direction bias — hard block if 30+ trades and WR < 20%
+            if (!tlFullGatesBlocked && _eaBrainK.totalTrades >= 15) {
+              const _eaSignalDir = analysis.signal.includes('BUY') ? 'BUY' : 'SELL';
+              const _eaDirWR = _eaSignalDir === 'BUY' ? (_eaBrainK.buyWinRate ?? 50) : (_eaBrainK.sellWinRate ?? 50);
+              if (_eaBrainK.totalTrades >= 30 && _eaDirWR < 20) {
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSignalDir} ${_eaDirWR}% WR over ${_eaBrainK.totalTrades} trades — statistically losing`;
+                console.log(`[TL Gate 2e/direction] ${tlFullGateReason}`);
+              }
+            }
+
+            // Rule 5: Consecutive loss cooldown — 3+ losses within 3 hours
+            if (!tlFullGatesBlocked && _eaBrainK.consecutiveLossesToday >= 3 && _eaBrainK.lastLossAt) {
+              const _eaMsSinceLoss = Date.now() - new Date(_eaBrainK.lastLossAt).getTime();
+              const _eaTHREE_HOURS = 3 * 60 * 60 * 1000;
+              if (_eaMsSinceLoss < _eaTHREE_HOURS) {
+                const _eaMinsLeft = Math.ceil((_eaTHREE_HOURS - _eaMsSinceLoss) / 60000);
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} — 3 consecutive losses, ${_eaMinsLeft}min cooldown remaining`;
+                console.log(`[TL Gate 2e/losslock] ${tlFullGateReason}`);
+              }
+            }
+          }
+        } catch { /* non-blocking — brain gate must never crash EA path */ }
+      }
+
+      // Gate 2f: HTF and M15 conflict — full-mode only, never mutates analysis.confidence
+      if (!tlGateBlocked && !tlFullGatesBlocked && analysis.signal !== 'NEUTRAL') {
+        try {
+          const _eaSignalDir2f = analysis.signal.includes('BUY') ? 'BUY' : 'SELL';
+          const _eaConf2f = analysis.confidence;
+
+          // HTF conflict check
+          const _eaHtfBias = _liveState?.htfBiasCache?.[sanitizedSymbol] as any;
+          if (_eaHtfBias && _eaHtfBias.trend && _eaHtfBias.trend !== 'NEUTRAL') {
+            const _eaHtfAligns = (_eaSignalDir2f === 'BUY' && _eaHtfBias.trend === 'BULLISH') ||
+                                  (_eaSignalDir2f === 'SELL' && _eaHtfBias.trend === 'BEARISH');
+            if (!_eaHtfAligns && _eaConf2f < 90) {
+              tlFullGatesBlocked = true;
+              tlFullGateReason = `HTF conflict: ${_eaSignalDir2f} vs ${_eaHtfBias.trend} — ${_eaConf2f}% < 90% required`;
+              console.log(`[TL Gate 2f/htf] ${tlFullGateReason}`);
+            }
+          }
+
+          // M15 trend conflict check
+          if (!tlFullGatesBlocked) {
+            const _eaM15Snap = _liveState?.marketSnapshot?.[sanitizedSymbol] as any;
+            if (_eaM15Snap) {
+              const _eaM15ADX = _eaM15Snap.adx || 0;
+              const _eaM15PlusDI = _eaM15Snap.plusDI || 0;
+              const _eaM15MinusDI = _eaM15Snap.minusDI || 0;
+              const _eaDiSep = Math.abs(_eaM15PlusDI - _eaM15MinusDI);
+              let _eaM15Trend = _eaM15Snap.trend ?? 'NEUTRAL';
+              if (_eaM15Trend === 'NEUTRAL' && _eaM15ADX > 12 && _eaDiSep > 8) {
+                _eaM15Trend = _eaM15PlusDI > _eaM15MinusDI ? 'BULLISH' : 'BEARISH';
+              }
+              const _eaM15TrendDetected = (_eaM15ADX > 12 || _eaDiSep > 8) && _eaM15Trend !== 'NEUTRAL';
+              const _eaM15Conflicts = (_eaSignalDir2f === 'BUY' && _eaM15Trend === 'BEARISH') ||
+                                      (_eaSignalDir2f === 'SELL' && _eaM15Trend === 'BULLISH');
+              if (_eaM15TrendDetected && _eaM15Conflicts) {
+                const _eaIsStrongTrend = _eaM15ADX > 20 || _eaDiSep > 12;
+                if (_eaIsStrongTrend && _eaConf2f < 88) {
+                  tlFullGatesBlocked = true;
+                  tlFullGateReason = `M15 conflict: ${_eaSignalDir2f} vs strong M15 ${_eaM15Trend} (ADX ${_eaM15ADX.toFixed(1)}) — ${_eaConf2f}% < 88%`;
+                  console.log(`[TL Gate 2f/m15] ${tlFullGateReason}`);
+                } else if (!_eaIsStrongTrend) {
+                  // Mild M15 conflict: track penalty for use per full-mode connection only
+                  _tlM15ConfPenalty = 12;
+                  console.log(`[TL Gate 2f/m15-mild] Mild M15 conflict on ${sanitizedSymbol}: ${_eaSignalDir2f} vs ${_eaM15Trend} — full-mode accounts get 12% confidence penalty`);
+                }
+              }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
       // Gate 4: Max open TradeLocker positions — falls back to live engine config when no EA configured
       const tlMaxOpen = matchingEA?.maxOpenTrades ?? _liveState?.config?.maxOpenTrades ?? 3;
       if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== 'NEUTRAL') {
@@ -10240,14 +10355,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } else {
               // tradeVolume is computed below after volatile-pair cap check
 
-              // ── Signal quality gate (same standard as live engine) ──────
-              // After a loss on this symbol: require 82% confidence before re-entering
-              // Keeps you in the session without risking low-quality revenge setups
-              const effectiveConfFloor = lastTradeWasLoss
-                ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, POST_LOSS_CONF_FLOOR)
+              // ── Signal quality gate — post-loss confidence escalation ──────
+              // 1 loss on symbol → 82% required; 2+ consecutive → 86% required.
+              // Keeps you in the session without risking revenge setups.
+              const _postLossBrainK = (global as any).veddAIBrain?.[token.userId]?.pairKnowledge?.[sanitizedSymbol];
+              const _consecutiveLosses = _postLossBrainK?.consecutiveLossesToday ?? (lastTradeWasLoss ? 1 : 0);
+              const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : (_consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0);
+              const effectiveConfFloor = _dynamicLossFloor > 0
+                ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor)
                 : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
-              if (lastTradeWasLoss) {
-                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: need ${POST_LOSS_CONF_FLOOR}% (have ${analysis.confidence}%)`);
+              if (_consecutiveLosses >= 1) {
+                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: ${_consecutiveLosses} consecutive loss(es) → need ${_dynamicLossFloor}% (have ${analysis.confidence}%)`);
               }
               const analysisGuard = tlSignalGuard({
                 confidence: analysis.confidence,
@@ -10319,10 +10437,40 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 return 'market';
               })();
 
+              // Resolve copyMode from live engine config (proportional = scale lots by TL account balance)
+              const _eaCopyMode = _liveState?.config?.copyMode ?? 'proportional';
+
               // Execute on ALL active TradeLocker connections
               for (const tlConn of tlActiveConns) {
-              console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
-                action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal, volume: tradeVolume, orderType: _eaOrderType,
+                // Per-connection gate mode check — 'full' applies strict gates, 'basic' copies like MT5
+                const _connGateMode = (tlConn as any).gateMode ?? 'full';
+                if (_connGateMode === 'full') {
+                  const _connEffConf = analysis.confidence - _tlM15ConfPenalty;
+                  if (tlFullGatesBlocked) {
+                    console.log(`[MT5 AutoTrade] FULL-MODE BLOCK on account ${tlConn.accountId} (${sanitizedSymbol}): ${tlFullGateReason}`);
+                    continue;
+                  }
+                  if (_connEffConf < FULL_MODE_CONF_FLOOR) {
+                    console.log(`[MT5 AutoTrade] FULL-MODE CONF BLOCK on account ${tlConn.accountId}: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% (penalty: ${_tlM15ConfPenalty}%)`);
+                    continue;
+                  }
+                }
+
+                // Proportional sizing: each TL account gets lots scaled to its own balance
+                // relative to the MT5 reference account balance.
+                // e.g. MT5=$100, TL=$500 → TL gets 5× the lot size (same % risk both accounts)
+                let connLot = tradeVolume;
+                const _tlCachedBal = (global as any).tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
+                if (_eaCopyMode === 'proportional' && _tlCachedBal && accountBalance > 0) {
+                  connLot = Math.max(0.01, Math.round(tradeVolume * (_tlCachedBal / accountBalance) * 100) / 100);
+                }
+                // Re-apply volatile cap after scaling so a large TL account can't exceed risk cap
+                if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+
+              console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
+                action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal,
+                volume: connLot, refLot: tradeVolume, copyMode: _eaCopyMode,
+                tlBal: _tlCachedBal, mt5Bal: accountBalance, orderType: _eaOrderType,
               });
 
               try {
@@ -10330,7 +10478,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   action: 'OPEN',
                   symbol: sanitizedSymbol,
                   direction: analysis.signal,
-                  volume: tradeVolume,
+                  volume: connLot,
                   entryPrice: _entryPrice,
                   stopLoss: analysis.tradePlan.stopLoss,
                   takeProfit: analysis.tradePlan.takeProfit,
@@ -10346,7 +10494,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   action: 'OPEN',
                   symbol: sanitizedSymbol,
                   direction: analysis.signal,
-                  volume: tradeVolume,
+                  volume: connLot,
                   entryPrice: analysis.tradePlan.entry,
                   stopLoss: analysis.tradePlan.stopLoss,
                   takeProfit: analysis.tradePlan.takeProfit,
@@ -13489,13 +13637,16 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
 
-    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const { isActive, autoExecute, lotMultiplier, gateMode } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
     if (lotMultiplier !== undefined) {
       const mult = parseFloat(lotMultiplier);
       if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
+    }
+    if (gateMode !== undefined && (gateMode === 'full' || gateMode === 'basic')) {
+      updateDataById.gateMode = gateMode;
     }
     const updated = await storage.updateTradelockerConnection(connId, updateDataById);
     if (!updated) {

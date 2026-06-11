@@ -195,6 +195,7 @@ type TradelockerConnection = {
   isActive: boolean;
   autoExecute: boolean;
   lotMultiplier: number;
+  gateMode: string; // 'full' = strict live-engine gates | 'basic' = original EA permissive mode
   lastConnectedAt: string | null;
   lastError: string | null;
   tradeCount: number;
@@ -463,7 +464,7 @@ export default function WebhooksPage() {
   });
 
   const updateTLConnectionMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean; lotMultiplier?: number } }) => {
+    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean; lotMultiplier?: number; gateMode?: string } }) => {
       const res = await apiRequest('PATCH', `/api/tradelocker/connection/${id}`, data);
       return res.json();
     },
@@ -1601,6 +1602,29 @@ export default function WebhooksPage() {
                                 checked={conn.isActive}
                                 onCheckedChange={(checked) => updateTLConnectionMutation.mutate({ id: conn.id, data: { isActive: checked } })}
                               />
+                            </div>
+                          </div>
+                          {/* Per-account gate mode toggle */}
+                          <div className="mt-2 p-2 bg-gray-900/50 rounded text-xs">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-gray-300 font-medium">Copy Gate Mode</span>
+                                <p className="text-gray-500 text-[10px] mt-0.5">
+                                  {(conn.gateMode ?? 'full') === 'full'
+                                    ? 'Full — strict gates: 74% floor + brain + HTF/M15 filters'
+                                    : 'Basic — original EA mode: 65% floor, copies all MT5 signals'}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => updateTLConnectionMutation.mutate({ id: conn.id, data: { gateMode: (conn.gateMode ?? 'full') === 'full' ? 'basic' : 'full' } })}
+                                className={`shrink-0 px-2.5 py-1 rounded font-bold text-[10px] transition-colors ${
+                                  (conn.gateMode ?? 'full') === 'full'
+                                    ? 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30'
+                                    : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
+                                }`}
+                              >
+                                {(conn.gateMode ?? 'full') === 'full' ? 'FULL' : 'BASIC'}
+                              </button>
                             </div>
                           </div>
                           {/* Per-account lot multiplier */}
