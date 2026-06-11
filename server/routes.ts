@@ -7702,37 +7702,56 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         for (const closedTrade of closedTrades) {
           if (closedTrade.ticket) {
             const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
-            // Update trades that are PENDING or have no result yet
+            const tradeResult = closedTrade.profit > 0 ? 'WIN' : (closedTrade.profit < 0 ? 'LOSS' : 'BREAKEVEN');
+            const tradeSymbol = (closedTrade.symbol || existingResult?.symbol || 'UNKNOWN').toUpperCase();
+
             if (existingResult && (!existingResult.result || existingResult.result === 'PENDING')) {
-              const result = closedTrade.profit > 0 ? 'WIN' : (closedTrade.profit < 0 ? 'LOSS' : 'BREAKEVEN');
+              // Update existing PENDING record with outcome
               await storage.updateAiTradeResult(existingResult.id, token.userId, {
-                result,
+                result: tradeResult,
                 exitPrice: closedTrade.closePrice || 0,
                 profitLoss: closedTrade.profit || 0,
                 closedAt: new Date(),
               });
-
-              // Update confirmation outcome so the learning service can compute accuracy
               try {
                 const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
                 await storage.resolveConfirmationOutcome(
-                  token.userId,
-                  (closedTrade.symbol || existingResult.symbol || '').toUpperCase(),
-                  existingResult.direction,
-                  result,
-                  pips
+                  token.userId, tradeSymbol, existingResult.direction, tradeResult, pips
                 );
-                // Clear learning cache so next signal gets fresh insights
                 const { clearLearningCache } = await import('./services/confirmation-learning');
                 clearLearningCache(token.userId);
               } catch (_lcErr) { /* non-critical */ }
-              recordEngineResult(token.userId, {
-                symbol: (closedTrade.symbol || existingResult.symbol || 'UNKNOWN').toUpperCase(),
-                profit: closedTrade.profit || 0,
-                strategy: existingResult.notes?.includes('strategy:') ? existingResult.notes.split('strategy:')[1].trim().split(' ')[0] : 'auto',
-                session: detectedSession,
-              });
+            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== undefined) {
+              // No DB record (EA path trade) — create a closed record so history is complete
+              try {
+                await storage.createAiTradeResult({
+                  userId: token.userId,
+                  symbol: tradeSymbol,
+                  direction: closedTrade.direction || 'BUY',
+                  entryPrice: closedTrade.openPrice || 0,
+                  stopLoss: closedTrade.sl > 0 ? closedTrade.sl : null,
+                  takeProfit: closedTrade.tp > 0 ? closedTrade.tp : null,
+                  aiConfidence: 0,
+                  result: tradeResult,
+                  profitLoss: closedTrade.profit || 0,
+                  exitPrice: closedTrade.closePrice || 0,
+                  source: 'mt5_ea',
+                  mt5Ticket: closedTrade.ticket.toString(),
+                  notes: `EA closed trade`,
+                  closedAt: new Date(),
+                } as any);
+              } catch (_createErr) { /* non-critical */ }
             }
+
+            // Always update goalTracker for ALL closed trades — this feeds the weekly P&L monitors
+            recordEngineResult(token.userId, {
+              symbol: tradeSymbol,
+              profit: closedTrade.profit || 0,
+              strategy: existingResult?.notes?.includes('strategy:')
+                ? existingResult.notes.split('strategy:')[1].trim().split(' ')[0]
+                : 'auto',
+              session: detectedSession,
+            });
           }
         }
         

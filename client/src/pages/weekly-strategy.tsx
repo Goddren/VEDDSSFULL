@@ -1021,14 +1021,17 @@ export default function WeeklyStrategyPage() {
     if (mt5Balance && mt5Balance > 0) {
       setAccountBalance(String(Math.round(mt5Balance * 100) / 100));
       setAutoBalanceSource('MT5');
+      // Sync engine config balance when no account explicitly selected or MT5 is the source
+      setEngineAccountBalance(prev => prev > 0 ? prev : Math.round(mt5Balance * 100) / 100);
     } else if (tlBalance && tlBalance > 0) {
       setAccountBalance(String(Math.round(tlBalance * 100) / 100));
-      // Distinguish live API balance from DB-cached value
       setAutoBalanceSource(tlLiveBalance ? 'TradeLocker (Live)' : 'TradeLocker');
+      // Sync engine config balance — TL live balance auto-fills the engine config field
+      setEngineAccountBalance(prev => prev > 0 ? prev : Math.round(tlBalance * 100) / 100);
     }
   }, [mt5AccountData, tlConnection, tlAccountBalance]);
 
-  // Note: engine account balance is now synced by ConnectedAccountPicker (handleEngineAccountSelected)
+  // Note: engine account balance is synced by ConnectedAccountPicker OR the auto-detect above
 
   const toggleLiveMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
