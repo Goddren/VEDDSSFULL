@@ -11036,10 +11036,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
           let connTodayPnL = 0;
           let connWeekPnL = 0;
+
+          // Dedup guard — each order only feeds goalTracker once per server session
+          (global as any).tlProcessedOrders = (global as any).tlProcessedOrders || {};
+          (global as any).tlProcessedOrders[userId] = (global as any).tlProcessedOrders[userId] || new Set();
+          const _tlProcessed: Set<string> = (global as any).tlProcessedOrders[userId];
+
+          const { recordTradeResult: _tlRecordResult } = await import('./services/live-trading-engine');
+          const _nowH = new Date().getUTCHours();
+          const _tlSession = _nowH < 7 ? 'Asian' : _nowH < 13 ? 'London' : _nowH < 20 ? 'New York' : 'Late NY';
+
           for (const order of filledOrders) {
             const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
             if (closeTs >= todayStart.getTime()) { tlTodayClosedPnL += (order.profit || 0); connTodayPnL += (order.profit || 0); }
             if (closeTs >= weekStart.getTime())  { tlWeekClosedPnL  += (order.profit || 0); connWeekPnL  += (order.profit || 0); }
+
+            // Feed TL closed orders into goalTracker for weekly P&L monitors
+            const _orderId = (order.orderId ?? order.id ?? order.tradeId)?.toString();
+            if (_orderId && !_tlProcessed.has(_orderId) && closeTs >= weekStart.getTime() && order.profit !== undefined) {
+              _tlProcessed.add(_orderId);
+              _tlRecordResult(userId, {
+                symbol: (order.symbol || 'UNKNOWN').toUpperCase(),
+                profit: order.profit || 0,
+                strategy: 'tradelocker',
+                session: _tlSession,
+              });
+            }
           }
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
         } catch (connErr) {
