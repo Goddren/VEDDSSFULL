@@ -20527,7 +20527,8 @@ function getDefaultConfig(userId) {
     trailActivationPips: 15,
     trailSarInitialAF: 0.02,
     trailSarMaxAF: 0.2,
-    volatileCapMode: "risk_scaled"
+    volatileCapMode: "risk_scaled",
+    copyMode: "proportional"
   };
 }
 function createGoalTracker(config) {
@@ -23416,8 +23417,18 @@ async function processDecision(userId, decision, newsCtx) {
       });
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn) => {
-          const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
-          const acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+          const _tlBalCache = global.tlAccountBalances?.[userId] || {};
+          const _tlAcctBal = _tlBalCache[tlConn.accountId] ?? null;
+          const _refBal = config.accountBalance || 0;
+          let acctLot;
+          if (config.copyMode === "proportional" && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
+            const ratio = _tlAcctBal / _refBal;
+            acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+          } else {
+            const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
+            acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+          }
+          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: "OPEN",
             symbol: decision.symbol,
@@ -23451,7 +23462,8 @@ async function processDecision(userId, decision, newsCtx) {
         if (result.status === "fulfilled") {
           const { tlConn, tradeResult, acctLot: executedLot } = result.value;
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
-          const multLabel = (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
+          const _tlBal2 = global.tlAccountBalances?.[userId]?.[tlConn.accountId];
+          const multLabel = config.copyMode === "proportional" && _tlBal2 ? ` (proportional $${_tlBal2.toLocaleString()})` : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
           if (tradeResult.success) {
             anySuccess = true;
             addActivity2(userId, {
@@ -43883,6 +43895,8 @@ Rules:
       const accounts = [];
       let totalBalance = 0;
       let totalEquity = 0;
+      global.tlAccountBalances = global.tlAccountBalances || {};
+      global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
       for (const conn of activeConns) {
         try {
           const tlSvc = await getOrCreateService(conn);
@@ -43896,6 +43910,7 @@ Rules:
           });
           totalBalance += info.balance || 0;
           totalEquity += info.equity || 0;
+          global.tlAccountBalances[userId][conn.accountId] = info.balance || 0;
           console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
         } catch (err) {
           console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);

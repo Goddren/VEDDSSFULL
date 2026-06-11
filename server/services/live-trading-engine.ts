@@ -192,6 +192,11 @@ interface LiveEngineConfig {
   // 'risk_scaled' = engine enforces 1.5% account risk cap on Gold/BTC/indices (default, prevents blowouts)
   // 'user_only'   = no engine override — user's lot size setting is used as-is, no cap applied
   volatileCapMode: 'risk_scaled' | 'user_only';
+  // Proportional copying: each TL account gets a lot size proportional to its own balance
+  // relative to the reference (MT5/primary) account balance.
+  // 'proportional' = acctLot = (tlAcctBalance / referenceBalance) × baseLot
+  // 'multiplier'   = acctLot = baseLot × tlConn.lotMultiplier (old fixed behaviour)
+  copyMode: 'proportional' | 'multiplier';
 }
 
 interface LiveActivity {
@@ -773,6 +778,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     trailSarInitialAF: 0.02,
     trailSarMaxAF: 0.20,
     volatileCapMode: 'risk_scaled',
+    copyMode: 'proportional',
   };
 }
 
@@ -4348,10 +4354,27 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Execute on ALL active accounts in parallel
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn: any) => {
-          // Apply per-account lot multiplier (default 1.0 = no change)
-          const acctMult = typeof tlConn.lotMultiplier === 'number' && tlConn.lotMultiplier > 0
-            ? tlConn.lotMultiplier : 1.0;
-          const acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+          // Proportional copying: each TL account gets a lot scaled to its own balance
+          // relative to the reference (MT5/primary) account balance.
+          // Falls back to lotMultiplier if balance not cached yet.
+          const _tlBalCache = (global as any).tlAccountBalances?.[userId] || {};
+          const _tlAcctBal  = _tlBalCache[tlConn.accountId] ?? null;
+          const _refBal     = config.accountBalance || 0;
+
+          let acctLot: number;
+          if (config.copyMode === 'proportional' && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
+            // Scale lot proportionally: $50k account copying a $10k engine → 5× the lot
+            const ratio = _tlAcctBal / _refBal;
+            acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+          } else {
+            // Fall back to manual lotMultiplier (or 1.0 if not set)
+            const acctMult = typeof tlConn.lotMultiplier === 'number' && tlConn.lotMultiplier > 0
+              ? tlConn.lotMultiplier : 1.0;
+            acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+          }
+
+          // Still respect volatile pair hard cap per account
+          if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
 
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: 'OPEN',
@@ -4389,7 +4412,10 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         if (result.status === 'fulfilled') {
           const { tlConn, tradeResult, acctLot: executedLot } = result.value;
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
-          const multLabel = (tlConn.lotMultiplier ?? 1) !== 1 ? ` (×${tlConn.lotMultiplier})` : '';
+          const _tlBal2 = (global as any).tlAccountBalances?.[userId]?.[tlConn.accountId];
+          const multLabel = config.copyMode === 'proportional' && _tlBal2
+            ? ` (proportional $${_tlBal2.toLocaleString()})`
+            : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (×${tlConn.lotMultiplier})` : '';
           if (tradeResult.success) {
             anySuccess = true;
             addActivity(userId, {

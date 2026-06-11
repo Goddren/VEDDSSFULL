@@ -13378,6 +13378,8 @@ Rules:
       let totalEquity = 0;
 
       // Run sequentially to avoid hammering TL API with concurrent auth requests
+      (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
+      (global as any).tlAccountBalances[userId] = (global as any).tlAccountBalances[userId] || {};
       for (const conn of activeConns) {
         try {
           // Use the same auth helper as trade execution — handles token caching/refresh
@@ -13392,6 +13394,8 @@ Rules:
           });
           totalBalance += info.balance || 0;
           totalEquity += info.equity || 0;
+          // Cache balance for proportional lot sizing during trade execution
+          (global as any).tlAccountBalances[userId][conn.accountId] = info.balance || 0;
           console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
         } catch (err: any) {
           console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);

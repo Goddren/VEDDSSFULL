@@ -1333,6 +1333,7 @@ export default function WeeklyStrategyPage() {
 
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
   const [engineVolatileCapMode, setEngineVolatileCapMode] = useState<'risk_scaled' | 'user_only'>('risk_scaled');
+  const [engineCopyMode, setEngineCopyMode] = useState<'proportional' | 'multiplier'>('proportional');
   // ORB Autonomous: 9:30 AM breakout+retest fires trades directly
   const [engineORBAutonomous, setEngineORBAutonomous] = useState(true);
   // Composite Autonomous: Markov×Polymarket fires crypto trades independently of AI
@@ -1362,11 +1363,13 @@ export default function WeeklyStrategyPage() {
     if (saved.propFirmMode   != null) setEnginePropFirmMode(saved.propFirmMode);
     if (saved.aiMode         != null) setEngineAiMode(saved.aiMode);
     if (saved.volatileCapMode != null) setEngineVolatileCapMode(saved.volatileCapMode);
+    if (saved.copyMode        != null) setEngineCopyMode(saved.copyMode);
     if (saved.accountBalance != null) setEngineAccountBalance(saved.accountBalance);
   }, [setEngineAccountBalance, setEngineExecutionSource, setEngineRiskPerTrade,
       setEngineMaxLotSize, setEngineWeeklyTarget, setEngineBaseLotSize, setEngineInterval,
       setEngineMinConf, setEngineMaxTrades, setEngineCompounding, setEngineDrawdownShield,
-      setEngineShieldThreshold, setEngineAdaptiveScan, setEnginePropFirmMode, setEngineAiMode, setEngineVolatileCapMode]);
+      setEngineShieldThreshold, setEngineAdaptiveScan, setEnginePropFirmMode, setEngineAiMode,
+      setEngineVolatileCapMode, setEngineCopyMode]);
 
   const queueSaveAccountSettings = useCallback(() => {
     if (!selectedEngineAccount) return;
@@ -1380,13 +1383,14 @@ export default function WeeklyStrategyPage() {
         shieldThreshold: engineShieldThreshold, adaptiveScan: engineAdaptiveScan,
         propFirmMode: enginePropFirmMode, aiMode: engineAiMode,
         volatileCapMode: engineVolatileCapMode,
+        copyMode: engineCopyMode,
         accountBalance: engineAccountBalance,
       });
     }, 800);
   }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
       engineBaseLotSize, engineInterval, engineMinConf, engineMaxTrades, engineCompounding,
       engineDrawdownShield, engineShieldThreshold, engineAdaptiveScan, enginePropFirmMode,
-      engineAiMode, engineVolatileCapMode, engineAccountBalance]);
+      engineAiMode, engineVolatileCapMode, engineCopyMode, engineAccountBalance]);
 
   useEffect(() => { queueSaveAccountSettings(); }, [queueSaveAccountSettings]);
   // ── End per-account settings ──────────────────────────────────────────────
@@ -2708,6 +2712,39 @@ export default function WeeklyStrategyPage() {
                     {engineVolatileCapMode === 'user_only' && (
                       <div className="mt-2 text-[11px] text-orange-300/70 leading-relaxed border-t border-orange-500/20 pt-2">
                         ⚠️ Engine will NOT override your lot size on Gold, BTC, or indices. You are fully responsible for position sizing.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Copy Mode: Proportional vs Multiplier ── */}
+                  <div className={`rounded-xl border p-3 transition-all ${engineCopyMode === 'proportional' ? 'border-blue-500/60 bg-blue-500/8' : 'border-gray-700 bg-gray-900/30'}`}>
+                    <div className="flex items-center justify-between cursor-pointer" onClick={() => {
+                      const next = engineCopyMode === 'proportional' ? 'multiplier' : 'proportional';
+                      setEngineCopyMode(next);
+                    }}>
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={engineCopyMode === 'proportional'} onChange={() => {}} className="accent-blue-500" />
+                        <div>
+                          <p className="text-sm font-semibold text-white">Proportional Copy Sizing</p>
+                          <p className="text-xs text-gray-400">
+                            {engineCopyMode === 'proportional'
+                              ? 'Each TL account trades lots proportional to its own balance'
+                              : 'Each TL account uses its fixed lot multiplier setting'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${engineCopyMode === 'proportional' ? 'bg-blue-500/20 text-blue-300' : 'bg-gray-500/20 text-gray-400'}`}>
+                        {engineCopyMode === 'proportional' ? 'PROPORTIONAL' : 'MULTIPLIER'}
+                      </span>
+                    </div>
+                    {engineCopyMode === 'proportional' && (
+                      <div className="mt-2 text-[11px] text-blue-300/70 leading-relaxed border-t border-blue-500/20 pt-2">
+                        Formula: acctLot = (TL account balance ÷ reference balance) × base lot. A $50k account copying a $10k engine signal gets 5× the lots automatically.
+                      </div>
+                    )}
+                    {engineCopyMode === 'multiplier' && (
+                      <div className="mt-2 text-[11px] text-gray-400 leading-relaxed border-t border-gray-700/40 pt-2">
+                        Uses the manual lot multiplier set per TradeLocker account (e.g. ×2.0). Set these in the TradeLocker Connections page.
                       </div>
                     )}
                   </div>
@@ -5127,6 +5164,7 @@ export default function WeeklyStrategyPage() {
                         propFirmMode: enginePropFirmMode,
                         aiMode: engineAiMode,
                         volatileCapMode: engineVolatileCapMode,
+                        copyMode: engineCopyMode,
                         trailMethod: engineTrailMethod,
                         dailyLossLimit: engineDailyLossLimit,
                       });
