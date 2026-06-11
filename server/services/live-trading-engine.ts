@@ -3,7 +3,7 @@ import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection } from '../tra
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
-import { getPipSize } from '../utils/pipUtils';
+import { getPipSize, getPipValue } from '../utils/pipUtils';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
 import { buildTransitionMatrix } from './markov-chain';
