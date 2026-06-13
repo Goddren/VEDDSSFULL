@@ -80,6 +80,7 @@ import CompliancePage from "@/pages/compliance";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import PolymarketWalletPage from "@/pages/polymarket-wallet";
+import PolymarketEnginePage from "@/pages/polymarket-engine";
 import FuturesConnectPage from "@/pages/futures-connect";
 import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
 import FuturesLiveFeedPage from "@/pages/futures-live-feed";
@@ -245,6 +246,7 @@ function AppLayout() {
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
             <ProtectedRoute path="/polymarket-wallet" component={PolymarketWalletPage} />
+            <ProtectedRoute path="/polymarket-engine" component={PolymarketEnginePage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />
             <ProtectedRoute path="/ai-api-keys" component={AiApiKeysPage} />
             <ProtectedRoute path="/ai-trading-models" component={AiTradingModelsPage} />

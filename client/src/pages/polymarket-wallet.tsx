@@ -560,6 +560,20 @@ export default function PolymarketWalletPage() {
           </Link>
         </div>
 
+        {/* ── Link to Polymarket Engine ─────────────────────────────────── */}
+        <a href="/polymarket-engine" className="block bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl p-4 transition-colors">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🏦</span>
+              <div>
+                <p className="text-sm font-bold text-purple-300">Polymarket Engine</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Open YES/NO positions on Polymarket — separate from forex engine</p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-purple-400" />
+          </div>
+        </a>
+
         {/* ── Getting Started ───────────────────────────────────────────── */}
         <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-4">
           <h3 className="text-xs font-bold text-gray-300 mb-2">📋 How it works</h3>
@@ -568,7 +582,7 @@ export default function PolymarketWalletPage() {
               { n: 1, title: "Connect your Polygon wallet", desc: "MetaMask or Coinbase Wallet. Needs USDC or MATIC for Polymarket positions." },
               { n: 2, title: "Polymarket data is read automatically", desc: "The engine reads BTC prediction market probabilities every 5 minutes." },
               { n: 3, title: "Markov + Polymarket are fused", desc: "When both strongly agree on direction, the composite edge score rises." },
-              { n: 4, title: "Auto-Trade fires via TradeLocker", desc: "When edge ≥ your threshold, a BTC CFD trade is placed on your connected TradeLocker accounts — no manual action needed." },
+              { n: 4, title: "Auto-Trade fires on Polymarket", desc: "When the edge score meets your threshold, the Polymarket Engine opens a YES/NO position directly on Polymarket — not on TradeLocker. Use the Polymarket Engine page to run and monitor this." },
             ].map(s => (
               <div key={s.n} className="flex gap-2.5">
                 <span className="w-5 h-5 rounded-full bg-purple-600/30 text-purple-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{s.n}</span>

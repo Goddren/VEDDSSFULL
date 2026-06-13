@@ -16256,6 +16256,92 @@ Respond with ONLY valid JSON:
     res.json({ success: true });
   });
 
+  // ── Polymarket Autonomous Engine ─────────────────────────────────────────────
+  // Completely separate from the forex live engine — fires positions on
+  // Polymarket prediction markets directly, not on TradeLocker or MT5.
+
+  // GET /api/polymarket-engine/status
+  app.get("/api/polymarket-engine/status", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    import('./services/polymarket-autonomous-engine').then(({ getEngineState }) => {
+      res.json(getEngineState(userId));
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
+  // POST /api/polymarket-engine/start
+  app.post("/api/polymarket-engine/start", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    import('./services/polymarket-autonomous-engine').then(({ startEngine, getEngineState }) => {
+      startEngine(userId);
+      res.json({ success: true, state: getEngineState(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
+  // POST /api/polymarket-engine/stop
+  app.post("/api/polymarket-engine/stop", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    import('./services/polymarket-autonomous-engine').then(({ stopEngine, getEngineState }) => {
+      stopEngine(userId);
+      res.json({ success: true, state: getEngineState(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
+  // PUT /api/polymarket-engine/config
+  app.put("/api/polymarket-engine/config", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { minBullishScore, minBearishScore, stakePerTrade, maxOpenPositions, cooldownMinutes } = req.body;
+    import('./services/polymarket-autonomous-engine').then(({ updateEngineConfig, getEngineState }) => {
+      const patch: any = {};
+      if (minBullishScore  !== undefined) patch.minBullishScore  = Number(minBullishScore);
+      if (minBearishScore  !== undefined) patch.minBearishScore  = Number(minBearishScore);
+      if (stakePerTrade    !== undefined) patch.stakePerTrade    = Number(stakePerTrade);
+      if (maxOpenPositions !== undefined) patch.maxOpenPositions = Number(maxOpenPositions);
+      if (cooldownMinutes  !== undefined) patch.cooldownMinutes  = Number(cooldownMinutes);
+      updateEngineConfig(userId, patch);
+      res.json({ success: true, config: getEngineState(userId).config });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
+  // POST /api/polymarket-engine/scan — manual scan trigger
+  app.post("/api/polymarket-engine/scan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { manualScan, getEngineState } = await import('./services/polymarket-autonomous-engine');
+      const result = await manualScan(userId);
+      res.json({ ...result, state: getEngineState(userId) });
+    } catch {
+      res.status(500).json({ error: "Scan failed" });
+    }
+  });
+
+  // POST /api/polymarket-engine/positions/:id/close — close a specific position
+  app.post("/api/polymarket-engine/positions/:id/close", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const posId = req.params.id;
+    import('./services/polymarket-autonomous-engine').then(({ getEngineState, closePosition }) => {
+      const state = getEngineState(userId);
+      const ok = closePosition(state, posId);
+      if (!ok) return res.status(404).json({ error: "Position not found" });
+      res.json({ success: true, state });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
+  // POST /api/polymarket-engine/positions/close-all
+  app.post("/api/polymarket-engine/positions/close-all", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    import('./services/polymarket-autonomous-engine').then(({ closeAllPositions, getEngineState }) => {
+      const closed = closeAllPositions(userId);
+      res.json({ success: true, closed, state: getEngineState(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+
   // SS Engine dual-vote consensus feed (quant + AI per signal)
   app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

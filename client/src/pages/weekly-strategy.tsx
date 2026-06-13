@@ -5806,12 +5806,12 @@ export default function WeeklyStrategyPage() {
 
                   {/* → Full Polymarket Markets on dedicated page */}
                   <div className="mt-3 pt-3 border-t border-gray-800/60 flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500">View prediction markets & BTC sentiment signals</p>
+                    <p className="text-[10px] text-gray-500">View prediction markets & run the Polymarket engine</p>
                     <a
-                      href="/polymarket-wallet"
-                      className="text-[11px] font-semibold text-yellow-400 hover:text-yellow-300 flex items-center gap-1 transition-colors"
+                      href="/polymarket-engine"
+                      className="text-[11px] font-semibold text-purple-400 hover:text-purple-300 flex items-center gap-1 transition-colors"
                     >
-                      🏦 Polymarket Markets →
+                      🏦 Polymarket Engine →
                     </a>
                   </div>
 
@@ -5926,16 +5926,16 @@ export default function WeeklyStrategyPage() {
                       {engineCompositeMinEdge}<span className="text-gray-600 font-normal">/100</span>
                     </span>
                   </div>
-                  {/* Polymarket Wallet link */}
+                  {/* Polymarket Engine link */}
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-800">
                     <p className="text-[9px] text-gray-600">
                       Crypto pairs: BTC · ETH · SOL · XRP · BNB · DOGE · ADA · MATIC · LINK
                     </p>
                     <a
-                      href="/polymarket-wallet"
-                      className="text-[10px] font-semibold text-yellow-400 hover:text-yellow-300 bg-yellow-400/10 hover:bg-yellow-400/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
+                      href="/polymarket-engine"
+                      className="text-[10px] font-semibold text-purple-400 hover:text-purple-300 bg-purple-400/10 hover:bg-purple-400/20 px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5"
                     >
-                      🏦 Polymarket →
+                      🏦 Polymarket Engine →
                     </a>
                   </div>
                 </div>
