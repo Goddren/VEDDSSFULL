@@ -257,7 +257,7 @@ export default function PolymarketWalletPage() {
           {!connectedAddress ? (
             <>
               <p className="text-[10px] text-gray-400 mb-3">
-                Connect your EVM wallet on Polygon to view balances and enable on-chain Polymarket positions.
+                Connect your EVM wallet on Polygon to view balances. Polymarket requires <span className="text-emerald-400 font-semibold">USDC on Polygon</span> — not BTC, not POLY token. MATIC is only for gas (~$0.01).
               </p>
 
               {/* Wallet buttons */}
@@ -579,7 +579,7 @@ export default function PolymarketWalletPage() {
           <h3 className="text-xs font-bold text-gray-300 mb-2">📋 How it works</h3>
           <div className="space-y-2">
             {[
-              { n: 1, title: "Connect your Polygon wallet", desc: "MetaMask or Coinbase Wallet. Needs USDC or MATIC for Polymarket positions." },
+              { n: 1, title: "Connect your Polygon wallet", desc: "MetaMask or Coinbase Wallet. You need USDC (on Polygon) to place positions — not BTC, not POLY token. MATIC is only needed for gas fees (usually <$0.01)." },
               { n: 2, title: "Polymarket data is read automatically", desc: "The engine reads BTC prediction market probabilities every 5 minutes." },
               { n: 3, title: "Markov + Polymarket are fused", desc: "When both strongly agree on direction, the composite edge score rises." },
               { n: 4, title: "Auto-Trade fires on Polymarket", desc: "When the edge score meets your threshold, the Polymarket Engine opens a YES/NO position directly on Polymarket — not on TradeLocker. Use the Polymarket Engine page to run and monitor this." },

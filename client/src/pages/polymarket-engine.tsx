@@ -227,9 +227,9 @@ export default function PolymarketEnginePage() {
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
           <span className="text-lg mt-0.5">📋</span>
           <div>
-            <p className="text-xs font-bold text-amber-300">Paper Trading Mode</p>
+            <p className="text-xs font-bold text-amber-300">Paper Trading Mode — No wallet needed</p>
             <p className="text-[10px] text-amber-200/70 mt-0.5">
-              This engine tracks real Polymarket YES/NO positions using live probabilities. P&L is simulated — no actual USDC is spent. Positions reflect exactly what would be placed on Polymarket.
+              Tracks real Polymarket YES/NO positions using live probabilities. P&L is simulated — no USDC is spent. When you're ready for live execution, Polymarket uses <span className="text-emerald-300 font-semibold">USDC on Polygon</span> (not BTC, not POLY token) with a tiny MATIC gas fee.
             </p>
           </div>
         </div>

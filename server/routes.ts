@@ -16256,6 +16256,28 @@ Respond with ONLY valid JSON:
     res.json({ success: true });
   });
 
+  // POST /api/trading/kill-all — master kill switch: stops forex engine + Polymarket engine
+  app.post("/api/trading/kill-all", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      // Stop forex live engine (emergency stop queues MT5 CLOSE_ALL signal)
+      const forexState = emergencyStopEngine(userId);
+      // Stop Polymarket engine
+      const { stopEngine: stopPolyEngine, getEngineState: getPolyState } = await import('./services/polymarket-autonomous-engine');
+      stopPolyEngine(userId);
+      const polyState = getPolyState(userId);
+      res.json({
+        success: true,
+        message: 'All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll.',
+        forex: { isRunning: forexState?.isRunning ?? false },
+        polymarket: { isRunning: polyState.isRunning },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? 'Kill-all failed' });
+    }
+  });
+
   // ── Polymarket Autonomous Engine ─────────────────────────────────────────────
   // Completely separate from the forex live engine — fires positions on
   // Polymarket prediction markets directly, not on TradeLocker or MT5.

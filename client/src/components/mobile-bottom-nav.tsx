@@ -6,8 +6,11 @@ import {
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
   FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin, TrendingDown,
+  PowerOff, AlertTriangle,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
 
 /* ─── Nav item definitions ────────────────────────── */
@@ -139,7 +142,31 @@ function SectionLabel({ label }: { label: string }) {
 export function MobileBottomNav() {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
+  const [killConfirm, setKillConfirm] = useState(false);
   const { user, logoutMutation } = useAuth();
+
+  const { data: engineStatus } = useQuery<any>({
+    queryKey: ['/api/vedd-live-engine/status'],
+    refetchInterval: open ? 8000 : false,
+    enabled: !!user && open,
+  });
+
+  const { data: polyStatus } = useQuery<any>({
+    queryKey: ['/api/polymarket-engine/status'],
+    refetchInterval: open ? 8000 : false,
+    enabled: !!user && open,
+  });
+
+  const killAllMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/trading/kill-all').then(r => r.json()),
+    onSuccess: () => {
+      setKillConfirm(false);
+    },
+  });
+
+  const forexActive    = engineStatus?.isRunning ?? false;
+  const polyActive     = polyStatus?.isRunning   ?? false;
+  const anyTradeActive = forexActive || polyActive;
 
   /* Touch-swipe to open/close */
   const touchStartX = useRef(0);
@@ -237,6 +264,70 @@ export function MobileBottomNav() {
           >
             <X className="w-4 h-4 text-gray-300" />
           </button>
+        </div>
+
+        {/* ── EA Kill Switch ── */}
+        <div className="px-3 pt-3 pb-2 flex-shrink-0">
+          {!killConfirm ? (
+            <button
+              onClick={() => setKillConfirm(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all active:scale-95"
+              style={{
+                background: anyTradeActive ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.08)',
+                border: `1.5px solid ${anyTradeActive ? 'rgba(239,68,68,0.45)' : 'rgba(34,197,94,0.25)'}`,
+              }}
+            >
+              <span
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: anyTradeActive ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.18)' }}
+              >
+                <PowerOff className="w-4 h-4" style={{ color: anyTradeActive ? '#ef4444' : '#22c55e' }} />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-xs font-bold" style={{ color: anyTradeActive ? '#f87171' : '#86efac' }}>
+                  {anyTradeActive ? 'TRADING ACTIVE' : 'ALL TRADING OFF'}
+                </p>
+                <p className="text-[9px] mt-0.5" style={{ color: anyTradeActive ? 'rgba(248,113,113,0.7)' : 'rgba(134,239,172,0.6)' }}>
+                  {anyTradeActive
+                    ? `${forexActive ? 'Forex EA' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to stop all`
+                    : 'No engines running'}
+                </p>
+              </div>
+              {anyTradeActive && (
+                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse flex-shrink-0" />
+              )}
+            </button>
+          ) : (
+            <div
+              className="w-full rounded-2xl p-3"
+              style={{ background: 'rgba(239,68,68,0.18)', border: '1.5px solid rgba(239,68,68,0.55)' }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                <p className="text-xs font-bold text-red-300">Stop ALL trading engines?</p>
+              </div>
+              <p className="text-[9px] text-red-300/70 mb-3 leading-relaxed">
+                This stops the Forex EA and Polymarket engine. MT5 will receive a CLOSE_ALL signal on next poll.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => killAllMutation.mutate()}
+                  disabled={killAllMutation.isPending}
+                  className="flex-1 py-2 rounded-xl text-xs font-bold text-white transition-all active:scale-95"
+                  style={{ background: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.9)' }}
+                >
+                  {killAllMutation.isPending ? 'Stopping...' : '🔴 STOP ALL'}
+                </button>
+                <button
+                  onClick={() => setKillConfirm(false)}
+                  className="flex-1 py-2 rounded-xl text-xs font-semibold text-gray-300 transition-all active:scale-95"
+                  style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Scrollable tile grid */}
