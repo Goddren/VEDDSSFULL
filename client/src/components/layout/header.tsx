@@ -39,7 +39,8 @@ import {
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
-  DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw
+  DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw,
+  PowerOff,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -105,6 +106,36 @@ const Header: React.FC = () => {
   const [newKeyValue, setNewKeyValue] = useState('');
   const [newKeyLabel, setNewKeyLabel] = useState('');
 
+  // ── EA Kill Switch ───────────────────────────────────────────────────────
+  const [killConfirm, setKillConfirm] = useState(false);
+
+  const { data: forexEngineStatus } = useQuery<any>({
+    queryKey: ['/api/vedd-live-engine/status'],
+    refetchInterval: 10000,
+    enabled: !!user,
+  });
+
+  const { data: polyEngineStatus } = useQuery<any>({
+    queryKey: ['/api/polymarket-engine/status'],
+    refetchInterval: 10000,
+    enabled: !!user,
+  });
+
+  const killAllMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/trading/kill-all').then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/polymarket-engine/status'] });
+      setKillConfirm(false);
+      toast({ title: '🔴 All trading stopped', description: 'Forex EA and Polymarket engine halted. MT5 will receive CLOSE_ALL on next poll.' });
+    },
+  });
+
+  const forexActive    = forexEngineStatus?.isRunning   ?? false;
+  const polyActive     = polyEngineStatus?.isRunning    ?? false;
+  const anyTradeActive = forexActive || polyActive;
+
+  // ── AI Keys ─────────────────────────────────────────────────────────────
   // Query user's saved AI keys
   const { data: savedKeys = [] } = useQuery<UserApiKey[]>({
     queryKey: ['/api/user-api-keys'],
@@ -381,6 +412,41 @@ const Header: React.FC = () => {
               )}
             </div>
 
+            {/* ── EA Kill Switch (desktop) ── */}
+            {user && !killConfirm && (
+              <button
+                onClick={() => setKillConfirm(true)}
+                title={anyTradeActive ? 'Trading engines active — click to stop all' : 'No trading engines running'}
+                className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  anyTradeActive
+                    ? 'bg-red-500/15 border border-red-500/40 text-red-400 hover:bg-red-500/25'
+                    : 'bg-gray-800/60 border border-gray-700/50 text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {anyTradeActive && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
+                <PowerOff className="h-3.5 w-3.5" />
+                {anyTradeActive ? 'LIVE' : 'OFF'}
+              </button>
+            )}
+            {user && killConfirm && (
+              <div className="hidden md:flex items-center gap-1.5">
+                <span className="text-xs text-red-300 font-semibold">Stop all trading?</span>
+                <button
+                  onClick={() => killAllMutation.mutate()}
+                  disabled={killAllMutation.isPending}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-red-600/80 hover:bg-red-600 text-white border border-red-500 transition-all"
+                >
+                  {killAllMutation.isPending ? '...' : 'YES, STOP'}
+                </button>
+                <button
+                  onClick={() => setKillConfirm(false)}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-gray-800 text-gray-400 border border-gray-700 hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {/* Global Solana wallet indicator — shows for all users */}
             <GlobalWalletIndicator />
 
@@ -600,6 +666,56 @@ const Header: React.FC = () => {
               </SheetTrigger>
               <SheetContent side="right">
                 <div className="flex flex-col gap-6 mt-10">
+
+                  {/* ── EA Kill Switch (mobile sheet) ── */}
+                  {!killConfirm ? (
+                    <button
+                      onClick={() => setKillConfirm(true)}
+                      className={`flex items-center gap-3 w-full px-4 py-3 rounded-2xl transition-all active:scale-95 ${
+                        anyTradeActive
+                          ? 'bg-red-500/15 border border-red-500/45 text-red-400'
+                          : 'bg-gray-800/50 border border-gray-700/50 text-gray-500'
+                      }`}
+                    >
+                      <span className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${anyTradeActive ? 'bg-red-500/25' : 'bg-gray-700/50'}`}>
+                        <PowerOff className="h-4 w-4" />
+                      </span>
+                      <div className="flex-1 text-left">
+                        <p className={`text-sm font-bold ${anyTradeActive ? 'text-red-300' : 'text-gray-400'}`}>
+                          {anyTradeActive ? '● TRADING ACTIVE' : 'All Trading OFF'}
+                        </p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          {anyTradeActive
+                            ? `${forexActive ? 'Forex EA' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to stop`
+                            : 'No engines running'}
+                        </p>
+                      </div>
+                      {anyTradeActive && <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse shrink-0" />}
+                    </button>
+                  ) : (
+                    <div className="rounded-2xl p-3 bg-red-500/15 border border-red-500/50">
+                      <p className="text-sm font-bold text-red-300 mb-1 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4" /> Stop ALL trading engines?
+                      </p>
+                      <p className="text-[10px] text-red-300/60 mb-3">Forex EA + Polymarket engine will stop. MT5 receives CLOSE_ALL on next poll.</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => killAllMutation.mutate()}
+                          disabled={killAllMutation.isPending}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-red-600/80 border border-red-500"
+                        >
+                          {killAllMutation.isPending ? 'Stopping...' : '🔴 STOP ALL'}
+                        </button>
+                        <button
+                          onClick={() => setKillConfirm(false)}
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold text-gray-300 bg-gray-800 border border-gray-700"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {navItems.map(item => (
                     <Link
                       key={item.path}
