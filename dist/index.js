@@ -901,6 +901,8 @@ var init_schema = __esm({
       tradeCount: integer("trade_count").notNull().default(0),
       lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1),
       // Per-account lot size multiplier (0.1–5.0)
+      gateMode: text("gate_mode").notNull().default("basic"),
+      // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -16177,7 +16179,7 @@ function getPipSize(symbol) {
   if (matchesAny(symbol, ["XRP", "DOGE", "SHIB", "LTC", "TRX"])) return 1e-4;
   return 1e-4;
 }
-function getPipValue2(symbol) {
+function getPipValue(symbol) {
   if (!symbol) return 10;
   if (matchesAny(symbol, ["XAU", "GOLD"])) return 10;
   if (matchesAny(symbol, ["XAG", "SILVER"])) return 5;
@@ -19408,280 +19410,6 @@ var init_markov_chain = __esm({
   }
 });
 
-// server/services/polymarket.ts
-var polymarket_exports = {};
-__export(polymarket_exports, {
-  clearPolymarketCache: () => clearPolymarketCache,
-  getCachedPolymarketSentiment: () => getCachedPolymarketSentiment,
-  getPolymarketBTCSentiment: () => getPolymarketBTCSentiment
-});
-function classifyDirection(question) {
-  const q = question.toLowerCase();
-  if (q.includes("below") || q.includes("under $") || q.includes("crash") || q.includes("drop to") || q.includes("fall below") || q.includes("lose") || q.includes("less than") && (q.includes("btc") || q.includes("bitcoin"))) return "bearish";
-  if (q.includes("above") || q.includes("exceed") || q.includes("over $") || q.includes("reach $") || q.includes("hit $") || q.includes("cross $") || q.includes("surpass") || q.includes("higher than") || q.includes("at least") && (q.includes("btc") || q.includes("bitcoin"))) return "bullish";
-  return "neutral";
-}
-function computeSentimentLabel(score) {
-  if (score >= 70) return "Very Bullish";
-  if (score >= 55) return "Bullish";
-  if (score >= 45) return "Neutral";
-  if (score >= 30) return "Bearish";
-  return "Very Bearish";
-}
-function computeConfidenceAdjustment(score, signalDirection) {
-  if (!signalDirection) return 0;
-  const deviation = score - 50;
-  const raw = Math.round(deviation / 50 * 8);
-  if (signalDirection === "BUY") return raw;
-  if (signalDirection === "SELL") return -raw;
-  return 0;
-}
-async function fetchPolymarketBTCMarkets() {
-  const url = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volumeNum&order=DESC`;
-  const res = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
-    // 8s timeout
-  });
-  if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
-  const data = await res.json();
-  if (!Array.isArray(data)) throw new Error("Unexpected Polymarket response format");
-  const markets = [];
-  for (const item of data) {
-    const outcomes = Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
-    const prices = (() => {
-      try {
-        const raw = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
-        return raw.map((p) => parseFloat(String(p)));
-      } catch {
-        return [0.5, 0.5];
-      }
-    })();
-    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
-    const noProb = 100 - yesProb;
-    const direction = classifyDirection(item.question || "");
-    const volume = parseFloat(item.volumeNum ?? item.volume ?? "0") || 0;
-    markets.push({
-      id: item.id || item.conditionId || "",
-      question: item.question || "Unknown market",
-      yesProbability: yesProb,
-      noProbability: noProb,
-      volume,
-      endDate: item.endDate || item.endDateIso || null,
-      closed: item.closed ?? false,
-      direction,
-      outcomes
-    });
-  }
-  return markets.filter((m) => m.direction !== "neutral" && m.volume > 1e3).slice(0, 10);
-}
-async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cachedSentiment2 && now - cacheTimestamp < CACHE_TTL_MS3) {
-    const adj2 = computeConfidenceAdjustment(cachedSentiment2.overallBullishScore, signalDirection);
-    return {
-      ...cachedSentiment2,
-      confidenceAdjustment: adj2,
-      reason: buildReason(cachedSentiment2.overallBullishScore, cachedSentiment2.sentimentLabel, adj2, signalDirection),
-      fromCache: true
-    };
-  }
-  let markets = [];
-  try {
-    markets = await fetchPolymarketBTCMarkets();
-  } catch (err) {
-    if (cachedSentiment2) {
-      return { ...cachedSentiment2, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
-    }
-    throw err;
-  }
-  let totalVolume = 0;
-  let weightedBullScore = 0;
-  for (const m of markets) {
-    const bullScore = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
-    weightedBullScore += bullScore * m.volume;
-    totalVolume += m.volume;
-  }
-  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBullScore / totalVolume) : 50;
-  const sentimentLabel = computeSentimentLabel(overallBullishScore);
-  const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
-  const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
-  const result = {
-    overallBullishScore,
-    sentimentLabel,
-    markets,
-    confidenceAdjustment: adj,
-    reason,
-    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fromCache: false
-  };
-  cachedSentiment2 = result;
-  cacheTimestamp = now;
-  return result;
-}
-function buildReason(score, label, adj, direction) {
-  if (!direction) return `Polymarket BTC: ${label} (${score}% bullish sentiment)`;
-  const alignText = adj > 0 ? `aligns with ${direction}` : adj < 0 ? `conflicts with ${direction}` : "neutral vs";
-  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
-  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
-}
-function clearPolymarketCache() {
-  cachedSentiment2 = null;
-  cacheTimestamp = 0;
-}
-function getCachedPolymarketSentiment() {
-  return cachedSentiment2;
-}
-var GAMMA_BASE, CACHE_TTL_MS3, cachedSentiment2, cacheTimestamp;
-var init_polymarket = __esm({
-  "server/services/polymarket.ts"() {
-    "use strict";
-    GAMMA_BASE = "https://gamma-api.polymarket.com";
-    CACHE_TTL_MS3 = 5 * 60 * 1e3;
-    cachedSentiment2 = null;
-    cacheTimestamp = 0;
-  }
-});
-
-// server/services/composite-signal.ts
-var composite_signal_exports = {};
-__export(composite_signal_exports, {
-  ALIGNMENT_LABELS: () => ALIGNMENT_LABELS,
-  getCompositeEdgeSignal: () => getCompositeEdgeSignal
-});
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-function alignmentLabel(markovAdj, polyAdj) {
-  const mSign = Math.sign(markovAdj);
-  const pSign = polyAdj !== null ? Math.sign(polyAdj) : 0;
-  if (pSign === 0) {
-    if (Math.abs(markovAdj) >= 8) return markovAdj > 0 ? "strong_agree" : "strong_disagree";
-    if (Math.abs(markovAdj) >= 4) return markovAdj > 0 ? "agree" : "disagree";
-    return "neutral";
-  }
-  const bothStrong = Math.abs(markovAdj) >= 5 && Math.abs(polyAdj ?? 0) >= 4;
-  if (mSign === pSign && bothStrong) return mSign > 0 ? "strong_agree" : "strong_disagree";
-  if (mSign === pSign) return mSign > 0 ? "agree" : "disagree";
-  if (mSign !== pSign && bothStrong) return "strong_disagree";
-  return "neutral";
-}
-function compositeEdgeScore(markovBullP, polyBullScore) {
-  if (polyBullScore === null) {
-    return clamp(Math.round(markovBullP), 0, 100);
-  }
-  const blended = (markovBullP + polyBullScore) / 2;
-  return clamp(Math.round(blended), 0, 100);
-}
-async function getCompositeEdgeSignal(symbol, direction, candles) {
-  let markovSignal = null;
-  try {
-    if (candles.length > 0) {
-      markovSignal = getMarkovSignal(symbol, direction, candles);
-    }
-  } catch {
-  }
-  const markovAdj = markovSignal?.confidenceAdjustment ?? 0;
-  const markovBullP = markovSignal ? Math.round(markovSignal.bullishProbability * 100) : 50;
-  let polySentiment = null;
-  const isCrypto = CRYPTO_REGEX.test(symbol);
-  if (isCrypto) {
-    try {
-      polySentiment = await getPolymarketBTCSentiment(direction);
-    } catch {
-    }
-  }
-  const polyAdj = polySentiment?.confidenceAdjustment ?? null;
-  const polyBullScore = polySentiment?.overallBullishScore ?? null;
-  let finalAdjustment;
-  if (polyAdj === null) {
-    finalAdjustment = markovAdj;
-  } else {
-    const mSign = Math.sign(markovAdj);
-    const pSign = Math.sign(polyAdj);
-    if (mSign === pSign && mSign !== 0) {
-      const larger = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
-      const smaller = Math.abs(markovAdj) < Math.abs(polyAdj) ? markovAdj : polyAdj;
-      finalAdjustment = Math.round(larger * 1.5) + Math.round(smaller * 0.4);
-    } else if (mSign !== pSign && mSign !== 0 && pSign !== 0) {
-      const strongerAdj = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
-      finalAdjustment = Math.round(strongerAdj * 0.3);
-    } else {
-      finalAdjustment = markovAdj + (polyAdj ?? 0);
-    }
-  }
-  finalAdjustment = clamp(finalAdjustment, -15, 15);
-  const align = alignmentLabel(markovAdj, polyAdj);
-  const edgeScore = compositeEdgeScore(markovBullP, polyBullScore);
-  const adjText = finalAdjustment > 0 ? `+${finalAdjustment}%` : `${finalAdjustment}%`;
-  const alignEmoji = {
-    strong_agree: "\u{1F525}",
-    agree: "\u2705",
-    neutral: "\u{1F538}",
-    disagree: "\u26A0\uFE0F",
-    strong_disagree: "\u{1F6AB}"
-  }[align];
-  let reason = `${alignEmoji} Composite Edge [${symbol}]`;
-  if (polySentiment) {
-    reason += ` | Markov ${markovBullP}% bull (${markovAdj > 0 ? "+" : ""}${markovAdj}%)`;
-    reason += ` | Polymarket ${polySentiment.sentimentLabel} ${polySentiment.overallBullishScore}% (${polyAdj > 0 ? "+" : ""}${polyAdj}%)`;
-    reason += ` | Combined: ${adjText}`;
-    if (align === "strong_agree") {
-      reason += " \u2014 BOTH signals confirm direction (amplified)";
-    } else if (align === "disagree" || align === "strong_disagree") {
-      reason += " \u2014 signals conflict (dampened)";
-    }
-  } else if (markovSignal) {
-    reason += ` | Markov: ${markovSignal.reason}`;
-    if (isCrypto) reason += " | Polymarket: unavailable";
-  }
-  return {
-    confidenceAdjustment: finalAdjustment,
-    reason,
-    markov: {
-      currentState: markovSignal?.currentState ?? "NEUTRAL",
-      bullP: markovBullP,
-      bearP: markovSignal ? Math.round(markovSignal.bearishProbability * 100) : 50,
-      adjustment: markovAdj,
-      available: markovSignal !== null
-    },
-    polymarket: polySentiment ? {
-      overallBullishScore: polySentiment.overallBullishScore,
-      sentimentLabel: polySentiment.sentimentLabel,
-      adjustment: polyAdj,
-      marketCount: polySentiment.markets.length,
-      fromCache: polySentiment.fromCache,
-      available: true
-    } : isCrypto ? {
-      overallBullishScore: 50,
-      sentimentLabel: "Neutral",
-      adjustment: 0,
-      marketCount: 0,
-      fromCache: false,
-      available: false
-    } : null,
-    alignment: align,
-    compositeEdgeScore: edgeScore,
-    usedPolymarket: polySentiment !== null
-  };
-}
-var CRYPTO_REGEX, ALIGNMENT_LABELS;
-var init_composite_signal = __esm({
-  "server/services/composite-signal.ts"() {
-    "use strict";
-    init_markov_chain();
-    init_polymarket();
-    CRYPTO_REGEX = /BTC|ETH|SOL|XRP|BNB|CRYPTO|DOGE|ADA|MATIC|LINK/i;
-    ALIGNMENT_LABELS = {
-      strong_agree: { label: "Strong Agree", color: "text-emerald-400", emoji: "\u{1F525}" },
-      agree: { label: "Agree", color: "text-green-400", emoji: "\u2705" },
-      neutral: { label: "Neutral", color: "text-gray-400", emoji: "\u{1F538}" },
-      disagree: { label: "Disagree", color: "text-orange-400", emoji: "\u26A0\uFE0F" },
-      strong_disagree: { label: "Strong Conflict", color: "text-red-400", emoji: "\u{1F6AB}" }
-    };
-  }
-});
-
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -20061,6 +19789,280 @@ var init_ai_model_service = __esm({
       fallbackOrder: ["openai-gpt4o", "openai-gpt4o-mini"],
       ensembleMinAgreement: 60,
       enabled: true
+    };
+  }
+});
+
+// server/services/polymarket.ts
+var polymarket_exports = {};
+__export(polymarket_exports, {
+  clearPolymarketCache: () => clearPolymarketCache,
+  getCachedPolymarketSentiment: () => getCachedPolymarketSentiment,
+  getPolymarketBTCSentiment: () => getPolymarketBTCSentiment
+});
+function classifyDirection(question) {
+  const q = question.toLowerCase();
+  if (q.includes("below") || q.includes("under $") || q.includes("crash") || q.includes("drop to") || q.includes("fall below") || q.includes("lose") || q.includes("less than") && (q.includes("btc") || q.includes("bitcoin"))) return "bearish";
+  if (q.includes("above") || q.includes("exceed") || q.includes("over $") || q.includes("reach $") || q.includes("hit $") || q.includes("cross $") || q.includes("surpass") || q.includes("higher than") || q.includes("at least") && (q.includes("btc") || q.includes("bitcoin"))) return "bullish";
+  return "neutral";
+}
+function computeSentimentLabel(score) {
+  if (score >= 70) return "Very Bullish";
+  if (score >= 55) return "Bullish";
+  if (score >= 45) return "Neutral";
+  if (score >= 30) return "Bearish";
+  return "Very Bearish";
+}
+function computeConfidenceAdjustment(score, signalDirection) {
+  if (!signalDirection) return 0;
+  const deviation = score - 50;
+  const raw = Math.round(deviation / 50 * 8);
+  if (signalDirection === "BUY") return raw;
+  if (signalDirection === "SELL") return -raw;
+  return 0;
+}
+async function fetchPolymarketBTCMarkets() {
+  const url = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volumeNum&order=DESC`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+    // 8s timeout
+  });
+  if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
+  const data = await res.json();
+  if (!Array.isArray(data)) throw new Error("Unexpected Polymarket response format");
+  const markets = [];
+  for (const item of data) {
+    const outcomes = Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
+    const prices = (() => {
+      try {
+        const raw = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
+        return raw.map((p) => parseFloat(String(p)));
+      } catch {
+        return [0.5, 0.5];
+      }
+    })();
+    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
+    const noProb = 100 - yesProb;
+    const direction = classifyDirection(item.question || "");
+    const volume = parseFloat(item.volumeNum ?? item.volume ?? "0") || 0;
+    markets.push({
+      id: item.id || item.conditionId || "",
+      question: item.question || "Unknown market",
+      yesProbability: yesProb,
+      noProbability: noProb,
+      volume,
+      endDate: item.endDate || item.endDateIso || null,
+      closed: item.closed ?? false,
+      direction,
+      outcomes
+    });
+  }
+  return markets.filter((m) => m.direction !== "neutral" && m.volume > 1e3).slice(0, 10);
+}
+async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedSentiment2 && now - cacheTimestamp < CACHE_TTL_MS3) {
+    const adj2 = computeConfidenceAdjustment(cachedSentiment2.overallBullishScore, signalDirection);
+    return {
+      ...cachedSentiment2,
+      confidenceAdjustment: adj2,
+      reason: buildReason(cachedSentiment2.overallBullishScore, cachedSentiment2.sentimentLabel, adj2, signalDirection),
+      fromCache: true
+    };
+  }
+  let markets = [];
+  try {
+    markets = await fetchPolymarketBTCMarkets();
+  } catch (err) {
+    if (cachedSentiment2) {
+      return { ...cachedSentiment2, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
+    }
+    throw err;
+  }
+  let totalVolume = 0;
+  let weightedBullScore = 0;
+  for (const m of markets) {
+    const bullScore = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
+    weightedBullScore += bullScore * m.volume;
+    totalVolume += m.volume;
+  }
+  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBullScore / totalVolume) : 50;
+  const sentimentLabel = computeSentimentLabel(overallBullishScore);
+  const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
+  const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
+  const result = {
+    overallBullishScore,
+    sentimentLabel,
+    markets,
+    confidenceAdjustment: adj,
+    reason,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache: false
+  };
+  cachedSentiment2 = result;
+  cacheTimestamp = now;
+  return result;
+}
+function buildReason(score, label, adj, direction) {
+  if (!direction) return `Polymarket BTC: ${label} (${score}% bullish sentiment)`;
+  const alignText = adj > 0 ? `aligns with ${direction}` : adj < 0 ? `conflicts with ${direction}` : "neutral vs";
+  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
+  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+}
+function clearPolymarketCache() {
+  cachedSentiment2 = null;
+  cacheTimestamp = 0;
+}
+function getCachedPolymarketSentiment() {
+  return cachedSentiment2;
+}
+var GAMMA_BASE, CACHE_TTL_MS3, cachedSentiment2, cacheTimestamp;
+var init_polymarket = __esm({
+  "server/services/polymarket.ts"() {
+    "use strict";
+    GAMMA_BASE = "https://gamma-api.polymarket.com";
+    CACHE_TTL_MS3 = 5 * 60 * 1e3;
+    cachedSentiment2 = null;
+    cacheTimestamp = 0;
+  }
+});
+
+// server/services/composite-signal.ts
+var composite_signal_exports = {};
+__export(composite_signal_exports, {
+  ALIGNMENT_LABELS: () => ALIGNMENT_LABELS,
+  getCompositeEdgeSignal: () => getCompositeEdgeSignal
+});
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function alignmentLabel(markovAdj, polyAdj) {
+  const mSign = Math.sign(markovAdj);
+  const pSign = polyAdj !== null ? Math.sign(polyAdj) : 0;
+  if (pSign === 0) {
+    if (Math.abs(markovAdj) >= 8) return markovAdj > 0 ? "strong_agree" : "strong_disagree";
+    if (Math.abs(markovAdj) >= 4) return markovAdj > 0 ? "agree" : "disagree";
+    return "neutral";
+  }
+  const bothStrong = Math.abs(markovAdj) >= 5 && Math.abs(polyAdj ?? 0) >= 4;
+  if (mSign === pSign && bothStrong) return mSign > 0 ? "strong_agree" : "strong_disagree";
+  if (mSign === pSign) return mSign > 0 ? "agree" : "disagree";
+  if (mSign !== pSign && bothStrong) return "strong_disagree";
+  return "neutral";
+}
+function compositeEdgeScore(markovBullP, polyBullScore) {
+  if (polyBullScore === null) {
+    return clamp(Math.round(markovBullP), 0, 100);
+  }
+  const blended = (markovBullP + polyBullScore) / 2;
+  return clamp(Math.round(blended), 0, 100);
+}
+async function getCompositeEdgeSignal(symbol, direction, candles) {
+  let markovSignal = null;
+  try {
+    if (candles.length > 0) {
+      markovSignal = getMarkovSignal(symbol, direction, candles);
+    }
+  } catch {
+  }
+  const markovAdj = markovSignal?.confidenceAdjustment ?? 0;
+  const markovBullP = markovSignal ? Math.round(markovSignal.bullishProbability * 100) : 50;
+  let polySentiment = null;
+  const isCrypto = CRYPTO_REGEX.test(symbol);
+  if (isCrypto) {
+    try {
+      polySentiment = await getPolymarketBTCSentiment(direction);
+    } catch {
+    }
+  }
+  const polyAdj = polySentiment?.confidenceAdjustment ?? null;
+  const polyBullScore = polySentiment?.overallBullishScore ?? null;
+  let finalAdjustment;
+  if (polyAdj === null) {
+    finalAdjustment = markovAdj;
+  } else {
+    const mSign = Math.sign(markovAdj);
+    const pSign = Math.sign(polyAdj);
+    if (mSign === pSign && mSign !== 0) {
+      const larger = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      const smaller = Math.abs(markovAdj) < Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(larger * 1.5) + Math.round(smaller * 0.4);
+    } else if (mSign !== pSign && mSign !== 0 && pSign !== 0) {
+      const strongerAdj = Math.abs(markovAdj) >= Math.abs(polyAdj) ? markovAdj : polyAdj;
+      finalAdjustment = Math.round(strongerAdj * 0.3);
+    } else {
+      finalAdjustment = markovAdj + (polyAdj ?? 0);
+    }
+  }
+  finalAdjustment = clamp(finalAdjustment, -15, 15);
+  const align = alignmentLabel(markovAdj, polyAdj);
+  const edgeScore = compositeEdgeScore(markovBullP, polyBullScore);
+  const adjText = finalAdjustment > 0 ? `+${finalAdjustment}%` : `${finalAdjustment}%`;
+  const alignEmoji = {
+    strong_agree: "\u{1F525}",
+    agree: "\u2705",
+    neutral: "\u{1F538}",
+    disagree: "\u26A0\uFE0F",
+    strong_disagree: "\u{1F6AB}"
+  }[align];
+  let reason = `${alignEmoji} Composite Edge [${symbol}]`;
+  if (polySentiment) {
+    reason += ` | Markov ${markovBullP}% bull (${markovAdj > 0 ? "+" : ""}${markovAdj}%)`;
+    reason += ` | Polymarket ${polySentiment.sentimentLabel} ${polySentiment.overallBullishScore}% (${polyAdj > 0 ? "+" : ""}${polyAdj}%)`;
+    reason += ` | Combined: ${adjText}`;
+    if (align === "strong_agree") {
+      reason += " \u2014 BOTH signals confirm direction (amplified)";
+    } else if (align === "disagree" || align === "strong_disagree") {
+      reason += " \u2014 signals conflict (dampened)";
+    }
+  } else if (markovSignal) {
+    reason += ` | Markov: ${markovSignal.reason}`;
+    if (isCrypto) reason += " | Polymarket: unavailable";
+  }
+  return {
+    confidenceAdjustment: finalAdjustment,
+    reason,
+    markov: {
+      currentState: markovSignal?.currentState ?? "NEUTRAL",
+      bullP: markovBullP,
+      bearP: markovSignal ? Math.round(markovSignal.bearishProbability * 100) : 50,
+      adjustment: markovAdj,
+      available: markovSignal !== null
+    },
+    polymarket: polySentiment ? {
+      overallBullishScore: polySentiment.overallBullishScore,
+      sentimentLabel: polySentiment.sentimentLabel,
+      adjustment: polyAdj,
+      marketCount: polySentiment.markets.length,
+      fromCache: polySentiment.fromCache,
+      available: true
+    } : isCrypto ? {
+      overallBullishScore: 50,
+      sentimentLabel: "Neutral",
+      adjustment: 0,
+      marketCount: 0,
+      fromCache: false,
+      available: false
+    } : null,
+    alignment: align,
+    compositeEdgeScore: edgeScore,
+    usedPolymarket: polySentiment !== null
+  };
+}
+var CRYPTO_REGEX, ALIGNMENT_LABELS;
+var init_composite_signal = __esm({
+  "server/services/composite-signal.ts"() {
+    "use strict";
+    init_markov_chain();
+    init_polymarket();
+    CRYPTO_REGEX = /BTC|ETH|SOL|XRP|BNB|CRYPTO|DOGE|ADA|MATIC|LINK/i;
+    ALIGNMENT_LABELS = {
+      strong_agree: { label: "Strong Agree", color: "text-emerald-400", emoji: "\u{1F525}" },
+      agree: { label: "Agree", color: "text-green-400", emoji: "\u2705" },
+      neutral: { label: "Neutral", color: "text-gray-400", emoji: "\u{1F538}" },
+      disagree: { label: "Disagree", color: "text-orange-400", emoji: "\u26A0\uFE0F" },
+      strong_disagree: { label: "Strong Conflict", color: "text-red-400", emoji: "\u{1F6AB}" }
     };
   }
 });
@@ -21030,74 +21032,6 @@ async function scanMarkets(userId) {
     }
     const currentOpenPositions = global.mt5OpenPositions?.[userId]?.positions || [];
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
-    if (config.enableCompositeAutonomous !== false) {
-      const CRYPTO_RE = /BTC|ETH|SOL|XRP|BNB|DOGE|ADA|MATIC|LINK/i;
-      const minEdge = config.compositeMinEdgeScore ?? 72;
-      const COMPOSITE_COOLDOWN_MS = 5 * 60 * 1e3;
-      if (!state.compositeLastFiredAt) state.compositeLastFiredAt = {};
-      const cryptoPairs = analyzedPairs.filter((sym) => CRYPTO_RE.test(sym));
-      for (const sym of cryptoPairs) {
-        try {
-          const symSnap = state.marketSnapshot?.[sym] ?? {};
-          const { getCachedMatrix: getCachedMatrix3 } = await Promise.resolve().then(() => (init_markov_chain(), markov_chain_exports));
-          const cachedTM = getCachedMatrix3(sym);
-          const candles = (cachedTM?.candleHistory?.length ?? 0) >= 5 ? cachedTM.candleHistory : symSnap.lastConfirmedCandle ? [symSnap.lastConfirmedCandle] : [];
-          const lastFired = state.compositeLastFiredAt[sym] || 0;
-          if (Date.now() - lastFired < COMPOSITE_COOLDOWN_MS) continue;
-          const { getCompositeEdgeSignal: getCompositeEdgeSignal2 } = await Promise.resolve().then(() => (init_composite_signal(), composite_signal_exports));
-          for (const dir of ["BUY", "SELL"]) {
-            const composite = await getCompositeEdgeSignal2(sym, dir, candles);
-            if (!composite.usedPolymarket) break;
-            const edgeOk = dir === "BUY" ? composite.compositeEdgeScore >= minEdge : composite.compositeEdgeScore <= 100 - minEdge;
-            if (composite.alignment !== "strong_agree" || !edgeOk) continue;
-            const mData = marketAnalysis[sym] || {};
-            const currentPrice = mData.currentPrice || symSnap.currentPrice || 0;
-            if (currentPrice <= 0) continue;
-            const atr = mData.atr?.value ?? mData.atr ?? currentPrice * 5e-3;
-            const pipSize = getPipSize(sym);
-            const isJpy = sym.includes("JPY");
-            const isXau = sym.includes("XAU");
-            const isCrypto = !isJpy && !isXau;
-            const minSlPips = isCrypto ? 50 : isXau ? 300 : 22;
-            const minSlDist = minSlPips * pipSize;
-            const slDist = Math.max(atr * 1.8, minSlDist);
-            const tpDist = Math.max(atr * 3.6, slDist * 2);
-            const sl = dir === "BUY" ? currentPrice - slDist : currentPrice + slDist;
-            const tp = dir === "BUY" ? currentPrice + tpDist : currentPrice - tpDist;
-            const autonomousDecision = {
-              action: "OPEN_TRADE",
-              strategy: "composite_autonomous",
-              symbol: sym,
-              direction: dir,
-              confidence: Math.round(50 + Math.abs(composite.compositeEdgeScore - 50) * 0.8),
-              reason: `\u{1F916} Composite Autonomous \u2014 ${composite.reason}`,
-              confluences: [
-                `Markov: ${composite.markov.currentState} (bull ${composite.markov.bullP}%)`,
-                `Polymarket: ${composite.polymarket?.sentimentLabel ?? "N/A"} (${composite.polymarket?.overallBullishScore ?? 0}%)`,
-                `Alignment: ${composite.alignment} | Edge: ${composite.compositeEdgeScore}`
-              ],
-              entryPrice: currentPrice,
-              stopLoss: sl,
-              takeProfit: tp,
-              lotSize: config.baseLotSize,
-              holdTime: "5min",
-              urgency: "IMMEDIATE"
-            };
-            addActivity2(userId, {
-              type: "signal",
-              symbol: sym,
-              direction: dir,
-              message: `\u{1F525} COMPOSITE AUTO SIGNAL [${sym}]: ${dir} \u2014 Markov + Polymarket strong_agree (edge ${composite.compositeEdgeScore}) \u2192 firing trade`,
-              confidence: autonomousDecision.confidence
-            });
-            state.compositeLastFiredAt[sym] = Date.now();
-            await processDecision(userId, autonomousDecision, newsContext);
-            break;
-          }
-        } catch {
-        }
-      }
-    }
     try {
       await runORBAutonomousScan(userId);
     } catch {
@@ -24400,6 +24334,211 @@ var init_breakout_monitor = __esm({
     init_indicators();
     monitorStates = {};
     pollInterval = null;
+  }
+});
+
+// server/services/polymarket-autonomous-engine.ts
+var polymarket_autonomous_engine_exports = {};
+__export(polymarket_autonomous_engine_exports, {
+  closeAllPositions: () => closeAllPositions,
+  closePosition: () => closePosition,
+  getEngineState: () => getEngineState,
+  manualScan: () => manualScan,
+  startEngine: () => startEngine,
+  stopEngine: () => stopEngine,
+  updateEngineConfig: () => updateEngineConfig
+});
+function getEngineState(userId) {
+  if (!_states.has(userId)) {
+    _states.set(userId, {
+      isRunning: false,
+      isPaperMode: true,
+      lastScanAt: null,
+      lastTradeAt: null,
+      lastScanResult: null,
+      openPositions: [],
+      closedPositions: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      tradesOpened: 0,
+      config: { ...DEFAULT_CONFIG }
+    });
+  }
+  return _states.get(userId);
+}
+function updateEngineConfig(userId, config) {
+  const s = getEngineState(userId);
+  s.config = { ...s.config, ...config };
+}
+function startEngine(userId) {
+  const s = getEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _runScan(userId).catch(console.error);
+  const iv = setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _intervals.set(userId, iv);
+}
+function stopEngine(userId) {
+  const s = getEngineState(userId);
+  s.isRunning = false;
+  const iv = _intervals.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _intervals.delete(userId);
+  }
+}
+async function manualScan(userId) {
+  return _runScan(userId, true);
+}
+async function _runScan(userId, manual = false) {
+  const s = getEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _refreshPositionPrices(s);
+  if (s.openPositions.length >= s.config.maxOpenPositions) {
+    const r = `Max open positions (${s.config.maxOpenPositions}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    if (elapsed < s.config.cooldownMinutes * 60 * 1e3) {
+      const minsLeft = Math.ceil((s.config.cooldownMinutes * 60 * 1e3 - elapsed) / 6e4);
+      const r = `Cooldown active \u2014 ${minsLeft}m remaining`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  try {
+    const sentiment = await getPolymarketBTCSentiment();
+    const score = sentiment.overallBullishScore;
+    const isBullish = score >= s.config.minBullishScore;
+    const isBearish = 100 - score >= s.config.minBearishScore;
+    if (!isBullish && !isBearish) {
+      const r = `Sentiment neutral \u2014 score ${score}% (need \u2265${s.config.minBullishScore}% bullish or \u2264${100 - s.config.minBearishScore}% bearish)`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+    const direction = isBullish ? "BUY" : "SELL";
+    const result = await _openPosition(s, sentiment, direction);
+    s.lastScanResult = result.reason;
+    return result;
+  } catch (err) {
+    const r = `Scan error: ${err?.message ?? String(err)}`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+}
+async function _openPosition(s, sentiment, direction) {
+  const openIds = new Set(s.openPositions.map((p) => p.market.id));
+  const now = Date.now();
+  const candidates = sentiment.markets.filter((m) => {
+    if (openIds.has(m.id)) return false;
+    if (m.closed) return false;
+    if (m.endDate) {
+      const end = new Date(m.endDate).getTime();
+      if (end - now < 2 * 60 * 60 * 1e3) return false;
+    }
+    if (direction === "BUY" && m.direction === "bullish") return true;
+    if (direction === "SELL" && m.direction === "bearish") return true;
+    return false;
+  });
+  if (candidates.length === 0) {
+    return { fired: false, reason: `No suitable open ${direction} market available on Polymarket` };
+  }
+  const best = candidates.sort((a, b) => b.volume - a.volume)[0];
+  const entryProb = best.yesProbability;
+  if (entryProb <= 5 || entryProb >= 95) {
+    return { fired: false, reason: `Market probability ${entryProb}% too extreme \u2014 skipping` };
+  }
+  const position = {
+    id: `pm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    market: { id: best.id, question: best.question, endDate: best.endDate },
+    side: "YES",
+    direction,
+    entryProbability: entryProb,
+    currentProbability: entryProb,
+    stake: s.config.stakePerTrade,
+    currentValue: s.config.stakePerTrade,
+    unrealizedPnl: 0,
+    unrealizedPnlPct: 0,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    signal: {
+      bullishScore: sentiment.overallBullishScore,
+      sentimentLabel: sentiment.sentimentLabel,
+      direction
+    },
+    status: "open"
+  };
+  s.openPositions.push(position);
+  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+  s.tradesOpened++;
+  return {
+    fired: true,
+    reason: `Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
+  };
+}
+async function _refreshPositionPrices(s) {
+  if (s.openPositions.length === 0) return;
+  try {
+    const sentiment = await getPolymarketBTCSentiment();
+    for (const pos of s.openPositions) {
+      const market = sentiment.markets.find((m) => m.id === pos.market.id);
+      if (!market) continue;
+      const currentProb = pos.side === "YES" ? market.yesProbability : 100 - market.yesProbability;
+      pos.currentProbability = currentProb;
+      const shares = pos.stake * 100 / pos.entryProbability;
+      pos.currentValue = shares * (currentProb / 100);
+      pos.unrealizedPnl = pos.currentValue - pos.stake;
+      pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
+      if (market.closed) {
+        closePosition(s, pos.id, currentProb);
+      }
+    }
+    s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
+  } catch {
+  }
+}
+function closePosition(s, positionId, exitProb) {
+  const idx = s.openPositions.findIndex((p) => p.id === positionId);
+  if (idx === -1) return false;
+  const pos = s.openPositions[idx];
+  const ep = exitProb ?? pos.currentProbability;
+  const shares = pos.stake * 100 / pos.entryProbability;
+  const exitValue = shares * (ep / 100);
+  const realizedPnl = exitValue - pos.stake;
+  pos.status = ep >= 99 ? "resolved" : "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closedProbability = ep;
+  pos.realizedPnl = realizedPnl;
+  pos.unrealizedPnl = 0;
+  pos.unrealizedPnlPct = 0;
+  s.openPositions.splice(idx, 1);
+  s.closedPositions.unshift(pos);
+  if (s.closedPositions.length > 50) s.closedPositions.length = 50;
+  s.totalRealizedPnl += realizedPnl;
+  s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
+  return true;
+}
+function closeAllPositions(userId) {
+  const s = getEngineState(userId);
+  const ids = s.openPositions.map((p) => p.id);
+  ids.forEach((id) => closePosition(s, id));
+  return ids.length;
+}
+var _states, _intervals, DEFAULT_CONFIG;
+var init_polymarket_autonomous_engine = __esm({
+  "server/services/polymarket-autonomous-engine.ts"() {
+    "use strict";
+    init_polymarket();
+    _states = /* @__PURE__ */ new Map();
+    _intervals = /* @__PURE__ */ new Map();
+    DEFAULT_CONFIG = {
+      minBullishScore: 70,
+      minBearishScore: 70,
+      stakePerTrade: 10,
+      maxOpenPositions: 3,
+      cooldownMinutes: 30
+    };
   }
 });
 
@@ -27974,7 +28113,7 @@ async function runScan(userId, state, triggerToken) {
 async function startSolEngine(userId, config = {}) {
   const existing = engineStates2.get(userId);
   if (existing?.isRunning) stopSolEngine(userId);
-  const fullConfig = { ...DEFAULT_CONFIG, ...config };
+  const fullConfig = { ...DEFAULT_CONFIG2, ...config };
   const state = createInitialState(fullConfig);
   if (existing) {
     state.weeklyGoal = existing.weeklyGoal;
@@ -28104,7 +28243,7 @@ function setSolStrategies(userId, strategyIds) {
   if (valid.length === 0) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG });
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
     engineStates2.set(userId, state);
   }
   state.activeStrategies = valid;
@@ -28123,7 +28262,7 @@ function setSolStrategy(userId, strategyId) {
   if (!strategy) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG });
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
     engineStates2.set(userId, state);
   }
   state.activeStrategy = strategyId;
@@ -28137,7 +28276,7 @@ function setSolStrategy(userId, strategyId) {
 function setSolWeeklyGoal(userId, params) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG });
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
     engineStates2.set(userId, state);
   }
   const portfolio = state.currentPortfolioValue;
@@ -28236,7 +28375,7 @@ function recordSolSignalResult(userId, params) {
 function setAutoTrade(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG });
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
     engineStates2.set(userId, state);
   }
   if (opts.paperEnabled !== void 0) {
@@ -28296,7 +28435,7 @@ function setAutoTrade(userId, opts) {
 function setCompoundSettings(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG });
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
     engineStates2.set(userId, state);
   }
   if (opts.compoundMode !== void 0) {
@@ -28550,7 +28689,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG2, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -28660,7 +28799,7 @@ var init_sol_engine = __esm({
         holdTarget: "varies"
       }
     ];
-    DEFAULT_CONFIG = {
+    DEFAULT_CONFIG2 = {
       dexFilter: "all",
       minConfidence: 65,
       maxTokens: 10,
@@ -38635,7 +38774,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const relaySlDist = Math.abs(entryPrice - stopLoss);
           const relaySym = (symbol || "").toUpperCase().replace("/", "");
           const relayPipSz = getPipSize(relaySym);
-          const relayPipVal = getPipValue2(relaySym);
+          const relayPipVal = getPipValue(relaySym);
           const relaySlPips = relaySlDist / relayPipSz;
           if (relaySlPips > 0 && relayPipVal > 0) {
             const calc = relayRiskAmt / (relaySlPips * relayPipVal);
@@ -38952,10 +39091,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         for (const closedTrade of closedTrades) {
           if (closedTrade.ticket) {
             const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
+            const tradeResult = closedTrade.profit > 0 ? "WIN" : closedTrade.profit < 0 ? "LOSS" : "BREAKEVEN";
+            const tradeSymbol = (closedTrade.symbol || existingResult?.symbol || "UNKNOWN").toUpperCase();
             if (existingResult && (!existingResult.result || existingResult.result === "PENDING")) {
-              const result = closedTrade.profit > 0 ? "WIN" : closedTrade.profit < 0 ? "LOSS" : "BREAKEVEN";
               await storage.updateAiTradeResult(existingResult.id, token.userId, {
-                result,
+                result: tradeResult,
                 exitPrice: closedTrade.closePrice || 0,
                 profitLoss: closedTrade.profit || 0,
                 closedAt: /* @__PURE__ */ new Date()
@@ -38964,22 +39104,42 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
                 await storage.resolveConfirmationOutcome(
                   token.userId,
-                  (closedTrade.symbol || existingResult.symbol || "").toUpperCase(),
+                  tradeSymbol,
                   existingResult.direction,
-                  result,
+                  tradeResult,
                   pips
                 );
                 const { clearLearningCache: clearLearningCache2 } = await Promise.resolve().then(() => (init_confirmation_learning(), confirmation_learning_exports));
                 clearLearningCache2(token.userId);
               } catch (_lcErr) {
               }
-              recordEngineResult(token.userId, {
-                symbol: (closedTrade.symbol || existingResult.symbol || "UNKNOWN").toUpperCase(),
-                profit: closedTrade.profit || 0,
-                strategy: existingResult.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",
-                session: detectedSession
-              });
+            } else if (!existingResult && closedTrade.symbol && closedTrade.profit !== void 0) {
+              try {
+                await storage.createAiTradeResult({
+                  userId: token.userId,
+                  symbol: tradeSymbol,
+                  direction: closedTrade.direction || "BUY",
+                  entryPrice: closedTrade.openPrice || 0,
+                  stopLoss: closedTrade.sl > 0 ? closedTrade.sl : null,
+                  takeProfit: closedTrade.tp > 0 ? closedTrade.tp : null,
+                  aiConfidence: 0,
+                  result: tradeResult,
+                  profitLoss: closedTrade.profit || 0,
+                  exitPrice: closedTrade.closePrice || 0,
+                  source: "mt5_ea",
+                  mt5Ticket: closedTrade.ticket.toString(),
+                  notes: `EA closed trade`,
+                  closedAt: /* @__PURE__ */ new Date()
+                });
+              } catch (_createErr) {
+              }
             }
+            recordEngineResult(token.userId, {
+              symbol: tradeSymbol,
+              profit: closedTrade.profit || 0,
+              strategy: existingResult?.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",
+              session: detectedSession
+            });
           }
         }
         const symbolStats = {};
@@ -39994,9 +40154,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const mt5MinConfidence = eaSettings?.minConfidence;
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
         mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
-        65
-        // server-side floor — never auto-trade below 65% confidence
+        70
+        // MT5 EA basic floor — minimum 70% confidence for all EA signals
       );
+      const FULL_MODE_CONF_FLOOR = 74;
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? "MT5 EA" : matchingEA?.name || "default"} | Session=${eaSettings?.sessionName || "N/A"}`);
       let newsContextForAI;
       let newsAlerts = null;
@@ -40915,7 +41076,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const sl = analysis.tradePlan.stopLoss;
         const slDistance = Math.abs(entry - sl);
         const symPipSize = getPipSize(sanitizedSymbol);
-        const symPipValue = getPipValue2(sanitizedSymbol);
+        const symPipValue = getPipValue(sanitizedSymbol);
         const slPips = slDistance / symPipSize;
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
@@ -41089,6 +41250,96 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         } catch {
         }
       }
+      let tlFullGatesBlocked = false;
+      let tlFullGateReason = "";
+      let _tlM15ConfPenalty = 0;
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const _eaBrain = global.veddAIBrain?.[token.userId];
+          const _eaBrainK = _eaBrain?.pairKnowledge?.[sanitizedSymbol];
+          if (_eaBrainK && _eaBrainK.totalTrades >= 3) {
+            const _eaNow = /* @__PURE__ */ new Date();
+            const _eaHour = _eaNow.getUTCHours();
+            const _eaSession = _eaHour < 7 ? "Asian" : _eaHour < 13 ? "London" : _eaHour < 20 ? "New York" : "Late NY";
+            const _eaSessionData = _eaBrainK.topSessions?.find((s) => s.session === _eaSession);
+            if (_eaSessionData && _eaSessionData.total >= 3 && _eaSessionData.winRate < 45) {
+              tlFullGatesBlocked = true;
+              tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSession} session ${_eaSessionData.winRate}% WR \u2014 below 45% threshold`;
+              console.log(`[TL Gate 2e/session] ${tlFullGateReason}`);
+            }
+            if (!tlFullGatesBlocked) {
+              const _eaWorstHour = _eaBrainK.worstHours?.find((h) => h.hour === _eaHour && h.total >= 3 && h.winRate < 40);
+              if (_eaWorstHour) {
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} hour ${_eaHour}:00 UTC ${_eaWorstHour.winRate}% WR \u2014 loss zone`;
+                console.log(`[TL Gate 2e/hour] ${tlFullGateReason}`);
+              }
+            }
+            if (!tlFullGatesBlocked && _eaBrainK.totalTrades >= 15) {
+              const _eaSignalDir = analysis.signal.includes("BUY") ? "BUY" : "SELL";
+              const _eaDirWR = _eaSignalDir === "BUY" ? _eaBrainK.buyWinRate ?? 50 : _eaBrainK.sellWinRate ?? 50;
+              if (_eaBrainK.totalTrades >= 30 && _eaDirWR < 20) {
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} ${_eaSignalDir} ${_eaDirWR}% WR over ${_eaBrainK.totalTrades} trades \u2014 statistically losing`;
+                console.log(`[TL Gate 2e/direction] ${tlFullGateReason}`);
+              }
+            }
+            if (!tlFullGatesBlocked && _eaBrainK.consecutiveLossesToday >= 3 && _eaBrainK.lastLossAt) {
+              const _eaMsSinceLoss = Date.now() - new Date(_eaBrainK.lastLossAt).getTime();
+              const _eaTHREE_HOURS = 3 * 60 * 60 * 1e3;
+              if (_eaMsSinceLoss < _eaTHREE_HOURS) {
+                const _eaMinsLeft = Math.ceil((_eaTHREE_HOURS - _eaMsSinceLoss) / 6e4);
+                tlFullGatesBlocked = true;
+                tlFullGateReason = `Brain: ${sanitizedSymbol} \u2014 3 consecutive losses, ${_eaMinsLeft}min cooldown remaining`;
+                console.log(`[TL Gate 2e/losslock] ${tlFullGateReason}`);
+              }
+            }
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && !tlFullGatesBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const _eaSignalDir2f = analysis.signal.includes("BUY") ? "BUY" : "SELL";
+          const _eaConf2f = analysis.confidence;
+          const _eaHtfBias = _liveState?.htfBiasCache?.[sanitizedSymbol];
+          if (_eaHtfBias && _eaHtfBias.trend && _eaHtfBias.trend !== "NEUTRAL") {
+            const _eaHtfAligns = _eaSignalDir2f === "BUY" && _eaHtfBias.trend === "BULLISH" || _eaSignalDir2f === "SELL" && _eaHtfBias.trend === "BEARISH";
+            if (!_eaHtfAligns && _eaConf2f < 90) {
+              tlFullGatesBlocked = true;
+              tlFullGateReason = `HTF conflict: ${_eaSignalDir2f} vs ${_eaHtfBias.trend} \u2014 ${_eaConf2f}% < 90% required`;
+              console.log(`[TL Gate 2f/htf] ${tlFullGateReason}`);
+            }
+          }
+          if (!tlFullGatesBlocked) {
+            const _eaM15Snap = _liveState?.marketSnapshot?.[sanitizedSymbol];
+            if (_eaM15Snap) {
+              const _eaM15ADX = _eaM15Snap.adx || 0;
+              const _eaM15PlusDI = _eaM15Snap.plusDI || 0;
+              const _eaM15MinusDI = _eaM15Snap.minusDI || 0;
+              const _eaDiSep = Math.abs(_eaM15PlusDI - _eaM15MinusDI);
+              let _eaM15Trend = _eaM15Snap.trend ?? "NEUTRAL";
+              if (_eaM15Trend === "NEUTRAL" && _eaM15ADX > 12 && _eaDiSep > 8) {
+                _eaM15Trend = _eaM15PlusDI > _eaM15MinusDI ? "BULLISH" : "BEARISH";
+              }
+              const _eaM15TrendDetected = (_eaM15ADX > 12 || _eaDiSep > 8) && _eaM15Trend !== "NEUTRAL";
+              const _eaM15Conflicts = _eaSignalDir2f === "BUY" && _eaM15Trend === "BEARISH" || _eaSignalDir2f === "SELL" && _eaM15Trend === "BULLISH";
+              if (_eaM15TrendDetected && _eaM15Conflicts) {
+                const _eaIsStrongTrend = _eaM15ADX > 20 || _eaDiSep > 12;
+                if (_eaIsStrongTrend && _eaConf2f < 88) {
+                  tlFullGatesBlocked = true;
+                  tlFullGateReason = `M15 conflict: ${_eaSignalDir2f} vs strong M15 ${_eaM15Trend} (ADX ${_eaM15ADX.toFixed(1)}) \u2014 ${_eaConf2f}% < 88%`;
+                  console.log(`[TL Gate 2f/m15] ${tlFullGateReason}`);
+                } else if (!_eaIsStrongTrend) {
+                  _tlM15ConfPenalty = 12;
+                  console.log(`[TL Gate 2f/m15-mild] Mild M15 conflict on ${sanitizedSymbol}: ${_eaSignalDir2f} vs ${_eaM15Trend} \u2014 full-mode accounts get 12% confidence penalty`);
+                }
+              }
+            }
+          }
+        } catch {
+        }
+      }
       const tlMaxOpen = matchingEA?.maxOpenTrades ?? _liveState?.config?.maxOpenTrades ?? 3;
       if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== "NEUTRAL") {
         try {
@@ -41156,9 +41407,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
             } else {
-              const effectiveConfFloor = lastTradeWasLoss ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, POST_LOSS_CONF_FLOOR) : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
-              if (lastTradeWasLoss) {
-                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: need ${POST_LOSS_CONF_FLOOR}% (have ${analysis.confidence}%)`);
+              const _postLossBrainK = global.veddAIBrain?.[token.userId]?.pairKnowledge?.[sanitizedSymbol];
+              const _consecutiveLosses = _postLossBrainK?.consecutiveLossesToday ?? (lastTradeWasLoss ? 1 : 0);
+              const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : _consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0;
+              const effectiveConfFloor = _dynamicLossFloor > 0 ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor) : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
+              if (_consecutiveLosses >= 1) {
+                console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: ${_consecutiveLosses} consecutive loss(es) \u2192 need ${_dynamicLossFloor}% (have ${analysis.confidence}%)`);
               }
               const analysisGuard = tlSignalGuard({
                 confidence: analysis.confidence,
@@ -41186,7 +41440,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 }
                 const _calcEaVolMax = (minSlPips, slBreath) => {
                   if (_eaAcctBal <= 0) return 0.1;
-                  const pipVal = getPipValue2(_eaSym);
+                  const pipVal = getPipValue(_eaSym);
                   const maxRisk = _eaAcctBal * VOLATILE_RISK_PCT_EA;
                   const slRiskPerLot = minSlPips * slBreath * pipVal;
                   return Math.max(0.01, Math.floor(maxRisk / slRiskPerLot * 100) / 100);
@@ -41211,12 +41465,51 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   if (_eaVolCap?.preferPending) return "limit_entry";
                   return "market";
                 })();
+                const _eaCopyMode = _liveState?.config?.copyMode ?? "proportional";
                 for (const tlConn of tlActiveConns) {
-                  console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId}:`, {
+                  const _connGateMode = tlConn.gateMode ?? "basic";
+                  if (_connGateMode === "full") {
+                    const _connEffConf = analysis.confidence - _tlM15ConfPenalty;
+                    if (tlFullGatesBlocked) {
+                      console.log(`[MT5 AutoTrade] FULL-MODE BLOCK on account ${tlConn.accountId} (${sanitizedSymbol}): ${tlFullGateReason}`);
+                      continue;
+                    }
+                    if (_connEffConf < FULL_MODE_CONF_FLOOR) {
+                      console.log(`[MT5 AutoTrade] FULL-MODE CONF BLOCK on account ${tlConn.accountId}: ${_connEffConf}% < ${FULL_MODE_CONF_FLOOR}% (penalty: ${_tlM15ConfPenalty}%)`);
+                      continue;
+                    }
+                  }
+                  let connLot = tradeVolume;
+                  let _tlCachedBal = global.tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
+                  if (_tlCachedBal === null && _eaCopyMode === "proportional") {
+                    try {
+                      const _tlSvc = await getOrCreateService(tlConn);
+                      const _tlInfo = await _tlSvc.getAccountInfo();
+                      const _freshBal = _tlInfo?.balance || 0;
+                      if (_freshBal > 0) {
+                        global.tlAccountBalances = global.tlAccountBalances || {};
+                        global.tlAccountBalances[token.userId] = global.tlAccountBalances[token.userId] || {};
+                        global.tlAccountBalances[token.userId][tlConn.accountId] = _freshBal;
+                        _tlCachedBal = _freshBal;
+                        console.log(`[ProportionalSizing] Live-fetched TL balance for ${tlConn.accountId}: $${_freshBal}`);
+                      }
+                    } catch (_balFetchErr) {
+                    }
+                  }
+                  if (_eaCopyMode === "proportional" && _tlCachedBal && accountBalance > 0) {
+                    connLot = Math.max(0.01, Math.round(tradeVolume * (_tlCachedBal / accountBalance) * 100) / 100);
+                    console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} \xD7 (${_tlCachedBal}/${accountBalance}) = ${connLot} lots`);
+                  }
+                  if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+                  console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                     action: "OPEN",
                     symbol: sanitizedSymbol,
                     direction: analysis.signal,
-                    volume: tradeVolume,
+                    volume: connLot,
+                    refLot: tradeVolume,
+                    copyMode: _eaCopyMode,
+                    tlBal: _tlCachedBal,
+                    mt5Bal: accountBalance,
                     orderType: _eaOrderType
                   });
                   try {
@@ -41224,7 +41517,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       action: "OPEN",
                       symbol: sanitizedSymbol,
                       direction: analysis.signal,
-                      volume: tradeVolume,
+                      volume: connLot,
                       entryPrice: _entryPrice,
                       stopLoss: analysis.tradePlan.stopLoss,
                       takeProfit: analysis.tradePlan.takeProfit,
@@ -41238,7 +41531,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       action: "OPEN",
                       symbol: sanitizedSymbol,
                       direction: analysis.signal,
-                      volume: tradeVolume,
+                      volume: connLot,
                       entryPrice: analysis.tradePlan.entry,
                       stopLoss: analysis.tradePlan.stopLoss,
                       takeProfit: analysis.tradePlan.takeProfit,
@@ -41665,6 +41958,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
           let connTodayPnL = 0;
           let connWeekPnL = 0;
+          global.tlProcessedOrders = global.tlProcessedOrders || {};
+          global.tlProcessedOrders[userId] = global.tlProcessedOrders[userId] || /* @__PURE__ */ new Set();
+          const _tlProcessed = global.tlProcessedOrders[userId];
+          const { recordTradeResult: _tlRecordResult } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+          const _nowH = (/* @__PURE__ */ new Date()).getUTCHours();
+          const _tlSession = _nowH < 7 ? "Asian" : _nowH < 13 ? "London" : _nowH < 20 ? "New York" : "Late NY";
           for (const order of filledOrders) {
             const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
             if (closeTs >= todayStart.getTime()) {
@@ -41674,6 +41973,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             if (closeTs >= weekStart.getTime()) {
               tlWeekClosedPnL += order.profit || 0;
               connWeekPnL += order.profit || 0;
+            }
+            const _orderId = (order.orderId ?? order.id ?? order.tradeId)?.toString();
+            if (_orderId && !_tlProcessed.has(_orderId) && closeTs >= weekStart.getTime() && order.profit !== void 0) {
+              _tlProcessed.add(_orderId);
+              _tlRecordResult(userId, {
+                symbol: (order.symbol || "UNKNOWN").toUpperCase(),
+                profit: order.profit || 0,
+                strategy: "tradelocker",
+                session: _tlSession
+              });
             }
           }
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
@@ -43985,13 +44294,16 @@ Rules:
     if (!connection2 || connection2.userId !== userId) {
       return res.status(404).json({ error: "No connection found" });
     }
-    const { isActive, autoExecute, lotMultiplier } = req.body;
+    const { isActive, autoExecute, lotMultiplier, gateMode } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
     if (autoExecute !== void 0) updateDataById.autoExecute = autoExecute;
     if (lotMultiplier !== void 0) {
       const mult = parseFloat(lotMultiplier);
       if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
+    }
+    if (gateMode !== void 0 && (gateMode === "full" || gateMode === "basic")) {
+      updateDataById.gateMode = gateMode;
     }
     const updated = await storage.updateTradelockerConnection(connId, updateDataById);
     if (!updated) {
@@ -46165,6 +46477,92 @@ Respond with ONLY valid JSON:
     delete map[String(userId)];
     _savePolyWallets(map);
     res.json({ success: true });
+  });
+  app2.post("/api/trading/kill-all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const forexState = emergencyStopEngine2(userId);
+      const { stopEngine: stopPolyEngine, getEngineState: getPolyState } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+      stopPolyEngine(userId);
+      const polyState = getPolyState(userId);
+      res.json({
+        success: true,
+        message: "All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll.",
+        forex: { isRunning: forexState?.isRunning ?? false },
+        polymarket: { isRunning: polyState.isRunning }
+      });
+    } catch (err) {
+      res.status(500).json({ error: err?.message ?? "Kill-all failed" });
+    }
+  });
+  app2.get("/api/polymarket-engine/status", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2 }) => {
+      res.json(getEngineState2(userId));
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.post("/api/polymarket-engine/start", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ startEngine: startEngine2, getEngineState: getEngineState2 }) => {
+      startEngine2(userId);
+      res.json({ success: true, state: getEngineState2(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.post("/api/polymarket-engine/stop", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ stopEngine: stopEngine2, getEngineState: getEngineState2 }) => {
+      stopEngine2(userId);
+      res.json({ success: true, state: getEngineState2(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.put("/api/polymarket-engine/config", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { minBullishScore, minBearishScore, stakePerTrade, maxOpenPositions, cooldownMinutes } = req.body;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ updateEngineConfig: updateEngineConfig2, getEngineState: getEngineState2 }) => {
+      const patch = {};
+      if (minBullishScore !== void 0) patch.minBullishScore = Number(minBullishScore);
+      if (minBearishScore !== void 0) patch.minBearishScore = Number(minBearishScore);
+      if (stakePerTrade !== void 0) patch.stakePerTrade = Number(stakePerTrade);
+      if (maxOpenPositions !== void 0) patch.maxOpenPositions = Number(maxOpenPositions);
+      if (cooldownMinutes !== void 0) patch.cooldownMinutes = Number(cooldownMinutes);
+      updateEngineConfig2(userId, patch);
+      res.json({ success: true, config: getEngineState2(userId).config });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.post("/api/polymarket-engine/scan", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { manualScan: manualScan2, getEngineState: getEngineState2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+      const result = await manualScan2(userId);
+      res.json({ ...result, state: getEngineState2(userId) });
+    } catch {
+      res.status(500).json({ error: "Scan failed" });
+    }
+  });
+  app2.post("/api/polymarket-engine/positions/:id/close", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const posId = req.params.id;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2, closePosition: closePosition2 }) => {
+      const state = getEngineState2(userId);
+      const ok = closePosition2(state, posId);
+      if (!ok) return res.status(404).json({ error: "Position not found" });
+      res.json({ success: true, state });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.post("/api/polymarket-engine/positions/close-all", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ closeAllPositions: closeAllPositions2, getEngineState: getEngineState2 }) => {
+      const closed = closeAllPositions2(userId);
+      res.json({ success: true, closed, state: getEngineState2(userId) });
+    }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
   app2.get("/api/ss-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
