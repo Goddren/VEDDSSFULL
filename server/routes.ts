@@ -10479,9 +10479,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 // relative to the MT5 reference account balance.
                 // e.g. MT5=$100, TL=$500 → TL gets 5× the lot size (same % risk both accounts)
                 let connLot = tradeVolume;
-                const _tlCachedBal = (global as any).tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
+                let _tlCachedBal = (global as any).tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
+
+                // If balance not cached yet, fetch it live so proportional sizing always works —
+                // cache is only populated when frontend polls /api/tradelocker/account-balance
+                if (_tlCachedBal === null && _eaCopyMode === 'proportional') {
+                  try {
+                    const _tlSvc = await tlGetOrCreateService(tlConn);
+                    const _tlInfo = await _tlSvc.getAccountInfo();
+                    const _freshBal = _tlInfo?.balance || 0;
+                    if (_freshBal > 0) {
+                      (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
+                      (global as any).tlAccountBalances[token.userId] = (global as any).tlAccountBalances[token.userId] || {};
+                      (global as any).tlAccountBalances[token.userId][tlConn.accountId] = _freshBal;
+                      _tlCachedBal = _freshBal;
+                      console.log(`[ProportionalSizing] Live-fetched TL balance for ${tlConn.accountId}: $${_freshBal}`);
+                    }
+                  } catch (_balFetchErr) { /* non-blocking — falls back to raw lot */ }
+                }
+
                 if (_eaCopyMode === 'proportional' && _tlCachedBal && accountBalance > 0) {
                   connLot = Math.max(0.01, Math.round(tradeVolume * (_tlCachedBal / accountBalance) * 100) / 100);
+                  console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} × (${_tlCachedBal}/${accountBalance}) = ${connLot} lots`);
                 }
                 // Re-apply volatile cap after scaling so a large TL account can't exceed risk cap
                 if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
