@@ -131,7 +131,7 @@ export class TradeLockerService {
     }
 
     await this.ensureAuthenticated();
-    
+
     try {
       const response = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
         method: 'GET',
@@ -139,20 +139,21 @@ export class TradeLockerService {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(8000),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         console.log('[TradeLocker] All accounts raw response:', JSON.stringify(data));
-        
+
         const accounts = Array.isArray(data) ? data : (data.accounts || data.d?.accounts || []);
-        
+
         if (accounts.length > 0) {
-          const account = accounts.find((acc: any) => 
-            acc.id?.toString() === this.accountId || 
+          const account = accounts.find((acc: any) =>
+            acc.id?.toString() === this.accountId ||
             acc.accountId?.toString() === this.accountId
           );
-          
+
           if (account && account.accNum !== undefined) {
             this.accNum = account.accNum.toString();
             this.accNumResolved = true;
@@ -169,9 +170,10 @@ export class TradeLockerService {
     } catch (error) {
       console.log('[TradeLocker] All-accounts endpoint failed:', error);
     }
-    
+
+    // Probe only 2 accNums to avoid slow timeout chains
     console.log('[TradeLocker] All-accounts returned empty, probing accNum values...');
-    for (const testNum of ['1', '2', '3', '4', '5']) {
+    for (const testNum of ['1', '2']) {
       try {
         const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
           method: 'GET',
@@ -180,22 +182,21 @@ export class TradeLockerService {
             'Content-Type': 'application/json',
             'accNum': testNum,
           },
+          signal: AbortSignal.timeout(5000),
         });
-        
+
         if (testResponse.ok) {
           this.accNum = testNum;
           this.accNumResolved = true;
           console.log('[TradeLocker] Probing found valid accNum:', testNum);
           return this.accNum;
-        } else {
-          const errText = await testResponse.text();
-          console.log(`[TradeLocker] accNum ${testNum} failed:`, testResponse.status);
         }
+        console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
       } catch (err) {
         console.log(`[TradeLocker] accNum ${testNum} probe error`);
       }
     }
-    
+
     this.accNum = '1';
     console.log('[TradeLocker] Could not resolve accNum, defaulting to 1');
     return this.accNum;
@@ -220,6 +221,7 @@ export class TradeLockerService {
           password,
           server: this.serverId,
         }),
+        signal: AbortSignal.timeout(12000),
       });
 
       console.log('[TradeLocker Auth] Response status:', response.status);
@@ -260,6 +262,7 @@ export class TradeLockerService {
         body: JSON.stringify({
           refreshToken,
         }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
@@ -307,53 +310,23 @@ export class TradeLockerService {
     await this.ensureAuthenticated();
 
     try {
-      // TradeLocker API: First get all accounts to find our accNum
-      console.log('[TradeLocker] Getting all accounts to find accNum for accountId:', this.accountId);
-      
-      const accountsResponse = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      console.log('[TradeLocker] All accounts response status:', accountsResponse.status);
-      if (!accountsResponse.ok) {
-        const errorText = await accountsResponse.text();
-        console.log('[TradeLocker] All accounts error:', errorText);
-        throw new Error(`Failed to get accounts list: ${accountsResponse.status} - ${errorText}`);
+      // Use the cached accNum resolved during authenticate() — no extra round-trip needed
+      // If not yet resolved, resolve it now (first-time call without prior authenticate)
+      if (!this.accNumResolved || this.accNum === '0') {
+        await this.resolveAccNum();
       }
-      
-      const accountsData = await accountsResponse.json();
-      console.log('[TradeLocker] Accounts data:', JSON.stringify(accountsData));
-      
-      // Find the accNum for our accountId from the response
-      const accounts = Array.isArray(accountsData) ? accountsData : (accountsData.accounts || []);
-      let accNum = 0;
-      
-      if (accounts.length > 0) {
-        const account = accounts.find((acc: any) => 
-          acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
-        );
-        if (account && account.accNum !== undefined) {
-          accNum = account.accNum;
-        } else {
-          // Use first account's accNum if not found
-          accNum = accounts[0].accNum ?? 0;
-        }
-      }
-      
-      console.log('[TradeLocker] Using accNum:', accNum, 'for accountId:', this.accountId);
-      
-      // Now get account details with the correct accNum
+      const accNum = this.accNum;
+      console.log('[TradeLocker] getAccountInfo using accNum:', accNum, 'for accountId:', this.accountId);
+
+      // Get account details with the correct accNum
       const response = await fetch(`${this.baseUrl}/trade/accounts`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
           'Content-Type': 'application/json',
-          'accNum': accNum.toString(),
+          'accNum': accNum,
         },
+        signal: AbortSignal.timeout(8000),
       });
 
       console.log('[TradeLocker] Account details response status:', response.status);
@@ -394,6 +367,7 @@ export class TradeLockerService {
           'Content-Type': 'application/json',
           'accNum': this.accNum,
         },
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
@@ -409,9 +383,9 @@ export class TradeLockerService {
 
   async placeOrder(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
     await this.ensureAuthenticated();
-    
-    // Always resolve accNum before placing orders to ensure we have the correct value
-    if (this.accessToken) {
+
+    // Resolve accNum only if not yet done (avoids redundant round-trips on every order)
+    if (!this.accNumResolved || this.accNum === '0') {
       await this.resolveAccNum();
     }
 

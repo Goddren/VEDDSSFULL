@@ -446,6 +446,13 @@ export default function WebhooksPage() {
     staleTime: 0,
   });
 
+  const { data: tlBalances } = useQuery<{ totalBalance: number; totalEquity: number; accounts: Array<{ accountId: string; accountType: string; balance: number; equity: number; currency: string; error?: string }> }>({
+    queryKey: ['/api/tradelocker/account-balance'],
+    enabled: tlConnections.length > 0,
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
   const createTLConnectionMutation = useMutation({
     mutationFn: async (data: typeof tlConnectionForm) => {
       const res = await apiRequest('POST', '/api/tradelocker/connection', data);
@@ -1636,6 +1643,33 @@ export default function WebhooksPage() {
                               </button>
                             </div>
                           </div>
+                          {/* Live account balance */}
+                          {(() => {
+                            const bal = tlBalances?.accounts?.find(a => a.accountId === conn.accountId);
+                            if (!bal) return null;
+                            return (
+                              <div className="mt-2 p-2 bg-gray-900/50 rounded text-xs">
+                                {bal.error ? (
+                                  <p className="text-red-400 text-[11px]">Balance error: {bal.error}</p>
+                                ) : (
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <span className="text-gray-400">Balance</span>
+                                      <p className="text-white font-bold text-sm">${bal.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-gray-400 text-[10px] font-normal">{bal.currency}</span></p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Equity</span>
+                                      <p className={`font-bold text-sm ${bal.equity >= bal.balance ? 'text-green-400' : 'text-red-400'}`}>${bal.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-400">Open P&amp;L</span>
+                                      <p className={`font-bold text-sm ${(bal.equity - bal.balance) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{(bal.equity - bal.balance) >= 0 ? '+' : ''}${(bal.equity - bal.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {/* Per-account lot multiplier */}
                           <div className="flex items-center justify-between p-2 bg-gray-900/50 rounded text-xs mt-2">
                             <div>

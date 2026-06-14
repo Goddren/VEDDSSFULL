@@ -15450,7 +15450,8 @@ var init_tradelocker = __esm({
             headers: {
               "Authorization": `Bearer ${this.accessToken}`,
               "Content-Type": "application/json"
-            }
+            },
+            signal: AbortSignal.timeout(8e3)
           });
           if (response.ok) {
             const data = await response.json();
@@ -15477,7 +15478,7 @@ var init_tradelocker = __esm({
           console.log("[TradeLocker] All-accounts endpoint failed:", error);
         }
         console.log("[TradeLocker] All-accounts returned empty, probing accNum values...");
-        for (const testNum of ["1", "2", "3", "4", "5"]) {
+        for (const testNum of ["1", "2"]) {
           try {
             const testResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
               method: "GET",
@@ -15485,17 +15486,16 @@ var init_tradelocker = __esm({
                 "Authorization": `Bearer ${this.accessToken}`,
                 "Content-Type": "application/json",
                 "accNum": testNum
-              }
+              },
+              signal: AbortSignal.timeout(5e3)
             });
             if (testResponse.ok) {
               this.accNum = testNum;
               this.accNumResolved = true;
               console.log("[TradeLocker] Probing found valid accNum:", testNum);
               return this.accNum;
-            } else {
-              const errText = await testResponse.text();
-              console.log(`[TradeLocker] accNum ${testNum} failed:`, testResponse.status);
             }
+            console.log(`[TradeLocker] accNum ${testNum} failed: ${testResponse.status}`);
           } catch (err) {
             console.log(`[TradeLocker] accNum ${testNum} probe error`);
           }
@@ -15521,7 +15521,8 @@ var init_tradelocker = __esm({
               email,
               password,
               server: this.serverId
-            })
+            }),
+            signal: AbortSignal.timeout(12e3)
           });
           console.log("[TradeLocker Auth] Response status:", response.status);
           if (!response.ok) {
@@ -15553,7 +15554,8 @@ var init_tradelocker = __esm({
             },
             body: JSON.stringify({
               refreshToken
-            })
+            }),
+            signal: AbortSignal.timeout(1e4)
           });
           if (!response.ok) {
             throw new Error(`Token refresh failed: ${response.status}`);
@@ -15592,42 +15594,19 @@ var init_tradelocker = __esm({
       async getAccountInfo() {
         await this.ensureAuthenticated();
         try {
-          console.log("[TradeLocker] Getting all accounts to find accNum for accountId:", this.accountId);
-          const accountsResponse = await fetch(`${this.baseUrl}/auth/jwt/all-accounts`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json"
-            }
-          });
-          console.log("[TradeLocker] All accounts response status:", accountsResponse.status);
-          if (!accountsResponse.ok) {
-            const errorText = await accountsResponse.text();
-            console.log("[TradeLocker] All accounts error:", errorText);
-            throw new Error(`Failed to get accounts list: ${accountsResponse.status} - ${errorText}`);
+          if (!this.accNumResolved || this.accNum === "0") {
+            await this.resolveAccNum();
           }
-          const accountsData = await accountsResponse.json();
-          console.log("[TradeLocker] Accounts data:", JSON.stringify(accountsData));
-          const accounts = Array.isArray(accountsData) ? accountsData : accountsData.accounts || [];
-          let accNum = 0;
-          if (accounts.length > 0) {
-            const account = accounts.find(
-              (acc) => acc.id?.toString() === this.accountId || acc.accountId?.toString() === this.accountId
-            );
-            if (account && account.accNum !== void 0) {
-              accNum = account.accNum;
-            } else {
-              accNum = accounts[0].accNum ?? 0;
-            }
-          }
-          console.log("[TradeLocker] Using accNum:", accNum, "for accountId:", this.accountId);
+          const accNum = this.accNum;
+          console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
           const response = await fetch(`${this.baseUrl}/trade/accounts`, {
             method: "GET",
             headers: {
               "Authorization": `Bearer ${this.accessToken}`,
               "Content-Type": "application/json",
-              "accNum": accNum.toString()
-            }
+              "accNum": accNum
+            },
+            signal: AbortSignal.timeout(8e3)
           });
           console.log("[TradeLocker] Account details response status:", response.status);
           if (!response.ok) {
@@ -15660,7 +15639,8 @@ var init_tradelocker = __esm({
               "Authorization": `Bearer ${this.accessToken}`,
               "Content-Type": "application/json",
               "accNum": this.accNum
-            }
+            },
+            signal: AbortSignal.timeout(1e4)
           });
           if (!response.ok) {
             throw new Error(`Failed to get instruments: ${response.status}`);
@@ -15673,7 +15653,7 @@ var init_tradelocker = __esm({
       }
       async placeOrder(order) {
         await this.ensureAuthenticated();
-        if (this.accessToken) {
+        if (!this.accNumResolved || this.accNum === "0") {
           await this.resolveAccNum();
         }
         try {
