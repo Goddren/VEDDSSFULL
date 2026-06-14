@@ -162,6 +162,12 @@ export function MobileBottomNav() {
     enabled: !!user && open,
   });
 
+  const { data: kalshiStatus } = useQuery<any>({
+    queryKey: ['/api/kalshi/engine/status'],
+    refetchInterval: open ? 8000 : false,
+    enabled: !!user && open,
+  });
+
   // ── TL connections ──────────────────────────────────
   const { data: tlConns = [] } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/connections'],
@@ -214,6 +220,13 @@ export function MobileBottomNav() {
   const polyOpen      = polyStatus?.openPositions?.length ?? 0;
   const polyUnreal    = polyStatus?.totalUnrealizedPnl ?? 0;
   const polyRealized  = polyStatus?.totalRealizedPnl ?? 0;
+
+  // ── Derived Kalshi values ──────────────────────────
+  const kalshiActive   = kalshiStatus?.isRunning ?? false;
+  const kalshiOpen     = kalshiStatus?.openTrades?.length ?? 0;
+  const kalshiUnreal   = kalshiStatus?.totalUnrealizedPnl ?? 0;
+  const kalshiRealized = kalshiStatus?.totalRealizedPnl ?? 0;
+  const kalshiPaper    = kalshiStatus?.isPaperMode ?? true;
 
   /* Touch-swipe to open/close */
   const touchStartX = useRef(0);
@@ -392,7 +405,7 @@ export function MobileBottomNav() {
           </div>
 
           {/* ═══════════════════════════════════════════════
-              LIVE ACCOUNTS — MT5 · TradeLocker · Polymarket
+              LIVE ACCOUNTS — MT5 · TradeLocker · Kalshi
           ═══════════════════════════════════════════════ */}
           <SectionLabel label="Live Accounts" />
 
@@ -502,40 +515,44 @@ export function MobileBottomNav() {
             })
           )}
 
-          {/* Polymarket Engine card */}
-          <Link href="/polymarket-engine">
+          {/* Kalshi Engine card */}
+          <Link href="/polymarket-engine#kalshi">
             <button
               onClick={close}
               className="w-full text-left px-4 py-3 rounded-2xl mb-2 transition-all active:scale-[0.97]"
-              style={{ background: 'rgba(139,92,246,0.10)', border: '1.5px solid rgba(139,92,246,0.28)' }}
+              style={{ background: 'rgba(99,102,241,0.10)', border: '1.5px solid rgba(99,102,241,0.28)' }}
             >
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(139,92,246,0.22)' }}>
-                    <TrendingUp className="w-3.5 h-3.5" style={{ color: '#a78bfa' }} />
+                  <span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.22)' }}>
+                    <DollarSign className="w-3.5 h-3.5" style={{ color: '#818cf8' }} />
                   </span>
-                  <span className="text-xs font-bold" style={{ color: '#c4b5fd' }}>Polymarket Engine</span>
+                  <span className="text-xs font-bold" style={{ color: '#c7d2fe' }}>Kalshi Engine</span>
+                  <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded-full"
+                    style={{ background: kalshiPaper ? 'rgba(245,158,11,0.2)' : 'rgba(16,185,129,0.2)', color: kalshiPaper ? '#fcd34d' : '#6ee7b7' }}>
+                    {kalshiPaper ? 'PAPER' : 'LIVE'}
+                  </span>
                 </div>
                 <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background: polyActive ? 'rgba(139,92,246,0.25)' : 'rgba(100,116,139,0.2)', color: polyActive ? '#c4b5fd' : '#94a3b8' }}>
-                  {polyActive ? 'RUNNING' : 'OFF'}
+                  style={{ background: kalshiActive ? 'rgba(99,102,241,0.25)' : 'rgba(100,116,139,0.2)', color: kalshiActive ? '#c7d2fe' : '#94a3b8' }}>
+                  {kalshiActive ? 'RUNNING' : 'OFF'}
                 </span>
               </div>
               <div className="flex items-end justify-between">
                 <div>
-                  <p className="text-[10px] text-gray-500">Open Positions</p>
-                  <p className="text-sm font-bold text-white">{polyOpen}</p>
+                  <p className="text-[10px] text-gray-500">Open Trades</p>
+                  <p className="text-sm font-bold text-white">{kalshiOpen}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-gray-500">Unrealized P&L</p>
-                  <p className="text-sm font-bold" style={{ color: pnlCls(polyUnreal) }}>
-                    {polyUnreal >= 0 ? '+' : ''}${fmtUsd(polyUnreal)}
+                  <p className="text-sm font-bold" style={{ color: pnlCls(kalshiUnreal) }}>
+                    {kalshiUnreal >= 0 ? '+' : ''}${fmtUsd(kalshiUnreal)}
                   </p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-gray-500">Realized P&L</p>
-                  <p className="text-sm font-bold" style={{ color: pnlCls(polyRealized) }}>
-                    {polyRealized >= 0 ? '+' : ''}${fmtUsd(polyRealized)}
+                  <p className="text-sm font-bold" style={{ color: pnlCls(kalshiRealized) }}>
+                    {kalshiRealized >= 0 ? '+' : ''}${fmtUsd(kalshiRealized)}
                   </p>
                 </div>
               </div>
