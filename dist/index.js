@@ -55210,13 +55210,22 @@ var vite_config_default = defineConfig({
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
-          "vendor-query": ["@tanstack/react-query"],
-          "vendor-charts": ["recharts", "d3"],
-          "vendor-solana": ["@solana/web3.js", "@solana/spl-token"],
-          "vendor-ui": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-tabs", "@radix-ui/react-select"],
-          "vendor-motion": ["framer-motion"]
+        // Function-based chunking: keep explicit heavy groups, and bucket every
+        // other node_modules package into a shared `vendor` chunk. This pulls
+        // the bulk of dependencies out of the 4 MB main `index` chunk, shrinking
+        // it and lowering Rollup's peak memory during build (avoids OOM on the
+        // 512 MB Render starter plan).
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("@solana")) return "vendor-solana";
+          if (id.includes("recharts") || /node_modules[/\\]d3/.test(id) || id.includes("d3-")) return "vendor-charts";
+          if (id.includes("@tanstack")) return "vendor-query";
+          if (id.includes("@radix-ui")) return "vendor-ui";
+          if (id.includes("framer-motion")) return "vendor-motion";
+          if (/node_modules[/\\](react|react-dom|scheduler)[/\\]/.test(id)) return "vendor-react";
+          if (id.includes("ethers")) return "vendor-ethers";
+          if (id.includes("openai") || id.includes("groq-sdk") || id.includes("@mistralai") || id.includes("@google/generative-ai") || id.includes("@anthropic-ai")) return "vendor-ai";
+          return "vendor";
         }
       }
     }
