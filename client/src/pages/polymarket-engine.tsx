@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Square, RefreshCw, Settings, X,
   ChevronDown, ChevronUp, Wallet, ExternalLink,
   TrendingUp, TrendingDown, Activity, Zap, Clock,
-  BarChart2, Info, Shield, Eye, EyeOff, Download, Bot,
+  BarChart2, Info, Shield, Eye, EyeOff,
   AlertTriangle, KeyRound,
 } from "lucide-react";
 
@@ -129,16 +129,6 @@ interface KalshiAccount {
   error?: string;
 }
 
-interface GeneratedEA {
-  name: string;
-  description: string;
-  pair: string;
-  timeframe: string;
-  mql5Code: string;
-  filename: string;
-  liveContext?: string;
-  generatedAt: string;
-}
 
 interface PolymarketPosition {
   id: string;
@@ -255,11 +245,6 @@ export default function PolymarketEnginePage() {
   const [polyPrivateKey, setPolyPrivateKey]     = useState("");
   const [showPolyKey, setShowPolyKey]           = useState(false);
 
-  // EA generator state
-  const [showEAPanel, setShowEAPanel]     = useState(false);
-  const [eaMessage, setEaMessage]         = useState("");
-  const [generatedEA, setGeneratedEA]     = useState<GeneratedEA | null>(null);
-  const [eaGenerating, setEaGenerating]   = useState(false);
 
   // ── 5-min BTC prediction — Binance feed, US-legal ─────────────────────────
   const {
@@ -456,33 +441,6 @@ export default function PolymarketEnginePage() {
     saveKalshiConfigMutation.mutate(patch);
   };
 
-  const generateEA = async () => {
-    if (!eaMessage.trim()) return;
-    setEaGenerating(true);
-    try {
-      const res = await apiRequest("POST", "/api/abba/generate-ea", {
-        message: eaMessage,
-        pairHint: btcPred?.symbol ?? undefined,
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setGeneratedEA(data);
-    } catch (e: any) {
-      toast({ title: "EA generation failed", description: e.message, variant: "destructive" });
-    } finally {
-      setEaGenerating(false);
-    }
-  };
-
-  const downloadEA = (ea: GeneratedEA) => {
-    const blob = new Blob([ea.mql5Code], { type: "text/plain" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = ea.filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const saveConfig = () => {
     const patch: any = {};
@@ -810,75 +768,6 @@ export default function PolymarketEnginePage() {
             <p className="text-[10px] text-gray-500 text-center">Kalshi unavailable: {kalshiData.error}</p>
           </div>
         ) : null}
-
-        {/* ── ABBA EA Generator ────────────────────────────────────────────── */}
-        <div className="bg-purple-950/40 border border-purple-700/30 rounded-xl overflow-hidden">
-          <button
-            onClick={() => setShowEAPanel(v => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-purple-900/20 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-purple-400" />
-              <span className="text-xs font-bold text-white">ABBA → Auto EA Generator</span>
-              <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">NL → MQL5</span>
-            </div>
-            {showEAPanel ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-          </button>
-          {showEAPanel && (
-            <div className="px-4 pb-4 space-y-3">
-              <p className="text-[9px] text-gray-500 leading-snug">
-                Describe a trading strategy in plain English — ABBA will analyze the current pair's live data and generate a downloadable MQL5 Expert Advisor.
-              </p>
-              <textarea
-                value={eaMessage}
-                onChange={e => setEaMessage(e.target.value)}
-                placeholder="e.g. 'Create an EMA 9/21 crossover EA for EURUSD M5 with RSI filter, 1% risk, 2:1 R:R, ATR stop loss' or 'Build a BTC breakout EA based on the 20-bar high/low with volume confirmation'"
-                rows={3}
-                className="w-full bg-gray-900 border border-gray-700 rounded-xl text-[11px] text-gray-200 px-3 py-2.5 placeholder:text-gray-600 resize-none focus:outline-none focus:border-purple-500"
-              />
-              {btcPred && (
-                <p className="text-[9px] text-gray-500">
-                  Live context: BTCUSDT ${fmtPrice(btcPred.currentPrice)} · {btcPred.direction} signal · will be included in EA
-                </p>
-              )}
-              <button
-                onClick={generateEA}
-                disabled={eaGenerating || !eaMessage.trim()}
-                className="w-full flex items-center justify-center gap-2 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl py-2.5 disabled:opacity-50"
-              >
-                <Bot className={`w-3.5 h-3.5 ${eaGenerating ? "animate-pulse" : ""}`} />
-                {eaGenerating ? "ABBA is generating your EA…" : "Generate EA with ABBA"}
-              </button>
-
-              {generatedEA && (
-                <div className="bg-purple-900/20 border border-purple-600/30 rounded-xl p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-bold text-purple-200">{generatedEA.name}</p>
-                      <p className="text-[9px] text-gray-400 mt-0.5">{generatedEA.description}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[8px] bg-purple-800/40 text-purple-300 px-1.5 py-0.5 rounded">{generatedEA.pair}</span>
-                        <span className="text-[8px] bg-gray-800/60 text-gray-400 px-1.5 py-0.5 rounded">{generatedEA.timeframe}</span>
-                        {generatedEA.liveContext && (
-                          <span className="text-[8px] text-emerald-400/70">✓ live data</span>
-                        )}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => downloadEA(generatedEA)}
-                      className="flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-600/30 border border-purple-500/40 rounded-lg px-2.5 py-1.5 shrink-0 hover:bg-purple-600/50"
-                    >
-                      <Download className="w-3 h-3" />Download .mq5
-                    </button>
-                  </div>
-                  <div className="bg-black/40 rounded-lg p-2 max-h-40 overflow-y-auto">
-                    <pre className="text-[8px] text-gray-400 font-mono whitespace-pre-wrap leading-relaxed">{generatedEA.mql5Code.slice(0, 800)}{generatedEA.mql5Code.length > 800 ? "\n…(download for full code)" : ""}</pre>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
 
         {/* ── Kalshi Auto-Trading Engine ────────────────────────────────────── */}
         <div className={`bg-indigo-950/50 border rounded-xl p-4 ${kalshiEngineState?.isRunning ? "border-indigo-600/60" : "border-indigo-800/40"}`}>
