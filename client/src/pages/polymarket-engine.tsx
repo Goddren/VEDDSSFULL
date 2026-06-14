@@ -229,7 +229,12 @@ export default function PolymarketEnginePage() {
           <div>
             <p className="text-xs font-bold text-amber-300">Paper Trading Mode — No wallet needed</p>
             <p className="text-[10px] text-amber-200/70 mt-0.5">
-              Tracks real Polymarket YES/NO positions using live probabilities. P&L is simulated — no USDC is spent. When you're ready for live execution, Polymarket uses <span className="text-emerald-300 font-semibold">USDC on Polygon</span> (not BTC, not POLY token) with a tiny MATIC gas fee.
+              Tracks real Polymarket YES/NO positions using live probabilities. P&L is simulated — no USDC is spent. When you're ready for live execution, Polymarket uses <span className="text-emerald-300 font-semibold">USDC on Polygon</span> (not BTC, not POLY token) with a tiny MATIC gas fee.{' '}
+              Get USDC:{' '}
+              <a href="https://polymarket.com/deposit" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2 hover:text-purple-200">Polymarket Deposit</a>
+              {' '}(card/Apple Pay) or{' '}
+              <a href="https://wallet.polygon.technology/polygon/bridge" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2 hover:text-purple-200">Polygon Bridge</a>
+              {' '}(from Ethereum).
             </p>
           </div>
         </div>

@@ -257,7 +257,12 @@ export default function PolymarketWalletPage() {
           {!connectedAddress ? (
             <>
               <p className="text-[10px] text-gray-400 mb-3">
-                Connect your EVM wallet on Polygon to view balances. Polymarket requires <span className="text-emerald-400 font-semibold">USDC on Polygon</span> — not BTC, not POLY token. MATIC is only for gas (~$0.01).
+                Connect your EVM wallet on Polygon to view balances. Polymarket requires <span className="text-emerald-400 font-semibold">USDC on Polygon</span> — not BTC, not POLY token. MATIC is only for gas (~$0.01).{' '}
+                Get USDC:{' '}
+                <a href="https://polymarket.com/deposit" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2">Polymarket Deposit</a>
+                {' '}(card/Apple Pay) or{' '}
+                <a href="https://wallet.polygon.technology/polygon/bridge" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2">Polygon Bridge</a>
+                {' '}(from Ethereum).
               </p>
 
               {/* Wallet buttons */}
