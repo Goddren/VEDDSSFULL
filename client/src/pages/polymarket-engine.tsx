@@ -9,7 +9,8 @@ import {
   ArrowLeft, Play, Square, RefreshCw, Settings, X,
   ChevronDown, ChevronUp, Wallet, ExternalLink,
   TrendingUp, TrendingDown, Activity, Zap, Clock,
-  BarChart2, Info,
+  BarChart2, Info, Shield, Eye, EyeOff, Download, Bot,
+  AlertTriangle, KeyRound,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,6 +85,59 @@ interface KalshiEvent {
   fetchedAt: string;
   fromCache: boolean;
   error?: string;
+}
+
+interface KalshiTradeRecord {
+  id: string;
+  ticker: string;
+  subtitle: string;
+  entryPriceCents: number;
+  currentPriceCents: number;
+  count: number;
+  stake: number;
+  unrealizedPnl: number;
+  realizedPnl?: number;
+  signal: { direction: "BUY" | "SELL"; confidence: number; btcPrice: number };
+  openedAt: string;
+  closedAt?: string;
+  status: "open" | "closed" | "expired";
+  paper: boolean;
+}
+
+interface KalshiEngineState {
+  isRunning: boolean;
+  isPaperMode: boolean;
+  lastScanAt: string | null;
+  lastScanResult: string | null;
+  openTrades: KalshiTradeRecord[];
+  closedTrades: KalshiTradeRecord[];
+  totalRealizedPnl: number;
+  totalUnrealizedPnl: number;
+  config: {
+    contractsPerTrade: number;
+    maxOpenTrades: number;
+    cooldownMinutes: number;
+    minConfidence: number;
+    requireAlignedHourly: boolean;
+  };
+}
+
+interface KalshiAccount {
+  connected: boolean;
+  memberId?: string;
+  balance?: number;
+  error?: string;
+}
+
+interface GeneratedEA {
+  name: string;
+  description: string;
+  pair: string;
+  timeframe: string;
+  mql5Code: string;
+  filename: string;
+  liveContext?: string;
+  generatedAt: string;
 }
 
 interface PolymarketPosition {
@@ -185,6 +239,28 @@ export default function PolymarketEnginePage() {
   const [cfgMaxPos, setCfgMaxPos]     = useState("");
   const [cfgCooldown, setCfgCooldown] = useState("");
 
+  // Kalshi credential state
+  const [showKalshiSetup, setShowKalshiSetup] = useState(false);
+  const [kalshiEmail, setKalshiEmail]         = useState("");
+  const [kalshiPassword, setKalshiPassword]   = useState("");
+  const [showKalshiPw, setShowKalshiPw]       = useState(false);
+  const [showKalshiConfig, setShowKalshiConfig] = useState(false);
+  const [kalshiCfgContracts, setKalshiCfgContracts] = useState("");
+  const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
+  const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
+  const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
+
+  // Polymarket live key state
+  const [showPolyKeySetup, setShowPolyKeySetup] = useState(false);
+  const [polyPrivateKey, setPolyPrivateKey]     = useState("");
+  const [showPolyKey, setShowPolyKey]           = useState(false);
+
+  // EA generator state
+  const [showEAPanel, setShowEAPanel]     = useState(false);
+  const [eaMessage, setEaMessage]         = useState("");
+  const [generatedEA, setGeneratedEA]     = useState<GeneratedEA | null>(null);
+  const [eaGenerating, setEaGenerating]   = useState(false);
+
   // ── 5-min BTC prediction — Binance feed, US-legal ─────────────────────────
   const {
     data: btcPred,
@@ -227,6 +303,24 @@ export default function PolymarketEnginePage() {
 
   const { data: savedWallet } = useQuery<{ address: string } | null>({
     queryKey: ["/api/user/polymarket-wallet"],
+    enabled: !!user,
+  });
+
+  // ── Kalshi engine ─────────────────────────────────────────────────────────
+  const { data: kalshiEngineState, refetch: refetchKalshiEngine } = useQuery<KalshiEngineState>({
+    queryKey: ["/api/kalshi/engine/status"],
+    refetchInterval: 8000,
+    enabled: !!user,
+  });
+
+  const { data: kalshiAccount, refetch: refetchKalshiAccount } = useQuery<KalshiAccount>({
+    queryKey: ["/api/kalshi/account"],
+    staleTime: 30_000,
+    enabled: !!user,
+  });
+
+  const { data: polyKeyStatus, refetch: refetchPolyKeyStatus } = useQuery<{ saved: boolean; maskedKey: string | null }>({
+    queryKey: ["/api/user/polymarket-private-key"],
     enabled: !!user,
   });
 
@@ -279,6 +373,116 @@ export default function PolymarketEnginePage() {
       toast({ title: `Closed ${data.closed} position(s)` });
     },
   });
+
+  // Kalshi mutations
+  const saveKalshiCredsMutation = useMutation({
+    mutationFn: (body: { email: string; password: string }) =>
+      apiRequest("POST", "/api/kalshi/credentials", body).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data.error) { toast({ title: "Kalshi login failed", description: data.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/account"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] });
+      setShowKalshiSetup(false);
+      setKalshiPassword("");
+      toast({ title: "Kalshi connected!", description: `Balance: ${data.balance ?? 0}¢` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const disconnectKalshiMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/kalshi/credentials").then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/account"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] });
+      toast({ title: "Kalshi disconnected" });
+    },
+  });
+
+  const startKalshiMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/start").then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); toast({ title: "Kalshi engine started" }); },
+  });
+  const stopKalshiMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/stop").then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); toast({ title: "Kalshi engine stopped" }); },
+  });
+  const scanKalshiMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/kalshi/engine/scan").then(r => r.json()),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] });
+      toast({ title: data.fired ? "Kalshi trade opened!" : "Kalshi scan — no trade", description: data.reason });
+    },
+  });
+  const saveKalshiConfigMutation = useMutation({
+    mutationFn: (cfg: any) => apiRequest("PUT", "/api/kalshi/engine/config", cfg).then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }); setShowKalshiConfig(false); toast({ title: "Config saved" }); },
+  });
+  const closeKalshiTradeMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/kalshi/engine/trades/${id}/close`).then(r => r.json()),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }),
+  });
+
+  // Polymarket private key + live mode mutations
+  const savePolyKeyMutation = useMutation({
+    mutationFn: (privateKey: string) => apiRequest("POST", "/api/user/polymarket-private-key", { privateKey }).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data.error) { toast({ title: "Error", description: data.error, variant: "destructive" }); return; }
+      refetchPolyKeyStatus();
+      setShowPolyKeySetup(false);
+      setPolyPrivateKey("");
+      toast({ title: "Private key saved" });
+    },
+  });
+  const deletePolyKeyMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/user/polymarket-private-key").then(r => r.json()),
+    onSuccess: () => { refetchPolyKeyStatus(); toast({ title: "Private key removed" }); },
+  });
+  const toggleLiveModeMutation = useMutation({
+    mutationFn: (enabled: boolean) => apiRequest("POST", "/api/polymarket-engine/live-mode", { enabled }).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data.error) { toast({ title: "Error", description: data.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: ["/api/polymarket-engine/status"] });
+      toast({ title: data.liveMode ? "Live mode ON — real CLOB orders" : "Live mode OFF — paper trading" });
+    },
+  });
+
+  const saveKalshiConfig = () => {
+    const patch: any = {};
+    if (kalshiCfgContracts)  patch.contractsPerTrade = Number(kalshiCfgContracts);
+    if (kalshiCfgMaxTrades)  patch.maxOpenTrades     = Number(kalshiCfgMaxTrades);
+    if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
+    if (kalshiCfgConfidence) patch.minConfidence     = Number(kalshiCfgConfidence);
+    if (!Object.keys(patch).length) return;
+    saveKalshiConfigMutation.mutate(patch);
+  };
+
+  const generateEA = async () => {
+    if (!eaMessage.trim()) return;
+    setEaGenerating(true);
+    try {
+      const res = await apiRequest("POST", "/api/abba/generate-ea", {
+        message: eaMessage,
+        pairHint: btcPred?.symbol ?? undefined,
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setGeneratedEA(data);
+    } catch (e: any) {
+      toast({ title: "EA generation failed", description: e.message, variant: "destructive" });
+    } finally {
+      setEaGenerating(false);
+    }
+  };
+
+  const downloadEA = (ea: GeneratedEA) => {
+    const blob = new Blob([ea.mql5Code], { type: "text/plain" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = ea.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const saveConfig = () => {
     const patch: any = {};
@@ -606,6 +810,345 @@ export default function PolymarketEnginePage() {
             <p className="text-[10px] text-gray-500 text-center">Kalshi unavailable: {kalshiData.error}</p>
           </div>
         ) : null}
+
+        {/* ── ABBA EA Generator ────────────────────────────────────────────── */}
+        <div className="bg-purple-950/40 border border-purple-700/30 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowEAPanel(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-purple-900/20 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Bot className="w-4 h-4 text-purple-400" />
+              <span className="text-xs font-bold text-white">ABBA → Auto EA Generator</span>
+              <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">NL → MQL5</span>
+            </div>
+            {showEAPanel ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+          </button>
+          {showEAPanel && (
+            <div className="px-4 pb-4 space-y-3">
+              <p className="text-[9px] text-gray-500 leading-snug">
+                Describe a trading strategy in plain English — ABBA will analyze the current pair's live data and generate a downloadable MQL5 Expert Advisor.
+              </p>
+              <textarea
+                value={eaMessage}
+                onChange={e => setEaMessage(e.target.value)}
+                placeholder="e.g. 'Create an EMA 9/21 crossover EA for EURUSD M5 with RSI filter, 1% risk, 2:1 R:R, ATR stop loss' or 'Build a BTC breakout EA based on the 20-bar high/low with volume confirmation'"
+                rows={3}
+                className="w-full bg-gray-900 border border-gray-700 rounded-xl text-[11px] text-gray-200 px-3 py-2.5 placeholder:text-gray-600 resize-none focus:outline-none focus:border-purple-500"
+              />
+              {btcPred && (
+                <p className="text-[9px] text-gray-500">
+                  Live context: BTCUSDT ${fmtPrice(btcPred.currentPrice)} · {btcPred.direction} signal · will be included in EA
+                </p>
+              )}
+              <button
+                onClick={generateEA}
+                disabled={eaGenerating || !eaMessage.trim()}
+                className="w-full flex items-center justify-center gap-2 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-xl py-2.5 disabled:opacity-50"
+              >
+                <Bot className={`w-3.5 h-3.5 ${eaGenerating ? "animate-pulse" : ""}`} />
+                {eaGenerating ? "ABBA is generating your EA…" : "Generate EA with ABBA"}
+              </button>
+
+              {generatedEA && (
+                <div className="bg-purple-900/20 border border-purple-600/30 rounded-xl p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-bold text-purple-200">{generatedEA.name}</p>
+                      <p className="text-[9px] text-gray-400 mt-0.5">{generatedEA.description}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[8px] bg-purple-800/40 text-purple-300 px-1.5 py-0.5 rounded">{generatedEA.pair}</span>
+                        <span className="text-[8px] bg-gray-800/60 text-gray-400 px-1.5 py-0.5 rounded">{generatedEA.timeframe}</span>
+                        {generatedEA.liveContext && (
+                          <span className="text-[8px] text-emerald-400/70">✓ live data</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => downloadEA(generatedEA)}
+                      className="flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-600/30 border border-purple-500/40 rounded-lg px-2.5 py-1.5 shrink-0 hover:bg-purple-600/50"
+                    >
+                      <Download className="w-3 h-3" />Download .mq5
+                    </button>
+                  </div>
+                  <div className="bg-black/40 rounded-lg p-2 max-h-40 overflow-y-auto">
+                    <pre className="text-[8px] text-gray-400 font-mono whitespace-pre-wrap leading-relaxed">{generatedEA.mql5Code.slice(0, 800)}{generatedEA.mql5Code.length > 800 ? "\n…(download for full code)" : ""}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Kalshi Auto-Trading Engine ────────────────────────────────────── */}
+        <div className={`bg-indigo-950/50 border rounded-xl p-4 ${kalshiEngineState?.isRunning ? "border-indigo-600/60" : "border-indigo-800/40"}`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-indigo-400" />
+              <h2 className="text-sm font-bold text-white">Kalshi Auto-Trader</h2>
+              <span className="text-[9px] text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded">CFTC · US-Legal</span>
+              {kalshiEngineState && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded ${kalshiEngineState.isPaperMode ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"}`}>
+                  {kalshiEngineState.isPaperMode ? "PAPER" : "LIVE"}
+                </span>
+              )}
+            </div>
+            <button onClick={() => setShowKalshiConfig(v => !v)} className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-gray-800/60 rounded-lg">
+              <Settings className="w-3 h-3" />
+              {showKalshiConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </div>
+
+          {/* Credential setup */}
+          {!kalshiAccount?.connected ? (
+            <div>
+              {!showKalshiSetup ? (
+                <button
+                  onClick={() => setShowKalshiSetup(true)}
+                  className="w-full flex items-center gap-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-dashed border-indigo-600/40 text-indigo-300 text-xs rounded-xl px-4 py-3"
+                >
+                  <KeyRound className="w-4 h-4 shrink-0" />
+                  <div className="text-left">
+                    <p className="font-bold">Connect Kalshi Account</p>
+                    <p className="text-[9px] text-indigo-400/70">Required for live trading — CFTC-regulated, US-legal</p>
+                  </div>
+                </button>
+              ) : (
+                <div className="space-y-2 bg-black/20 rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-indigo-300">Kalshi Login</p>
+                  <input
+                    type="email"
+                    placeholder="Kalshi email"
+                    value={kalshiEmail}
+                    onChange={e => setKalshiEmail(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500"
+                  />
+                  <div className="relative">
+                    <input
+                      type={showKalshiPw ? "text" : "password"}
+                      placeholder="Kalshi password"
+                      value={kalshiPassword}
+                      onChange={e => setKalshiPassword(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button onClick={() => setShowKalshiPw(v => !v)} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300">
+                      {showKalshiPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveKalshiCredsMutation.mutate({ email: kalshiEmail, password: kalshiPassword })}
+                      disabled={saveKalshiCredsMutation.isPending || !kalshiEmail || !kalshiPassword}
+                      className="flex-1 bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
+                    >
+                      {saveKalshiCredsMutation.isPending ? "Connecting…" : "Connect"}
+                    </button>
+                    <button onClick={() => setShowKalshiSetup(false)} className="text-xs text-gray-500 px-3">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Account summary */}
+              <div className="flex items-center justify-between bg-indigo-900/20 border border-indigo-700/30 rounded-xl px-3 py-2">
+                <div>
+                  <p className="text-[9px] text-indigo-400/70">Kalshi Account</p>
+                  <p className="text-xs font-bold text-indigo-200">{kalshiAccount.memberId ?? "Connected"}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] text-gray-500">Balance</p>
+                  <p className="text-xs font-bold text-white">{kalshiAccount.balance != null ? `$${(kalshiAccount.balance / 100).toFixed(2)}` : "—"}</p>
+                </div>
+                <button onClick={() => disconnectKalshiMutation.mutate()} className="text-[9px] text-red-400/70 hover:text-red-400 ml-2">Disconnect</button>
+              </div>
+
+              {/* Engine stats */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-black/30 rounded-lg p-2 text-center">
+                  <p className="text-[8px] text-gray-500">Open</p>
+                  <p className="text-sm font-bold text-white">{kalshiEngineState?.openTrades.length ?? 0}</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-2 text-center">
+                  <p className="text-[8px] text-gray-500">Closed</p>
+                  <p className="text-sm font-bold text-white">{kalshiEngineState?.closedTrades.length ?? 0}</p>
+                </div>
+                <div className={`rounded-lg p-2 text-center border ${pnlBg((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}`}>
+                  <p className="text-[8px] text-gray-500">P&L</p>
+                  <p className={`text-sm font-bold ${pnlColor((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}`}>
+                    {((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0)) >= 0 ? "+" : ""}
+                    ${fmt((kalshiEngineState?.totalRealizedPnl ?? 0) + (kalshiEngineState?.totalUnrealizedPnl ?? 0))}
+                  </p>
+                </div>
+              </div>
+
+              {/* Engine controls */}
+              <div className="flex gap-2">
+                {kalshiEngineState?.isRunning ? (
+                  <button onClick={() => stopKalshiMutation.mutate()} disabled={stopKalshiMutation.isPending}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5">
+                    <Square className="w-3.5 h-3.5" />Stop
+                  </button>
+                ) : (
+                  <button onClick={() => startKalshiMutation.mutate()} disabled={startKalshiMutation.isPending}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/30 text-indigo-400 text-xs font-bold rounded-lg py-2.5">
+                    <Play className="w-3.5 h-3.5" />Start Engine
+                  </button>
+                )}
+                <button onClick={() => scanKalshiMutation.mutate()} disabled={scanKalshiMutation.isPending}
+                  className="flex items-center gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5">
+                  <RefreshCw className={`w-3.5 h-3.5 ${scanKalshiMutation.isPending ? "animate-spin" : ""}`} />Scan
+                </button>
+              </div>
+
+              {kalshiEngineState?.lastScanAt && (
+                <div className="bg-black/20 rounded-lg px-3 py-2">
+                  <p className="text-[9px] text-gray-500">Last scan: {timeAgo(kalshiEngineState.lastScanAt)}</p>
+                  {kalshiEngineState.lastScanResult && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{kalshiEngineState.lastScanResult}</p>}
+                </div>
+              )}
+
+              {/* Config panel */}
+              {showKalshiConfig && (
+                <div className="bg-black/30 rounded-xl p-3 border border-gray-700/40">
+                  <p className="text-[10px] font-bold text-indigo-300 mb-3">Kalshi Engine Config</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { label: "Contracts/trade", val: kalshiCfgContracts, set: setKalshiCfgContracts, ph: String(kalshiEngineState?.config.contractsPerTrade ?? 5) },
+                      { label: "Max open trades", val: kalshiCfgMaxTrades,  set: setKalshiCfgMaxTrades,  ph: String(kalshiEngineState?.config.maxOpenTrades ?? 3) },
+                      { label: "Cooldown (min)",   val: kalshiCfgCooldown,   set: setKalshiCfgCooldown,   ph: String(kalshiEngineState?.config.cooldownMinutes ?? 20) },
+                      { label: "Min confidence %", val: kalshiCfgConfidence, set: setKalshiCfgConfidence, ph: String(kalshiEngineState?.config.minConfidence ?? 60) },
+                    ] as const).map(f => (
+                      <div key={f.label}>
+                        <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
+                        <input type="number" value={f.val} placeholder={f.ph}
+                          onChange={e => (f.set as any)(e.target.value)}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={saveKalshiConfig} disabled={saveKalshiConfigMutation.isPending}
+                    className="w-full mt-3 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2">
+                    Save Config
+                  </button>
+                </div>
+              )}
+
+              {/* Open Kalshi trades */}
+              {(kalshiEngineState?.openTrades.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-indigo-300">Open Kalshi Trades</p>
+                  {kalshiEngineState!.openTrades.map(t => (
+                    <div key={t.id} className="bg-black/30 border border-indigo-800/40 rounded-xl p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] text-gray-200 leading-snug truncate">{t.subtitle}</p>
+                          <p className={`text-[9px] font-bold mt-0.5 ${t.signal.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>
+                            {t.signal.direction} signal · {t.signal.confidence}% conf · BTC ${fmtPrice(t.signal.btcPrice)}
+                          </p>
+                        </div>
+                        <button onClick={() => closeKalshiTradeMutation.mutate(t.id)} className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5 mt-2">
+                        <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] font-bold text-white">{t.entryPriceCents}¢</p></div>
+                        <div><p className="text-[8px] text-gray-500">Contracts</p><p className="text-[10px] font-bold text-white">{t.count}</p></div>
+                        <div><p className="text-[8px] text-gray-500">Stake</p><p className="text-[10px] font-bold text-white">${fmt(t.stake)}</p></div>
+                      </div>
+                      {!t.paper && <p className="text-[8px] text-emerald-400/70 mt-1.5">● LIVE ORDER</p>}
+                      {t.paper  && <p className="text-[8px] text-amber-400/70 mt-1.5">○ PAPER</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Polymarket Live Mode (VPN) ────────────────────────────────────── */}
+        <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Info className="w-4 h-4 text-amber-400" />
+            <h2 className="text-sm font-bold text-white">Polymarket Live Mode</h2>
+            <span className="text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">VPN Required (US)</span>
+            {!(state?.isRunning) ? null : (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded ml-auto ${!(state as any)?.isPaperMode ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-gray-700 text-gray-400"}`}>
+                {!(state as any)?.isPaperMode ? "LIVE" : "PAPER"}
+              </span>
+            )}
+          </div>
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3">
+            <p className="text-[9px] text-amber-200/80 leading-snug">
+              Polymarket is geo-blocked for US IPs. Use a <strong className="text-amber-300">VPN</strong> connecting outside the US before enabling live mode.
+              Your Polygon private key signs CLOB orders directly — never shared, stored on-server only.
+            </p>
+          </div>
+
+          {/* Private key setup */}
+          {!polyKeyStatus?.saved ? (
+            !showPolyKeySetup ? (
+              <button onClick={() => setShowPolyKeySetup(true)}
+                className="w-full flex items-center gap-2 bg-gray-800/60 hover:bg-gray-800 border border-dashed border-gray-700 text-gray-400 text-xs rounded-xl px-4 py-2.5">
+                <KeyRound className="w-4 h-4 shrink-0" />
+                <div className="text-left">
+                  <p className="font-semibold text-gray-300">Save Polygon Private Key</p>
+                  <p className="text-[9px] text-gray-600">Required to sign live CLOB orders on Polymarket</p>
+                </div>
+              </button>
+            ) : (
+              <div className="space-y-2 bg-black/20 rounded-xl p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <p className="text-[9px] text-amber-300/80">Private key stored on VEDD server. Use a dedicated trading-only wallet with limited USDC.</p>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPolyKey ? "text" : "password"}
+                    placeholder="0x... (64-char hex private key)"
+                    value={polyPrivateKey}
+                    onChange={e => setPolyPrivateKey(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 font-mono focus:outline-none focus:border-amber-500"
+                  />
+                  <button onClick={() => setShowPolyKey(v => !v)} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300">
+                    {showPolyKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => savePolyKeyMutation.mutate(polyPrivateKey)}
+                    disabled={savePolyKeyMutation.isPending || !polyPrivateKey}
+                    className="flex-1 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
+                  >
+                    {savePolyKeyMutation.isPending ? "Saving…" : "Save Key"}
+                  </button>
+                  <button onClick={() => setShowPolyKeySetup(false)} className="text-xs text-gray-500 px-3">Cancel</button>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between bg-gray-800/40 border border-gray-700/40 rounded-xl px-3 py-2">
+                <div>
+                  <p className="text-[9px] text-gray-500">Private key saved</p>
+                  <p className="text-[10px] text-gray-300 font-mono">{polyKeyStatus.maskedKey}</p>
+                </div>
+                <button onClick={() => deletePolyKeyMutation.mutate()} className="text-[9px] text-red-400/70 hover:text-red-400">Remove</button>
+              </div>
+              <button
+                onClick={() => toggleLiveModeMutation.mutate(!(state as any)?.isPaperMode === false)}
+                disabled={toggleLiveModeMutation.isPending}
+                className={`w-full text-xs font-bold rounded-xl py-2.5 border transition-colors ${
+                  !(state as any)?.isPaperMode
+                    ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400 hover:bg-red-500/20 hover:border-red-500/30 hover:text-red-400"
+                    : "bg-gray-800/40 border-gray-700 text-gray-400 hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400"
+                }`}
+              >
+                {!(state as any)?.isPaperMode ? "Live Mode ON — click to disable" : "Enable Live Mode (VPN required)"}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* ── Wallet ───────────────────────────────────────────────────────── */}
         {savedWallet?.address ? (

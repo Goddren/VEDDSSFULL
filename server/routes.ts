@@ -16432,6 +16432,198 @@ Respond with ONLY valid JSON:
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
 
+  // ── Kalshi Credentials ───────────────────────────────────────────────────
+  // POST /api/kalshi/credentials — save email+password
+  app.post("/api/kalshi/credentials", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "email and password required" });
+    try {
+      const { saveKalshiCredentials, testKalshiCredentials } = await import('./services/kalshi-trading');
+      saveKalshiCredentials(userId, { email, password });
+      const test = await testKalshiCredentials(userId);
+      if (!test.valid) {
+        const { deleteKalshiCredentials } = await import('./services/kalshi-trading');
+        deleteKalshiCredentials(userId);
+        return res.status(400).json({ error: `Kalshi login failed: ${test.error}` });
+      }
+      res.json({ success: true, memberId: test.memberId, balance: test.balance });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/kalshi/account — check balance (requires saved creds)
+  app.get("/api/kalshi/account", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { loadKalshiCredentials, testKalshiCredentials } = await import('./services/kalshi-trading');
+      const creds = loadKalshiCredentials(userId);
+      if (!creds) return res.json({ connected: false });
+      const test = await testKalshiCredentials(userId);
+      res.json({ connected: test.valid, memberId: test.memberId, balance: test.balance, error: test.error });
+    } catch (err: any) {
+      res.json({ connected: false, error: err.message });
+    }
+  });
+
+  // DELETE /api/kalshi/credentials — remove saved creds
+  app.delete("/api/kalshi/credentials", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { deleteKalshiCredentials } = await import('./services/kalshi-trading');
+    deleteKalshiCredentials(userId);
+    res.json({ success: true });
+  });
+
+  // ── Kalshi Auto-Trading Engine ────────────────────────────────────────────
+  // GET /api/kalshi/engine/status
+  app.get("/api/kalshi/engine/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { getKalshiEngineState } = await import('./services/kalshi-engine');
+    res.json(getKalshiEngineState(userId));
+  });
+
+  // POST /api/kalshi/engine/start
+  app.post("/api/kalshi/engine/start", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { startKalshiEngine, getKalshiEngineState } = await import('./services/kalshi-engine');
+    startKalshiEngine(userId);
+    res.json({ success: true, state: getKalshiEngineState(userId) });
+  });
+
+  // POST /api/kalshi/engine/stop
+  app.post("/api/kalshi/engine/stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { stopKalshiEngine, getKalshiEngineState } = await import('./services/kalshi-engine');
+    stopKalshiEngine(userId);
+    res.json({ success: true, state: getKalshiEngineState(userId) });
+  });
+
+  // POST /api/kalshi/engine/scan
+  app.post("/api/kalshi/engine/scan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { manualKalshiScan, getKalshiEngineState } = await import('./services/kalshi-engine');
+      const result = await manualKalshiScan(userId);
+      res.json({ ...result, state: getKalshiEngineState(userId) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PUT /api/kalshi/engine/config
+  app.put("/api/kalshi/engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { updateKalshiEngineConfig, getKalshiEngineState } = await import('./services/kalshi-engine');
+    updateKalshiEngineConfig(userId, req.body);
+    res.json({ success: true, state: getKalshiEngineState(userId) });
+  });
+
+  // POST /api/kalshi/engine/trades/:id/close
+  app.post("/api/kalshi/engine/trades/:id/close", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { closeKalshiTrade, getKalshiEngineState } = await import('./services/kalshi-engine');
+    const ok = closeKalshiTrade(userId, req.params.id);
+    if (!ok) return res.status(404).json({ error: "Trade not found" });
+    res.json({ success: true, state: getKalshiEngineState(userId) });
+  });
+
+  // POST /api/kalshi/engine/trades/close-all
+  app.post("/api/kalshi/engine/trades/close-all", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { closeAllKalshiTrades, getKalshiEngineState } = await import('./services/kalshi-engine');
+    const closed = closeAllKalshiTrades(userId);
+    res.json({ success: true, closed, state: getKalshiEngineState(userId) });
+  });
+
+  // ── Polymarket live private-key storage ───────────────────────────────────
+  const _polyKeysFile = path.join(process.cwd(), 'data', 'polymarket_keys.json');
+  const _loadPolyKeys = (): Record<string, string> => {
+    try { if (fs.existsSync(_polyKeysFile)) return JSON.parse(fs.readFileSync(_polyKeysFile, 'utf-8')); }
+    catch { /* ignore */ }
+    return {};
+  };
+  const _savePolyKeys = (map: Record<string, string>) => {
+    try {
+      const dir = path.join(process.cwd(), 'data');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+    } catch { /* ignore */ }
+  };
+
+  // POST /api/user/polymarket-private-key
+  app.post("/api/user/polymarket-private-key", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { privateKey } = req.body;
+    if (!privateKey || typeof privateKey !== 'string') return res.status(400).json({ error: "privateKey required" });
+    const clean = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(clean)) return res.status(400).json({ error: "Invalid private key format (must be 32-byte hex)" });
+    const map = _loadPolyKeys();
+    map[String(userId)] = clean;
+    _savePolyKeys(map);
+    res.json({ success: true });
+  });
+
+  // GET /api/user/polymarket-private-key — returns masked status only, never the key
+  app.get("/api/user/polymarket-private-key", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const map = _loadPolyKeys();
+    const key = map[String(userId)];
+    res.json({ saved: !!key, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null });
+  });
+
+  // DELETE /api/user/polymarket-private-key
+  app.delete("/api/user/polymarket-private-key", (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const map = _loadPolyKeys();
+    delete map[String(userId)];
+    _savePolyKeys(map);
+    res.json({ success: true });
+  });
+
+  // POST /api/polymarket-engine/live-mode — toggle live execution
+  app.post("/api/polymarket-engine/live-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { enabled } = req.body;
+    const map = _loadPolyKeys();
+    const hasKey = !!map[String(userId)];
+    if (enabled && !hasKey) {
+      return res.status(400).json({ error: "Save your Polygon private key before enabling live mode" });
+    }
+    const { setPolymarketLiveMode, getEngineState } = await import('./services/polymarket-autonomous-engine');
+    setPolymarketLiveMode(userId, !!enabled, map[String(userId)] ?? null);
+    res.json({ success: true, liveMode: !!enabled, state: getEngineState(userId) });
+  });
+
+  // ── ABBA Natural Language → EA Generator ─────────────────────────────────
+  app.post("/api/abba/generate-ea", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { message, pairHint } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: "message is required" });
+    try {
+      const { generateEAFromNL } = await import('./services/abba-ea-generator');
+      const ea = await generateEAFromNL(userId, message, pairHint);
+      res.json(ea);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // SS Engine dual-vote consensus feed (quant + AI per signal)
   app.get("/api/ss-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

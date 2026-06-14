@@ -24770,10 +24770,98 @@ __export(polymarket_autonomous_engine_exports, {
   closePosition: () => closePosition,
   getEngineState: () => getEngineState,
   manualScan: () => manualScan,
+  setPolymarketLiveMode: () => setPolymarketLiveMode,
   startEngine: () => startEngine,
   stopEngine: () => stopEngine,
   updateEngineConfig: () => updateEngineConfig
 });
+async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
+  try {
+    const { ethers } = await import("ethers");
+    const wallet = new ethers.Wallet(privateKey);
+    const salt = BigInt(Math.floor(Math.random() * 1e15));
+    const now = BigInt(Math.floor(Date.now() / 1e3));
+    const expiry = now + BigInt(3600);
+    const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));
+    const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+    const domain = {
+      name: "Polymarket CTF Exchange",
+      version: "1",
+      chainId: POLY_CHAIN,
+      verifyingContract: CTF_ADDRESS
+    };
+    const types = {
+      Order: [
+        { name: "salt", type: "uint256" },
+        { name: "maker", type: "address" },
+        { name: "signer", type: "address" },
+        { name: "taker", type: "address" },
+        { name: "tokenId", type: "uint256" },
+        { name: "makerAmount", type: "uint256" },
+        { name: "takerAmount", type: "uint256" },
+        { name: "expiration", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+        { name: "feeRateBps", type: "uint256" },
+        { name: "side", type: "uint8" },
+        { name: "signatureType", type: "uint8" }
+      ]
+    };
+    const orderValues = {
+      salt,
+      maker: wallet.address,
+      signer: wallet.address,
+      taker: "0x0000000000000000000000000000000000000000",
+      tokenId: BigInt(tokenId),
+      makerAmount: makerAmt,
+      takerAmount: takerAmt,
+      expiration: expiry,
+      nonce: BigInt(0),
+      feeRateBps: BigInt(0),
+      side: side === "BUY" ? 0 : 1,
+      signatureType: 0
+    };
+    const signature = await wallet.signTypedData(domain, types, orderValues);
+    const body = {
+      order: {
+        salt: salt.toString(),
+        maker: wallet.address,
+        signer: wallet.address,
+        taker: "0x0000000000000000000000000000000000000000",
+        tokenId,
+        makerAmount: makerAmt.toString(),
+        takerAmount: takerAmt.toString(),
+        expiration: expiry.toString(),
+        nonce: "0",
+        feeRateBps: "0",
+        side: side === "BUY" ? 0 : 1,
+        signatureType: 0,
+        signature
+      },
+      owner: wallet.address,
+      orderType: "GTC"
+    };
+    const res = await fetch(`${CLOB_BASE2}/order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      return { success: false, error: data.error ?? `CLOB ${res.status}` };
+    }
+    return { success: true, orderId: data.orderID ?? data.order_id ?? "unknown" };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+function setPolymarketLiveMode(userId, enabled, privateKey) {
+  _liveModes.set(userId, enabled);
+  if (privateKey) _privateKeys.set(userId, privateKey);
+  else _privateKeys.delete(userId);
+  const s = getEngineState(userId);
+  s.isPaperMode = !enabled;
+}
 function getEngineState(userId) {
   if (!_states.has(userId)) {
     _states.set(userId, {
@@ -24895,12 +24983,26 @@ async function _openPosition(s, sentiment, direction) {
     },
     status: "open"
   };
+  let liveOrderId;
+  if (!s.isPaperMode && best.yesTokenId) {
+    const userId = [..._liveModes.entries()].find(([, v]) => v)?.[0];
+    const pk = userId != null ? _privateKeys.get(userId) : void 0;
+    if (pk && best.yesTokenId) {
+      const result = await placeClobOrder(pk, best.yesTokenId, "BUY", entryProb / 100, s.config.stakePerTrade);
+      if (!result.success) {
+        return { fired: false, reason: `CLOB order failed: ${result.error}` };
+      }
+      liveOrderId = result.orderId;
+    }
+  }
+  position.clobOrderId = liveOrderId;
   s.openPositions.push(position);
   s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
   s.tradesOpened++;
+  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
   return {
     fired: true,
-    reason: `Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
+    reason: `${modeStr} Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
   };
 }
 async function _refreshPositionPrices(s) {
@@ -24951,11 +25053,16 @@ function closeAllPositions(userId) {
   ids.forEach((id) => closePosition(s, id));
   return ids.length;
 }
-var _states, _intervals, DEFAULT_CONFIG;
+var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _liveModes, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
 var init_polymarket_autonomous_engine = __esm({
   "server/services/polymarket-autonomous-engine.ts"() {
     "use strict";
     init_polymarket();
+    CLOB_BASE2 = "https://clob.polymarket.com";
+    POLY_CHAIN = 137;
+    CTF_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
+    _liveModes = /* @__PURE__ */ new Map();
+    _privateKeys = /* @__PURE__ */ new Map();
     _states = /* @__PURE__ */ new Map();
     _intervals = /* @__PURE__ */ new Map();
     DEFAULT_CONFIG = {
@@ -24965,6 +25072,598 @@ var init_polymarket_autonomous_engine = __esm({
       maxOpenPositions: 3,
       cooldownMinutes: 30
     };
+  }
+});
+
+// server/services/kalshi-trading.ts
+var kalshi_trading_exports = {};
+__export(kalshi_trading_exports, {
+  cancelKalshiOrder: () => cancelKalshiOrder,
+  deleteKalshiCredentials: () => deleteKalshiCredentials,
+  getKalshiBalance: () => getKalshiBalance,
+  getKalshiOrders: () => getKalshiOrders,
+  getKalshiPositions: () => getKalshiPositions,
+  loadKalshiCredentials: () => loadKalshiCredentials,
+  placeKalshiOrder: () => placeKalshiOrder,
+  saveKalshiCredentials: () => saveKalshiCredentials,
+  testKalshiCredentials: () => testKalshiCredentials
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function loadAllCreds() {
+  try {
+    if (fs4.existsSync(CREDS_FILE)) return JSON.parse(fs4.readFileSync(CREDS_FILE, "utf-8"));
+  } catch {
+  }
+  return {};
+}
+function saveAllCreds(map) {
+  try {
+    const dir = path4.dirname(CREDS_FILE);
+    if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
+    fs4.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
+  } catch {
+  }
+}
+function saveKalshiCredentials(userId, creds) {
+  const map = loadAllCreds();
+  map[String(userId)] = creds;
+  saveAllCreds(map);
+}
+function loadKalshiCredentials(userId) {
+  return loadAllCreds()[String(userId)] ?? null;
+}
+function deleteKalshiCredentials(userId) {
+  const map = loadAllCreds();
+  delete map[String(userId)];
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
+async function getOrRefreshToken(userId) {
+  const existing = _sessions.get(userId);
+  if (existing && Date.now() < existing.expiresAt) return existing.token;
+  const creds = loadKalshiCredentials(userId);
+  if (!creds) throw new Error("No Kalshi credentials saved for this account");
+  const res = await fetch(`${KALSHI_BASE2}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    body: JSON.stringify({ email: creds.email, password: creds.password }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Kalshi login failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const token = data.token ?? data.access_token;
+  const memberId = data.member_id ?? "";
+  if (!token) throw new Error("Kalshi login response missing token field");
+  const session3 = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1e3 };
+  _sessions.set(userId, session3);
+  return token;
+}
+async function kalshiGet(token, endpoint) {
+  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
+    headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Kalshi GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+async function kalshiPost(token, endpoint, body) {
+  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const text2 = await res.text();
+    throw new Error(`Kalshi POST ${endpoint} failed (${res.status}): ${text2.slice(0, 300)}`);
+  }
+  return res.json();
+}
+async function testKalshiCredentials(userId) {
+  try {
+    const token = await getOrRefreshToken(userId);
+    const data = await kalshiGet(token, "/portfolio/balance");
+    const balance = data.balance ?? 0;
+    const session3 = _sessions.get(userId);
+    return { valid: true, memberId: session3?.memberId, balance };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
+async function getKalshiBalance(userId) {
+  const token = await getOrRefreshToken(userId);
+  const data = await kalshiGet(token, "/portfolio/balance");
+  return {
+    balance: data.balance ?? 0,
+    availableBalance: data.available_balance ?? data.balance ?? 0
+  };
+}
+async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
+  const token = await getOrRefreshToken(userId);
+  const payload2 = {
+    ticker,
+    action,
+    side,
+    count,
+    type: "limit",
+    // Kalshi uses yes_price for limit orders
+    ...side === "yes" ? { yes_price: priceInCents } : { no_price: priceInCents }
+  };
+  const data = await kalshiPost(token, "/portfolio/orders", payload2);
+  const order = data.order ?? data;
+  return {
+    orderId: order.order_id ?? order.id ?? "unknown",
+    ticker: order.ticker ?? ticker,
+    side: order.side ?? side,
+    action: order.action ?? action,
+    count: order.count ?? count,
+    priceInCents,
+    status: order.status ?? "resting",
+    createdAt: order.created_time ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function getKalshiPositions(userId) {
+  const token = await getOrRefreshToken(userId);
+  const data = await kalshiGet(token, "/portfolio/positions?limit=100");
+  return data.positions ?? data.market_positions ?? [];
+}
+async function getKalshiOrders(userId, status = "resting") {
+  const token = await getOrRefreshToken(userId);
+  const data = await kalshiGet(token, `/portfolio/orders?status=${status}&limit=50`);
+  return data.orders ?? [];
+}
+async function cancelKalshiOrder(userId, orderId) {
+  const token = await getOrRefreshToken(userId);
+  try {
+    await fetch(`${KALSHI_BASE2}/portfolio/orders/${orderId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}`, "User-Agent": "VEDD-Trading-AI/1.0" },
+      signal: AbortSignal.timeout(8e3)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+var KALSHI_BASE2, CREDS_FILE, _sessions;
+var init_kalshi_trading = __esm({
+  "server/services/kalshi-trading.ts"() {
+    "use strict";
+    KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
+    CREDS_FILE = path4.join(process.cwd(), "data", "kalshi_credentials.json");
+    _sessions = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/kalshi-engine.ts
+var kalshi_engine_exports = {};
+__export(kalshi_engine_exports, {
+  closeAllKalshiTrades: () => closeAllKalshiTrades,
+  closeKalshiTrade: () => closeKalshiTrade,
+  getKalshiEngineState: () => getKalshiEngineState,
+  manualKalshiScan: () => manualKalshiScan,
+  startKalshiEngine: () => startKalshiEngine,
+  stopKalshiEngine: () => stopKalshiEngine,
+  updateKalshiEngineConfig: () => updateKalshiEngineConfig
+});
+function getKalshiEngineState(userId) {
+  if (!_states2.has(userId)) {
+    _states2.set(userId, {
+      isRunning: false,
+      isPaperMode: !loadKalshiCredentials(userId),
+      lastScanAt: null,
+      lastScanResult: null,
+      lastTradeAt: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: { ...DEFAULT_CONFIG2 }
+    });
+  }
+  const s = _states2.get(userId);
+  s.isPaperMode = !loadKalshiCredentials(userId);
+  return s;
+}
+function updateKalshiEngineConfig(userId, patch) {
+  const s = getKalshiEngineState(userId);
+  s.config = { ...s.config, ...patch };
+}
+function startKalshiEngine(userId) {
+  const s = getKalshiEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _runKalshiScan(userId).catch(console.error);
+  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1e3);
+  _timers.set(userId, iv);
+}
+function stopKalshiEngine(userId) {
+  const s = getKalshiEngineState(userId);
+  s.isRunning = false;
+  const iv = _timers.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers.delete(userId);
+  }
+}
+async function manualKalshiScan(userId) {
+  return _runKalshiScan(userId, true);
+}
+async function _runKalshiScan(userId, manual = false) {
+  const s = getKalshiEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  _updateOpenTradePrices(s);
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    const cooldownMs = s.config.cooldownMinutes * 60 * 1e3;
+    if (elapsed < cooldownMs) {
+      const minsLeft = Math.ceil((cooldownMs - elapsed) / 6e4);
+      const r = `Cooldown: ${minsLeft}m remaining`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  try {
+    const pred = await getBTC5MinPrediction();
+    if (!pred || pred.direction === "NEUTRAL") {
+      const r2 = "BTC signal NEUTRAL \u2014 waiting for clear direction";
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (pred.confidence < s.config.minConfidence) {
+      const r2 = `Signal confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (s.config.requireAlignedHourly) {
+      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
+      if (!aligned) {
+        const r2 = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with 5m ${pred.direction} signal`;
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
+    }
+    const event = await getKalshiBTCEvent(pred.currentPrice);
+    if (!event.brackets.length) {
+      const r2 = "No active KXBTC brackets available";
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (event.msUntilClose < 15 * 60 * 1e3) {
+      const r2 = "Nearest KXBTC event closes in <15 min \u2014 waiting for next event";
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    const bracket = _selectBracket(event.brackets, pred);
+    if (!bracket) {
+      const r2 = "Could not find a suitable bracket for current signal";
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
+    if (priceInCents >= 97) {
+      const r2 = `Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    const stakeUsd = priceInCents / 100 * s.config.contractsPerTrade;
+    let kalshiOrderId;
+    if (!s.isPaperMode) {
+      try {
+        const result = await placeKalshiOrder(
+          userId,
+          bracket.ticker,
+          "yes",
+          "buy",
+          s.config.contractsPerTrade,
+          priceInCents
+        );
+        kalshiOrderId = result.orderId;
+      } catch (err) {
+        const r2 = `Order failed: ${err.message}`;
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
+    }
+    const trade = {
+      id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      ticker: bracket.ticker,
+      subtitle: bracket.subtitle,
+      side: "yes",
+      action: "buy",
+      count: s.config.contractsPerTrade,
+      entryPriceCents: priceInCents,
+      currentPriceCents: priceInCents,
+      stake: stakeUsd,
+      currentValue: stakeUsd,
+      unrealizedPnl: 0,
+      signal: { direction: pred.direction, confidence: pred.confidence, btcPrice: pred.currentPrice },
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      paper: s.isPaperMode,
+      kalshiOrderId
+    };
+    s.openTrades.push(trade);
+    s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+    _recalcUnrealized(s);
+    const modeStr = s.isPaperMode ? " [PAPER]" : " [LIVE]";
+    const r = `${modeStr} Bought YES \xD7 ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}`;
+    s.lastScanResult = r;
+    return { fired: true, reason: r };
+  } catch (err) {
+    const r = `Scan error: ${err.message}`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+}
+function _selectBracket(brackets, pred) {
+  const btcPrice = pred.currentPrice;
+  if (pred.direction === "BUY") {
+    const greaterBrackets = brackets.filter((b) => b.strikeType === "greater");
+    if (greaterBrackets.length) {
+      return greaterBrackets.sort((a, b) => {
+        const da = btcPrice - (a.floorStrike ?? 0);
+        const db2 = btcPrice - (b.floorStrike ?? 0);
+        return Math.abs(da) - Math.abs(db2);
+      })[0];
+    }
+    return _findNearestBetween(brackets, btcPrice);
+  }
+  if (pred.direction === "SELL") {
+    const lessBrackets = brackets.filter((b) => b.strikeType === "less");
+    if (lessBrackets.length) {
+      return lessBrackets.sort((a, b) => {
+        const da = (a.capStrike ?? btcPrice) - btcPrice;
+        const db2 = (b.capStrike ?? btcPrice) - btcPrice;
+        return Math.abs(da) - Math.abs(db2);
+      })[0];
+    }
+    const below = brackets.filter(
+      (b) => b.strikeType === "between" && b.capStrike != null && b.capStrike < btcPrice
+    ).sort((a, b) => (b.capStrike ?? 0) - (a.capStrike ?? 0));
+    return below[0] ?? null;
+  }
+  return null;
+}
+function _findNearestBetween(brackets, btcPrice) {
+  const between = brackets.filter((b) => b.strikeType === "between");
+  if (!between.length) return null;
+  return between.sort((a, b) => {
+    const midA = ((a.floorStrike ?? 0) + (a.capStrike ?? 0)) / 2;
+    const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
+    return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
+  })[0];
+}
+function _updateOpenTradePrices(s) {
+  const now = Date.now();
+  for (const t of [...s.openTrades]) {
+    void now;
+  }
+}
+function _recalcUnrealized(s) {
+  s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
+}
+function closeKalshiTrade(userId, tradeId, exitPriceCents) {
+  const s = getKalshiEngineState(userId);
+  const idx = s.openTrades.findIndex((t) => t.id === tradeId);
+  if (idx === -1) return false;
+  const trade = s.openTrades[idx];
+  const exitCents = exitPriceCents ?? trade.currentPriceCents;
+  const exitValue = exitCents / 100 * trade.count;
+  const realizedPnl = exitValue - trade.stake;
+  trade.status = "closed";
+  trade.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  trade.exitPriceCents = exitCents;
+  trade.realizedPnl = realizedPnl;
+  trade.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(trade);
+  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
+  s.totalRealizedPnl += realizedPnl;
+  _recalcUnrealized(s);
+  return true;
+}
+function closeAllKalshiTrades(userId) {
+  const s = getKalshiEngineState(userId);
+  const ids = s.openTrades.map((t) => t.id);
+  ids.forEach((id) => closeKalshiTrade(userId, id));
+  return ids.length;
+}
+var _states2, _timers, DEFAULT_CONFIG2;
+var init_kalshi_engine = __esm({
+  "server/services/kalshi-engine.ts"() {
+    "use strict";
+    init_btc_5min_predictor();
+    init_kalshi();
+    init_kalshi_trading();
+    _states2 = /* @__PURE__ */ new Map();
+    _timers = /* @__PURE__ */ new Map();
+    DEFAULT_CONFIG2 = {
+      contractsPerTrade: 5,
+      maxOpenTrades: 3,
+      cooldownMinutes: 20,
+      minConfidence: 60,
+      requireAlignedHourly: true
+    };
+  }
+});
+
+// server/services/abba-ea-generator.ts
+var abba_ea_generator_exports = {};
+__export(abba_ea_generator_exports, {
+  detectPairInMessage: () => detectPairInMessage,
+  generateEAFromNL: () => generateEAFromNL
+});
+async function fetchBinanceLiveContext(pair) {
+  const symbol = pair.toUpperCase().replace("/", "").replace("-", "");
+  if (!symbol.includes("BTC") && !symbol.includes("ETH") && !symbol.includes("USDT")) {
+    return null;
+  }
+  try {
+    const res = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=5m&limit=50`,
+      { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(6e3) }
+    );
+    if (!res.ok) return null;
+    const klines = await res.json();
+    if (!klines.length) return null;
+    const closes = klines.map((k) => parseFloat(k[4]));
+    const last = closes[closes.length - 1];
+    const prev5 = closes[closes.length - 6];
+    const change5m = ((last - prev5) / prev5 * 100).toFixed(3);
+    const high20 = Math.max(...klines.slice(-20).map((k) => parseFloat(k[2])));
+    const low20 = Math.min(...klines.slice(-20).map((k) => parseFloat(k[3])));
+    const vol = parseFloat(klines[klines.length - 1][5]).toFixed(2);
+    return `${symbol} live (Binance): price $${last.toLocaleString()} | 5m change ${change5m}% | 20-bar range $${low20.toLocaleString()}\u2013$${high20.toLocaleString()} | volume ${vol}`;
+  } catch {
+    return null;
+  }
+}
+async function parseStrategy(userId, userMessage, pairHint) {
+  const ai = await getUniversalAIClientForUser(userId);
+  const systemPrompt = `You are a professional algorithmic trading strategy parser.
+Extract a trading strategy from the user's natural language description and return ONLY valid JSON \u2014 no markdown, no extra text.
+
+Required JSON structure:
+{
+  "pair": "EURUSD",          // trading symbol (MT5 format, no slash)
+  "timeframe": "M5",          // M1|M5|M15|M30|H1|H4|D1
+  "indicators": ["EMA 9", "RSI 14"],  // array of indicator strings
+  "entryLong": "EMA 9 crosses above EMA 21 and RSI > 50",
+  "entryShort": "EMA 9 crosses below EMA 21 and RSI < 50",
+  "stopLossType": "ATR",      // ATR | fixed | swing_low | percent
+  "stopLossValue": "1.5 ATR",
+  "takeProfitType": "RR",     // RR | ATR | fixed | percent
+  "takeProfitValue": "2:1",
+  "riskPercent": 1.0,         // 0.5 to 2.0
+  "trailingStop": false,
+  "name": "EMA Crossover RSI",
+  "description": "One-sentence description"
+}
+
+If the user does not specify something, use sensible defaults.
+${pairHint ? `The user seems to be discussing ${pairHint} \u2014 use that as the pair if not explicitly stated.` : ""}`;
+  const response = await ai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage }
+    ]
+  });
+  const raw = response.choices[0]?.message?.content?.trim() ?? "";
+  const clean = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+  return JSON.parse(clean);
+}
+async function generateMQL5Code(userId, strategy, liveContext) {
+  const ai = await getUniversalAIClientForUser(userId);
+  const systemPrompt = `You are an expert MQL5 (MetaTrader 5) programmer.
+Generate a complete, compilable MQL5 Expert Advisor based on the strategy spec.
+
+REQUIREMENTS:
+- Use #property strict, correct MQL5 syntax
+- Add input parameters for all key values (lot size, SL, TP, indicator periods)
+- Use OnTick() for signal detection
+- Handle both long and short trades
+- Include comment with strategy name and pairs
+- Use iRSI, iEMA, iMACD, iATR etc. for indicators (MQL5 handle-based style)
+- Add proper OrderSend with MqlTradeRequest / MqlTradeResult
+- Include risk management: max daily loss, max trades
+- Output ONLY the MQL5 code \u2014 no markdown, no explanation before or after
+${liveContext ? `
+// Live market context at generation time: ${liveContext}` : ""}`;
+  const userPrompt = `Generate MQL5 EA for this strategy:
+Name: ${strategy.name}
+Pair: ${strategy.pair}
+Timeframe: ${strategy.timeframe}
+Indicators: ${strategy.indicators.join(", ")}
+Entry LONG: ${strategy.entryLong}
+Entry SHORT: ${strategy.entryShort}
+Stop Loss: ${strategy.stopLossValue} (${strategy.stopLossType})
+Take Profit: ${strategy.takeProfitValue} (${strategy.takeProfitType})
+Risk per trade: ${strategy.riskPercent}%
+Trailing stop: ${strategy.trailingStop}
+Description: ${strategy.description}`;
+  const response = await ai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.1,
+    max_tokens: 3e3,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ]
+  });
+  let code = response.choices[0]?.message?.content?.trim() ?? "";
+  code = code.replace(/```(mql5|mq5|cpp|c\+\+)?\n?/gi, "").replace(/```/g, "").trim();
+  return code;
+}
+async function generateEAFromNL(userId, userMessage, pairHint) {
+  const strategy = await parseStrategy(userId, userMessage, pairHint);
+  const liveContext = await fetchBinanceLiveContext(strategy.pair);
+  const mql5Code = await generateMQL5Code(userId, strategy, liveContext ?? null);
+  const safeFilename = strategy.name.replace(/[^a-zA-Z0-9_\-]/g, "_").replace(/_+/g, "_").slice(0, 50);
+  return {
+    name: strategy.name,
+    description: strategy.description,
+    pair: strategy.pair,
+    timeframe: strategy.timeframe,
+    mql5Code,
+    filename: `${safeFilename}_VEDD.mq5`,
+    liveContext: liveContext ?? void 0,
+    parsedStrategy: strategy,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function detectPairInMessage(message) {
+  const upperMsg = message.toUpperCase();
+  const pairs = [
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY",
+    "USDCHF",
+    "AUDUSD",
+    "NZDUSD",
+    "USDCAD",
+    "GBPJPY",
+    "EURJPY",
+    "EURGBP",
+    "XAUUSD",
+    "GOLD",
+    "BTCUSDT",
+    "BTCUSD",
+    "ETHUSD",
+    "ETHUSDT",
+    "NAS100",
+    "US30",
+    "SPX500",
+    "GER40",
+    "EUR/USD",
+    "GBP/USD",
+    "USD/JPY",
+    "XAU/USD",
+    "BTC/USD"
+  ];
+  for (const p of pairs) {
+    if (upperMsg.includes(p)) return p.replace("/", "");
+  }
+  return null;
+}
+var init_abba_ea_generator = __esm({
+  "server/services/abba-ea-generator.ts"() {
+    "use strict";
+    init_openai();
   }
 });
 
@@ -26285,7 +26984,7 @@ async function runScan(userId, state, triggerToken) {
 async function startSolEngine(userId, config = {}) {
   const existing = engineStates2.get(userId);
   if (existing?.isRunning) stopSolEngine(userId);
-  const fullConfig = { ...DEFAULT_CONFIG2, ...config };
+  const fullConfig = { ...DEFAULT_CONFIG3, ...config };
   const state = createInitialState(fullConfig);
   if (existing) {
     state.weeklyGoal = existing.weeklyGoal;
@@ -26415,7 +27114,7 @@ function setSolStrategies(userId, strategyIds) {
   if (valid.length === 0) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    state = createInitialState({ ...DEFAULT_CONFIG3 });
     engineStates2.set(userId, state);
   }
   state.activeStrategies = valid;
@@ -26434,7 +27133,7 @@ function setSolStrategy(userId, strategyId) {
   if (!strategy) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    state = createInitialState({ ...DEFAULT_CONFIG3 });
     engineStates2.set(userId, state);
   }
   state.activeStrategy = strategyId;
@@ -26448,7 +27147,7 @@ function setSolStrategy(userId, strategyId) {
 function setSolWeeklyGoal(userId, params) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    state = createInitialState({ ...DEFAULT_CONFIG3 });
     engineStates2.set(userId, state);
   }
   const portfolio = state.currentPortfolioValue;
@@ -26547,7 +27246,7 @@ function recordSolSignalResult(userId, params) {
 function setAutoTrade(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    state = createInitialState({ ...DEFAULT_CONFIG3 });
     engineStates2.set(userId, state);
   }
   if (opts.paperEnabled !== void 0) {
@@ -26607,7 +27306,7 @@ function setAutoTrade(userId, opts) {
 function setCompoundSettings(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    state = createInitialState({ ...DEFAULT_CONFIG3 });
     engineStates2.set(userId, state);
   }
   if (opts.compoundMode !== void 0) {
@@ -26861,7 +27560,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG2, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG3, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -26971,7 +27670,7 @@ var init_sol_engine = __esm({
         holdTarget: "varies"
       }
     ];
-    DEFAULT_CONFIG2 = {
+    DEFAULT_CONFIG3 = {
       dexFilter: "all",
       minConfidence: 65,
       maxTokens: 10,
@@ -29268,8 +29967,8 @@ import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs4 from "fs";
-import * as path4 from "path";
+import * as fs5 from "fs";
+import * as path5 from "path";
 
 // server/twilio.ts
 import twilio from "twilio";
@@ -31173,20 +31872,20 @@ var TradovateService = class {
     }
     return data;
   }
-  async get(path8) {
+  async get(path9) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path8}`, {
+    const response = await fetch(`${this.baseUrl}${path9}`, {
       headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path8} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate GET ${path9} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
-  async post(path8, body) {
+  async post(path9, body) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path8}`, {
+    const response = await fetch(`${this.baseUrl}${path9}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.accessToken}`,
@@ -31197,7 +31896,7 @@ var TradovateService = class {
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path8} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate POST ${path9} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
@@ -34246,9 +34945,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path4.join(process.cwd(), "uploads");
-if (!fs4.existsSync(uploadsDir2)) {
-  fs4.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path5.join(process.cwd(), "uploads");
+if (!fs5.existsSync(uploadsDir2)) {
+  fs5.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -34591,11 +35290,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path4.join(uploadsDir2, fileName);
+      const filePath = path5.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs4.promises.writeFile(filePath, req.file.buffer);
+        await fs5.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -34621,14 +35320,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path4.join(process.cwd(), "uploads", "avatars");
-      if (!fs4.existsSync(avatarsDir)) {
-        fs4.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path5.join(process.cwd(), "uploads", "avatars");
+      if (!fs5.existsSync(avatarsDir)) {
+        fs5.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path4.join(avatarsDir, fileName);
-      await fs4.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path5.join(avatarsDir, fileName);
+      await fs5.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -34723,11 +35422,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path4.join(uploadsDir2, generatedFilename);
+      const filePath = path5.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs4.promises.writeFile(filePath, imageBuffer);
+        await fs5.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -34844,9 +35543,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path4.join(uploadsDir2, frameFileName);
+          const framePath = path5.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs4.promises.writeFile(framePath, frameBuffer);
+          await fs5.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -35244,12 +35943,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path4.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path5.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs4.existsSync(filePath)) {
-        const alternativePath = path4.join(uploadsDir2, path4.basename(imageUrl));
+      if (!fs5.existsSync(filePath)) {
+        const alternativePath = path5.join(uploadsDir2, path5.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs4.existsSync(alternativePath)) {
+        if (!fs5.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -35258,7 +35957,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs4.promises.readFile(filePath);
+      const imageBuffer = await fs5.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -35433,11 +36132,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path4.basename(imagePath);
+        const basename2 = path5.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path4.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path5.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs4.existsSync(originalImagePath)) {
+        if (!fs5.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -35534,13 +36233,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path4.basename(filename);
-      const sharedPath = path4.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs4.existsSync(sharedPath)) {
+      const sanitizedFilename = path5.basename(filename);
+      const sharedPath = path5.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs5.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path4.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs4.existsSync(regularPath)) {
+      const regularPath = path5.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs5.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -35552,9 +36251,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path4.basename(filename);
-      const annotatedPath = path4.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs4.existsSync(annotatedPath)) {
+      const sanitizedFilename = path5.basename(filename);
+      const annotatedPath = path5.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs5.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -38787,12 +39486,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path4.join(process.cwd(), "uploads", "share-cards");
-      if (!fs4.existsSync(shareCardPath)) {
-        fs4.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path5.join(process.cwd(), "uploads", "share-cards");
+      if (!fs5.existsSync(shareCardPath)) {
+        fs5.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path4.join(shareCardPath, shareCardFileName);
-      fs4.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path5.join(shareCardPath, shareCardFileName);
+      fs5.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -44503,8 +45202,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas: createCanvas3, loadImage: loadImage3 } = await import("canvas");
-      const path8 = await import("path");
-      const fs6 = await import("fs");
+      const path9 = await import("path");
+      const fs7 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -44590,8 +45289,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path8.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs6.default.existsSync(logoPath)) {
+        const logoPath = path9.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs7.default.existsSync(logoPath)) {
           const logo = await loadImage3(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -44852,10 +45551,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path8.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs6.default.existsSync(outDir)) fs6.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path8.default.join(outDir, fileName);
-      fs6.default.writeFileSync(filePath, buffer);
+      const outDir = path9.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs7.default.existsSync(outDir)) fs7.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path9.default.join(outDir, fileName);
+      fs7.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -45967,9 +46666,9 @@ Format each recommendation as a clear, concise action item.`;
     brain.optimalMinConfidence = optimalMinConfidence;
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path4.join(process.cwd(), "data", "brains");
-      if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
-      fs4.writeFileSync(path4.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path5.join(process.cwd(), "data", "brains");
+      if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
+      fs5.writeFileSync(path5.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -45978,9 +46677,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs4.existsSync(p)) return null;
-      const brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+      const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs5.existsSync(p)) return null;
+      const brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -46015,9 +46714,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = global.veddAIBrain?.[userId];
     if (!brain) {
       try {
-        const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs4.existsSync(p)) {
-          brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+        const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs5.existsSync(p)) {
+          brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
           global.veddAIBrain = global.veddAIBrain || {};
           global.veddAIBrain[userId] = brain;
         }
@@ -46033,9 +46732,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = global.veddAIBrain?.[userId];
     if (!brain) {
       try {
-        const p = path4.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs4.existsSync(p)) {
-          brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+        const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs5.existsSync(p)) {
+          brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
           global.veddAIBrain = global.veddAIBrain || {};
           global.veddAIBrain[userId] = brain;
         }
@@ -46773,9 +47472,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path4.join(process.cwd(), "data", "brains");
-          if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
-          fs4.writeFileSync(path4.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path5.join(process.cwd(), "data", "brains");
+          if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
+          fs5.writeFileSync(path5.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -47396,19 +48095,19 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path4.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path5.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs4.existsSync(_polyWalletsFile)) return JSON.parse(fs4.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs5.existsSync(_polyWalletsFile)) return JSON.parse(fs5.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path4.join(process.cwd(), "data");
-      if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
-      fs4.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path5.join(process.cwd(), "data");
+      if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
+      fs5.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -47526,6 +48225,167 @@ Respond with ONLY valid JSON:
       const closed = closeAllPositions2(userId);
       res.json({ success: true, closed, state: getEngineState2(userId) });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
+  });
+  app2.post("/api/kalshi/credentials", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: "email and password required" });
+    try {
+      const { saveKalshiCredentials: saveKalshiCredentials2, testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+      saveKalshiCredentials2(userId, { email, password });
+      const test = await testKalshiCredentials2(userId);
+      if (!test.valid) {
+        const { deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+        deleteKalshiCredentials2(userId);
+        return res.status(400).json({ error: `Kalshi login failed: ${test.error}` });
+      }
+      res.json({ success: true, memberId: test.memberId, balance: test.balance });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/kalshi/account", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { loadKalshiCredentials: loadKalshiCredentials2, testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+      const creds = loadKalshiCredentials2(userId);
+      if (!creds) return res.json({ connected: false });
+      const test = await testKalshiCredentials2(userId);
+      res.json({ connected: test.valid, memberId: test.memberId, balance: test.balance, error: test.error });
+    } catch (err) {
+      res.json({ connected: false, error: err.message });
+    }
+  });
+  app2.delete("/api/kalshi/credentials", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+    deleteKalshiCredentials2(userId);
+    res.json({ success: true });
+  });
+  app2.get("/api/kalshi/engine/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    res.json(getKalshiEngineState2(userId));
+  });
+  app2.post("/api/kalshi/engine/start", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { startKalshiEngine: startKalshiEngine2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    startKalshiEngine2(userId);
+    res.json({ success: true, state: getKalshiEngineState2(userId) });
+  });
+  app2.post("/api/kalshi/engine/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { stopKalshiEngine: stopKalshiEngine2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    stopKalshiEngine2(userId);
+    res.json({ success: true, state: getKalshiEngineState2(userId) });
+  });
+  app2.post("/api/kalshi/engine/scan", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { manualKalshiScan: manualKalshiScan2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      const result = await manualKalshiScan2(userId);
+      res.json({ ...result, state: getKalshiEngineState2(userId) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.put("/api/kalshi/engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { updateKalshiEngineConfig: updateKalshiEngineConfig2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    updateKalshiEngineConfig2(userId, req.body);
+    res.json({ success: true, state: getKalshiEngineState2(userId) });
+  });
+  app2.post("/api/kalshi/engine/trades/:id/close", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { closeKalshiTrade: closeKalshiTrade2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    const ok = closeKalshiTrade2(userId, req.params.id);
+    if (!ok) return res.status(404).json({ error: "Trade not found" });
+    res.json({ success: true, state: getKalshiEngineState2(userId) });
+  });
+  app2.post("/api/kalshi/engine/trades/close-all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { closeAllKalshiTrades: closeAllKalshiTrades2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+    const closed = closeAllKalshiTrades2(userId);
+    res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
+  });
+  const _polyKeysFile = path5.join(process.cwd(), "data", "polymarket_keys.json");
+  const _loadPolyKeys = () => {
+    try {
+      if (fs5.existsSync(_polyKeysFile)) return JSON.parse(fs5.readFileSync(_polyKeysFile, "utf-8"));
+    } catch {
+    }
+    return {};
+  };
+  const _savePolyKeys = (map) => {
+    try {
+      const dir = path5.join(process.cwd(), "data");
+      if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
+      fs5.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+    } catch {
+    }
+  };
+  app2.post("/api/user/polymarket-private-key", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { privateKey } = req.body;
+    if (!privateKey || typeof privateKey !== "string") return res.status(400).json({ error: "privateKey required" });
+    const clean = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(clean)) return res.status(400).json({ error: "Invalid private key format (must be 32-byte hex)" });
+    const map = _loadPolyKeys();
+    map[String(userId)] = clean;
+    _savePolyKeys(map);
+    res.json({ success: true });
+  });
+  app2.get("/api/user/polymarket-private-key", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const map = _loadPolyKeys();
+    const key = map[String(userId)];
+    res.json({ saved: !!key, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null });
+  });
+  app2.delete("/api/user/polymarket-private-key", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const map = _loadPolyKeys();
+    delete map[String(userId)];
+    _savePolyKeys(map);
+    res.json({ success: true });
+  });
+  app2.post("/api/polymarket-engine/live-mode", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { enabled } = req.body;
+    const map = _loadPolyKeys();
+    const hasKey = !!map[String(userId)];
+    if (enabled && !hasKey) {
+      return res.status(400).json({ error: "Save your Polygon private key before enabling live mode" });
+    }
+    const { setPolymarketLiveMode: setPolymarketLiveMode2, getEngineState: getEngineState2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+    setPolymarketLiveMode2(userId, !!enabled, map[String(userId)] ?? null);
+    res.json({ success: true, liveMode: !!enabled, state: getEngineState2(userId) });
+  });
+  app2.post("/api/abba/generate-ea", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { message, pairHint } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: "message is required" });
+    try {
+      const { generateEAFromNL: generateEAFromNL2 } = await Promise.resolve().then(() => (init_abba_ea_generator(), abba_ea_generator_exports));
+      const ea = await generateEAFromNL2(userId, message, pairHint);
+      res.json(ea);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.get("/api/ss-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -48423,11 +49283,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs6 = await import("fs/promises");
-        const path8 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path8.extname(req.file.originalname)}`;
-        const uploadPath = path8.join(process.cwd(), "uploads", filename);
-        await fs6.writeFile(uploadPath, req.file.buffer);
+        const fs7 = await import("fs/promises");
+        const path9 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path9.extname(req.file.originalname)}`;
+        const uploadPath = path9.join(process.cwd(), "uploads", filename);
+        await fs7.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -49230,8 +50090,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path4.join(uploadsDir2, filename);
-      fs4.writeFileSync(filePath, file.buffer);
+      const filePath = path5.join(uploadsDir2, filename);
+      fs5.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -53587,10 +54447,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path4.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path5.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs4.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -53600,8 +54460,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         ...req.body
       };
       curricula.push(entry);
-      fs4.mkdirSync(path4.join(process.cwd(), "data"), { recursive: true });
-      fs4.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs5.mkdirSync(path5.join(process.cwd(), "data"), { recursive: true });
+      fs5.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -53610,10 +54470,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path4.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path5.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs4.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -53624,10 +54484,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path4.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs4.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = {
@@ -53638,8 +54498,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       };
       if (!certs.find((c) => c.certId === cert.certId)) {
         certs.push(cert);
-        fs4.mkdirSync(path4.join(process.cwd(), "data"), { recursive: true });
-        fs4.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+        fs5.mkdirSync(path5.join(process.cwd(), "data"), { recursive: true });
+        fs5.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
       }
       res.json({ success: true });
     } catch (err) {
@@ -53649,10 +54509,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path4.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs4.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const mine = certs.filter((c) => c.userId === req.user.id);
@@ -53663,10 +54523,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path4.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs4.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -54138,14 +54998,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
 // server/vite.ts
 import express from "express";
-import fs5 from "fs";
-import path6 from "path";
+import fs6 from "fs";
+import path7 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path5 from "path";
+import path6 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -54164,14 +55024,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path5.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path5.resolve(import.meta.dirname, "shared"),
-      "@assets": path5.resolve(import.meta.dirname, "attached_assets")
+      "@": path6.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path6.resolve(import.meta.dirname, "shared"),
+      "@assets": path6.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path5.resolve(import.meta.dirname, "client"),
+  root: path6.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path5.resolve(import.meta.dirname, "dist/public"),
+    outDir: path6.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -54224,13 +55084,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path6.resolve(
+      const clientTemplate = path7.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs5.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs6.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -54249,8 +55109,8 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path6.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs5.existsSync(distPath)) {
+  const distPath = path7.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs6.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -54271,7 +55131,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path6.resolve(distPath, "index.html");
+  const indexPath = path7.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -54304,7 +55164,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs5.promises.readFile(indexPath, "utf-8");
+      let html = await fs6.promises.readFile(indexPath, "utf-8");
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
     } catch {
@@ -54314,7 +55174,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path7 from "path";
+import path8 from "path";
 
 // server/auth.ts
 init_storage();
@@ -55142,19 +56002,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path7.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path7.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path7.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path8.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path8.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path8.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path7.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path8.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path8 = req.path;
+  const path9 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -55163,8 +56023,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path8.startsWith("/api")) {
-      let logLine = `${req.method} ${path8} ${res.statusCode} in ${duration}ms`;
+    if (path9.startsWith("/api")) {
+      let logLine = `${req.method} ${path9} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

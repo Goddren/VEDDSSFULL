@@ -5,11 +5,127 @@
  * Monitors Polymarket BTC prediction market sentiment and opens
  * YES/NO positions DIRECTLY on Polymarket — not on TradeLocker or MT5.
  *
- * Paper trading by default (tracks real probabilities, no actual chain calls).
+ * Paper mode (default): tracks real probabilities, no actual chain calls.
+ * Live mode: signs CLOB limit orders via EIP-712 using the user's Polygon
+ *   private key. Requires VPN for US users (Polymarket geo-blocks US IPs).
+ *
  * P&L model: shares = stake / (entryProb / 100), value = shares × (currentProb / 100).
  */
 
 import { getPolymarketBTCSentiment, type PolymarketMarket, type PolymarketBTCSentiment } from './polymarket';
+
+// ── Live CLOB order placement ─────────────────────────────────────────────────
+
+const CLOB_BASE   = 'https://clob.polymarket.com';
+const POLY_CHAIN  = 137; // Polygon
+const CTF_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
+
+async function placeClobOrder(
+  privateKey: string,
+  tokenId: string,
+  side: 'BUY' | 'SELL',
+  priceFloat: number,  // 0.0–1.0
+  sizeUsdc: number,    // USDC (6 decimals internally)
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  try {
+    const { ethers } = await import('ethers');
+    const wallet = new ethers.Wallet(privateKey);
+
+    // Build CLOB EIP-712 order
+    const salt     = BigInt(Math.floor(Math.random() * 1e15));
+    const now      = BigInt(Math.floor(Date.now() / 1000));
+    const expiry   = now + BigInt(3600); // 1 h TTL
+    const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));         // USDC 6 dp
+    const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+
+    const domain = {
+      name:              'Polymarket CTF Exchange',
+      version:           '1',
+      chainId:           POLY_CHAIN,
+      verifyingContract: CTF_ADDRESS,
+    };
+    const types = {
+      Order: [
+        { name: 'salt',          type: 'uint256' },
+        { name: 'maker',         type: 'address' },
+        { name: 'signer',        type: 'address' },
+        { name: 'taker',         type: 'address' },
+        { name: 'tokenId',       type: 'uint256' },
+        { name: 'makerAmount',   type: 'uint256' },
+        { name: 'takerAmount',   type: 'uint256' },
+        { name: 'expiration',    type: 'uint256' },
+        { name: 'nonce',         type: 'uint256' },
+        { name: 'feeRateBps',    type: 'uint256' },
+        { name: 'side',          type: 'uint8'   },
+        { name: 'signatureType', type: 'uint8'   },
+      ],
+    };
+    const orderValues = {
+      salt,
+      maker:         wallet.address,
+      signer:        wallet.address,
+      taker:         '0x0000000000000000000000000000000000000000',
+      tokenId:       BigInt(tokenId),
+      makerAmount:   makerAmt,
+      takerAmount:   takerAmt,
+      expiration:    expiry,
+      nonce:         BigInt(0),
+      feeRateBps:    BigInt(0),
+      side:          side === 'BUY' ? 0 : 1,
+      signatureType: 0,
+    };
+
+    const signature = await wallet.signTypedData(domain, types, orderValues);
+
+    const body = {
+      order: {
+        salt:            salt.toString(),
+        maker:           wallet.address,
+        signer:          wallet.address,
+        taker:           '0x0000000000000000000000000000000000000000',
+        tokenId,
+        makerAmount:     makerAmt.toString(),
+        takerAmount:     takerAmt.toString(),
+        expiration:      expiry.toString(),
+        nonce:           '0',
+        feeRateBps:      '0',
+        side:            side === 'BUY' ? 0 : 1,
+        signatureType:   0,
+        signature,
+      },
+      owner:     wallet.address,
+      orderType: 'GTC',
+    };
+
+    const res = await fetch(`${CLOB_BASE}/order`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+      body:    JSON.stringify(body),
+      signal:  AbortSignal.timeout(12000),
+    });
+
+    const data = await res.json() as any;
+    if (!res.ok || data.error) {
+      return { success: false, error: data.error ?? `CLOB ${res.status}` };
+    }
+    return { success: true, orderId: data.orderID ?? data.order_id ?? 'unknown' };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ── Live-mode per-user store ──────────────────────────────────────────────────
+const _liveModes   = new Map<number, boolean>();
+const _privateKeys = new Map<number, string>();
+
+export function setPolymarketLiveMode(userId: number, enabled: boolean, privateKey: string | null): void {
+  _liveModes.set(userId, enabled);
+  if (privateKey) _privateKeys.set(userId, privateKey);
+  else            _privateKeys.delete(userId);
+  // Reset paper flag on the engine state
+  const s = getEngineState(userId);
+  s.isPaperMode = !enabled;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -228,13 +344,29 @@ async function _openPosition(
     status: 'open',
   };
 
+  // Attempt live CLOB order if live mode enabled and token ID available
+  let liveOrderId: string | undefined;
+  if (!s.isPaperMode && best.yesTokenId) {
+    const userId = [..._liveModes.entries()].find(([, v]) => v)?.[0];
+    const pk = userId != null ? _privateKeys.get(userId) : undefined;
+    if (pk && best.yesTokenId) {
+      const result = await placeClobOrder(pk, best.yesTokenId, 'BUY', entryProb / 100, s.config.stakePerTrade);
+      if (!result.success) {
+        return { fired: false, reason: `CLOB order failed: ${result.error}` };
+      }
+      liveOrderId = result.orderId;
+    }
+  }
+
+  (position as any).clobOrderId = liveOrderId;
   s.openPositions.push(position);
   s.lastTradeAt = new Date().toISOString();
   s.tradesOpened++;
 
+  const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
   return {
     fired: true,
-    reason: `Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% — stake $${s.config.stakePerTrade}`,
+    reason: `${modeStr} Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% — stake $${s.config.stakePerTrade}`,
   };
 }
 
