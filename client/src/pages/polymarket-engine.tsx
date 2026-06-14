@@ -231,9 +231,12 @@ export default function PolymarketEnginePage() {
 
   // Kalshi credential state
   const [showKalshiSetup, setShowKalshiSetup] = useState(false);
+  const [kalshiAuthMode, setKalshiAuthMode]   = useState<"password" | "apikey">("apikey");
   const [kalshiEmail, setKalshiEmail]         = useState("");
   const [kalshiPassword, setKalshiPassword]   = useState("");
   const [showKalshiPw, setShowKalshiPw]       = useState(false);
+  const [kalshiKeyId, setKalshiKeyId]         = useState("");
+  const [kalshiPrivateKey, setKalshiPrivateKey] = useState("");
   const [showKalshiConfig, setShowKalshiConfig] = useState(false);
   const [gisReady, setGisReady]               = useState(false);
   const [googleEmailPrefilled, setGoogleEmailPrefilled] = useState(false);
@@ -421,6 +424,20 @@ export default function PolymarketEnginePage() {
       setShowKalshiSetup(false);
       setKalshiPassword("");
       toast({ title: "Kalshi connected!", description: `Balance: ${data.balance ?? 0}¢` });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const saveKalshiApiKeyMutation = useMutation({
+    mutationFn: (body: { keyId: string; privateKeyPem: string }) =>
+      apiRequest("POST", "/api/kalshi/apikey", body).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data.error) { toast({ title: "API Key failed", description: data.error, variant: "destructive" }); return; }
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/account"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] });
+      setShowKalshiSetup(false);
+      setKalshiKeyId(""); setKalshiPrivateKey("");
+      toast({ title: "Kalshi connected via API Key!", description: `Balance: $${((data.balance ?? 0) / 100).toFixed(2)}` });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -855,78 +872,117 @@ export default function PolymarketEnginePage() {
                 </button>
               ) : (
                 <div className="space-y-2 bg-black/20 rounded-xl p-3">
-                  <p className="text-[10px] font-bold text-indigo-300">Kalshi Login</p>
+                  {/* Auth method toggle */}
+                  <div className="flex rounded-lg overflow-hidden border border-gray-700/60 text-[10px] font-bold mb-1">
+                    <button
+                      onClick={() => setKalshiAuthMode("apikey")}
+                      className={`flex-1 py-1.5 transition-colors ${kalshiAuthMode === "apikey" ? "bg-indigo-600/50 text-indigo-200" : "bg-gray-900/60 text-gray-500 hover:text-gray-300"}`}
+                    >
+                      API Key <span className="text-[8px] font-normal ml-0.5">(Google login)</span>
+                    </button>
+                    <button
+                      onClick={() => setKalshiAuthMode("password")}
+                      className={`flex-1 py-1.5 transition-colors ${kalshiAuthMode === "password" ? "bg-indigo-600/50 text-indigo-200" : "bg-gray-900/60 text-gray-500 hover:text-gray-300"}`}
+                    >
+                      Email + Password
+                    </button>
+                  </div>
 
-                  {/* Google Sign-In button — shown when GOOGLE_CLIENT_ID is configured */}
-                  {appConfig?.googleClientId && (
+                  {kalshiAuthMode === "apikey" ? (
+                    /* ── API Key form ── */
                     <>
-                      <div ref={googleBtnRef} className="w-full flex justify-center" />
-                      {googleEmailPrefilled && (
-                        <p className="text-[9px] text-emerald-400 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block" />
-                          Google email detected — enter your Kalshi password below
-                        </p>
+                      <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-lg px-3 py-2 text-[9px] text-indigo-300/80 leading-relaxed">
+                        Use this if you log into Kalshi with Google.{" "}
+                        <a href="https://kalshi.com/account/api" target="_blank" rel="noopener noreferrer"
+                          className="text-indigo-400 underline font-bold">
+                          Get your API key at kalshi.com/account/api →
+                        </a>
+                        {" "}(log in with Google there first, then generate a key)
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="Key ID (UUID from Kalshi dashboard)"
+                        value={kalshiKeyId}
+                        onChange={e => setKalshiKeyId(e.target.value)}
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                      <textarea
+                        placeholder={"-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"}
+                        value={kalshiPrivateKey}
+                        onChange={e => setKalshiPrivateKey(e.target.value)}
+                        rows={4}
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg text-[10px] text-white px-3 py-2 focus:outline-none focus:border-indigo-500 font-mono resize-none"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveKalshiApiKeyMutation.mutate({ keyId: kalshiKeyId, privateKeyPem: kalshiPrivateKey })}
+                          disabled={saveKalshiApiKeyMutation.isPending || !kalshiKeyId || !kalshiPrivateKey}
+                          className="flex-1 bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
+                        >
+                          {saveKalshiApiKeyMutation.isPending ? "Verifying…" : "Connect with API Key"}
+                        </button>
+                        <button onClick={() => { setShowKalshiSetup(false); setKalshiKeyId(""); setKalshiPrivateKey(""); }} className="text-xs text-gray-500 px-3">Cancel</button>
+                      </div>
+                    </>
+                  ) : (
+                    /* ── Email + Password form ── */
+                    <>
+                      {/* Google Sign-In button — shown when GOOGLE_CLIENT_ID is configured */}
+                      {appConfig?.googleClientId && (
+                        <>
+                          <div ref={googleBtnRef} className="w-full flex justify-center" />
+                          {googleEmailPrefilled && (
+                            <p className="text-[9px] text-emerald-400 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block" />
+                              Google email detected — enter your Kalshi password below
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 my-1">
+                            <div className="flex-1 h-px bg-gray-700/60" />
+                            <span className="text-[9px] text-gray-600">or enter manually</span>
+                            <div className="flex-1 h-px bg-gray-700/60" />
+                          </div>
+                        </>
                       )}
-                      <div className="flex items-center gap-2 my-1">
-                        <div className="flex-1 h-px bg-gray-700/60" />
-                        <span className="text-[9px] text-gray-600">or enter manually</span>
-                        <div className="flex-1 h-px bg-gray-700/60" />
+                      <div className="relative">
+                        <input
+                          type="email"
+                          placeholder="Kalshi email"
+                          value={kalshiEmail}
+                          readOnly={googleEmailPrefilled}
+                          onChange={e => { setKalshiEmail(e.target.value); setGoogleEmailPrefilled(false); }}
+                          className={`w-full bg-gray-900 border rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 ${googleEmailPrefilled ? "border-emerald-600/60 text-emerald-300 cursor-default" : "border-gray-700"}`}
+                        />
+                        {googleEmailPrefilled && (
+                          <button onClick={() => { setGoogleEmailPrefilled(false); setKalshiEmail(""); }} className="absolute right-2 top-2 text-gray-500 hover:text-gray-300">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showKalshiPw ? "text" : "password"}
+                          placeholder="Kalshi password"
+                          value={kalshiPassword}
+                          onChange={e => setKalshiPassword(e.target.value)}
+                          className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button onClick={() => setShowKalshiPw(v => !v)} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300">
+                          {showKalshiPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveKalshiCredsMutation.mutate({ email: kalshiEmail, password: kalshiPassword })}
+                          disabled={saveKalshiCredsMutation.isPending || !kalshiEmail || !kalshiPassword}
+                          className="flex-1 bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
+                        >
+                          {saveKalshiCredsMutation.isPending ? "Connecting…" : "Connect"}
+                        </button>
+                        <button onClick={() => { setShowKalshiSetup(false); setGoogleEmailPrefilled(false); setKalshiEmail(""); setKalshiPassword(""); }} className="text-xs text-gray-500 px-3">Cancel</button>
                       </div>
                     </>
                   )}
-
-                  {/* Email field — read-only when prefilled from Google */}
-                  <div className="relative">
-                    <input
-                      type="email"
-                      placeholder="Kalshi email"
-                      value={kalshiEmail}
-                      readOnly={googleEmailPrefilled}
-                      onChange={e => { setKalshiEmail(e.target.value); setGoogleEmailPrefilled(false); }}
-                      className={`w-full bg-gray-900 border rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 ${googleEmailPrefilled ? "border-emerald-600/60 text-emerald-300 cursor-default" : "border-gray-700"}`}
-                    />
-                    {googleEmailPrefilled && (
-                      <button
-                        onClick={() => { setGoogleEmailPrefilled(false); setKalshiEmail(""); }}
-                        title="Clear Google email"
-                        className="absolute right-2 top-2 text-gray-500 hover:text-gray-300"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type={showKalshiPw ? "text" : "password"}
-                      placeholder={googleEmailPrefilled ? "Kalshi password (set one at kalshi.com if Google-only)" : "Kalshi password"}
-                      value={kalshiPassword}
-                      onChange={e => setKalshiPassword(e.target.value)}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 focus:outline-none focus:border-indigo-500"
-                    />
-                    <button onClick={() => setShowKalshiPw(v => !v)} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300">
-                      {showKalshiPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-
-                  {googleEmailPrefilled && (
-                    <p className="text-[9px] text-gray-500 leading-tight">
-                      If you signed up on Kalshi with Google only, set a password at{" "}
-                      <a href="https://kalshi.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">kalshi.com</a>{" "}
-                      → Account Settings first.
-                    </p>
-                  )}
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => saveKalshiCredsMutation.mutate({ email: kalshiEmail, password: kalshiPassword })}
-                      disabled={saveKalshiCredsMutation.isPending || !kalshiEmail || !kalshiPassword}
-                      className="flex-1 bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
-                    >
-                      {saveKalshiCredsMutation.isPending ? "Connecting…" : "Connect"}
-                    </button>
-                    <button onClick={() => { setShowKalshiSetup(false); setGoogleEmailPrefilled(false); setKalshiEmail(""); setKalshiPassword(""); }} className="text-xs text-gray-500 px-3">Cancel</button>
-                  </div>
                 </div>
               )}
             </div>

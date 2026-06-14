@@ -16448,12 +16448,33 @@ Respond with ONLY valid JSON:
     if (!email || !password) return res.status(400).json({ error: "email and password required" });
     try {
       const { saveKalshiCredentials, testKalshiCredentials } = await import('./services/kalshi-trading');
-      saveKalshiCredentials(userId, { email, password });
+      saveKalshiCredentials(userId, { authMethod: 'password', email, password });
       const test = await testKalshiCredentials(userId);
       if (!test.valid) {
         const { deleteKalshiCredentials } = await import('./services/kalshi-trading');
         deleteKalshiCredentials(userId);
         return res.status(400).json({ error: `Kalshi login failed: ${test.error}` });
+      }
+      res.json({ success: true, memberId: test.memberId, balance: test.balance });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/kalshi/apikey — save RSA API key (for Google-SSO accounts)
+  app.post("/api/kalshi/apikey", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { keyId, privateKeyPem } = req.body;
+    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "keyId and privateKeyPem required" });
+    try {
+      const { saveKalshiApiKey, testKalshiCredentials } = await import('./services/kalshi-trading');
+      saveKalshiApiKey(userId, keyId.trim(), privateKeyPem.trim());
+      const test = await testKalshiCredentials(userId);
+      if (!test.valid) {
+        const { deleteKalshiCredentials } = await import('./services/kalshi-trading');
+        deleteKalshiCredentials(userId);
+        return res.status(400).json({ error: `Kalshi API key test failed: ${test.error}` });
       }
       res.json({ success: true, memberId: test.memberId, balance: test.balance });
     } catch (err: any) {

@@ -10,16 +10,23 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
+const KALSHI_PATH_PREFIX = '/trade-api/v2';
 
 const CREDS_FILE = path.join(process.cwd(), 'data', 'kalshi_credentials.json');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KalshiCredentials {
-  email: string;
-  password: string;
+  authMethod: 'password' | 'apikey';
+  // Password auth
+  email?: string;
+  password?: string;
+  // RSA API key auth (for Google-SSO accounts)
+  keyId?: string;
+  privateKeyPem?: string;
 }
 
 interface KalshiSession {
@@ -67,6 +74,13 @@ export function saveKalshiCredentials(userId: number, creds: KalshiCredentials):
   saveAllCreds(map);
 }
 
+export function saveKalshiApiKey(userId: number, keyId: string, privateKeyPem: string): void {
+  const map = loadAllCreds();
+  map[String(userId)] = { authMethod: 'apikey', keyId, privateKeyPem };
+  saveAllCreds(map);
+  _sessions.delete(userId); // clear any stale JWT session
+}
+
 export function loadKalshiCredentials(userId: number): KalshiCredentials | null {
   return loadAllCreds()[String(userId)] ?? null;
 }
@@ -78,16 +92,13 @@ export function deleteKalshiCredentials(userId: number): void {
   _sessions.delete(userId);
 }
 
-// ── Session management (in-memory) ────────────────────────────────────────────
+// ── Session management (in-memory, password auth only) ───────────────────────
 
 const _sessions = new Map<number, KalshiSession>();
 
-async function getOrRefreshToken(userId: number): Promise<string> {
+async function getOrRefreshToken(userId: number, creds: KalshiCredentials): Promise<string> {
   const existing = _sessions.get(userId);
   if (existing && Date.now() < existing.expiresAt) return existing.token;
-
-  const creds = loadKalshiCredentials(userId);
-  if (!creds) throw new Error('No Kalshi credentials saved for this account');
 
   const res = await fetch(`${KALSHI_BASE}/login`, {
     method: 'POST',
@@ -106,18 +117,49 @@ async function getOrRefreshToken(userId: number): Promise<string> {
   const memberId: string = data.member_id ?? '';
   if (!token) throw new Error('Kalshi login response missing token field');
 
-  const session: KalshiSession = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1000 }; // 20 h
+  const session: KalshiSession = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1000 };
   _sessions.set(userId, session);
   return token;
 }
 
+// ── RSA signing for API key auth ──────────────────────────────────────────────
+
+function signKalshiRequest(privateKeyPem: string, timestampMs: number, method: string, endpoint: string): string {
+  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + endpoint;
+  const sign = crypto.createSign('RSA-SHA256');
+  sign.update(message);
+  return sign.sign(privateKeyPem, 'base64');
+}
+
+// ── Auth header builder (handles both methods) ────────────────────────────────
+
+async function getAuthHeaders(userId: number, method: string, endpoint: string): Promise<Record<string, string>> {
+  const creds = loadKalshiCredentials(userId);
+  if (!creds) throw new Error('No Kalshi credentials saved for this account');
+
+  const base: Record<string, string> = { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' };
+
+  if (creds.authMethod === 'apikey' && creds.keyId && creds.privateKeyPem) {
+    const ts = Date.now();
+    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
+    return {
+      ...base,
+      'KALSHI-ACCESS-KEY': creds.keyId,
+      'KALSHI-ACCESS-TIMESTAMP': String(ts),
+      'KALSHI-ACCESS-SIGNATURE': sig,
+    };
+  }
+
+  // Password auth → JWT
+  const token = await getOrRefreshToken(userId, creds);
+  return { ...base, 'Authorization': `Bearer ${token}` };
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-async function kalshiGet<T>(token: string, endpoint: string): Promise<T> {
-  const res = await fetch(`${KALSHI_BASE}${endpoint}`, {
-    headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
-    signal: AbortSignal.timeout(10000),
-  });
+async function kalshiGet<T>(userId: number, endpoint: string): Promise<T> {
+  const headers = await getAuthHeaders(userId, 'GET', endpoint);
+  const res = await fetch(`${KALSHI_BASE}${endpoint}`, { headers, signal: AbortSignal.timeout(10000) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Kalshi GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
@@ -125,10 +167,11 @@ async function kalshiGet<T>(token: string, endpoint: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function kalshiPost<T>(token: string, endpoint: string, body: object): Promise<T> {
+async function kalshiPost<T>(userId: number, endpoint: string, body: object): Promise<T> {
+  const headers = await getAuthHeaders(userId, 'POST', endpoint);
   const res = await fetch(`${KALSHI_BASE}${endpoint}`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+    headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(10000),
   });
@@ -141,22 +184,22 @@ async function kalshiPost<T>(token: string, endpoint: string, body: object): Pro
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Test credentials and return the member ID if valid */
+/** Test credentials (both password and API key) and return account info if valid */
 export async function testKalshiCredentials(userId: number): Promise<{ valid: boolean; memberId?: string; balance?: number; error?: string }> {
   try {
-    const token = await getOrRefreshToken(userId);
-    const data = await kalshiGet<any>(token, '/portfolio/balance');
+    const data = await kalshiGet<any>(userId, '/portfolio/balance');
     const balance = data.balance ?? 0;
     const session = _sessions.get(userId);
-    return { valid: true, memberId: session?.memberId, balance };
+    const creds = loadKalshiCredentials(userId);
+    const memberId = session?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}…` : undefined);
+    return { valid: true, memberId, balance };
   } catch (err: any) {
     return { valid: false, error: err.message };
   }
 }
 
 export async function getKalshiBalance(userId: number): Promise<KalshiBalance> {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet<any>(token, '/portfolio/balance');
+  const data = await kalshiGet<any>(userId, '/portfolio/balance');
   return {
     balance:          data.balance ?? 0,
     availableBalance: data.available_balance ?? data.balance ?? 0,
@@ -171,19 +214,16 @@ export async function placeKalshiOrder(
   count: number,
   priceInCents: number,
 ): Promise<KalshiOrderResult> {
-  const token = await getOrRefreshToken(userId);
-
   const payload = {
     ticker,
     action,
     side,
     count,
     type: 'limit',
-    // Kalshi uses yes_price for limit orders
     ...(side === 'yes' ? { yes_price: priceInCents } : { no_price: priceInCents }),
   };
 
-  const data = await kalshiPost<any>(token, '/portfolio/orders', payload);
+  const data = await kalshiPost<any>(userId, '/portfolio/orders', payload);
   const order = data.order ?? data;
 
   return {
@@ -199,23 +239,21 @@ export async function placeKalshiOrder(
 }
 
 export async function getKalshiPositions(userId: number): Promise<any[]> {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet<any>(token, '/portfolio/positions?limit=100');
+  const data = await kalshiGet<any>(userId, '/portfolio/positions?limit=100');
   return data.positions ?? data.market_positions ?? [];
 }
 
 export async function getKalshiOrders(userId: number, status = 'resting'): Promise<any[]> {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet<any>(token, `/portfolio/orders?status=${status}&limit=50`);
+  const data = await kalshiGet<any>(userId, `/portfolio/orders?status=${status}&limit=50`);
   return data.orders ?? [];
 }
 
 export async function cancelKalshiOrder(userId: number, orderId: string): Promise<boolean> {
-  const token = await getOrRefreshToken(userId);
   try {
+    const headers = await getAuthHeaders(userId, 'DELETE', `/portfolio/orders/${orderId}`);
     await fetch(`${KALSHI_BASE}/portfolio/orders/${orderId}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}`, 'User-Agent': 'VEDD-Trading-AI/1.0' },
+      headers,
       signal: AbortSignal.timeout(8000),
     });
     return true;
