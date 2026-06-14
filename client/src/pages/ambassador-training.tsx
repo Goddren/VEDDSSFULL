@@ -2458,6 +2458,99 @@ const trainingModules: TrainingModule[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'btc-prediction-kalshi',
+    title: '5-Min BTC Prediction & Kalshi Auto-Trader',
+    description: 'Teach members the live BTC prediction signal and the CFTC-regulated Kalshi auto-trader with three strategies',
+    duration: '20 min',
+    icon: TrendingUp,
+    lessons: [
+      {
+        id: 'btc-pred-1',
+        title: 'The 5-Minute BTC Prediction',
+        content: [
+          'VEDD runs a live 5-minute Bitcoin prediction engine that scores short-term direction (BUY / SELL / NEUTRAL) with a confidence percentage.',
+          'It pulls live BTC candles from public market data (Binance, with an automatic Coinbase fallback so US-hosted users always get data) — no exchange account or API key needed.',
+          'The signal blends classic technical analysis: RSI momentum, MACD histogram, EMA stack (9/21/50), volume trend, and 1-hour trend alignment.',
+          'Confidence is a measure of signal QUALITY — how many indicators agree — not a promise of profit. Always teach this distinction.',
+          'It refreshes every 30 seconds and is US-legal because it is display/analysis only — it does not place any trade on its own.'
+        ],
+        keyPoints: [
+          { title: 'Live & Keyless', description: 'Real-time BTC direction + confidence from public market data. No account or API key required to view the signal.', icon: Zap },
+          { title: 'Multi-Indicator Score', description: 'RSI, MACD, EMA stack, volume and 1h trend are combined into one BUY/SELL/NEUTRAL call with a confidence %.', icon: BarChart2 },
+          { title: 'Confidence ≠ Profit', description: 'Confidence reflects how strongly the indicators agree, not guaranteed returns. Coach members to treat it as signal quality.', icon: Brain }
+        ],
+        realWorldExamples: [
+          { scenario: 'A member wanted a quick read on BTC before placing a trade', outcome: 'Opened the 5-Min Prediction, saw BUY at 72% with EMA stack bullish, and used it to confirm their own analysis', lesson: 'The prediction is a fast, objective second opinion — perfect for confirming or questioning a setup', type: 'success' },
+          { scenario: 'A member assumed 90% confidence meant a 90% win', outcome: 'Ambassador clarified that confidence measures indicator agreement, not win rate', lesson: 'Always explain confidence correctly — it protects members and builds trust', type: 'warning' }
+        ],
+        tips: [
+          'Pitch line: "A live BTC read every 30 seconds, no account needed — it tells you direction AND how strong the signal is."',
+          'Demo it on camera next to a chart — the BUY/SELL flip with the confidence score is visually compelling content'
+        ]
+      },
+      {
+        id: 'btc-pred-2',
+        title: 'Kalshi Auto-Trader (CFTC-Regulated, US-Legal)',
+        content: [
+          'The Kalshi Auto-Trader takes the BTC signal and places REAL contracts on Kalshi — a CFTC-regulated US exchange, so US members can legally auto-trade.',
+          'Members connect their Kalshi account with an API Key (Key ID + private key from kalshi.com/account/api) — this works even with Google sign-in accounts.',
+          'It trades KXBTC hourly price-range contracts: a BUY signal buys YES on an "above $X" bracket; a SELL signal targets a "below $X" bracket.',
+          'Without saved credentials it runs in PAPER mode — members can practice and watch simulated P&L before going live.',
+          'Risk controls are built in: contracts per trade, max open trades, cooldown between trades, and a minimum confidence threshold.'
+        ],
+        keyPoints: [
+          { title: 'US-Legal Auto-Trading', description: 'Kalshi is CFTC-regulated, so US members can legally automate BTC contract trades — a rare, major selling point.', icon: Shield },
+          { title: 'Paper or Live', description: 'Runs in paper mode until a Kalshi API key is added, so members can practice risk-free, then flip to live.', icon: Bot },
+          { title: 'Built-in Risk Limits', description: 'Contracts per trade, max open trades, cooldown, and minimum confidence keep the engine disciplined.', icon: Target }
+        ],
+        realWorldExamples: [
+          { scenario: 'A US member wanted automated crypto exposure but most platforms are geo-blocked', outcome: 'Connected Kalshi with an API key and let the engine auto-trade BTC brackets in paper mode first, then live', lesson: 'Kalshi is the compliant answer for US members who want real automated BTC trades', type: 'success' },
+          { scenario: 'A member signed up to Kalshi with Google and had no password', outcome: 'Used the API Key method (Key ID + private key) instead of email/password — connected successfully', lesson: 'Always point Google-only Kalshi users to the API Key flow at kalshi.com/account/api', type: 'insight' }
+        ],
+        tips: [
+          'Lead with compliance: "Real automated BTC trading that is actually legal in the US because Kalshi is CFTC-regulated."',
+          'Tell members to start in PAPER mode, confirm they like the strategy, then add their API key to go live',
+          'Find the Kalshi P&L shortcut in the nav — it jumps straight to the auto-trader and its profit/loss'
+        ]
+      },
+      {
+        id: 'btc-pred-3',
+        title: 'Choosing a Strategy: Momentum, Volume Profile, Markov',
+        content: [
+          'The Kalshi Auto-Trader offers three selectable strategies so members can match the engine to their style and market conditions.',
+          'Momentum — the default — fires on the RSI/MACD/EMA signal. It is the most active and best in trending conditions.',
+          'Volume Profile (VPVR) — builds a volume-by-price map, finds the Point of Control and value area, and trades breakouts above/below that area with volume confirmation. Great for catching genuine breakouts.',
+          'Markov — classifies recent candles as up/down/flat and uses a transition-probability matrix to bet on the most likely next move. Useful for statistically-driven members.',
+          'All three respect the same confidence threshold and risk limits, and the active strategy is shown as a badge on the Kalshi panel.'
+        ],
+        keyPoints: [
+          { title: 'Momentum', description: 'RSI/MACD/EMA signal — most active, shines in trending markets. The default strategy.', icon: TrendingUp },
+          { title: 'Volume Profile', description: 'Trades breakouts beyond the Point-of-Control value area, confirmed by rising volume. Patient and selective.', icon: BarChart2 },
+          { title: 'Markov', description: 'Next-state probability from a candle transition matrix — a statistical edge for quant-minded members.', icon: Cpu }
+        ],
+        realWorldExamples: [
+          { scenario: 'Choppy, range-bound BTC market', outcome: 'Momentum kept flipping; the member switched to Volume Profile, which stayed NEUTRAL until a real breakout', lesson: 'Match the strategy to conditions — Volume Profile and Markov wait for an edge instead of forcing trades', type: 'insight' },
+          { scenario: 'A member asked which strategy is "best"', outcome: 'Ambassador explained each has a use case and suggested paper-testing all three for a week', lesson: 'There is no single best strategy — coach members to test and pick what fits their style', type: 'success' }
+        ],
+        tips: [
+          'Switch strategy in the Kalshi config → Auto-Trade Strategy → Save Config; the header badge confirms the active one',
+          'Encourage members to paper-test all three strategies before committing real contracts',
+          'Content idea: a side-by-side of the three strategies firing (or staying neutral) on the same BTC move'
+        ],
+        quiz: {
+          question: 'Why can US members legally auto-trade BTC through the Kalshi Auto-Trader?',
+          options: [
+            'Because it uses a VPN',
+            'Because Kalshi is a CFTC-regulated US exchange',
+            'Because it only trades in paper mode',
+            'Because Bitcoin is unregulated'
+          ],
+          correct: 1
+        }
+      }
+    ]
   }
 ];
 

@@ -1290,6 +1290,59 @@ const guideSections: GuideSection[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'btc-prediction-kalshi',
+    title: 'BTC Prediction & Kalshi Auto-Trader',
+    icon: TrendingUp,
+    description: 'Use the live 5-minute Bitcoin prediction and auto-trade it on Kalshi (CFTC-regulated, US-legal)',
+    content: [
+      {
+        heading: 'Reading the 5-Minute BTC Prediction',
+        steps: [
+          'Open the prediction panel from the "Kalshi P&L" nav shortcut (top of the page)',
+          'The signal shows BUY, SELL, or NEUTRAL with a confidence percentage, refreshing every 30 seconds',
+          'It is built from live BTC candles (Binance, with automatic Coinbase fallback) — no account or API key needed',
+          'The score blends RSI, MACD, the EMA stack (9/21/50), volume trend, and 1-hour trend alignment',
+          'Read confidence as signal QUALITY (how strongly the indicators agree), not a guarantee of profit'
+        ],
+        tips: [
+          'The prediction is display-only and US-legal — it never places a trade by itself',
+          'Use it as a fast, objective second opinion to confirm or question your own analysis'
+        ]
+      },
+      {
+        heading: 'Connecting Your Kalshi Account (API Key)',
+        steps: [
+          'Go to kalshi.com/account/api and sign in (Google sign-in works)',
+          'Create an API key — Kalshi gives you a Key ID and a private key file (the private key is shown only once)',
+          'In the Kalshi Auto-Trader panel, click Connect and paste the Key ID and the full private key',
+          'Click "Connect with API Key" — your Kalshi balance appears when it succeeds',
+          'Until you connect a key, the engine runs in PAPER mode so you can practice risk-free'
+        ],
+        tips: [
+          'Email/password login is not supported by Kalshi\'s API — always use the API Key method',
+          'Paste the entire private key, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines'
+        ]
+      },
+      {
+        heading: 'Auto-Trading & Strategies',
+        steps: [
+          'The engine maps the BTC signal to Kalshi KXBTC hourly contracts: BUY buys YES on an "above $X" bracket, SELL targets a "below $X" bracket',
+          'Open the config (gear icon) to choose your Auto-Trade Strategy: Momentum, Volume Profile, or Markov',
+          'Momentum: the RSI/MACD/EMA signal — most active, best in trending markets',
+          'Volume Profile: trades breakouts beyond the Point-of-Control value area, confirmed by volume — patient and selective',
+          'Markov: bets on the most likely next move using a candle up/down/flat transition matrix',
+          'Set your risk limits: contracts per trade, max open trades, cooldown, and minimum confidence — then Save Config',
+          'Press Start Engine to auto-trade, or Scan to test the current strategy on demand'
+        ],
+        tips: [
+          'Start in paper mode and test all three strategies before going live with real contracts',
+          'The active strategy shows as a badge on the Kalshi panel; track results in the open/closed trades and P&L sections',
+          'Kalshi is CFTC-regulated, which is what makes automated BTC trading legal for US users'
+        ]
+      }
+    ]
   }
 ];
 

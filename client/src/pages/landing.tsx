@@ -353,6 +353,35 @@ export default function LandingPage() {
               </div>
             </motion.div>
 
+            {/* BTC Prediction & Kalshi Auto-Trader */}
+            <motion.div variants={fadeIn} className="bg-gradient-to-br from-indigo-950/40 to-emerald-950/30 rounded-2xl p-6 border border-indigo-500/40 group hover:border-indigo-400/60 transition-all duration-300 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-indigo-500/20 rounded-lg group-hover:bg-indigo-500/30 transition-all">
+                  <TrendingUp className="h-6 w-6 text-indigo-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-white">BTC Prediction & Kalshi Auto-Trader</h3>
+                    <span className="text-[9px] font-bold bg-indigo-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-400/80 font-medium tracking-wider">CFTC-REGULATED · US-LEGAL AUTO-TRADING</p>
+                </div>
+              </div>
+              <p className="text-gray-300 mb-4">
+                A live 5-minute Bitcoin prediction (BUY/SELL with confidence) that you can auto-trade on Kalshi — a CFTC-regulated US exchange — so US traders can legally automate BTC contracts. Practice in paper mode, then go live with your API key.
+              </p>
+              <ul className="space-y-1.5 mb-4">
+                <li className="flex items-center gap-2 text-sm text-gray-400"><Zap className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> Live 5-min BTC signal — RSI/MACD/EMA, no account needed</li>
+                <li className="flex items-center gap-2 text-sm text-gray-400"><BarChart2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> 3 strategies: Momentum, Volume Profile, Markov</li>
+                <li className="flex items-center gap-2 text-sm text-gray-400"><Target className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> Built-in risk limits &amp; paper-trading mode</li>
+              </ul>
+              <div className="flex items-center gap-2 text-indigo-400 text-sm">
+                <Bot className="h-4 w-4" />
+                <span>Auto-trades hourly BTC contracts on Kalshi</span>
+              </div>
+            </motion.div>
+
             {/* VEDD Token Rewards */}
             <motion.div variants={fadeIn} className="bg-gradient-to-br from-amber-900/30 to-yellow-900/20 rounded-2xl p-6 border border-amber-500/30 group hover:border-amber-400/50 transition-all duration-300">
               <div className="flex items-center gap-3 mb-4">
