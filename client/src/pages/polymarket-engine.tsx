@@ -120,6 +120,7 @@ interface KalshiEngineState {
     cooldownMinutes: number;
     minConfidence: number;
     requireAlignedHourly: boolean;
+    strategy: "momentum" | "volume_profile" | "markov";
   };
 }
 
@@ -246,6 +247,7 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
+  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov">("");
 
   // Polymarket live key state
   const [showPolyKeySetup, setShowPolyKeySetup] = useState(false);
@@ -300,6 +302,15 @@ export default function PolymarketEnginePage() {
       width: googleBtnRef.current.offsetWidth || 320,
     });
   }, [gisReady, showKalshiSetup]);
+
+  // Scroll to the Kalshi panel when arriving via the "Kalshi P&L" nav (#kalshi)
+  useEffect(() => {
+    if (typeof window === "undefined" || window.location.hash !== "#kalshi") return;
+    const t = setTimeout(() => {
+      document.getElementById("kalshi")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 400);
+    return () => clearTimeout(t);
+  }, []);
 
   // ── 5-min BTC prediction — Binance feed, US-legal ─────────────────────────
   const {
@@ -506,6 +517,7 @@ export default function PolymarketEnginePage() {
     if (kalshiCfgMaxTrades)  patch.maxOpenTrades     = Number(kalshiCfgMaxTrades);
     if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
     if (kalshiCfgConfidence) patch.minConfidence     = Number(kalshiCfgConfidence);
+    if (kalshiCfgStrategy)   patch.strategy          = kalshiCfgStrategy;
     if (!Object.keys(patch).length) return;
     saveKalshiConfigMutation.mutate(patch);
   };
@@ -841,15 +853,20 @@ export default function PolymarketEnginePage() {
         ) : null}
 
         {/* ── Kalshi Auto-Trading Engine ────────────────────────────────────── */}
-        <div className={`bg-indigo-950/50 border rounded-xl p-4 ${kalshiEngineState?.isRunning ? "border-indigo-600/60" : "border-indigo-800/40"}`}>
+        <div id="kalshi" className={`scroll-mt-20 bg-indigo-950/50 border rounded-xl p-4 ${kalshiEngineState?.isRunning ? "border-indigo-600/60" : "border-indigo-800/40"}`}>
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Shield className="w-4 h-4 text-indigo-400" />
               <h2 className="text-sm font-bold text-white">Kalshi Auto-Trader</h2>
               <span className="text-[9px] text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded">CFTC · US-Legal</span>
               {kalshiEngineState && (
                 <span className={`text-[9px] px-1.5 py-0.5 rounded ${kalshiEngineState.isPaperMode ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"}`}>
                   {kalshiEngineState.isPaperMode ? "PAPER" : "LIVE"}
+                </span>
+              )}
+              {kalshiEngineState?.config.strategy && (
+                <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">
+                  {kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : "Momentum"}
                 </span>
               )}
             </div>
@@ -981,6 +998,31 @@ export default function PolymarketEnginePage() {
               {showKalshiConfig && (
                 <div className="bg-black/30 rounded-xl p-3 border border-gray-700/40">
                   <p className="text-[10px] font-bold text-indigo-300 mb-3">Kalshi Engine Config</p>
+
+                  {/* Strategy selector */}
+                  <div className="mb-3">
+                    <label className="text-[9px] text-gray-400 block mb-1">Auto-Trade Strategy</label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {([
+                        { key: "momentum",       label: "Momentum",   sub: "RSI/MACD/EMA" },
+                        { key: "volume_profile", label: "Vol Profile", sub: "POC / value area" },
+                        { key: "markov",         label: "Markov",     sub: "state transitions" },
+                      ] as const).map(opt => {
+                        const active = (kalshiCfgStrategy || kalshiEngineState?.config.strategy || "momentum") === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            onClick={() => setKalshiCfgStrategy(opt.key)}
+                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-indigo-600/40 border-indigo-500/50 text-indigo-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
+                          >
+                            <span className="block text-[10px] font-bold leading-tight">{opt.label}</span>
+                            <span className="block text-[8px] text-gray-500 leading-tight mt-0.5">{opt.sub}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2">
                     {([
                       { label: "Contracts/trade", val: kalshiCfgContracts, set: setKalshiCfgContracts, ph: String(kalshiEngineState?.config.contractsPerTrade ?? 5) },

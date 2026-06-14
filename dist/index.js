@@ -20158,15 +20158,15 @@ function compositeEdgeScore(markovBullP, polyBullScore) {
   return clamp(Math.round(blended), 0, 100);
 }
 async function getCompositeEdgeSignal(symbol, direction, candles) {
-  let markovSignal = null;
+  let markovSignal2 = null;
   try {
     if (candles.length > 0) {
-      markovSignal = getMarkovSignal(symbol, direction, candles);
+      markovSignal2 = getMarkovSignal(symbol, direction, candles);
     }
   } catch {
   }
-  const markovAdj = markovSignal?.confidenceAdjustment ?? 0;
-  const markovBullP = markovSignal ? Math.round(markovSignal.bullishProbability * 100) : 50;
+  const markovAdj = markovSignal2?.confidenceAdjustment ?? 0;
+  const markovBullP = markovSignal2 ? Math.round(markovSignal2.bullishProbability * 100) : 50;
   let polySentiment = null;
   const isCrypto = CRYPTO_REGEX.test(symbol);
   if (isCrypto) {
@@ -20215,19 +20215,19 @@ async function getCompositeEdgeSignal(symbol, direction, candles) {
     } else if (align === "disagree" || align === "strong_disagree") {
       reason += " \u2014 signals conflict (dampened)";
     }
-  } else if (markovSignal) {
-    reason += ` | Markov: ${markovSignal.reason}`;
+  } else if (markovSignal2) {
+    reason += ` | Markov: ${markovSignal2.reason}`;
     if (isCrypto) reason += " | Polymarket: unavailable";
   }
   return {
     confidenceAdjustment: finalAdjustment,
     reason,
     markov: {
-      currentState: markovSignal?.currentState ?? "NEUTRAL",
+      currentState: markovSignal2?.currentState ?? "NEUTRAL",
       bullP: markovBullP,
-      bearP: markovSignal ? Math.round(markovSignal.bearishProbability * 100) : 50,
+      bearP: markovSignal2 ? Math.round(markovSignal2.bearishProbability * 100) : 50,
       adjustment: markovAdj,
-      available: markovSignal !== null
+      available: markovSignal2 !== null
     },
     polymarket: polySentiment ? {
       overallBullishScore: polySentiment.overallBullishScore,
@@ -24540,7 +24540,8 @@ var init_breakout_monitor = __esm({
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
   clearBTCPredictionCache: () => clearBTCPredictionCache,
-  getBTC5MinPrediction: () => getBTC5MinPrediction
+  getBTC5MinPrediction: () => getBTC5MinPrediction,
+  getBTCCandles: () => getBTCCandles
 });
 function ema(values, period) {
   const k = 2 / (period + 1);
@@ -24735,6 +24736,9 @@ async function getBTC5MinPrediction(forceRefresh = false) {
 function clearBTCPredictionCache() {
   cachedPrediction = null;
   cacheTimestamp2 = 0;
+}
+async function getBTCCandles(limit = 100) {
+  return fetchCandlesWithFallback("BTCUSDT", "5m", limit);
 }
 var BINANCE_BASE, COINBASE_BASE, CACHE_TTL_MS4, cachedPrediction, cacheTimestamp2;
 var init_btc_5min_predictor = __esm({
@@ -25418,6 +25422,129 @@ var init_kalshi_trading = __esm({
   }
 });
 
+// server/services/kalshi-strategies.ts
+function pct1h(candles) {
+  if (candles.length < 13) return 0;
+  const last = candles[candles.length - 1].close;
+  const prev = candles[candles.length - 13].close;
+  return (last - prev) / prev * 100;
+}
+function volumeProfileSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const window = candles.slice(-60);
+  const hi = Math.max(...window.map((c) => c.high));
+  const lo = Math.min(...window.map((c) => c.low));
+  const bins = 24;
+  const binSize = (hi - lo) / bins || 1;
+  const vol = new Array(bins).fill(0);
+  for (const c of window) {
+    const tp = (c.high + c.low + c.close) / 3;
+    let idx = Math.floor((tp - lo) / binSize);
+    idx = clamp2(idx, 0, bins - 1);
+    vol[idx] += c.volume;
+  }
+  const totalVol = vol.reduce((a, b) => a + b, 0) || 1;
+  let pocIdx = 0;
+  for (let i = 1; i < bins; i++) if (vol[i] > vol[pocIdx]) pocIdx = i;
+  const pocPrice = lo + (pocIdx + 0.5) * binSize;
+  let included = vol[pocIdx];
+  let loIdx = pocIdx, hiIdx = pocIdx;
+  while (included < totalVol * 0.7 && (loIdx > 0 || hiIdx < bins - 1)) {
+    const down = loIdx > 0 ? vol[loIdx - 1] : -1;
+    const up = hiIdx < bins - 1 ? vol[hiIdx + 1] : -1;
+    if (up >= down) {
+      hiIdx++;
+      included += vol[hiIdx];
+    } else {
+      loIdx--;
+      included += vol[loIdx];
+    }
+  }
+  const VAL = lo + loIdx * binSize;
+  const VAH = lo + (hiIdx + 1) * binSize;
+  const avgVol = totalVol / window.length;
+  const recentVol = window.slice(-3).reduce((s, c) => s + c.volume, 0) / 3;
+  const volConfirm = recentVol > avgVol;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  let reason;
+  if (price > VAH) {
+    direction = "BUY";
+    const dist = (price - VAH) / binSize;
+    confidence2 = clamp2(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
+    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ", volume rising" : ""}`;
+  } else if (price < VAL) {
+    direction = "SELL";
+    const dist = (VAL - price) / binSize;
+    confidence2 = clamp2(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
+    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ", volume rising" : ""}`;
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = 45;
+    reason = `VP: price $${price.toFixed(0)} inside value area $${VAL.toFixed(0)}\u2013$${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}) \u2014 no breakout edge`;
+  }
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "volume_profile" };
+}
+function markovSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const window = candles.slice(-80);
+  const FLAT = 4e-4;
+  const states = window.map((c) => {
+    const ch = (c.close - c.open) / c.open;
+    return ch > FLAT ? "U" : ch < -FLAT ? "D" : "F";
+  });
+  const idx = { U: 0, D: 1, F: 2 };
+  const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 1; i < states.length; i++) M[idx[states[i - 1]]][idx[states[i]]]++;
+  const cur = states[states.length - 1];
+  const row = M[idx[cur]];
+  const rowSum = row[0] + row[1] + row[2] || 1;
+  const pU = row[0] / rowSum;
+  const pD = row[1] / rowSum;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  if (pU > pD && pU >= 0.4) {
+    direction = "BUY";
+    confidence2 = clamp2(Math.round(pU * 100), 50, 92);
+  } else if (pD > pU && pD >= 0.4) {
+    direction = "SELL";
+    confidence2 = clamp2(Math.round(pD * 100), 50, 92);
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = clamp2(Math.round(Math.max(pU, pD) * 100), 40, 60);
+  }
+  const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
+}
+async function getKalshiSignal(strategy) {
+  if (strategy === "momentum") {
+    const p = await getBTC5MinPrediction();
+    return {
+      direction: p.direction,
+      confidence: p.confidence,
+      currentPrice: p.currentPrice,
+      priceChange1h: p.priceChange1h,
+      reason: p.reasons?.[0] ?? "Momentum (RSI/MACD/EMA) signal",
+      strategy: "momentum"
+    };
+  }
+  const { candles } = await getBTCCandles(100);
+  if (!candles.length) {
+    return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
+  }
+  return strategy === "volume_profile" ? volumeProfileSignal(candles) : markovSignal(candles);
+}
+var clamp2;
+var init_kalshi_strategies = __esm({
+  "server/services/kalshi-strategies.ts"() {
+    "use strict";
+    init_btc_5min_predictor();
+    clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  }
+});
+
 // server/services/kalshi-engine.ts
 var kalshi_engine_exports = {};
 __export(kalshi_engine_exports, {
@@ -25450,7 +25577,9 @@ function getKalshiEngineState(userId) {
 }
 function updateKalshiEngineConfig(userId, patch) {
   const s = getKalshiEngineState(userId);
-  s.config = { ...s.config, ...patch };
+  const clean = { ...patch };
+  if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  s.config = { ...s.config, ...clean };
 }
 function startKalshiEngine(userId) {
   const s = getKalshiEngineState(userId);
@@ -25492,21 +25621,22 @@ async function _runKalshiScan(userId, manual = false) {
     }
   }
   try {
-    const pred = await getBTC5MinPrediction();
+    const stratLabel = STRATEGY_LABELS[s.config.strategy] ?? s.config.strategy;
+    const pred = await getKalshiSignal(s.config.strategy);
     if (!pred || pred.direction === "NEUTRAL") {
-      const r2 = "BTC signal NEUTRAL \u2014 waiting for clear direction";
+      const r2 = `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}`;
       s.lastScanResult = r2;
       return { fired: false, reason: r2 };
     }
     if (pred.confidence < s.config.minConfidence) {
-      const r2 = `Signal confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
+      const r2 = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
       s.lastScanResult = r2;
       return { fired: false, reason: r2 };
     }
     if (s.config.requireAlignedHourly) {
       const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
       if (!aligned) {
-        const r2 = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with 5m ${pred.direction} signal`;
+        const r2 = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
         s.lastScanResult = r2;
         return { fired: false, reason: r2 };
       }
@@ -25574,8 +25704,8 @@ async function _runKalshiScan(userId, manual = false) {
     s.openTrades.push(trade);
     s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
     _recalcUnrealized(s);
-    const modeStr = s.isPaperMode ? " [PAPER]" : " [LIVE]";
-    const r = `${modeStr} Bought YES \xD7 ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}`;
+    const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
+    const r = `${modeStr} ${stratLabel}: bought YES \xD7 ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}`;
     s.lastScanResult = r;
     return { fired: true, reason: r };
   } catch (err) {
@@ -25657,13 +25787,13 @@ function closeAllKalshiTrades(userId) {
   ids.forEach((id) => closeKalshiTrade(userId, id));
   return ids.length;
 }
-var _states2, _timers, DEFAULT_CONFIG2;
+var _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
-    init_btc_5min_predictor();
     init_kalshi();
     init_kalshi_trading();
+    init_kalshi_strategies();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
     DEFAULT_CONFIG2 = {
@@ -25671,7 +25801,13 @@ var init_kalshi_engine = __esm({
       maxOpenTrades: 3,
       cooldownMinutes: 20,
       minConfidence: 60,
-      requireAlignedHourly: true
+      requireAlignedHourly: true,
+      strategy: "momentum"
+    };
+    STRATEGY_LABELS = {
+      momentum: "Momentum",
+      volume_profile: "Volume Profile",
+      markov: "Markov"
     };
   }
 });

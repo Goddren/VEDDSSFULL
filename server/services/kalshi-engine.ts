@@ -13,12 +13,12 @@
  * at current AMM ask price, tracks virtual P&L).
  */
 
-import { getBTC5MinPrediction, type BTC5MinPrediction } from './btc-5min-predictor';
 import { getKalshiBTCEvent, type KalshiBTCBracket }   from './kalshi';
 import {
   placeKalshiOrder, getKalshiBalance, loadKalshiCredentials,
   type KalshiOrderResult,
 } from './kalshi-trading';
+import { getKalshiSignal, type KalshiStrategy, type TradeSignal } from './kalshi-strategies';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,8 +61,9 @@ export interface KalshiEngineConfig {
   contractsPerTrade: number;   // number of Kalshi contracts per order
   maxOpenTrades: number;
   cooldownMinutes: number;
-  minConfidence: number;       // min BTC predictor confidence to fire (0-100)
-  requireAlignedHourly: boolean; // require priceChange1h to align with 5m direction
+  minConfidence: number;       // min signal confidence to fire (0-100)
+  requireAlignedHourly: boolean; // require priceChange1h to align with signal direction
+  strategy: KalshiStrategy;    // 'momentum' | 'volume_profile' | 'markov'
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -76,6 +77,13 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   cooldownMinutes:      20,
   minConfidence:        60,
   requireAlignedHourly: true,
+  strategy:             'momentum',
+};
+
+const STRATEGY_LABELS: Record<KalshiStrategy, string> = {
+  momentum:       'Momentum',
+  volume_profile: 'Volume Profile',
+  markov:         'Markov',
 };
 
 export function getKalshiEngineState(userId: number): KalshiEngineState {
@@ -101,7 +109,10 @@ export function getKalshiEngineState(userId: number): KalshiEngineState {
 
 export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEngineConfig>): void {
   const s = getKalshiEngineState(userId);
-  s.config = { ...s.config, ...patch };
+  const clean: Partial<KalshiEngineConfig> = { ...patch };
+  // Guard the strategy field against invalid values
+  if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  s.config = { ...s.config, ...clean };
 }
 
 export function startKalshiEngine(userId: number): void {
@@ -150,16 +161,17 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   }
 
   try {
-    // 1. Get 5-min BTC signal
-    const pred = await getBTC5MinPrediction();
+    // 1. Get directional signal from the selected strategy
+    const stratLabel = STRATEGY_LABELS[s.config.strategy] ?? s.config.strategy;
+    const pred = await getKalshiSignal(s.config.strategy);
     if (!pred || pred.direction === 'NEUTRAL') {
-      const r = 'BTC signal NEUTRAL — waiting for clear direction';
+      const r = `${stratLabel}: NEUTRAL — ${pred?.reason ?? 'no clear direction'}`;
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
 
     if (pred.confidence < s.config.minConfidence) {
-      const r = `Signal confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
+      const r = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
@@ -170,7 +182,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
         (pred.direction === 'BUY'  && pred.priceChange1h > 0) ||
         (pred.direction === 'SELL' && pred.priceChange1h < 0);
       if (!aligned) {
-        const r = `1h trend (${pred.priceChange1h > 0 ? '+' : ''}${pred.priceChange1h.toFixed(2)}%) conflicts with 5m ${pred.direction} signal`;
+        const r = `1h trend (${pred.priceChange1h > 0 ? '+' : ''}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
         s.lastScanResult = r;
         return { fired: false, reason: r };
       }
@@ -252,8 +264,8 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     s.lastTradeAt = new Date().toISOString();
     _recalcUnrealized(s);
 
-    const modeStr = s.isPaperMode ? ' [PAPER]' : ' [LIVE]';
-    const r = `${modeStr} Bought YES × ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}¢ — stake $${stakeUsd.toFixed(2)}`;
+    const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
+    const r = `${modeStr} ${stratLabel}: bought YES × ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}¢ — stake $${stakeUsd.toFixed(2)}`;
     s.lastScanResult = r;
     return { fired: true, reason: r };
 
@@ -266,7 +278,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
 
 // ── Bracket selection ─────────────────────────────────────────────────────────
 
-function _selectBracket(brackets: KalshiBTCBracket[], pred: BTC5MinPrediction): KalshiBTCBracket | null {
+function _selectBracket(brackets: KalshiBTCBracket[], pred: TradeSignal): KalshiBTCBracket | null {
   const btcPrice = pred.currentPrice;
 
   if (pred.direction === 'BUY') {

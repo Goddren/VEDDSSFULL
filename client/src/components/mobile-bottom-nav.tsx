@@ -27,7 +27,7 @@ const tradingItems = [
 
 const aiToolItems = [
   { name: 'SOL Scanner', path: '/solana-scanner',             icon: Scan,         color: '#06b6d4' },
-  { name: 'Polymarket',  path: '/polymarket-engine', icon: TrendingDown, color: '#a855f7' },
+  { name: 'Kalshi P&L',  path: '/polymarket-engine#kalshi', icon: DollarSign, color: '#6366f1' },
   { name: 'Tokenomics',  path: '/vedd-tokenomics',            icon: Coins,        color: '#f59e0b' },
   { name: 'Analysis',    path: '/analysis',                   icon: LineChart,    color: '#ef4444' },
   { name: 'AI Models',   path: '/ai-trading-models',          icon: Brain,        color: '#8b5cf6' },

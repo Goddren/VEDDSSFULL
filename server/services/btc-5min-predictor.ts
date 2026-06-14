@@ -296,3 +296,8 @@ export function clearBTCPredictionCache(): void {
   cachedPrediction = null;
   cacheTimestamp   = 0;
 }
+
+/** Raw 5-min BTC candles (Binance → Coinbase fallback) for alternative strategies. */
+export async function getBTCCandles(limit = 100): Promise<{ candles: BTC5MinCandle[]; source: string }> {
+  return fetchCandlesWithFallback('BTCUSDT', '5m', limit);
+}
