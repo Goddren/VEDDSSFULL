@@ -100,6 +100,7 @@ export class TradeLockerService {
   private accNum: string = '0';
   private accNumResolved: boolean = false;
   private connectionId: number | null = null;
+  private accountDetailsConfig: any[] | null = null; // cached column spec from /trade/config
   onTokenRefresh: ((accessToken: string, refreshToken: string, expiresIn: number) => void) | null = null;
   onReauthenticate: (() => Promise<void>) | null = null;
 
@@ -307,19 +308,99 @@ export class TradeLockerService {
     }
   }
 
+  /**
+   * Loads & caches the accountDetailsConfig column spec from /trade/config.
+   * The /state endpoint returns accountDetailsData as a flat array whose
+   * positions map to these columns (by `id`), so we need this to read balance.
+   */
+  private async loadAccountDetailsConfig(accNum: string): Promise<any[]> {
+    if (this.accountDetailsConfig) return this.accountDetailsConfig;
+    const res = await fetch(`${this.baseUrl}/trade/config`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'Content-Type': 'application/json',
+        'accNum': accNum,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`config ${res.status}`);
+    const json = await res.json();
+    const cols = json?.d?.accountDetailsConfig ?? json?.accountDetailsConfig ?? [];
+    this.accountDetailsConfig = cols;
+    return cols;
+  }
+
+  /** Finds the value in a flat state-data array for a column matching any candidate id/title */
+  private pickStateValue(cols: any[], data: any[], candidates: string[]): number | null {
+    for (const cand of candidates) {
+      const idx = cols.findIndex((c: any) =>
+        (c?.id?.toString().toLowerCase() === cand) ||
+        (c?.title?.toString().toLowerCase() === cand)
+      );
+      if (idx >= 0 && data[idx] != null) {
+        const n = parseFloat(data[idx]);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return null;
+  }
+
   async getAccountInfo(): Promise<TradeLockerAccountInfo> {
     await this.ensureAuthenticated();
 
-    try {
-      // Use the cached accNum resolved during authenticate() — no extra round-trip needed
-      // If not yet resolved, resolve it now (first-time call without prior authenticate)
-      if (!this.accNumResolved || this.accNum === '0') {
-        await this.resolveAccNum();
-      }
-      const accNum = this.accNum;
-      console.log('[TradeLocker] getAccountInfo using accNum:', accNum, 'for accountId:', this.accountId);
+    // Use the cached accNum resolved during authenticate() — resolve lazily if needed
+    if (!this.accNumResolved || this.accNum === '0') {
+      await this.resolveAccNum();
+    }
+    const accNum = this.accNum;
+    console.log('[TradeLocker] getAccountInfo using accNum:', accNum, 'for accountId:', this.accountId);
 
-      // Get account details with the correct accNum
+    // ── Primary: /state endpoint mapped via /config columns (live balance/equity) ──
+    try {
+      const [cols, stateRes] = await Promise.all([
+        this.loadAccountDetailsConfig(accNum),
+        fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+            'accNum': accNum,
+          },
+          signal: AbortSignal.timeout(8000),
+        }),
+      ]);
+
+      if (stateRes.ok) {
+        const stateJson = await stateRes.json();
+        const data: any[] = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData ?? [];
+        if (Array.isArray(data) && data.length && Array.isArray(cols) && cols.length) {
+          const balance    = this.pickStateValue(cols, data, ['balance', 'accountbalance']);
+          const equity      = this.pickStateValue(cols, data, ['equity', 'projectedbalance']);
+          const usedMargin  = this.pickStateValue(cols, data, ['marginused', 'usedmargin', 'blockedbalance', 'margin']);
+          const freeMargin  = this.pickStateValue(cols, data, ['availablefunds', 'marginavailable', 'freemargin']);
+          if (balance != null) {
+            console.log('[TradeLocker] getAccountInfo via /state — balance:', balance, 'equity:', equity);
+            return {
+              accountId:  this.accountId,
+              balance,
+              equity:     equity ?? balance,
+              margin:     usedMargin ?? 0,
+              freeMargin: freeMargin ?? equity ?? balance,
+              currency:   'USD',
+            };
+          }
+        }
+        console.log('[TradeLocker] /state returned but could not map balance; falling back to /accounts list');
+      } else {
+        console.log('[TradeLocker] /state endpoint status:', stateRes.status, '— falling back to /accounts list');
+      }
+    } catch (stateErr) {
+      console.log('[TradeLocker] /state path failed, falling back to /accounts list:', stateErr instanceof Error ? stateErr.message : stateErr);
+    }
+
+    // ── Fallback: /trade/accounts list (unwrap d.accounts, match by accountId) ──
+    try {
       const response = await fetch(`${this.baseUrl}/trade/accounts`, {
         method: 'GET',
         headers: {
@@ -330,7 +411,6 @@ export class TradeLockerService {
         signal: AbortSignal.timeout(8000),
       });
 
-      console.log('[TradeLocker] Account details response status:', response.status);
       if (!response.ok) {
         const errorText = await response.text();
         console.log('[TradeLocker] Account details error:', errorText);
@@ -338,18 +418,27 @@ export class TradeLockerService {
       }
 
       const data = await response.json();
-      console.log('[TradeLocker] Account details:', JSON.stringify(data));
-      
-      // Handle both array and single object responses
-      const accountData = Array.isArray(data) ? data[0] : data;
-      
+      console.log('[TradeLocker] Account details (list):', JSON.stringify(data));
+
+      // Unwrap the nested { d: { accounts: [...] } } shape (same as resolveAccNum)
+      const accounts = Array.isArray(data) ? data : (data.accounts || data.d?.accounts || []);
+      const accountData =
+        accounts.find((a: any) =>
+          a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+        ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
+
+      // TradeLocker list rows expose balance under a few possible keys
+      const balance = parseFloat(
+        accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
+      ) || 0;
+
       return {
-        accountId: accountData?.id?.toString() || this.accountId,
-        balance: accountData?.balance || 0,
-        equity: accountData?.equity || 0,
-        margin: accountData?.margin || 0,
-        freeMargin: accountData?.freeMargin || 0,
-        currency: accountData?.currency || 'USD',
+        accountId:  accountData?.id?.toString() || this.accountId,
+        balance,
+        equity:     parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
+        margin:     parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
+        freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
+        currency:   accountData?.currency || 'USD',
       };
     } catch (error) {
       console.error('TradeLocker get account info error:', error);

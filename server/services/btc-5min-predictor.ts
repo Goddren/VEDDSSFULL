@@ -10,6 +10,9 @@
  */
 
 const BINANCE_BASE = 'https://api.binance.com';
+// Coinbase Exchange is US-hosted and NOT geo-blocked — used as a fallback when
+// Binance returns HTTP 451 (Binance blocks US server IPs like Render/Oregon).
+const COINBASE_BASE = 'https://api.exchange.coinbase.com';
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
 export interface BTC5MinCandle {
@@ -40,6 +43,7 @@ export interface BTC5MinPrediction {
   fetchedAt: string;
   fromCache: boolean;
   symbol: string;
+  source?: string;          // 'binance' | 'coinbase' — which feed supplied the candles
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
@@ -113,9 +117,44 @@ async function fetchBinanceCandles(symbol: string, interval: string, limit: numb
   }));
 }
 
+// Coinbase fallback — returns [time(s), low, high, open, close, volume], newest first.
+// Used when Binance is geo-blocked (HTTP 451) from US-hosted servers.
+async function fetchCoinbaseCandles(limit: number): Promise<BTC5MinCandle[]> {
+  // granularity 300 = 5-minute candles; Coinbase caps at 300 candles per request
+  const url = `${COINBASE_BASE}/products/BTC-USD/candles?granularity=300`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`Coinbase API ${res.status}: ${res.statusText}`);
+  const raw: any[][] = await res.json();
+  // Coinbase returns newest-first; reverse to oldest-first to match Binance ordering
+  const ascending = raw.slice().reverse();
+  return ascending.slice(-limit).map(c => ({
+    openTime: c[0] * 1000, // seconds → ms
+    low:      parseFloat(c[1]),
+    high:     parseFloat(c[2]),
+    open:     parseFloat(c[3]),
+    close:    parseFloat(c[4]),
+    volume:   parseFloat(c[5]),
+  }));
+}
+
+// Tries Binance first, falls back to Coinbase on geo-block / failure.
+async function fetchCandlesWithFallback(symbol: string, interval: string, limit: number): Promise<{ candles: BTC5MinCandle[]; source: string }> {
+  try {
+    const candles = await fetchBinanceCandles(symbol, interval, limit);
+    return { candles, source: 'binance' };
+  } catch (binanceErr: any) {
+    console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
+    const candles = await fetchCoinbaseCandles(limit);
+    return { candles, source: 'coinbase' };
+  }
+}
+
 // ── Prediction builder ────────────────────────────────────────────────────────
 
-function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean): BTC5MinPrediction {
+function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean, source = 'binance'): BTC5MinPrediction {
   const closes  = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
   const highs   = candles.map(c => c.high);
@@ -233,7 +272,8 @@ function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean): BTC5MinP
     reasons: sorted,
     fetchedAt: new Date().toISOString(),
     fromCache,
-    symbol: 'BTCUSDT',
+    symbol: source === 'coinbase' ? 'BTC-USD' : 'BTCUSDT',
+    source,
   };
 }
 
@@ -245,8 +285,8 @@ export async function getBTC5MinPrediction(forceRefresh = false): Promise<BTC5Mi
     return { ...cachedPrediction, fromCache: true };
   }
 
-  const candles = await fetchBinanceCandles('BTCUSDT', '5m', 100);
-  const prediction = buildPrediction(candles, false);
+  const { candles, source } = await fetchCandlesWithFallback('BTCUSDT', '5m', 100);
+  const prediction = buildPrediction(candles, false, source);
   cachedPrediction = prediction;
   cacheTimestamp   = now;
   return prediction;

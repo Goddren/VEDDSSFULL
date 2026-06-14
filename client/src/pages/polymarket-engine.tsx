@@ -34,6 +34,7 @@ interface BTC5MinPrediction {
   fetchedAt: string;
   fromCache: boolean;
   symbol: string;
+  source?: string;          // 'binance' | 'coinbase'
   error?: string;
 }
 
@@ -606,7 +607,9 @@ export default function PolymarketEnginePage() {
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-cyan-400" />
               <h2 className="text-sm font-bold text-white">5-Min BTC Prediction</h2>
-              <span className="text-[9px] text-gray-500 bg-gray-800/60 px-1.5 py-0.5 rounded">Binance BTCUSDT</span>
+              <span className="text-[9px] text-gray-500 bg-gray-800/60 px-1.5 py-0.5 rounded">
+                {btcPred?.source === "coinbase" ? "Coinbase BTC-USD" : "Binance BTCUSDT"}
+              </span>
             </div>
             <button
               onClick={() => refetchBTC()}
@@ -625,7 +628,7 @@ export default function PolymarketEnginePage() {
             </div>
           ) : btcError || btcPred?.error ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
-              <p className="text-red-300 text-xs">Could not reach Binance — check connection</p>
+              <p className="text-red-300 text-xs">Could not reach price feed (Binance + Coinbase) — check connection</p>
               <button onClick={() => refetchBTC()} className="text-[10px] text-gray-400 underline">Retry</button>
             </div>
           ) : btcPred ? (
@@ -739,7 +742,7 @@ export default function PolymarketEnginePage() {
               </div>
 
               <p className="text-[9px] text-gray-600 text-center mt-2">
-                Updated {timeAgo(btcPred.fetchedAt)} · Binance BTCUSDT 5m · {btcPred.fromCache ? "cached" : "live"}
+                Updated {timeAgo(btcPred.fetchedAt)} · {btcPred.source === "coinbase" ? "Coinbase BTC-USD" : "Binance BTCUSDT"} 5m · {btcPred.fromCache ? "cached" : "live"}
               </p>
             </>
           ) : null}
