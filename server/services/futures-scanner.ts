@@ -7,6 +7,8 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { getOrCreateTradovateService, executeFuturesSignal } from '../tradovate';
 import { FUTURES_INSTRUMENTS, getInstrument, calculateContractSize } from '../futures-instruments';
+import { getMarkovSignal } from './markov-chain';
+import { getMoomooService, type MoomooOrderResult } from '../moomoo';
 
 // ── Default instruments to scan (most liquid) ─────────────────────────────────
 export const DEFAULT_FUTURES_SYMBOLS = ['NQ', 'ES', 'GC', 'CL', 'MNQ', 'MES'];
@@ -147,6 +149,139 @@ function recordOutcome(userId: number, symbol: string, won: boolean, rMultiple: 
   });
 }
 
+// ── News Time Filter ─────────────────────────────────────────────────────────
+// Block/penalize signals within ±15 min of major economic releases (UTC times).
+// Covers: NFP (1st Fri of month 13:30), CPI/PPI/PCE (~13:30 daily window),
+// EIA oil inventory (Wed 15:30), FOMC announcement (Wed 19:00).
+
+function isHighImpactNewsWindow(): boolean {
+  const now = new Date();
+  const utcDay = now.getUTCDay();
+  const utcHour = now.getUTCHours();
+  const utcMin = now.getUTCMinutes();
+  const totalMin = utcHour * 60 + utcMin;
+
+  // NFP: first Friday of month, 13:15–13:45 UTC
+  if (utcDay === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+
+  // EIA weekly inventory: Wednesdays 15:15–15:45 UTC
+  if (utcDay === 3 && totalMin >= 915 && totalMin <= 945) return true;
+
+  // Generic US data (CPI/PPI/PCE/retail sales): 13:15–13:45 UTC any weekday
+  if (utcDay >= 1 && utcDay <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+
+  // FOMC: ~19:00 UTC on Wednesdays (approximation — covers meeting days)
+  if (utcDay === 3 && ((utcHour === 18 && utcMin >= 50) || (utcHour === 19 && utcMin <= 10))) return true;
+
+  return false;
+}
+
+// ── Smart Money Concepts ──────────────────────────────────────────────────────
+// Order Blocks, Fair Value Gaps (FVG), Liquidity Sweeps
+
+interface SmartMoneyResult {
+  orderBlockBull: boolean;
+  orderBlockBear: boolean;
+  fvgBull: boolean;
+  fvgBear: boolean;
+  liqSweepBull: boolean;
+  liqSweepBear: boolean;
+  score: number; // net bias: positive = bullish, negative = bearish
+}
+
+function computeSmartMoney(candles: CandleData[]): SmartMoneyResult {
+  const res: SmartMoneyResult = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
+  if (candles.length < 10) return res;
+
+  const recent = candles.slice(-12);
+
+  // Order Blocks: strong opposing candle before a 2-candle run in same direction
+  for (let i = 1; i < recent.length - 2; i++) {
+    const c = recent[i];
+    const bodyPct = Math.abs(c.c - c.o) / c.o;
+    if (bodyPct < 0.0008) continue;
+    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
+    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
+  }
+
+  // Fair Value Gaps: candle[i-1].high < candle[i+1].low (bull gap) or reverse
+  for (let i = 1; i < recent.length - 1; i++) {
+    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
+    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
+  }
+
+  // Liquidity sweeps: last candle broke swing extreme then closed back inside
+  const swingLow = Math.min(...recent.slice(0, -1).map(c => c.l));
+  const swingHigh = Math.max(...recent.slice(0, -1).map(c => c.h));
+  const last = recent[recent.length - 1];
+  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
+  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
+
+  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
+  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
+  return res;
+}
+
+// ── Volume Profile (simplified) ───────────────────────────────────────────────
+
+interface VolumeProfileResult {
+  poc: number;
+  vah: number;
+  val: number;
+  priceNearPOC: boolean;
+  priceNearVAH: boolean;
+  priceNearVAL: boolean;
+}
+
+function computeVolumeProfile(candles: CandleData[], currentPrice: number): VolumeProfileResult {
+  const empty: VolumeProfileResult = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
+  if (candles.length < 5) return empty;
+
+  const prices = candles.map(c => (c.h + c.l + c.c) / 3);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  if (maxP === minP) return empty;
+
+  const BUCKETS = 20;
+  const bSize = (maxP - minP) / BUCKETS;
+  const volByBucket: number[] = new Array(BUCKETS).fill(0);
+
+  for (let i = 0; i < candles.length; i++) {
+    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
+    volByBucket[idx] += candles[i].v || 1;
+  }
+
+  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
+  const poc = minP + (pocIdx + 0.5) * bSize;
+
+  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
+  const target = totalVol * 0.7;
+  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
+  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
+    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
+    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
+    if (addLo >= addHi && lo > 0) { lo--; acc += addLo; } else if (hi < BUCKETS - 1) { hi++; acc += addHi; } else break;
+  }
+
+  const val = minP + lo * bSize;
+  const vah = minP + (hi + 1) * bSize;
+  const prox = bSize * 1.5;
+  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
+}
+
+// ── Volume Aggression / Delta ─────────────────────────────────────────────────
+// Estimate cumulative delta using close position within bar range as proxy.
+
+function computeVolumeDelta(candles: CandleData[], lookback = 10): number {
+  let delta = 0;
+  for (const c of candles.slice(-lookback)) {
+    const range = c.h - c.l;
+    if (range <= 0) continue;
+    const buyFrac = (c.c - c.l) / range;
+    delta += (buyFrac * 2 - 1) * (c.v || 1); // normalized: -vol to +vol
+  }
+  return delta;
+}
+
 // ── AI Signal Generation ──────────────────────────────────────────────────────
 
 async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<string, any>): Promise<void> {
@@ -156,46 +291,98 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
   const config = state.config;
   const session = getCurrentFuturesSession();
 
-  // Rule-based mode: no API calls
+  // Rule-based mode: no API calls — uses multi-strategy confluence
   if (config.aiMode === 'rule_based') {
+    const newsBlock = isHighImpactNewsWindow();
+    if (newsBlock) addActivity(userId, { type: 'info', message: '📰 High-impact news window active — confidence penalized on all signals' });
+
     for (const [symbol, data] of Object.entries(marketAnalysis) as [string, any][]) {
       const inst = getInstrument(symbol);
       if (!inst) continue;
+
       const adx = (data.adx as any)?.adx || 0;
       const plusDI = (data.adx as any)?.plusDI || 0;
       const minusDI = (data.adx as any)?.minusDI || 0;
       const rsi = data.rsi?.value || 50;
       const macdCross = data.macd?.histogram > 0;
+      const candles: CandleData[] = data.candles || [];
 
       let direction: 'BUY' | 'SELL' | null = null;
       let confluences: string[] = [];
       let confidence = 0;
+      let strategy = 'rule_based';
 
+      // Strategy 1: ADX/MACD/RSI trend following
       if (adx > 25 && plusDI > minusDI && rsi < 65 && macdCross) {
-        direction = 'BUY'; confluences = ['ADX trend', 'DI+ dominant', 'MACD bullish']; confidence = 68;
+        direction = 'BUY'; confluences = [`ADX ${adx.toFixed(1)} trend`, 'DI+ dominant', 'MACD bullish']; confidence = 65; strategy = 'adx_macd';
       } else if (adx > 25 && minusDI > plusDI && rsi > 35 && !macdCross) {
-        direction = 'SELL'; confluences = ['ADX trend', 'DI- dominant', 'MACD bearish']; confidence = 68;
+        direction = 'SELL'; confluences = [`ADX ${adx.toFixed(1)} trend`, 'DI- dominant', 'MACD bearish']; confidence = 65; strategy = 'adx_macd';
+      }
+
+      // Strategy 2: Smart Money — liquidity sweep (can trigger standalone signal)
+      const sm = computeSmartMoney(candles);
+      if (!direction && sm.liqSweepBull) { direction = 'BUY'; confidence = 63; strategy = 'smart_money'; confluences = ['Liquidity sweep reversal (bull)']; }
+      else if (!direction && sm.liqSweepBear) { direction = 'SELL'; confidence = 63; strategy = 'smart_money'; confluences = ['Liquidity sweep reversal (bear)']; }
+
+      if (direction) {
+        const isBull = direction === 'BUY';
+        // Smart money confluence additions
+        if (sm.orderBlockBull && isBull)  { confidence += 4; confluences.push('Bullish order block'); }
+        if (sm.orderBlockBear && !isBull) { confidence += 4; confluences.push('Bearish order block'); }
+        if (sm.fvgBull && isBull)         { confidence += 3; confluences.push('Bullish FVG'); }
+        if (sm.fvgBear && !isBull)        { confidence += 3; confluences.push('Bearish FVG'); }
+        if (sm.liqSweepBull && isBull)    { confidence += 5; confluences.push('Liquidity sweep (bull)'); }
+        if (sm.liqSweepBear && !isBull)   { confidence += 5; confluences.push('Liquidity sweep (bear)'); }
+
+        // Strategy 3: Volume Profile — price at key level
+        const vp = computeVolumeProfile(candles, data.currentPrice);
+        if (vp.poc > 0) {
+          if (isBull && vp.priceNearVAL)  { confidence += 4; confluences.push('Price at VAL (vol support)'); }
+          if (!isBull && vp.priceNearVAH) { confidence += 4; confluences.push('Price at VAH (vol resistance)'); }
+          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
+        }
+
+        // Strategy 4: Volume Aggression / Delta
+        const delta = computeVolumeDelta(candles);
+        if (isBull && delta > 0)  { confidence += 3; confluences.push(`Vol delta: buyer aggression`); }
+        else if (!isBull && delta < 0) { confidence += 3; confluences.push(`Vol delta: seller aggression`); }
+        else if (delta !== 0)     { confidence -= 4; confluences.push('Vol delta opposing signal'); }
+
+        // Strategy 5: Markov chain probability adjustment
+        if (candles.length >= 10) {
+          const markov = getMarkovSignal(symbol, direction, candles.map(c => ({ open: c.o, close: c.c })));
+          confidence += markov.confidenceAdjustment;
+          confluences.push(markov.reason);
+          if (markov.confidenceAdjustment !== 0) {
+            strategy = strategy === 'rule_based' ? 'markov_enhanced' : strategy + '+markov';
+          }
+        }
+
+        // News time penalty
+        if (newsBlock) { confidence -= 15; confluences.push('News window penalty'); }
       }
 
       const minConf = getAdjustedMinConfidence(userId, symbol);
       if (!direction || confidence < minConf) continue;
 
       const atr = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
-      const slTicks = Math.round((atr / inst.tickSize) * 0.5);
+      const slTicks = Math.max(4, Math.round((atr / inst.tickSize) * 0.5));
       const tpTicks = slTicks * 2;
-      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, data.currentPrice, direction === 'BUY' ? data.currentPrice - slTicks * inst.tickSize : data.currentPrice + slTicks * inst.tickSize);
+      const entryPrice = data.currentPrice;
+      const sl = direction === 'BUY' ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
+      const tp = direction === 'BUY' ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
+      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, entryPrice, sl);
 
       const signal: FuturesScanSignal = {
         id: uid(), timestamp: new Date().toISOString(), symbol, direction,
-        contracts: Math.max(1, contracts),
-        entryPrice: data.currentPrice,
-        stopLoss: direction === 'BUY' ? data.currentPrice - slTicks * inst.tickSize : data.currentPrice + slTicks * inst.tickSize,
-        takeProfit: direction === 'BUY' ? data.currentPrice + tpTicks * inst.tickSize : data.currentPrice - tpTicks * inst.tickSize,
+        contracts: Math.max(1, contracts), entryPrice, stopLoss: sl, takeProfit: tp,
         stopLossTicks: slTicks, takeProfitTicks: tpTicks,
-        confidence, reason: confluences.join(' | '), strategy: 'rule_based', confluences, status: 'pending',
+        confidence: Math.min(100, Math.max(0, confidence)),
+        reason: confluences.filter(c => !c.startsWith('Markov')).join(' | '),
+        strategy, confluences, status: 'pending',
       };
 
-      addActivity(userId, { type: 'signal', symbol, direction, confidence, message: `⚡ Rule-based signal: ${direction} ${symbol} @ ${data.currentPrice} | Conf: ${confidence}% | SL: ${slTicks}t TP: ${tpTicks}t` });
+      addActivity(userId, { type: 'signal', symbol, direction, confidence: signal.confidence, message: `⚡ ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(', ')}` });
       addSignal(userId, signal);
       await executeSignalIfEnabled(userId, signal);
     }
@@ -223,6 +410,10 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
 
   const model = openai.defaultModel || 'gpt-4o';
 
+  // News filter check for AI mode
+  const newsWindowActive = isHighImpactNewsWindow();
+  if (newsWindowActive) addActivity(userId, { type: 'info', message: '📰 High-impact news window active — AI will reduce signal confidence accordingly' });
+
   // Build market summary for prompt
   const marketSummary = Object.entries(marketAnalysis).map(([sym, data]: [string, any]) => {
     const inst = getInstrument(sym);
@@ -230,28 +421,75 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
     const sr = data.supportResistance;
     const atr = vol?.currentATR || 0;
     const atrTicks = inst ? Math.round(atr / inst.tickSize) : 0;
+    const candles: CandleData[] = data.candles || [];
+
     const perfNote = (() => {
       const perf = state.symbolPerformance[sym];
       if (!perf || perf.wins + perf.losses < 2) return '';
       const wr = ((perf.wins / (perf.wins + perf.losses)) * 100).toFixed(0);
       return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
     })();
-    return `${sym}(${inst?.description || ''}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${(data.adx as any)?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, MACD_hist=${data.macd?.histogram?.toFixed(2) || 'N/A'}, ATR=${atr.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || '?'}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}]${perfNote}`;
+
+    const smNote = (() => {
+      if (candles.length < 10) return '';
+      const sm = computeSmartMoney(candles);
+      const parts: string[] = [];
+      if (sm.orderBlockBull) parts.push('BullOB');
+      if (sm.orderBlockBear) parts.push('BearOB');
+      if (sm.fvgBull) parts.push('BullFVG');
+      if (sm.fvgBear) parts.push('BearFVG');
+      if (sm.liqSweepBull) parts.push('LiqSweepBull');
+      if (sm.liqSweepBear) parts.push('LiqSweepBear');
+      return parts.length ? `, SmartMoney=[${parts.join(',')}]` : '';
+    })();
+
+    const vpNote = (() => {
+      if (candles.length < 5) return '';
+      const vp = computeVolumeProfile(candles, data.currentPrice);
+      if (!vp.poc) return '';
+      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
+    })();
+
+    const deltaNote = (() => {
+      if (candles.length < 5) return '';
+      const d = computeVolumeDelta(candles);
+      return `, VolDelta=${d > 0 ? '+' : ''}${Math.round(d)}(${d > 0 ? 'buyers' : 'sellers'})`;
+    })();
+
+    const markovNote = (() => {
+      if (candles.length < 10) return '';
+      const dir = data.trend === 'BULLISH' ? 'BUY' : 'SELL';
+      const m = getMarkovSignal(sym, dir, candles.map(c => ({ open: c.o, close: c.c })));
+      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? '+' : ''}${m.confidenceAdjustment})`;
+    })();
+
+    return `${sym}(${inst?.description || ''}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${(data.adx as any)?.adx?.toFixed(1) || 'N/A'}, RSI=${data.rsi?.value?.toFixed(1) || 'N/A'}, MACD_hist=${data.macd?.histogram?.toFixed(2) || 'N/A'}, ATR=${atr.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || '?'}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || 'N/A'}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || 'N/A'}, Patterns=[${(data.candlePatterns || []).join(',')}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
   }).join('\n');
 
   const symbolPerformanceSummary = Object.entries(state.symbolPerformance)
     .map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : 'N/A'}`)
     .join(', ') || 'No history yet';
 
+  const newsWarning = newsWindowActive ? '\n⚠️ HIGH-IMPACT NEWS WINDOW ACTIVE — reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%.' : '';
+
   const prompt = `You are VEDD AI — an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
 
 CURRENT SESSION: ${session} (UTC hour: ${new Date().getUTCHours()})
 ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
 CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
-SYMBOL LEARNING: ${symbolPerformanceSummary}
+SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
 
-MARKET DATA (15-minute candles):
+MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
 ${marketSummary}
+
+STRATEGY CONFLUENCE GUIDE:
+- SmartMoney=[BullOB/BearOB]: Order block present — high-probability reversal zone
+- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap — price likely fills imbalance
+- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal — strong fade opportunity
+- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
+- VolProfile(NearPOC=true): Highest traded price cluster — magnet or pivot
+- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
+- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence ±pts
 
 FUTURES TRADING RULES:
 - Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
@@ -358,16 +596,43 @@ Rules for decisions array:
   }
 }
 
-// ── Trade Execution via Tradovate ─────────────────────────────────────────────
+// ── Trade Execution via Tradovate or Moomoo ───────────────────────────────────
 
 async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal): Promise<void> {
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
 
+  // Try Moomoo first if connected
+  const moomoo = getMoomooService(userId);
+  if (moomoo && moomoo.isConnected()) {
+    try {
+      const result: MoomooOrderResult = await moomoo.placeOrder({
+        symbol: signal.symbol,
+        direction: signal.direction,
+        contracts: signal.contracts,
+        stopLoss: signal.stopLoss || undefined,
+        takeProfit: signal.takeProfit || undefined,
+      });
+      if (result.success) {
+        signal.status = 'executed';
+        signal.executionResult = `Moomoo Order #${result.orderId}`;
+        addActivity(userId, { type: 'trade_open', symbol: signal.symbol, direction: signal.direction, message: `✅ MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      } else {
+        signal.status = 'rejected';
+        signal.executionResult = result.error || 'Moomoo execution failed';
+        addActivity(userId, { type: 'error', symbol: signal.symbol, message: `❌ Moomoo failed: ${signal.symbol} — ${result.error}` });
+      }
+      return;
+    } catch (err: any) {
+      addActivity(userId, { type: 'error', symbol: signal.symbol, message: `Moomoo error: ${err.message} — falling back to Tradovate` });
+    }
+  }
+
+  // Fall back to Tradovate
   try {
     const connection = await storage.getUserTradovateConnection(userId);
     if (!connection || !connection.isActive) {
-      addActivity(userId, { type: 'info', symbol: signal.symbol, message: `Signal queued (Tradovate not connected): ${signal.direction} ${signal.symbol}` });
+      addActivity(userId, { type: 'info', symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
       return;
     }
 
@@ -382,8 +647,8 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
 
     if (result.success) {
       signal.status = 'executed';
-      signal.executionResult = `Order #${result.orderId} placed`;
-      addActivity(userId, { type: 'trade_open', symbol: signal.symbol, direction: signal.direction, message: `✅ EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      signal.executionResult = `Tradovate Order #${result.orderId}`;
+      addActivity(userId, { type: 'trade_open', symbol: signal.symbol, direction: signal.direction, message: `✅ TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
     } else {
       signal.status = 'rejected';
       signal.executionResult = result.error || 'Execution failed';
@@ -448,6 +713,7 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
         };
 
         marketAnalysis[symbol] = {
+          candles,
           currentPrice,
           trend,
           adx: indicators.adx,

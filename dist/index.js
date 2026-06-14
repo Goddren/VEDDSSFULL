@@ -18169,6 +18169,192 @@ var init_indicators = __esm({
   }
 });
 
+// server/services/markov-chain.ts
+var markov_chain_exports = {};
+__export(markov_chain_exports, {
+  MARKOV_STATES: () => MARKOV_STATES,
+  buildTransitionMatrix: () => buildTransitionMatrix,
+  classifyCandle: () => classifyCandle,
+  getAllCachedSymbols: () => getAllCachedSymbols,
+  getCachedMatrix: () => getCachedMatrix,
+  getMarkovSignal: () => getMarkovSignal,
+  getMarkovSnapshot: () => getMarkovSnapshot
+});
+function classifyCandle(open, close, threshold = 6e-4) {
+  if (close <= 0 || open <= 0) return "NEUTRAL";
+  const changePct = (close - open) / open;
+  const strong = threshold * 2;
+  if (changePct >= strong) return "STRONG_BULL";
+  if (changePct > 0) return "BULL";
+  if (changePct <= -strong) return "STRONG_BEAR";
+  if (changePct < 0) return "BEAR";
+  return "NEUTRAL";
+}
+function emptyCountMatrix() {
+  const m = {};
+  for (const from of MARKOV_STATES) {
+    m[from] = {};
+    for (const to of MARKOV_STATES) m[from][to] = 0;
+  }
+  return m;
+}
+function buildTransitionMatrix(symbol, candles, threshold) {
+  if (candles.length < 5) {
+    const flat = emptyCountMatrix();
+    const uniform = emptyCountMatrix();
+    for (const from of MARKOV_STATES) {
+      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
+    }
+    const matrix = {
+      matrix: uniform,
+      counts: flat,
+      totalTransitions: 0,
+      candleCount: candles.length,
+      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      candleHistory: candles
+    };
+    matrixCache.set(symbol, matrix);
+    return matrix;
+  }
+  const counts = emptyCountMatrix();
+  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
+  let totalTransitions = 0;
+  for (let i = 0; i < states.length - 1; i++) {
+    counts[states[i]][states[i + 1]]++;
+    totalTransitions++;
+  }
+  const prob = emptyCountMatrix();
+  for (const from of MARKOV_STATES) {
+    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
+    const smoothedTotal = rowTotal + MARKOV_STATES.length;
+    for (const to of MARKOV_STATES) {
+      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
+    }
+  }
+  const result = {
+    matrix: prob,
+    counts,
+    totalTransitions,
+    candleCount: candles.length,
+    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    candleHistory: candles
+  };
+  matrixCache.set(symbol, result);
+  return result;
+}
+function bullishStates() {
+  return ["STRONG_BULL", "BULL"];
+}
+function bearishStates() {
+  return ["STRONG_BEAR", "BEAR"];
+}
+function groupProbability(matrix, fromState, toGroup) {
+  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
+}
+function twoStepGroupProbability(matrix, fromState, toGroup) {
+  let total = 0;
+  for (const mid of MARKOV_STATES) {
+    const pFromMid = matrix[fromState][mid] ?? 0;
+    const pMidToGroup = groupProbability(matrix, mid, toGroup);
+    total += pFromMid * pMidToGroup;
+  }
+  return Math.round(total * 1e3) / 1e3;
+}
+function getMarkovSignal(symbol, direction, candles) {
+  const tm = buildTransitionMatrix(symbol, candles);
+  const matrix = tm.matrix;
+  const lastCandle = candles[candles.length - 1];
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const nextStateProbabilities = { ...matrix[currentState] };
+  const bullP = groupProbability(matrix, currentState, bullishStates());
+  const bearP = groupProbability(matrix, currentState, bearishStates());
+  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
+  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
+  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
+  let confidenceAdjustment = 0;
+  let reason = "";
+  const alignP = direction === "BUY" ? bullP : bearP;
+  const align2P = direction === "BUY" ? bull2P : bear2P;
+  const opposP = direction === "BUY" ? bearP : bullP;
+  if (alignP >= 0.7) {
+    confidenceAdjustment = 8;
+    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
+  } else if (alignP >= 0.58) {
+    confidenceAdjustment = 5;
+    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
+  } else if (alignP >= 0.48) {
+    confidenceAdjustment = 2;
+    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
+  } else if (opposP >= 0.7) {
+    confidenceAdjustment = -10;
+    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
+  } else if (opposP >= 0.58) {
+    confidenceAdjustment = -6;
+    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
+  } else if (opposP >= 0.48) {
+    confidenceAdjustment = -3;
+    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
+  } else {
+    confidenceAdjustment = 0;
+    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
+  }
+  if (confidenceAdjustment > 0 && align2P >= 0.55) {
+    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
+    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
+  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
+    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
+    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
+  }
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    confidenceAdjustment,
+    reason,
+    nextStateProbabilities,
+    twoStepBullProbability: bull2P,
+    twoStepBearProbability: bear2P
+  };
+}
+function getCachedMatrix(symbol) {
+  return matrixCache.get(symbol) ?? null;
+}
+function getMarkovSnapshot(symbol, lastCandle) {
+  const tm = matrixCache.get(symbol);
+  if (!tm || !lastCandle) return null;
+  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
+  const row = tm.matrix[currentState];
+  const bullP = groupProbability(tm.matrix, currentState, bullishStates());
+  const bearP = groupProbability(tm.matrix, currentState, bearishStates());
+  const neutP = groupProbability(tm.matrix, currentState, ["NEUTRAL"]);
+  return {
+    currentState,
+    bullishProbability: Math.round(bullP * 1e3) / 1e3,
+    bearishProbability: Math.round(bearP * 1e3) / 1e3,
+    neutralProbability: Math.round(neutP * 1e3) / 1e3,
+    nextStateProbabilities: { ...row },
+    matrix: tm
+  };
+}
+function getAllCachedSymbols() {
+  return Array.from(matrixCache.keys());
+}
+var MARKOV_STATES, matrixCache;
+var init_markov_chain = __esm({
+  "server/services/markov-chain.ts"() {
+    "use strict";
+    MARKOV_STATES = [
+      "STRONG_BULL",
+      "BULL",
+      "NEUTRAL",
+      "BEAR",
+      "STRONG_BEAR"
+    ];
+    matrixCache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/solana-scanner.ts
 import OpenAI3 from "openai";
 async function fetchTrendingSolanaTokens() {
@@ -19224,192 +19410,6 @@ var init_share_card_service = __esm({
     SUCCESS_COLOR = "#22c55e";
     DANGER_COLOR = "#ef4444";
     WARNING_COLOR = "#f59e0b";
-  }
-});
-
-// server/services/markov-chain.ts
-var markov_chain_exports = {};
-__export(markov_chain_exports, {
-  MARKOV_STATES: () => MARKOV_STATES,
-  buildTransitionMatrix: () => buildTransitionMatrix,
-  classifyCandle: () => classifyCandle,
-  getAllCachedSymbols: () => getAllCachedSymbols,
-  getCachedMatrix: () => getCachedMatrix,
-  getMarkovSignal: () => getMarkovSignal,
-  getMarkovSnapshot: () => getMarkovSnapshot
-});
-function classifyCandle(open, close, threshold = 6e-4) {
-  if (close <= 0 || open <= 0) return "NEUTRAL";
-  const changePct = (close - open) / open;
-  const strong = threshold * 2;
-  if (changePct >= strong) return "STRONG_BULL";
-  if (changePct > 0) return "BULL";
-  if (changePct <= -strong) return "STRONG_BEAR";
-  if (changePct < 0) return "BEAR";
-  return "NEUTRAL";
-}
-function emptyCountMatrix() {
-  const m = {};
-  for (const from of MARKOV_STATES) {
-    m[from] = {};
-    for (const to of MARKOV_STATES) m[from][to] = 0;
-  }
-  return m;
-}
-function buildTransitionMatrix(symbol, candles, threshold) {
-  if (candles.length < 5) {
-    const flat = emptyCountMatrix();
-    const uniform = emptyCountMatrix();
-    for (const from of MARKOV_STATES) {
-      for (const to of MARKOV_STATES) uniform[from][to] = 0.2;
-    }
-    const matrix = {
-      matrix: uniform,
-      counts: flat,
-      totalTransitions: 0,
-      candleCount: candles.length,
-      computedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      candleHistory: candles
-    };
-    matrixCache.set(symbol, matrix);
-    return matrix;
-  }
-  const counts = emptyCountMatrix();
-  const states = candles.map((c) => classifyCandle(c.open, c.close, threshold));
-  let totalTransitions = 0;
-  for (let i = 0; i < states.length - 1; i++) {
-    counts[states[i]][states[i + 1]]++;
-    totalTransitions++;
-  }
-  const prob = emptyCountMatrix();
-  for (const from of MARKOV_STATES) {
-    const rowTotal = Object.values(counts[from]).reduce((s, v) => s + v, 0);
-    const smoothedTotal = rowTotal + MARKOV_STATES.length;
-    for (const to of MARKOV_STATES) {
-      prob[from][to] = (counts[from][to] + 1) / smoothedTotal;
-    }
-  }
-  const result = {
-    matrix: prob,
-    counts,
-    totalTransitions,
-    candleCount: candles.length,
-    computedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    candleHistory: candles
-  };
-  matrixCache.set(symbol, result);
-  return result;
-}
-function bullishStates() {
-  return ["STRONG_BULL", "BULL"];
-}
-function bearishStates() {
-  return ["STRONG_BEAR", "BEAR"];
-}
-function groupProbability(matrix, fromState, toGroup) {
-  return toGroup.reduce((sum, to) => sum + (matrix[fromState][to] ?? 0), 0);
-}
-function twoStepGroupProbability(matrix, fromState, toGroup) {
-  let total = 0;
-  for (const mid of MARKOV_STATES) {
-    const pFromMid = matrix[fromState][mid] ?? 0;
-    const pMidToGroup = groupProbability(matrix, mid, toGroup);
-    total += pFromMid * pMidToGroup;
-  }
-  return Math.round(total * 1e3) / 1e3;
-}
-function getMarkovSignal(symbol, direction, candles) {
-  const tm = buildTransitionMatrix(symbol, candles);
-  const matrix = tm.matrix;
-  const lastCandle = candles[candles.length - 1];
-  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
-  const nextStateProbabilities = { ...matrix[currentState] };
-  const bullP = groupProbability(matrix, currentState, bullishStates());
-  const bearP = groupProbability(matrix, currentState, bearishStates());
-  const neutP = groupProbability(matrix, currentState, ["NEUTRAL"]);
-  const bull2P = twoStepGroupProbability(matrix, currentState, bullishStates());
-  const bear2P = twoStepGroupProbability(matrix, currentState, bearishStates());
-  let confidenceAdjustment = 0;
-  let reason = "";
-  const alignP = direction === "BUY" ? bullP : bearP;
-  const align2P = direction === "BUY" ? bull2P : bear2P;
-  const opposP = direction === "BUY" ? bearP : bullP;
-  if (alignP >= 0.7) {
-    confidenceAdjustment = 8;
-    reason = `Markov: ${Math.round(alignP * 100)}% probability of ${direction === "BUY" ? "bullish" : "bearish"} next state (strong alignment) +8%`;
-  } else if (alignP >= 0.58) {
-    confidenceAdjustment = 5;
-    reason = `Markov: ${Math.round(alignP * 100)}% alignment with ${direction} direction +5%`;
-  } else if (alignP >= 0.48) {
-    confidenceAdjustment = 2;
-    reason = `Markov: marginal ${Math.round(alignP * 100)}% alignment with ${direction} +2%`;
-  } else if (opposP >= 0.7) {
-    confidenceAdjustment = -10;
-    reason = `Markov CONFLICT: ${Math.round(opposP * 100)}% probability of ${direction === "BUY" ? "bearish" : "bullish"} next state \u2014 strong opposing signal -10%`;
-  } else if (opposP >= 0.58) {
-    confidenceAdjustment = -6;
-    reason = `Markov conflict: ${Math.round(opposP * 100)}% opposing probability \u2014 reduces confidence -6%`;
-  } else if (opposP >= 0.48) {
-    confidenceAdjustment = -3;
-    reason = `Markov mild conflict: ${Math.round(opposP * 100)}% opposing probability -3%`;
-  } else {
-    confidenceAdjustment = 0;
-    reason = `Markov neutral: ${Math.round(alignP * 100)}% align / ${Math.round(opposP * 100)}% oppose \u2014 no adjustment`;
-  }
-  if (confidenceAdjustment > 0 && align2P >= 0.55) {
-    confidenceAdjustment = Math.min(10, confidenceAdjustment + 2);
-    reason += ` | 2-step ${Math.round(align2P * 100)}% \u2713`;
-  } else if (confidenceAdjustment < 0 && bear2P >= 0.55 && direction === "BUY") {
-    confidenceAdjustment = Math.max(-12, confidenceAdjustment - 2);
-    reason += ` | 2-step bearish ${Math.round(bear2P * 100)}% \u2717`;
-  }
-  return {
-    currentState,
-    bullishProbability: Math.round(bullP * 1e3) / 1e3,
-    bearishProbability: Math.round(bearP * 1e3) / 1e3,
-    neutralProbability: Math.round(neutP * 1e3) / 1e3,
-    confidenceAdjustment,
-    reason,
-    nextStateProbabilities,
-    twoStepBullProbability: bull2P,
-    twoStepBearProbability: bear2P
-  };
-}
-function getCachedMatrix(symbol) {
-  return matrixCache.get(symbol) ?? null;
-}
-function getMarkovSnapshot(symbol, lastCandle) {
-  const tm = matrixCache.get(symbol);
-  if (!tm || !lastCandle) return null;
-  const currentState = classifyCandle(lastCandle.open, lastCandle.close);
-  const row = tm.matrix[currentState];
-  const bullP = groupProbability(tm.matrix, currentState, bullishStates());
-  const bearP = groupProbability(tm.matrix, currentState, bearishStates());
-  const neutP = groupProbability(tm.matrix, currentState, ["NEUTRAL"]);
-  return {
-    currentState,
-    bullishProbability: Math.round(bullP * 1e3) / 1e3,
-    bearishProbability: Math.round(bearP * 1e3) / 1e3,
-    neutralProbability: Math.round(neutP * 1e3) / 1e3,
-    nextStateProbabilities: { ...row },
-    matrix: tm
-  };
-}
-function getAllCachedSymbols() {
-  return Array.from(matrixCache.keys());
-}
-var MARKOV_STATES, matrixCache;
-var init_markov_chain = __esm({
-  "server/services/markov-chain.ts"() {
-    "use strict";
-    MARKOV_STATES = [
-      "STRONG_BULL",
-      "BULL",
-      "NEUTRAL",
-      "BEAR",
-      "STRONG_BEAR"
-    ];
-    matrixCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -31518,6 +31518,186 @@ namespace NinjaTrader.NinjaScript.Strategies
 init_service();
 init_indicators();
 init_storage();
+init_markov_chain();
+
+// server/moomoo.ts
+var FUTU_SYMBOL_MAP = {
+  NQ: "NQmain",
+  MNQ: "MNQmain",
+  ES: "ESmain",
+  MES: "MESmain",
+  YM: "YMmain",
+  MYM: "MYMmain",
+  RTY: "RTYmain",
+  M2K: "M2Kmain",
+  GC: "GCmain",
+  MGC: "MGCmain",
+  SI: "SImain",
+  CL: "CLmain",
+  MCL: "MCLmain",
+  NG: "NGmain"
+};
+function toFutuSymbol(symbol) {
+  return FUTU_SYMBOL_MAP[symbol] || symbol;
+}
+var moomooServices = /* @__PURE__ */ new Map();
+function getMoomooService(userId) {
+  return moomooServices.get(userId) || null;
+}
+function getOrCreateMoomooService(userId, connection2) {
+  const existing = moomooServices.get(userId);
+  if (existing) {
+    existing.updateConnection(connection2);
+    return existing;
+  }
+  const svc = new MoomooService(connection2);
+  moomooServices.set(userId, svc);
+  return svc;
+}
+function removeMoomooService(userId) {
+  moomooServices.delete(userId);
+}
+var MoomooService = class {
+  connection;
+  connected = false;
+  orderCounter = 1e3;
+  constructor(connection2) {
+    this.connection = connection2;
+  }
+  updateConnection(connection2) {
+    this.connection = connection2;
+  }
+  isConnected() {
+    return this.connected;
+  }
+  isPaperMode() {
+    return this.connection.isPaper || process.env.MOOMOO_PAPER_MODE === "true";
+  }
+  // Test connectivity to OpenD or enable paper mode
+  async connect() {
+    if (this.isPaperMode()) {
+      this.connected = true;
+      return { success: true, isPaper: true };
+    }
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+      const res = await fetch(`${url}/v1/user/check`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5e3)
+      });
+      if (res.ok) {
+        this.connected = true;
+        return { success: true, isPaper: false };
+      }
+      throw new Error(`OpenD returned ${res.status}`);
+    } catch (err) {
+      console.warn("[Moomoo] OpenD unreachable \u2014 switching to paper mode:", err.message);
+      this.connection.isPaper = true;
+      this.connected = true;
+      return { success: true, isPaper: true, error: `OpenD offline \u2014 paper mode active` };
+    }
+  }
+  async getAccountInfo() {
+    const isPaper = this.isPaperMode();
+    if (isPaper) {
+      return {
+        accountId: this.connection.accountId || "PAPER",
+        balance: 5e4,
+        equity: 5e4,
+        unrealizedPnl: 0,
+        marginUsed: 0,
+        availableMargin: 5e4,
+        currency: "USD",
+        isPaper: true
+      };
+    }
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+      const res = await fetch(`${url}/v1/accinfo/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!res.ok) throw new Error(`OpenD ${res.status}`);
+      const data = await res.json();
+      const info = data?.s2c?.acc_info_list?.[0];
+      if (!info) throw new Error("No account info returned");
+      return {
+        accountId: this.connection.accountId,
+        balance: info.cash || 0,
+        equity: info.net_asset_val || 0,
+        unrealizedPnl: info.unrealized_pl || 0,
+        marginUsed: info.margin_call_margin || 0,
+        availableMargin: info.avl_withdrawal_amount || 0,
+        currency: "USD",
+        isPaper: false
+      };
+    } catch (err) {
+      throw new Error(`Moomoo account info failed: ${err.message}`);
+    }
+  }
+  async placeOrder(req) {
+    const isPaper = this.isPaperMode();
+    const futuSymbol = toFutuSymbol(req.symbol);
+    const orderId = `MM${++this.orderCounter}`;
+    if (isPaper) {
+      console.log(`[Moomoo Paper] ${req.direction} ${req.contracts} ${futuSymbol} | SL=${req.stopLoss ?? "N/A"} TP=${req.takeProfit ?? "N/A"}`);
+      return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+    }
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+      const body = {
+        header: { req_id: orderId },
+        acc_id: parseInt(this.connection.accountId) || 0,
+        sec_type: 5,
+        // futures
+        code: futuSymbol,
+        trd_side: req.direction === "BUY" ? 1 : 2,
+        order_type: 2,
+        // market order
+        qty: req.contracts,
+        price: 0,
+        // market price
+        trd_env: 1,
+        // real trading
+        remark: "VEDD_AUTO"
+      };
+      const res = await fetch(`${url}/v1/trade/place_order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(1e4)
+      });
+      if (!res.ok) throw new Error(`OpenD ${res.status}`);
+      const data = await res.json();
+      const orderNum = data?.s2c?.order_id?.toString();
+      if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+      return { success: true, orderId: orderNum, isPaper: false };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+  async cancelOrder(orderId) {
+    if (this.isPaperMode()) return { success: true };
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+      const res = await fetch(`${url}/v1/trade/modify_order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
+        signal: AbortSignal.timeout(8e3)
+      });
+      if (!res.ok) throw new Error(`OpenD ${res.status}`);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+};
+
+// server/services/futures-scanner.ts
 var DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
 var scannerStates = {};
 var scannerTimers = {};
@@ -31579,12 +31759,94 @@ function recordOutcome(userId, symbol, won, rMultiple) {
     message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
   });
 }
+function isHighImpactNewsWindow() {
+  const now = /* @__PURE__ */ new Date();
+  const utcDay = now.getUTCDay();
+  const utcHour = now.getUTCHours();
+  const utcMin = now.getUTCMinutes();
+  const totalMin = utcHour * 60 + utcMin;
+  if (utcDay === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay >= 1 && utcDay <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  return false;
+}
+function computeSmartMoney(candles) {
+  const res = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
+  if (candles.length < 10) return res;
+  const recent = candles.slice(-12);
+  for (let i = 1; i < recent.length - 2; i++) {
+    const c = recent[i];
+    const bodyPct = Math.abs(c.c - c.o) / c.o;
+    if (bodyPct < 8e-4) continue;
+    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
+    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
+  }
+  for (let i = 1; i < recent.length - 1; i++) {
+    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
+    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
+  }
+  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.l));
+  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.h));
+  const last = recent[recent.length - 1];
+  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
+  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
+  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
+  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
+  return res;
+}
+function computeVolumeProfile(candles, currentPrice) {
+  const empty = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
+  if (candles.length < 5) return empty;
+  const prices = candles.map((c) => (c.h + c.l + c.c) / 3);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  if (maxP === minP) return empty;
+  const BUCKETS = 20;
+  const bSize = (maxP - minP) / BUCKETS;
+  const volByBucket = new Array(BUCKETS).fill(0);
+  for (let i = 0; i < candles.length; i++) {
+    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
+    volByBucket[idx] += candles[i].v || 1;
+  }
+  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
+  const poc = minP + (pocIdx + 0.5) * bSize;
+  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
+  const target = totalVol * 0.7;
+  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
+  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
+    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
+    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
+    if (addLo >= addHi && lo > 0) {
+      lo--;
+      acc += addLo;
+    } else if (hi < BUCKETS - 1) {
+      hi++;
+      acc += addHi;
+    } else break;
+  }
+  const val = minP + lo * bSize;
+  const vah = minP + (hi + 1) * bSize;
+  const prox = bSize * 1.5;
+  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
+}
+function computeVolumeDelta(candles, lookback = 10) {
+  let delta = 0;
+  for (const c of candles.slice(-lookback)) {
+    const range = c.h - c.l;
+    if (range <= 0) continue;
+    const buyFrac = (c.c - c.l) / range;
+    delta += (buyFrac * 2 - 1) * (c.v || 1);
+  }
+  return delta;
+}
 async function runFuturesAIAnalysis(userId, marketAnalysis) {
   const state = scannerStates[userId];
   if (!state) return;
   const config = state.config;
   const session3 = getCurrentFuturesSession();
   if (config.aiMode === "rule_based") {
+    const newsBlock = isHighImpactNewsWindow();
+    if (newsBlock) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
     for (const [symbol, data] of Object.entries(marketAnalysis)) {
       const inst = getInstrument(symbol);
       if (!inst) continue;
@@ -31593,42 +31855,123 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const minusDI = data.adx?.minusDI || 0;
       const rsi = data.rsi?.value || 50;
       const macdCross = data.macd?.histogram > 0;
+      const candles = data.candles || [];
       let direction = null;
       let confluences = [];
       let confidence2 = 0;
+      let strategy = "rule_based";
       if (adx > 25 && plusDI > minusDI && rsi < 65 && macdCross) {
         direction = "BUY";
-        confluences = ["ADX trend", "DI+ dominant", "MACD bullish"];
-        confidence2 = 68;
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
       } else if (adx > 25 && minusDI > plusDI && rsi > 35 && !macdCross) {
         direction = "SELL";
-        confluences = ["ADX trend", "DI- dominant", "MACD bearish"];
-        confidence2 = 68;
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
+      }
+      const sm = computeSmartMoney(candles);
+      if (!direction && sm.liqSweepBull) {
+        direction = "BUY";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bull)"];
+      } else if (!direction && sm.liqSweepBear) {
+        direction = "SELL";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bear)"];
+      }
+      if (direction) {
+        const isBull = direction === "BUY";
+        if (sm.orderBlockBull && isBull) {
+          confidence2 += 4;
+          confluences.push("Bullish order block");
+        }
+        if (sm.orderBlockBear && !isBull) {
+          confidence2 += 4;
+          confluences.push("Bearish order block");
+        }
+        if (sm.fvgBull && isBull) {
+          confidence2 += 3;
+          confluences.push("Bullish FVG");
+        }
+        if (sm.fvgBear && !isBull) {
+          confidence2 += 3;
+          confluences.push("Bearish FVG");
+        }
+        if (sm.liqSweepBull && isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bull)");
+        }
+        if (sm.liqSweepBear && !isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bear)");
+        }
+        const vp = computeVolumeProfile(candles, data.currentPrice);
+        if (vp.poc > 0) {
+          if (isBull && vp.priceNearVAL) {
+            confidence2 += 4;
+            confluences.push("Price at VAL (vol support)");
+          }
+          if (!isBull && vp.priceNearVAH) {
+            confidence2 += 4;
+            confluences.push("Price at VAH (vol resistance)");
+          }
+          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
+        }
+        const delta = computeVolumeDelta(candles);
+        if (isBull && delta > 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: buyer aggression`);
+        } else if (!isBull && delta < 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: seller aggression`);
+        } else if (delta !== 0) {
+          confidence2 -= 4;
+          confluences.push("Vol delta opposing signal");
+        }
+        if (candles.length >= 10) {
+          const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
+          confidence2 += markov.confidenceAdjustment;
+          confluences.push(markov.reason);
+          if (markov.confidenceAdjustment !== 0) {
+            strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
+          }
+        }
+        if (newsBlock) {
+          confidence2 -= 15;
+          confluences.push("News window penalty");
+        }
       }
       const minConf = getAdjustedMinConfidence(userId, symbol);
       if (!direction || confidence2 < minConf) continue;
       const atr = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
-      const slTicks = Math.round(atr / inst.tickSize * 0.5);
+      const slTicks = Math.max(4, Math.round(atr / inst.tickSize * 0.5));
       const tpTicks = slTicks * 2;
-      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, data.currentPrice, direction === "BUY" ? data.currentPrice - slTicks * inst.tickSize : data.currentPrice + slTicks * inst.tickSize);
+      const entryPrice = data.currentPrice;
+      const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
+      const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
+      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, entryPrice, sl);
       const signal = {
         id: uid(),
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
         symbol,
         direction,
         contracts: Math.max(1, contracts),
-        entryPrice: data.currentPrice,
-        stopLoss: direction === "BUY" ? data.currentPrice - slTicks * inst.tickSize : data.currentPrice + slTicks * inst.tickSize,
-        takeProfit: direction === "BUY" ? data.currentPrice + tpTicks * inst.tickSize : data.currentPrice - tpTicks * inst.tickSize,
+        entryPrice,
+        stopLoss: sl,
+        takeProfit: tp,
         stopLossTicks: slTicks,
         takeProfitTicks: tpTicks,
-        confidence: confidence2,
-        reason: confluences.join(" | "),
-        strategy: "rule_based",
+        confidence: Math.min(100, Math.max(0, confidence2)),
+        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | "),
+        strategy,
         confluences,
         status: "pending"
       };
-      addActivity(userId, { type: "signal", symbol, direction, confidence: confidence2, message: `\u26A1 Rule-based signal: ${direction} ${symbol} @ ${data.currentPrice} | Conf: ${confidence2}% | SL: ${slTicks}t TP: ${tpTicks}t` });
+      addActivity(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
       addSignal(userId, signal);
       await executeSignalIfEnabled(userId, signal);
     }
@@ -31652,30 +31995,72 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     }
   }
   const model = openai2.defaultModel || "gpt-4o";
+  const newsWindowActive = isHighImpactNewsWindow();
+  if (newsWindowActive) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
   const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
     const inst = getInstrument(sym);
     const vol = data.volatilityContext;
     const sr = data.supportResistance;
     const atr = vol?.currentATR || 0;
     const atrTicks = inst ? Math.round(atr / inst.tickSize) : 0;
+    const candles = data.candles || [];
     const perfNote = (() => {
       const perf = state.symbolPerformance[sym];
       if (!perf || perf.wins + perf.losses < 2) return "";
       const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
       return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
     })();
-    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}`;
+    const smNote = (() => {
+      if (candles.length < 10) return "";
+      const sm = computeSmartMoney(candles);
+      const parts = [];
+      if (sm.orderBlockBull) parts.push("BullOB");
+      if (sm.orderBlockBear) parts.push("BearOB");
+      if (sm.fvgBull) parts.push("BullFVG");
+      if (sm.fvgBear) parts.push("BearFVG");
+      if (sm.liqSweepBull) parts.push("LiqSweepBull");
+      if (sm.liqSweepBear) parts.push("LiqSweepBear");
+      return parts.length ? `, SmartMoney=[${parts.join(",")}]` : "";
+    })();
+    const vpNote = (() => {
+      if (candles.length < 5) return "";
+      const vp = computeVolumeProfile(candles, data.currentPrice);
+      if (!vp.poc) return "";
+      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
+    })();
+    const deltaNote = (() => {
+      if (candles.length < 5) return "";
+      const d = computeVolumeDelta(candles);
+      return `, VolDelta=${d > 0 ? "+" : ""}${Math.round(d)}(${d > 0 ? "buyers" : "sellers"})`;
+    })();
+    const markovNote = (() => {
+      if (candles.length < 10) return "";
+      const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
+      const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
+      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
+    })();
+    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
   }).join("\n");
   const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
+  const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
   const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
 
 CURRENT SESSION: ${session3} (UTC hour: ${(/* @__PURE__ */ new Date()).getUTCHours()})
 ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
 CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
-SYMBOL LEARNING: ${symbolPerformanceSummary}
+SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
 
-MARKET DATA (15-minute candles):
+MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
 ${marketSummary}
+
+STRATEGY CONFLUENCE GUIDE:
+- SmartMoney=[BullOB/BearOB]: Order block present \u2014 high-probability reversal zone
+- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap \u2014 price likely fills imbalance
+- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal \u2014 strong fade opportunity
+- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
+- VolProfile(NearPOC=true): Highest traded price cluster \u2014 magnet or pivot
+- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
+- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence \xB1pts
 
 FUTURES TRADING RULES:
 - Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
@@ -31788,10 +32173,34 @@ Rules for decisions array:
 async function executeSignalIfEnabled(userId, signal) {
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
+  const moomoo = getMoomooService(userId);
+  if (moomoo && moomoo.isConnected()) {
+    try {
+      const result = await moomoo.placeOrder({
+        symbol: signal.symbol,
+        direction: signal.direction,
+        contracts: signal.contracts,
+        stopLoss: signal.stopLoss || void 0,
+        takeProfit: signal.takeProfit || void 0
+      });
+      if (result.success) {
+        signal.status = "executed";
+        signal.executionResult = `Moomoo Order #${result.orderId}`;
+        addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = result.error || "Moomoo execution failed";
+        addActivity(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
+      }
+      return;
+    } catch (err) {
+      addActivity(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
+    }
+  }
   try {
     const connection2 = await storage.getUserTradovateConnection(userId);
     if (!connection2 || !connection2.isActive) {
-      addActivity(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (Tradovate not connected): ${signal.direction} ${signal.symbol}` });
+      addActivity(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
       return;
     }
     const result = await executeFuturesSignal(connection2, {
@@ -31804,8 +32213,8 @@ async function executeSignalIfEnabled(userId, signal) {
     });
     if (result.success) {
       signal.status = "executed";
-      signal.executionResult = `Order #${result.orderId} placed`;
-      addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      signal.executionResult = `Tradovate Order #${result.orderId}`;
+      addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
     } else {
       signal.status = "rejected";
       signal.executionResult = result.error || "Execution failed";
@@ -31856,6 +32265,7 @@ async function scanFuturesMarkets(userId) {
           updatedAt: (/* @__PURE__ */ new Date()).toISOString()
         };
         marketAnalysis[symbol] = {
+          candles,
           currentPrice,
           trend,
           adx: indicators.adx,
@@ -32357,6 +32767,73 @@ router2.post("/tradovate/scanner/outcome", (req, res) => {
   res.json({ success: true });
 });
 var tradovate_default = router2;
+
+// server/routes/moomoo.ts
+import { Router as Router3 } from "express";
+var router3 = Router3();
+function requireAuth2(req, res) {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return false;
+  }
+  return true;
+}
+function getUserId2(req) {
+  return req.user.id;
+}
+router3.get("/moomoo/status", (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  const svc = getMoomooService(getUserId2(req));
+  if (!svc) return res.json({ connected: false, isPaper: true, message: "Not connected" });
+  res.json({
+    connected: svc.isConnected(),
+    isPaper: svc.isPaperMode(),
+    openDConfigured: !!(process.env.MOOMOO_OPEND_URL || process.env.MOOMOO_ACCOUNT_ID),
+    message: svc.isConnected() ? svc.isPaperMode() ? "Paper trading active" : "Live OpenD connection active" : "Connecting..."
+  });
+});
+router3.post("/moomoo/connect", async (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  const userId = getUserId2(req);
+  try {
+    const {
+      accountId = process.env.MOOMOO_ACCOUNT_ID || "PAPER",
+      paperMode = false,
+      openDUrl = process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111"
+    } = req.body;
+    const svc = getOrCreateMoomooService(userId, {
+      accountId,
+      isPaper: paperMode === true || paperMode === "true",
+      openDUrl
+    });
+    const result = await svc.connect();
+    res.json({
+      success: result.success,
+      isPaper: result.isPaper,
+      message: result.isPaper ? "Moomoo connected in paper mode (OpenD not required)" : "Moomoo connected to live OpenD gateway",
+      note: result.error
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router3.delete("/moomoo/connection", (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  removeMoomooService(getUserId2(req));
+  res.json({ success: true, message: "Moomoo disconnected" });
+});
+router3.get("/moomoo/account", async (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  const svc = getMoomooService(getUserId2(req));
+  if (!svc || !svc.isConnected()) return res.status(400).json({ error: "Moomoo not connected. Call POST /api/moomoo/connect first." });
+  try {
+    const info = await svc.getAccountInfo();
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+var moomoo_default = router3;
 
 // server/routes.ts
 init_vedd_token_service();
@@ -33647,6 +34124,7 @@ async function registerRoutes(app2, existingServer) {
   newsService.initialize(process.env.FINNHUB_API_KEY, process.env.OPENAI_API_KEY);
   app2.use("/api/vedd", vedd_token_default);
   app2.use("/api", tradovate_default);
+  app2.use("/api", moomoo_default);
   app2.get("/api/build-version", (_req, res) => {
     res.set({
       "Cache-Control": "no-cache, no-store, must-revalidate",
