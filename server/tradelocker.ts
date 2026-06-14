@@ -198,6 +198,7 @@ export class TradeLockerService {
     }
 
     this.accNum = '1';
+    this.accNumResolved = true; // mark resolved so we never probe again for this service instance
     console.log('[TradeLocker] Could not resolve accNum, defaulting to 1');
     return this.accNum;
   }
@@ -960,13 +961,13 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
       connection.refreshToken || '',
       new Date(connection.tokenExpiresAt!)
     );
-    await service.resolveAccNum();
+    // accNum resolved by constructor when connection.accNum is set in DB — no extra network call needed.
+    // Methods that need accNum (placeOrder, getAccountInfo) call resolveAccNum() lazily if still unresolved.
   } else if (connection.refreshToken && connection.accessToken) {
     console.log('[TradeLocker] Token expired — attempting refresh...');
     try {
       service.setTokens(connection.accessToken, connection.refreshToken);
       const refreshed = await service.refreshAccessToken(connection.refreshToken);
-      await service.resolveAccNum();
       await persistTokens(connection, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
     } catch (refreshErr) {
       console.log('[TradeLocker] Token refresh failed — falling back to full auth');
@@ -979,6 +980,19 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
     const password = decryptPassword(connection.encryptedPassword);
     const authResult = await service.authenticate(connection.email, password);
     await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+  }
+
+  // After lazy resolveAccNum completes (e.g. on first placeOrder/getAccountInfo), persist the accNum so
+  // future constructor calls skip network resolution entirely.
+  if (!connection.accNum && connId) {
+    const origResolve = service.resolveAccNum.bind(service);
+    service.resolveAccNum = async () => {
+      const result = await origResolve();
+      if (result && result !== '0' && !connection.accNum) {
+        persistTokens(connection, connection.accessToken || '', connection.refreshToken || '', 3600, result).catch(() => {});
+      }
+      return result;
+    };
   }
 
   service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {

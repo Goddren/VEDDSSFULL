@@ -15262,13 +15262,11 @@ async function getOrCreateService(connection2) {
       connection2.refreshToken || "",
       new Date(connection2.tokenExpiresAt)
     );
-    await service.resolveAccNum();
   } else if (connection2.refreshToken && connection2.accessToken) {
     console.log("[TradeLocker] Token expired \u2014 attempting refresh...");
     try {
       service.setTokens(connection2.accessToken, connection2.refreshToken);
       const refreshed = await service.refreshAccessToken(connection2.refreshToken);
-      await service.resolveAccNum();
       await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
     } catch (refreshErr) {
       console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
@@ -15281,6 +15279,17 @@ async function getOrCreateService(connection2) {
     const password = decryptPassword(connection2.encryptedPassword);
     const authResult = await service.authenticate(connection2.email, password);
     await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+  }
+  if (!connection2.accNum && connId) {
+    const origResolve = service.resolveAccNum.bind(service);
+    service.resolveAccNum = async () => {
+      const result = await origResolve();
+      if (result && result !== "0" && !connection2.accNum) {
+        persistTokens(connection2, connection2.accessToken || "", connection2.refreshToken || "", 3600, result).catch(() => {
+        });
+      }
+      return result;
+    };
   }
   service.onTokenRefresh = (accessToken, refreshToken, expiresIn) => {
     persistTokens(connection2, accessToken, refreshToken, expiresIn, service.getResolvedAccNum()).catch(() => {
@@ -15501,6 +15510,7 @@ var init_tradelocker = __esm({
           }
         }
         this.accNum = "1";
+        this.accNumResolved = true;
         console.log("[TradeLocker] Could not resolve accNum, defaulting to 1");
         return this.accNum;
       }
