@@ -15430,6 +15430,8 @@ var init_tradelocker = __esm({
       accNum = "0";
       accNumResolved = false;
       connectionId = null;
+      accountDetailsConfig = null;
+      // cached column spec from /trade/config
       onTokenRefresh = null;
       onReauthenticate = null;
       constructor(accountType, accountId, serverId, cachedAccNum) {
@@ -15601,14 +15603,89 @@ var init_tradelocker = __esm({
           }
         }
       }
+      /**
+       * Loads & caches the accountDetailsConfig column spec from /trade/config.
+       * The /state endpoint returns accountDetailsData as a flat array whose
+       * positions map to these columns (by `id`), so we need this to read balance.
+       */
+      async loadAccountDetailsConfig(accNum) {
+        if (this.accountDetailsConfig) return this.accountDetailsConfig;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": accNum
+          },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`config ${res.status}`);
+        const json2 = await res.json();
+        const cols = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        this.accountDetailsConfig = cols;
+        return cols;
+      }
+      /** Finds the value in a flat state-data array for a column matching any candidate id/title */
+      pickStateValue(cols, data, candidates) {
+        for (const cand of candidates) {
+          const idx = cols.findIndex(
+            (c) => c?.id?.toString().toLowerCase() === cand || c?.title?.toString().toLowerCase() === cand
+          );
+          if (idx >= 0 && data[idx] != null) {
+            const n = parseFloat(data[idx]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return null;
+      }
       async getAccountInfo() {
         await this.ensureAuthenticated();
+        if (!this.accNumResolved || this.accNum === "0") {
+          await this.resolveAccNum();
+        }
+        const accNum = this.accNum;
+        console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
         try {
-          if (!this.accNumResolved || this.accNum === "0") {
-            await this.resolveAccNum();
+          const [cols, stateRes] = await Promise.all([
+            this.loadAccountDetailsConfig(accNum),
+            fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": accNum
+              },
+              signal: AbortSignal.timeout(8e3)
+            })
+          ]);
+          if (stateRes.ok) {
+            const stateJson = await stateRes.json();
+            const data = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData ?? [];
+            if (Array.isArray(data) && data.length && Array.isArray(cols) && cols.length) {
+              const balance = this.pickStateValue(cols, data, ["balance", "accountbalance"]);
+              const equity = this.pickStateValue(cols, data, ["equity", "projectedbalance"]);
+              const usedMargin = this.pickStateValue(cols, data, ["marginused", "usedmargin", "blockedbalance", "margin"]);
+              const freeMargin = this.pickStateValue(cols, data, ["availablefunds", "marginavailable", "freemargin"]);
+              if (balance != null) {
+                console.log("[TradeLocker] getAccountInfo via /state \u2014 balance:", balance, "equity:", equity);
+                return {
+                  accountId: this.accountId,
+                  balance,
+                  equity: equity ?? balance,
+                  margin: usedMargin ?? 0,
+                  freeMargin: freeMargin ?? equity ?? balance,
+                  currency: "USD"
+                };
+              }
+            }
+            console.log("[TradeLocker] /state returned but could not map balance; falling back to /accounts list");
+          } else {
+            console.log("[TradeLocker] /state endpoint status:", stateRes.status, "\u2014 falling back to /accounts list");
           }
-          const accNum = this.accNum;
-          console.log("[TradeLocker] getAccountInfo using accNum:", accNum, "for accountId:", this.accountId);
+        } catch (stateErr) {
+          console.log("[TradeLocker] /state path failed, falling back to /accounts list:", stateErr instanceof Error ? stateErr.message : stateErr);
+        }
+        try {
           const response = await fetch(`${this.baseUrl}/trade/accounts`, {
             method: "GET",
             headers: {
@@ -15618,21 +15695,26 @@ var init_tradelocker = __esm({
             },
             signal: AbortSignal.timeout(8e3)
           });
-          console.log("[TradeLocker] Account details response status:", response.status);
           if (!response.ok) {
             const errorText = await response.text();
             console.log("[TradeLocker] Account details error:", errorText);
             throw new Error(`Failed to get account info: ${response.status} - ${errorText}`);
           }
           const data = await response.json();
-          console.log("[TradeLocker] Account details:", JSON.stringify(data));
-          const accountData = Array.isArray(data) ? data[0] : data;
+          console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
+          const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
+          const accountData = accounts.find(
+            (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+          ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
+          const balance = parseFloat(
+            accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
+          ) || 0;
           return {
             accountId: accountData?.id?.toString() || this.accountId,
-            balance: accountData?.balance || 0,
-            equity: accountData?.equity || 0,
-            margin: accountData?.margin || 0,
-            freeMargin: accountData?.freeMargin || 0,
+            balance,
+            equity: parseFloat(accountData?.projectedBalance ?? accountData?.equity ?? balance) || balance,
+            margin: parseFloat(accountData?.usedMargin ?? accountData?.margin ?? 0) || 0,
+            freeMargin: parseFloat(accountData?.availableFunds ?? accountData?.freeMargin ?? balance) || balance,
             currency: accountData?.currency || "USD"
           };
         } catch (error) {
@@ -24518,7 +24600,36 @@ async function fetchBinanceCandles(symbol, interval, limit) {
     volume: parseFloat(c[5])
   }));
 }
-function buildPrediction(candles, fromCache) {
+async function fetchCoinbaseCandles(limit) {
+  const url = `${COINBASE_BASE}/products/BTC-USD/candles?granularity=300`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res.ok) throw new Error(`Coinbase API ${res.status}: ${res.statusText}`);
+  const raw = await res.json();
+  const ascending = raw.slice().reverse();
+  return ascending.slice(-limit).map((c) => ({
+    openTime: c[0] * 1e3,
+    // seconds → ms
+    low: parseFloat(c[1]),
+    high: parseFloat(c[2]),
+    open: parseFloat(c[3]),
+    close: parseFloat(c[4]),
+    volume: parseFloat(c[5])
+  }));
+}
+async function fetchCandlesWithFallback(symbol, interval, limit) {
+  try {
+    const candles = await fetchBinanceCandles(symbol, interval, limit);
+    return { candles, source: "binance" };
+  } catch (binanceErr) {
+    console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
+    const candles = await fetchCoinbaseCandles(limit);
+    return { candles, source: "coinbase" };
+  }
+}
+function buildPrediction(candles, fromCache, source = "binance") {
   const closes = candles.map((c) => c.close);
   const volumes = candles.map((c) => c.volume);
   const highs = candles.map((c) => c.high);
@@ -24606,7 +24717,8 @@ function buildPrediction(candles, fromCache) {
     reasons: sorted,
     fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
     fromCache,
-    symbol: "BTCUSDT"
+    symbol: source === "coinbase" ? "BTC-USD" : "BTCUSDT",
+    source
   };
 }
 async function getBTC5MinPrediction(forceRefresh = false) {
@@ -24614,8 +24726,8 @@ async function getBTC5MinPrediction(forceRefresh = false) {
   if (!forceRefresh && cachedPrediction && now - cacheTimestamp2 < CACHE_TTL_MS4) {
     return { ...cachedPrediction, fromCache: true };
   }
-  const candles = await fetchBinanceCandles("BTCUSDT", "5m", 100);
-  const prediction = buildPrediction(candles, false);
+  const { candles, source } = await fetchCandlesWithFallback("BTCUSDT", "5m", 100);
+  const prediction = buildPrediction(candles, false, source);
   cachedPrediction = prediction;
   cacheTimestamp2 = now;
   return prediction;
@@ -24624,11 +24736,12 @@ function clearBTCPredictionCache() {
   cachedPrediction = null;
   cacheTimestamp2 = 0;
 }
-var BINANCE_BASE, CACHE_TTL_MS4, cachedPrediction, cacheTimestamp2;
+var BINANCE_BASE, COINBASE_BASE, CACHE_TTL_MS4, cachedPrediction, cacheTimestamp2;
 var init_btc_5min_predictor = __esm({
   "server/services/btc-5min-predictor.ts"() {
     "use strict";
     BINANCE_BASE = "https://api.binance.com";
+    COINBASE_BASE = "https://api.exchange.coinbase.com";
     CACHE_TTL_MS4 = 3e4;
     cachedPrediction = null;
     cacheTimestamp2 = 0;
@@ -25085,11 +25198,13 @@ __export(kalshi_trading_exports, {
   getKalshiPositions: () => getKalshiPositions,
   loadKalshiCredentials: () => loadKalshiCredentials,
   placeKalshiOrder: () => placeKalshiOrder,
+  saveKalshiApiKey: () => saveKalshiApiKey,
   saveKalshiCredentials: () => saveKalshiCredentials,
   testKalshiCredentials: () => testKalshiCredentials
 });
 import * as fs4 from "fs";
 import * as path4 from "path";
+import * as crypto4 from "crypto";
 function loadAllCreds() {
   try {
     if (fs4.existsSync(CREDS_FILE)) return JSON.parse(fs4.readFileSync(CREDS_FILE, "utf-8"));
@@ -25110,6 +25225,12 @@ function saveKalshiCredentials(userId, creds) {
   map[String(userId)] = creds;
   saveAllCreds(map);
 }
+function saveKalshiApiKey(userId, keyId, privateKeyPem) {
+  const map = loadAllCreds();
+  map[String(userId)] = { authMethod: "apikey", keyId, privateKeyPem };
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
 function loadKalshiCredentials(userId) {
   return loadAllCreds()[String(userId)] ?? null;
 }
@@ -25119,11 +25240,9 @@ function deleteKalshiCredentials(userId) {
   saveAllCreds(map);
   _sessions.delete(userId);
 }
-async function getOrRefreshToken(userId) {
+async function getOrRefreshToken(userId, creds) {
   const existing = _sessions.get(userId);
   if (existing && Date.now() < existing.expiresAt) return existing.token;
-  const creds = loadKalshiCredentials(userId);
-  if (!creds) throw new Error("No Kalshi credentials saved for this account");
   const res = await fetch(`${KALSHI_BASE2}/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
@@ -25132,6 +25251,9 @@ async function getOrRefreshToken(userId) {
   });
   if (!res.ok) {
     const body = await res.text();
+    if (res.status === 404) {
+      throw new Error("Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi \u2192 Settings \u2192 API Keys \u2192 kalshi.com/account/api).");
+    }
     throw new Error(`Kalshi login failed (${res.status}): ${body.slice(0, 200)}`);
   }
   const data = await res.json();
@@ -25142,21 +25264,52 @@ async function getOrRefreshToken(userId) {
   _sessions.set(userId, session3);
   return token;
 }
-async function kalshiGet(token, endpoint) {
-  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
-    headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(1e4)
-  });
+function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
+  const pathOnly = endpoint.split("?")[0];
+  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
+  const sign = crypto4.createSign("sha256");
+  sign.update(message);
+  sign.end();
+  return sign.sign(
+    {
+      key: privateKeyPem,
+      padding: crypto4.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto4.constants.RSA_PSS_SALTLEN_DIGEST
+    },
+    "base64"
+  );
+}
+async function getAuthHeaders(userId, method, endpoint) {
+  const creds = loadKalshiCredentials(userId);
+  if (!creds) throw new Error("No Kalshi credentials saved for this account");
+  const base = { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" };
+  if (creds.authMethod === "apikey" && creds.keyId && creds.privateKeyPem) {
+    const ts = Date.now();
+    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
+    return {
+      ...base,
+      "KALSHI-ACCESS-KEY": creds.keyId,
+      "KALSHI-ACCESS-TIMESTAMP": String(ts),
+      "KALSHI-ACCESS-SIGNATURE": sig
+    };
+  }
+  const token = await getOrRefreshToken(userId, creds);
+  return { ...base, "Authorization": `Bearer ${token}` };
+}
+async function kalshiGet(userId, endpoint) {
+  const headers = await getAuthHeaders(userId, "GET", endpoint);
+  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Kalshi GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
   }
   return res.json();
 }
-async function kalshiPost(token, endpoint, body) {
+async function kalshiPost(userId, endpoint, body) {
+  const headers = await getAuthHeaders(userId, "POST", endpoint);
   const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
     method: "POST",
-    headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(1e4)
   });
@@ -25168,35 +25321,33 @@ async function kalshiPost(token, endpoint, body) {
 }
 async function testKalshiCredentials(userId) {
   try {
-    const token = await getOrRefreshToken(userId);
-    const data = await kalshiGet(token, "/portfolio/balance");
+    const data = await kalshiGet(userId, "/portfolio/balance");
     const balance = data.balance ?? 0;
     const session3 = _sessions.get(userId);
-    return { valid: true, memberId: session3?.memberId, balance };
+    const creds = loadKalshiCredentials(userId);
+    const memberId = session3?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}\u2026` : void 0);
+    return { valid: true, memberId, balance };
   } catch (err) {
     return { valid: false, error: err.message };
   }
 }
 async function getKalshiBalance(userId) {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet(token, "/portfolio/balance");
+  const data = await kalshiGet(userId, "/portfolio/balance");
   return {
     balance: data.balance ?? 0,
     availableBalance: data.available_balance ?? data.balance ?? 0
   };
 }
 async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
-  const token = await getOrRefreshToken(userId);
   const payload2 = {
     ticker,
     action,
     side,
     count,
     type: "limit",
-    // Kalshi uses yes_price for limit orders
     ...side === "yes" ? { yes_price: priceInCents } : { no_price: priceInCents }
   };
-  const data = await kalshiPost(token, "/portfolio/orders", payload2);
+  const data = await kalshiPost(userId, "/portfolio/orders", payload2);
   const order = data.order ?? data;
   return {
     orderId: order.order_id ?? order.id ?? "unknown",
@@ -25210,21 +25361,19 @@ async function placeKalshiOrder(userId, ticker, side, action, count, priceInCent
   };
 }
 async function getKalshiPositions(userId) {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet(token, "/portfolio/positions?limit=100");
+  const data = await kalshiGet(userId, "/portfolio/positions?limit=100");
   return data.positions ?? data.market_positions ?? [];
 }
 async function getKalshiOrders(userId, status = "resting") {
-  const token = await getOrRefreshToken(userId);
-  const data = await kalshiGet(token, `/portfolio/orders?status=${status}&limit=50`);
+  const data = await kalshiGet(userId, `/portfolio/orders?status=${status}&limit=50`);
   return data.orders ?? [];
 }
 async function cancelKalshiOrder(userId, orderId) {
-  const token = await getOrRefreshToken(userId);
   try {
+    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/orders/${orderId}`);
     await fetch(`${KALSHI_BASE2}/portfolio/orders/${orderId}`, {
       method: "DELETE",
-      headers: { "Authorization": `Bearer ${token}`, "User-Agent": "VEDD-Trading-AI/1.0" },
+      headers,
       signal: AbortSignal.timeout(8e3)
     });
     return true;
@@ -25232,11 +25381,12 @@ async function cancelKalshiOrder(userId, orderId) {
     return false;
   }
 }
-var KALSHI_BASE2, CREDS_FILE, _sessions;
+var KALSHI_BASE2, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
     KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
+    KALSHI_PATH_PREFIX = "/trade-api/v2";
     CREDS_FILE = path4.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
   }
@@ -25696,21 +25846,21 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq8 } from "drizzle-orm";
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 function getEncryptionKey3() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto4.createHash("sha256").update(seed).digest();
+  return crypto5.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto4.randomBytes(16);
-  const cipher = crypto4.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const iv = crypto5.randomBytes(16);
+  const cipher = crypto5.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto4.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const decipher = crypto5.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -27709,7 +27859,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto5 from "crypto";
+import crypto6 from "crypto";
 import { createCanvas as createCanvas2 } from "canvas";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
@@ -27724,7 +27874,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto5.createHash("sha256").update(payload2).digest("hex");
+  return crypto6.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   const width = 1200;
@@ -35241,6 +35391,11 @@ async function registerRoutes(app2, existingServer) {
   app2.use("/api/vedd", vedd_token_default);
   app2.use("/api", tradovate_default);
   app2.use("/api", moomoo_default);
+  app2.get("/api/config", (_req, res) => {
+    res.json({
+      googleClientId: process.env.GOOGLE_CLIENT_ID || null
+    });
+  });
   app2.get("/api/build-version", (_req, res) => {
     res.set({
       "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -48233,12 +48388,31 @@ Respond with ONLY valid JSON:
     if (!email || !password) return res.status(400).json({ error: "email and password required" });
     try {
       const { saveKalshiCredentials: saveKalshiCredentials2, testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
-      saveKalshiCredentials2(userId, { email, password });
+      saveKalshiCredentials2(userId, { authMethod: "password", email, password });
       const test = await testKalshiCredentials2(userId);
       if (!test.valid) {
         const { deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
         deleteKalshiCredentials2(userId);
         return res.status(400).json({ error: `Kalshi login failed: ${test.error}` });
+      }
+      res.json({ success: true, memberId: test.memberId, balance: test.balance });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/kalshi/apikey", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { keyId, privateKeyPem } = req.body;
+    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "keyId and privateKeyPem required" });
+    try {
+      const { saveKalshiApiKey: saveKalshiApiKey2, testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+      saveKalshiApiKey2(userId, keyId.trim(), privateKeyPem.trim());
+      const test = await testKalshiCredentials2(userId);
+      if (!test.valid) {
+        const { deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+        deleteKalshiCredentials2(userId);
+        return res.status(400).json({ error: `Kalshi API key test failed: ${test.error}` });
       }
       res.json({ success: true, memberId: test.memberId, balance: test.balance });
     } catch (err) {
