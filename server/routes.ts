@@ -1111,9 +1111,6 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   app.get("/api/config", (_req: Request, res: Response) => {
     res.json({
       googleClientId: process.env.GOOGLE_CLIENT_ID || null,
-      // Deploy-pipeline probe: if this value appears in prod, Render built
-      // fresh from source (source-only push, dist/ NOT rebuilt). Temporary.
-      deployProbe: "src-build-test-7a2ebb7",
     });
   });
 
