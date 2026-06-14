@@ -16184,7 +16184,7 @@ Respond with ONLY valid JSON:
   });
 
   // ── Polymarket BTC Sentiment Routes ──────────────────────────────────────
-  // GET /api/polymarket/btc — live BTC prediction market sentiment (cached 5 min)
+  // GET /api/polymarket/btc — BTC sentiment (30 s cache + CLOB live prices)
   app.get("/api/polymarket/btc", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {
@@ -16193,7 +16193,6 @@ Respond with ONLY valid JSON:
       const sentiment = await getPolymarketBTCSentiment(undefined, forceRefresh);
       res.json(sentiment);
     } catch (err: any) {
-      // Return a graceful fallback instead of a 500 so the UI doesn't break
       res.json({
         overallBullishScore: 50,
         sentimentLabel: 'Neutral',
@@ -16202,6 +16201,30 @@ Respond with ONLY valid JSON:
         reason: `Polymarket unavailable: ${err.message}`,
         fetchedAt: new Date().toISOString(),
         fromCache: false,
+        error: err.message,
+      });
+    }
+  });
+
+  // GET /api/polymarket/btc-live — 5-min BTC predictions with CLOB live prices (10 s cache)
+  app.get("/api/polymarket/btc-live", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPolymarketBTCLive } = await import('./services/polymarket');
+      const data = await getPolymarketBTCLive();
+      // No-store so the browser always re-validates
+      res.set('Cache-Control', 'no-store');
+      res.json(data);
+    } catch (err: any) {
+      res.json({
+        overallBullishScore: 50,
+        sentimentLabel: 'Neutral',
+        markets: [],
+        confidenceAdjustment: 0,
+        reason: `Polymarket unavailable: ${err.message}`,
+        fetchedAt: new Date().toISOString(),
+        fromCache: false,
+        livePrices: false,
         error: err.message,
       });
     }

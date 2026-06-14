@@ -1,17 +1,22 @@
 /**
- * VEDD Polymarket BTC Sentiment Service
+ * VEDD Polymarket BTC Live Service
  *
- * Fetches live BTC prediction market data from Polymarket's public Gamma API.
- * No API key required — read-only public data.
+ * Fetches live BTC prediction market data from Polymarket's public Gamma API
+ * and CLOB API for real-time YES/NO prices.
  *
- * Data is cached for 5 minutes to avoid hammering the API on every request.
+ * Gamma API (market discovery): https://gamma-api.polymarket.com
+ * CLOB API  (live prices):      https://clob.polymarket.com
  *
- * Polymarket API docs: https://docs.polymarket.com/
- * Gamma API base: https://gamma-api.polymarket.com
+ * Short-term BTC markets are fetched first (soonest end date → most relevant
+ * for 5-minute style predictions). Cache is kept to 30 s so the UI shows
+ * near-real-time data without hammering the API.
  */
 
 const GAMMA_BASE = 'https://gamma-api.polymarket.com';
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CLOB_BASE  = 'https://clob.polymarket.com';
+
+const CACHE_TTL_MS      = 30 * 1000;  // 30 s — "live" feel
+const LIVE_CACHE_TTL_MS = 10 * 1000;  // 10 s — for the /btc-live endpoint
 
 export interface PolymarketMarket {
   id: string;
@@ -20,81 +25,64 @@ export interface PolymarketMarket {
   yesProbability: number;
   /** NO probability 0–100 */
   noProbability: number;
-  /** Total $ volume traded on this market */
+  /** Total $ volume traded */
   volume: number;
-  /** ISO date string when the market resolves */
+  /** ISO date string when market resolves */
   endDate: string | null;
   /** Whether this market has already resolved */
   closed: boolean;
-  /**
-   * Directional interpretation:
-   *   'bullish'  — YES = price goes up / hits target
-   *   'bearish'  — YES = price goes down / fails to hit target
-   *   'neutral'  — can't determine direction automatically
-   */
+  /** 'bullish' = YES means price up, 'bearish' = YES means price down */
   direction: 'bullish' | 'bearish' | 'neutral';
-  /** Raw outcome labels from Polymarket */
+  /** Raw outcome labels */
   outcomes: string[];
+  /** CLOB YES token ID for live price polling */
+  yesTokenId?: string;
+  /** CLOB NO token ID */
+  noTokenId?: string;
+  /** True if price came from live CLOB feed */
+  livePrice?: boolean;
+  /** Milliseconds until market resolves (null if no end date) */
+  msUntilEnd?: number | null;
 }
 
 export interface PolymarketBTCSentiment {
-  /** 0–100 composite bullish score (volume-weighted average of bullish markets) */
   overallBullishScore: number;
-  /** Human-readable sentiment label */
   sentimentLabel: 'Very Bullish' | 'Bullish' | 'Neutral' | 'Bearish' | 'Very Bearish';
-  /** Top active BTC markets */
   markets: PolymarketMarket[];
-  /** Confidence adjustment to apply to BTC/crypto signals (-8 to +8) */
   confidenceAdjustment: number;
-  /** Reason string for activity feed */
   reason: string;
-  /** ISO timestamp of when the data was fetched */
   fetchedAt: string;
-  /** Whether data came from cache */
   fromCache: boolean;
+  /** Whether this response used live CLOB prices */
+  livePrices?: boolean;
+  /** Seconds until cache expires */
+  cacheExpiresIn?: number;
 }
 
-// ─── In-memory cache ──────────────────────────────────────────────────────────
-let cachedSentiment: PolymarketBTCSentiment | null = null;
-let cacheTimestamp = 0;
+// ─── In-memory caches ────────────────────────────────────────────────────────
 
-// ─── Direction classifier ─────────────────────────────────────────────────────
+let cachedSentiment:     PolymarketBTCSentiment | null = null;
+let cacheTimestamp       = 0;
+let cachedLiveSentiment: PolymarketBTCSentiment | null = null;
+let liveCacheTimestamp   = 0;
 
-/**
- * Determine if a market's YES outcome is bullish or bearish for BTC.
- * Uses keyword matching on the question text.
- */
+// ─── Direction classifier ────────────────────────────────────────────────────
+
 function classifyDirection(question: string): 'bullish' | 'bearish' | 'neutral' {
   const q = question.toLowerCase();
-
-  // Bearish signals: fall below, crash, under, drop
   if (
-    q.includes('below') ||
-    q.includes('under $') ||
-    q.includes('crash') ||
-    q.includes('drop to') ||
-    q.includes('fall below') ||
-    q.includes('lose') ||
+    q.includes('below') || q.includes('under $') || q.includes('crash') ||
+    q.includes('drop to') || q.includes('fall below') || q.includes('lose') ||
     (q.includes('less than') && (q.includes('btc') || q.includes('bitcoin')))
   ) return 'bearish';
-
-  // Bullish signals: above, reach, hit, exceed, over
   if (
-    q.includes('above') ||
-    q.includes('exceed') ||
-    q.includes('over $') ||
-    q.includes('reach $') ||
-    q.includes('hit $') ||
-    q.includes('cross $') ||
-    q.includes('surpass') ||
-    q.includes('higher than') ||
+    q.includes('above') || q.includes('exceed') || q.includes('over $') ||
+    q.includes('reach $') || q.includes('hit $') || q.includes('cross $') ||
+    q.includes('surpass') || q.includes('higher than') ||
     (q.includes('at least') && (q.includes('btc') || q.includes('bitcoin')))
   ) return 'bullish';
-
   return 'neutral';
 }
-
-// ─── Sentiment calculator ─────────────────────────────────────────────────────
 
 function computeSentimentLabel(score: number): PolymarketBTCSentiment['sentimentLabel'] {
   if (score >= 70) return 'Very Bullish';
@@ -104,175 +92,256 @@ function computeSentimentLabel(score: number): PolymarketBTCSentiment['sentiment
   return 'Very Bearish';
 }
 
-function computeConfidenceAdjustment(score: number, signalDirection?: 'BUY' | 'SELL'): number {
-  if (!signalDirection) return 0;
-  // Score 0–100: 50 = neutral, >50 = bullish, <50 = bearish
-  const deviation = score - 50; // -50 to +50
-  // Scale to -8 to +8
-  const raw = Math.round((deviation / 50) * 8);
-  if (signalDirection === 'BUY') return raw;   // positive = helpful for BUY
-  if (signalDirection === 'SELL') return -raw; // invert for SELL
-  return 0;
+function computeConfidenceAdjustment(score: number, dir?: 'BUY' | 'SELL'): number {
+  if (!dir) return 0;
+  const raw = Math.round(((score - 50) / 50) * 8);
+  return dir === 'BUY' ? raw : -raw;
 }
 
-// ─── Polymarket API fetcher ───────────────────────────────────────────────────
+function buildReason(score: number, label: string, adj: number, dir?: 'BUY' | 'SELL'): string {
+  if (!dir) return `Polymarket BTC: ${label} (${score}% bullish)`;
+  const alignText = adj > 0 ? `aligns with ${dir}` : adj < 0 ? `conflicts with ${dir}` : 'neutral vs';
+  const adjText   = adj !== 0 ? ` → ${adj > 0 ? '+' : ''}${adj}%` : ' → no adjustment';
+  return `📊 Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+}
 
-async function fetchPolymarketBTCMarkets(): Promise<PolymarketMarket[]> {
-  // Try sorted URL first; fall back to unsorted if API rejects sort params (422)
-  const urlSorted   = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volume&order=desc`;
-  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20`;
+// ─── CLOB live price fetcher ─────────────────────────────────────────────────
+
+/**
+ * Fetch current mid prices for up to 20 token IDs in a single CLOB call.
+ * Returns a map of tokenId → price (0–1 float).
+ */
+async function fetchCLOBPrices(tokenIds: string[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!tokenIds.length) return map;
+
+  try {
+    const ids = tokenIds.slice(0, 20).join(',');
+    const res = await fetch(`${CLOB_BASE}/prices?token_ids=${ids}`, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return map;
+    const data = await res.json() as any[];
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item?.token_id && item?.price != null) {
+          map.set(item.token_id, parseFloat(item.price));
+        }
+      }
+    }
+  } catch { /* ignore — fall back to Gamma prices */ }
+
+  return map;
+}
+
+// ─── Gamma market fetcher ─────────────────────────────────────────────────────
+
+async function fetchBTCMarketsFromGamma(limit = 30): Promise<PolymarketMarket[]> {
+  const urlSorted   = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}&sort_by=end_date_min&order=asc`;
+  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}`;
 
   let res = await fetch(urlSorted, {
     headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(10000),
   });
-
-  if (!res.ok && res.status === 422) {
-    // Sort params rejected — retry without them
+  if (!res.ok) {
     res = await fetch(urlFallback, {
       headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(10000),
     });
   }
+  if (!res.ok) throw new Error(`Polymarket Gamma API ${res.status}`);
 
-  if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
+  const raw = await res.json() as any[];
+  if (!Array.isArray(raw)) throw new Error('Unexpected Gamma response');
 
-  const data = await res.json() as any[];
-  if (!Array.isArray(data)) throw new Error('Unexpected Polymarket response format');
-
+  const now = Date.now();
   const markets: PolymarketMarket[] = [];
 
-  for (const item of data) {
-    // outcomePrices is an array of stringified numbers like ["0.43", "0.57"]
-    // outcomes is an array of labels like ["Yes", "No"]
-    const outcomes: string[] = Array.isArray(item.outcomes)
-      ? item.outcomes
-      : JSON.parse(item.outcomes || '["Yes","No"]');
+  for (const item of raw) {
+    const direction = classifyDirection(item.question || '');
+    if (direction === 'neutral') continue;
+
+    const outcomes: string[] = (() => {
+      try { return Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]'); }
+      catch { return ['Yes', 'No']; }
+    })();
 
     const prices: number[] = (() => {
       try {
-        const raw = Array.isArray(item.outcomePrices)
-          ? item.outcomePrices
-          : JSON.parse(item.outcomePrices || '[0.5,0.5]');
-        return raw.map((p: string | number) => parseFloat(String(p)));
+        const p = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || '[0.5,0.5]');
+        return p.map((x: any) => parseFloat(String(x)));
       } catch { return [0.5, 0.5]; }
     })();
 
-    // Yes is always index 0 in Polymarket binary markets
-    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
-    const noProb  = 100 - yesProb;
+    const clobTokenIds: string[] = (() => {
+      try { return Array.isArray(item.clobTokenIds) ? item.clobTokenIds : JSON.parse(item.clobTokenIds || '[]'); }
+      catch { return []; }
+    })();
 
-    const direction = classifyDirection(item.question || '');
+    const endDate   = item.endDate || item.endDateIso || null;
+    const msUntilEnd = endDate ? new Date(endDate).getTime() - now : null;
     const volume    = parseFloat(item.volumeNum ?? item.volume ?? '0') || 0;
+    const yesProb   = Math.round((prices[0] ?? 0.5) * 100);
 
     markets.push({
-      id:              item.id || item.conditionId || '',
-      question:        item.question || 'Unknown market',
-      yesProbability:  yesProb,
-      noProbability:   noProb,
+      id:           item.id || item.conditionId || '',
+      question:     item.question || 'Unknown market',
+      yesProbability: yesProb,
+      noProbability:  100 - yesProb,
       volume,
-      endDate:         item.endDate || item.endDateIso || null,
-      closed:          item.closed ?? false,
+      endDate,
+      closed:       item.closed ?? false,
       direction,
       outcomes,
+      yesTokenId:   clobTokenIds[0] || undefined,
+      noTokenId:    clobTokenIds[1] || undefined,
+      msUntilEnd:   msUntilEnd,
     });
   }
 
-  // Only return markets where we know the direction (bullish or bearish)
-  // and that have meaningful volume (> $1k) to filter test markets
   return markets
-    .filter(m => m.direction !== 'neutral' && m.volume > 1000)
+    .filter(m => m.volume > 500)
+    .sort((a, b) => {
+      // Soonest-resolving markets first (most "5-minute prediction" relevant)
+      const aT = a.msUntilEnd ?? Infinity;
+      const bT = b.msUntilEnd ?? Infinity;
+      if (aT === bT) return b.volume - a.volume;
+      return aT - bT;
+    })
     .slice(0, 10);
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+// ─── Live fetch: Gamma + CLOB price overlay ──────────────────────────────────
 
-/**
- * Get BTC sentiment from Polymarket.
- * Results are cached for 5 minutes. Pass `forceRefresh=true` to bypass cache.
- */
-export async function getPolymarketBTCSentiment(
-  signalDirection?: 'BUY' | 'SELL',
-  forceRefresh = false,
-): Promise<PolymarketBTCSentiment> {
-  const now = Date.now();
+async function fetchLiveBTCMarkets(): Promise<{ markets: PolymarketMarket[]; livePrices: boolean }> {
+  const markets = await fetchBTCMarketsFromGamma(30);
 
-  // Return cached data if still fresh
-  if (!forceRefresh && cachedSentiment && (now - cacheTimestamp) < CACHE_TTL_MS) {
-    const adj = computeConfidenceAdjustment(cachedSentiment.overallBullishScore, signalDirection);
-    return {
-      ...cachedSentiment,
-      confidenceAdjustment: adj,
-      reason: buildReason(cachedSentiment.overallBullishScore, cachedSentiment.sentimentLabel, adj, signalDirection),
-      fromCache: true,
-    };
-  }
+  // Collect all YES token IDs and fetch live CLOB prices in one batch
+  const tokenIds = markets.map(m => m.yesTokenId).filter(Boolean) as string[];
+  const clobPrices = await fetchCLOBPrices(tokenIds);
 
-  let markets: PolymarketMarket[] = [];
-  try {
-    markets = await fetchPolymarketBTCMarkets();
-  } catch (err: any) {
-    // If fetch fails and we have stale cache, return it rather than crashing
-    if (cachedSentiment) {
-      return { ...cachedSentiment, fromCache: true, confidenceAdjustment: 0, reason: 'Polymarket: using stale cache (fetch failed)' };
+  let livePricesApplied = false;
+  const enriched = markets.map(m => {
+    if (m.yesTokenId && clobPrices.has(m.yesTokenId)) {
+      const livePrice = clobPrices.get(m.yesTokenId)!;
+      livePricesApplied = true;
+      return {
+        ...m,
+        yesProbability: Math.round(livePrice * 100),
+        noProbability:  Math.round((1 - livePrice) * 100),
+        livePrice: true,
+      };
     }
-    throw err;
-  }
+    return m;
+  });
 
-  // Compute volume-weighted average bullish score
+  return { markets: enriched, livePrices: livePricesApplied };
+}
+
+// ─── Sentiment builder ────────────────────────────────────────────────────────
+
+function buildSentiment(
+  markets: PolymarketMarket[],
+  livePrices: boolean,
+  fromCache: boolean,
+  signalDirection?: 'BUY' | 'SELL',
+  cacheAge?: number,
+): PolymarketBTCSentiment {
   let totalVolume = 0;
-  let weightedBullScore = 0;
-
+  let weightedBull = 0;
   for (const m of markets) {
-    const bullScore = m.direction === 'bullish' ? m.yesProbability : (100 - m.yesProbability);
-    weightedBullScore += bullScore * m.volume;
-    totalVolume += m.volume;
+    const bull = m.direction === 'bullish' ? m.yesProbability : 100 - m.yesProbability;
+    weightedBull += bull * m.volume;
+    totalVolume  += m.volume;
   }
+  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBull / totalVolume) : 50;
+  const sentimentLabel      = computeSentimentLabel(overallBullishScore);
+  const adj                 = computeConfidenceAdjustment(overallBullishScore, signalDirection);
+  const reason              = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
 
-  const overallBullishScore = totalVolume > 0
-    ? Math.round(weightedBullScore / totalVolume)
-    : 50;
-
-  const sentimentLabel = computeSentimentLabel(overallBullishScore);
-  const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
-  const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
-
-  const result: PolymarketBTCSentiment = {
+  return {
     overallBullishScore,
     sentimentLabel,
     markets,
     confidenceAdjustment: adj,
     reason,
     fetchedAt: new Date().toISOString(),
-    fromCache: false,
+    fromCache,
+    livePrices,
+    cacheExpiresIn: fromCache && cacheAge != null
+      ? Math.max(0, Math.round((CACHE_TTL_MS - cacheAge) / 1000))
+      : undefined,
   };
-
-  // Store in cache
-  cachedSentiment = result;
-  cacheTimestamp = now;
-
-  return result;
 }
 
-function buildReason(
-  score: number,
-  label: string,
-  adj: number,
-  direction?: 'BUY' | 'SELL',
-): string {
-  if (!direction) return `Polymarket BTC: ${label} (${score}% bullish sentiment)`;
-  const alignText = adj > 0 ? `aligns with ${direction}` : adj < 0 ? `conflicts with ${direction}` : 'neutral vs';
-  const adjText = adj !== 0 ? ` → ${adj > 0 ? '+' : ''}${adj}%` : ' → no adjustment';
-  return `📊 Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+/**
+ * Standard BTC sentiment — 30-second cache with CLOB price overlay.
+ * Used by the engine and general sentiment display.
+ */
+export async function getPolymarketBTCSentiment(
+  signalDirection?: 'BUY' | 'SELL',
+  forceRefresh = false,
+): Promise<PolymarketBTCSentiment> {
+  const now = Date.now();
+  const age = now - cacheTimestamp;
+
+  if (!forceRefresh && cachedSentiment && age < CACHE_TTL_MS) {
+    return {
+      ...buildSentiment(cachedSentiment.markets, cachedSentiment.livePrices ?? false, true, signalDirection, age),
+    };
+  }
+
+  try {
+    const { markets, livePrices } = await fetchLiveBTCMarkets();
+    const result = buildSentiment(markets, livePrices, false, signalDirection);
+    cachedSentiment  = result;
+    cacheTimestamp   = now;
+    return result;
+  } catch (err: any) {
+    if (cachedSentiment) {
+      return { ...cachedSentiment, fromCache: true, confidenceAdjustment: 0, reason: 'Polymarket: using stale cache (fetch failed)' };
+    }
+    throw err;
+  }
 }
 
-/** Force-clear the cache (useful when testing or after engine restart) */
+/**
+ * Live BTC predictions — 10-second cache with CLOB prices.
+ * Used by the /api/polymarket/btc-live endpoint for the real-time UI panel.
+ */
+export async function getPolymarketBTCLive(): Promise<PolymarketBTCSentiment> {
+  const now = Date.now();
+  const age = now - liveCacheTimestamp;
+
+  if (cachedLiveSentiment && age < LIVE_CACHE_TTL_MS) {
+    return { ...cachedLiveSentiment, fromCache: true, cacheExpiresIn: Math.max(0, Math.round((LIVE_CACHE_TTL_MS - age) / 1000)) };
+  }
+
+  try {
+    const { markets, livePrices } = await fetchLiveBTCMarkets();
+    const result = buildSentiment(markets, livePrices, false);
+    cachedLiveSentiment = result;
+    liveCacheTimestamp  = now;
+    return result;
+  } catch (err: any) {
+    if (cachedLiveSentiment) {
+      return { ...cachedLiveSentiment, fromCache: true, reason: 'Using stale data — Polymarket temporarily unavailable' };
+    }
+    throw err;
+  }
+}
+
 export function clearPolymarketCache(): void {
-  cachedSentiment = null;
-  cacheTimestamp = 0;
+  cachedSentiment     = null;
+  cacheTimestamp      = 0;
+  cachedLiveSentiment = null;
+  liveCacheTimestamp  = 0;
 }
 
-/** Return the raw cached data without fetching */
 export function getCachedPolymarketSentiment(): PolymarketBTCSentiment | null {
   return cachedSentiment;
 }

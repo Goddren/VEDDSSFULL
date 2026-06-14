@@ -19791,6 +19791,7 @@ var polymarket_exports = {};
 __export(polymarket_exports, {
   clearPolymarketCache: () => clearPolymarketCache,
   getCachedPolymarketSentiment: () => getCachedPolymarketSentiment,
+  getPolymarketBTCLive: () => getPolymarketBTCLive,
   getPolymarketBTCSentiment: () => getPolymarketBTCSentiment
 });
 function classifyDirection(question) {
@@ -19806,124 +19807,213 @@ function computeSentimentLabel(score) {
   if (score >= 30) return "Bearish";
   return "Very Bearish";
 }
-function computeConfidenceAdjustment(score, signalDirection) {
-  if (!signalDirection) return 0;
-  const deviation = score - 50;
-  const raw = Math.round(deviation / 50 * 8);
-  if (signalDirection === "BUY") return raw;
-  if (signalDirection === "SELL") return -raw;
-  return 0;
+function computeConfidenceAdjustment(score, dir) {
+  if (!dir) return 0;
+  const raw = Math.round((score - 50) / 50 * 8);
+  return dir === "BUY" ? raw : -raw;
 }
-async function fetchPolymarketBTCMarkets() {
-  const urlSorted = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volume&order=desc`;
-  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20`;
+function buildReason(score, label, adj, dir) {
+  if (!dir) return `Polymarket BTC: ${label} (${score}% bullish)`;
+  const alignText = adj > 0 ? `aligns with ${dir}` : adj < 0 ? `conflicts with ${dir}` : "neutral vs";
+  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
+  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+}
+async function fetchCLOBPrices(tokenIds) {
+  const map = /* @__PURE__ */ new Map();
+  if (!tokenIds.length) return map;
+  try {
+    const ids = tokenIds.slice(0, 20).join(",");
+    const res = await fetch(`${CLOB_BASE}/prices?token_ids=${ids}`, {
+      headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      signal: AbortSignal.timeout(6e3)
+    });
+    if (!res.ok) return map;
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item?.token_id && item?.price != null) {
+          map.set(item.token_id, parseFloat(item.price));
+        }
+      }
+    }
+  } catch {
+  }
+  return map;
+}
+async function fetchBTCMarketsFromGamma(limit = 30) {
+  const urlSorted = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}&sort_by=end_date_min&order=asc`;
+  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=${limit}`;
   let res = await fetch(urlSorted, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    signal: AbortSignal.timeout(8e3)
+    signal: AbortSignal.timeout(1e4)
   });
-  if (!res.ok && res.status === 422) {
+  if (!res.ok) {
     res = await fetch(urlFallback, {
       headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-      signal: AbortSignal.timeout(8e3)
+      signal: AbortSignal.timeout(1e4)
     });
   }
-  if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
-  const data = await res.json();
-  if (!Array.isArray(data)) throw new Error("Unexpected Polymarket response format");
+  if (!res.ok) throw new Error(`Polymarket Gamma API ${res.status}`);
+  const raw = await res.json();
+  if (!Array.isArray(raw)) throw new Error("Unexpected Gamma response");
+  const now = Date.now();
   const markets = [];
-  for (const item of data) {
-    const outcomes = Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
+  for (const item of raw) {
+    const direction = classifyDirection(item.question || "");
+    if (direction === "neutral") continue;
+    const outcomes = (() => {
+      try {
+        return Array.isArray(item.outcomes) ? item.outcomes : JSON.parse(item.outcomes || '["Yes","No"]');
+      } catch {
+        return ["Yes", "No"];
+      }
+    })();
     const prices = (() => {
       try {
-        const raw = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
-        return raw.map((p) => parseFloat(String(p)));
+        const p = Array.isArray(item.outcomePrices) ? item.outcomePrices : JSON.parse(item.outcomePrices || "[0.5,0.5]");
+        return p.map((x) => parseFloat(String(x)));
       } catch {
         return [0.5, 0.5];
       }
     })();
-    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
-    const noProb = 100 - yesProb;
-    const direction = classifyDirection(item.question || "");
+    const clobTokenIds = (() => {
+      try {
+        return Array.isArray(item.clobTokenIds) ? item.clobTokenIds : JSON.parse(item.clobTokenIds || "[]");
+      } catch {
+        return [];
+      }
+    })();
+    const endDate = item.endDate || item.endDateIso || null;
+    const msUntilEnd = endDate ? new Date(endDate).getTime() - now : null;
     const volume = parseFloat(item.volumeNum ?? item.volume ?? "0") || 0;
+    const yesProb = Math.round((prices[0] ?? 0.5) * 100);
     markets.push({
       id: item.id || item.conditionId || "",
       question: item.question || "Unknown market",
       yesProbability: yesProb,
-      noProbability: noProb,
+      noProbability: 100 - yesProb,
       volume,
-      endDate: item.endDate || item.endDateIso || null,
+      endDate,
       closed: item.closed ?? false,
       direction,
-      outcomes
+      outcomes,
+      yesTokenId: clobTokenIds[0] || void 0,
+      noTokenId: clobTokenIds[1] || void 0,
+      msUntilEnd
     });
   }
-  return markets.filter((m) => m.direction !== "neutral" && m.volume > 1e3).slice(0, 10);
+  return markets.filter((m) => m.volume > 500).sort((a, b) => {
+    const aT = a.msUntilEnd ?? Infinity;
+    const bT = b.msUntilEnd ?? Infinity;
+    if (aT === bT) return b.volume - a.volume;
+    return aT - bT;
+  }).slice(0, 10);
 }
-async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
-  const now = Date.now();
-  if (!forceRefresh && cachedSentiment2 && now - cacheTimestamp < CACHE_TTL_MS3) {
-    const adj2 = computeConfidenceAdjustment(cachedSentiment2.overallBullishScore, signalDirection);
-    return {
-      ...cachedSentiment2,
-      confidenceAdjustment: adj2,
-      reason: buildReason(cachedSentiment2.overallBullishScore, cachedSentiment2.sentimentLabel, adj2, signalDirection),
-      fromCache: true
-    };
-  }
-  let markets = [];
-  try {
-    markets = await fetchPolymarketBTCMarkets();
-  } catch (err) {
-    if (cachedSentiment2) {
-      return { ...cachedSentiment2, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
+async function fetchLiveBTCMarkets() {
+  const markets = await fetchBTCMarketsFromGamma(30);
+  const tokenIds = markets.map((m) => m.yesTokenId).filter(Boolean);
+  const clobPrices = await fetchCLOBPrices(tokenIds);
+  let livePricesApplied = false;
+  const enriched = markets.map((m) => {
+    if (m.yesTokenId && clobPrices.has(m.yesTokenId)) {
+      const livePrice = clobPrices.get(m.yesTokenId);
+      livePricesApplied = true;
+      return {
+        ...m,
+        yesProbability: Math.round(livePrice * 100),
+        noProbability: Math.round((1 - livePrice) * 100),
+        livePrice: true
+      };
     }
-    throw err;
-  }
+    return m;
+  });
+  return { markets: enriched, livePrices: livePricesApplied };
+}
+function buildSentiment(markets, livePrices, fromCache, signalDirection, cacheAge) {
   let totalVolume = 0;
-  let weightedBullScore = 0;
+  let weightedBull = 0;
   for (const m of markets) {
-    const bullScore = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
-    weightedBullScore += bullScore * m.volume;
+    const bull = m.direction === "bullish" ? m.yesProbability : 100 - m.yesProbability;
+    weightedBull += bull * m.volume;
     totalVolume += m.volume;
   }
-  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBullScore / totalVolume) : 50;
+  const overallBullishScore = totalVolume > 0 ? Math.round(weightedBull / totalVolume) : 50;
   const sentimentLabel = computeSentimentLabel(overallBullishScore);
   const adj = computeConfidenceAdjustment(overallBullishScore, signalDirection);
   const reason = buildReason(overallBullishScore, sentimentLabel, adj, signalDirection);
-  const result = {
+  return {
     overallBullishScore,
     sentimentLabel,
     markets,
     confidenceAdjustment: adj,
     reason,
     fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    fromCache: false
+    fromCache,
+    livePrices,
+    cacheExpiresIn: fromCache && cacheAge != null ? Math.max(0, Math.round((CACHE_TTL_MS3 - cacheAge) / 1e3)) : void 0
   };
-  cachedSentiment2 = result;
-  cacheTimestamp = now;
-  return result;
 }
-function buildReason(score, label, adj, direction) {
-  if (!direction) return `Polymarket BTC: ${label} (${score}% bullish sentiment)`;
-  const alignText = adj > 0 ? `aligns with ${direction}` : adj < 0 ? `conflicts with ${direction}` : "neutral vs";
-  const adjText = adj !== 0 ? ` \u2192 ${adj > 0 ? "+" : ""}${adj}%` : " \u2192 no adjustment";
-  return `\u{1F4CA} Polymarket BTC: ${label} (${score}%) ${alignText}${adjText}`;
+async function getPolymarketBTCSentiment(signalDirection, forceRefresh = false) {
+  const now = Date.now();
+  const age = now - cacheTimestamp;
+  if (!forceRefresh && cachedSentiment2 && age < CACHE_TTL_MS3) {
+    return {
+      ...buildSentiment(cachedSentiment2.markets, cachedSentiment2.livePrices ?? false, true, signalDirection, age)
+    };
+  }
+  try {
+    const { markets, livePrices } = await fetchLiveBTCMarkets();
+    const result = buildSentiment(markets, livePrices, false, signalDirection);
+    cachedSentiment2 = result;
+    cacheTimestamp = now;
+    return result;
+  } catch (err) {
+    if (cachedSentiment2) {
+      return { ...cachedSentiment2, fromCache: true, confidenceAdjustment: 0, reason: "Polymarket: using stale cache (fetch failed)" };
+    }
+    throw err;
+  }
+}
+async function getPolymarketBTCLive() {
+  const now = Date.now();
+  const age = now - liveCacheTimestamp;
+  if (cachedLiveSentiment && age < LIVE_CACHE_TTL_MS) {
+    return { ...cachedLiveSentiment, fromCache: true, cacheExpiresIn: Math.max(0, Math.round((LIVE_CACHE_TTL_MS - age) / 1e3)) };
+  }
+  try {
+    const { markets, livePrices } = await fetchLiveBTCMarkets();
+    const result = buildSentiment(markets, livePrices, false);
+    cachedLiveSentiment = result;
+    liveCacheTimestamp = now;
+    return result;
+  } catch (err) {
+    if (cachedLiveSentiment) {
+      return { ...cachedLiveSentiment, fromCache: true, reason: "Using stale data \u2014 Polymarket temporarily unavailable" };
+    }
+    throw err;
+  }
 }
 function clearPolymarketCache() {
   cachedSentiment2 = null;
   cacheTimestamp = 0;
+  cachedLiveSentiment = null;
+  liveCacheTimestamp = 0;
 }
 function getCachedPolymarketSentiment() {
   return cachedSentiment2;
 }
-var GAMMA_BASE, CACHE_TTL_MS3, cachedSentiment2, cacheTimestamp;
+var GAMMA_BASE, CLOB_BASE, CACHE_TTL_MS3, LIVE_CACHE_TTL_MS, cachedSentiment2, cacheTimestamp, cachedLiveSentiment, liveCacheTimestamp;
 var init_polymarket = __esm({
   "server/services/polymarket.ts"() {
     "use strict";
     GAMMA_BASE = "https://gamma-api.polymarket.com";
-    CACHE_TTL_MS3 = 5 * 60 * 1e3;
+    CLOB_BASE = "https://clob.polymarket.com";
+    CACHE_TTL_MS3 = 30 * 1e3;
+    LIVE_CACHE_TTL_MS = 10 * 1e3;
     cachedSentiment2 = null;
     cacheTimestamp = 0;
+    cachedLiveSentiment = null;
+    liveCacheTimestamp = 0;
   }
 });
 
@@ -46907,6 +46997,27 @@ Respond with ONLY valid JSON:
         reason: `Polymarket unavailable: ${err.message}`,
         fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
         fromCache: false,
+        error: err.message
+      });
+    }
+  });
+  app2.get("/api/polymarket/btc-live", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getPolymarketBTCLive: getPolymarketBTCLive2 } = await Promise.resolve().then(() => (init_polymarket(), polymarket_exports));
+      const data = await getPolymarketBTCLive2();
+      res.set("Cache-Control", "no-store");
+      res.json(data);
+    } catch (err) {
+      res.json({
+        overallBullishScore: 50,
+        sentimentLabel: "Neutral",
+        markets: [],
+        confidenceAdjustment: 0,
+        reason: `Polymarket unavailable: ${err.message}`,
+        fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        fromCache: false,
+        livePrices: false,
         error: err.message
       });
     }
