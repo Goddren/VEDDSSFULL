@@ -57,6 +57,35 @@ interface PolymarketData {
   error?: string;
 }
 
+interface KalshiBracket {
+  ticker: string;
+  subtitle: string;
+  strikeType: "greater" | "less" | "between";
+  floorStrike: number | null;
+  capStrike: number | null;
+  yesProbability: number;
+  noProb: number;
+  hasLiquidity: boolean;
+  volume: number;
+  yesAsk: number;
+  yesBid: number;
+}
+
+interface KalshiEvent {
+  eventTicker: string | null;
+  title: string;
+  closeTime: string | null;
+  msUntilClose: number;
+  brackets: KalshiBracket[];
+  nearestBracket: KalshiBracket | null;
+  consensusBracket: KalshiBracket | null;
+  totalVolume: number;
+  hasActiveLiquidity: boolean;
+  fetchedAt: string;
+  fromCache: boolean;
+  error?: string;
+}
+
 interface PolymarketPosition {
   id: string;
   market: { id: string; question: string; endDate: string | null };
@@ -128,6 +157,19 @@ function fmtTimeUntil(ms: number | null | undefined): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+function findNearestBracket(brackets: KalshiBracket[], btcPrice: number): KalshiBracket | null {
+  if (!brackets.length) return null;
+  return brackets.reduce((best, b) => {
+    const mid = (b.floorStrike != null && b.capStrike != null)
+      ? (b.floorStrike + b.capStrike) / 2
+      : b.floorStrike ?? b.capStrike ?? 0;
+    const bestMid = (best.floorStrike != null && best.capStrike != null)
+      ? (best.floorStrike + best.capStrike) / 2
+      : best.floorStrike ?? best.capStrike ?? 0;
+    return Math.abs(mid - btcPrice) < Math.abs(bestMid - btcPrice) ? b : best;
+  });
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PolymarketEnginePage() {
@@ -155,6 +197,15 @@ export default function PolymarketEnginePage() {
     refetchInterval: 30_000,
     staleTime: 0,
     retry: 2,
+    enabled: !!user,
+  });
+
+  // ── Kalshi CFTC-regulated BTC markets ────────────────────────────────────
+  const { data: kalshiData } = useQuery<KalshiEvent>({
+    queryKey: ["/api/kalshi/btc"],
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+    retry: 1,
     enabled: !!user,
   });
 
@@ -463,6 +514,98 @@ export default function PolymarketEnginePage() {
             </>
           ) : null}
         </div>
+
+        {/* ── Kalshi CFTC-regulated BTC Markets ───────────────────────────── */}
+        {kalshiData && !kalshiData.error && kalshiData.eventTicker ? (() => {
+          const nearestBracket = btcPred?.currentPrice
+            ? findNearestBracket(kalshiData.brackets, btcPred.currentPrice)
+            : kalshiData.nearestBracket;
+          const consensus = kalshiData.consensusBracket;
+          const topBrackets = kalshiData.brackets.slice(0, 5);
+          return (
+            <div className="bg-indigo-950/40 border border-indigo-700/30 rounded-xl p-4">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <BarChart2 className="w-4 h-4 text-indigo-400" />
+                  <h2 className="text-sm font-bold text-white">Kalshi BTC Markets</h2>
+                  <span className="text-[9px] text-indigo-300 bg-indigo-500/20 border border-indigo-500/30 px-1.5 py-0.5 rounded">
+                    CFTC-Regulated · US-Legal
+                  </span>
+                </div>
+                {kalshiData.msUntilClose > 0 && (
+                  <span className="text-[9px] text-gray-400 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    closes {fmtTimeUntil(kalshiData.msUntilClose)}
+                  </span>
+                )}
+              </div>
+
+              <p className="text-[10px] text-indigo-200/60 mb-3 leading-snug">{kalshiData.title}</p>
+
+              {/* Liquidity warning */}
+              {!kalshiData.hasActiveLiquidity && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3">
+                  <p className="text-[9px] text-amber-300/80">
+                    Market opened — AMM placeholder prices only. Probabilities reflect no real trading yet.
+                    Values will update as traders participate.
+                  </p>
+                </div>
+              )}
+
+              {/* Nearest bracket to current BTC price */}
+              {nearestBracket && btcPred?.currentPrice && (
+                <div className="bg-indigo-900/30 border border-indigo-600/30 rounded-lg px-3 py-2 mb-3">
+                  <p className="text-[8px] text-indigo-400/70 mb-1">Bracket nearest to current BTC price (${fmtPrice(btcPred.currentPrice)})</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-indigo-200 font-semibold">{nearestBracket.subtitle}</p>
+                    <span className={`text-xs font-black ${
+                      nearestBracket.yesProbability >= 50 ? "text-indigo-300" : "text-gray-400"
+                    }`}>{nearestBracket.yesProbability}%</span>
+                  </div>
+                  {/* Mini probability bar */}
+                  <div className="w-full h-1 bg-gray-800 rounded-full mt-1.5 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${nearestBracket.yesProbability}%` }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Top probability brackets */}
+              {topBrackets.length > 0 && (
+                <div className="space-y-1">
+                  {topBrackets.map((b, i) => (
+                    <div key={b.ticker} className="flex items-center gap-2 bg-black/20 rounded-lg px-2.5 py-1.5">
+                      <span className="text-[8px] text-gray-600 w-4">{i + 1}</span>
+                      <p className="text-[9px] text-gray-300 flex-1 truncate">{b.subtitle}</p>
+                      <div className="flex items-center gap-2">
+                        <div className="w-12 h-1 bg-gray-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500/70 rounded-full" style={{ width: `${b.yesProbability}%` }} />
+                        </div>
+                        <span className={`text-[10px] font-bold w-7 text-right ${
+                          b.yesProbability >= 50 ? "text-indigo-300" : "text-gray-500"
+                        }`}>{b.yesProbability}%</span>
+                        {b.hasLiquidity && (
+                          <span className="text-[8px] text-emerald-400/60">●</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[9px] text-gray-600 text-center mt-2">
+                {kalshiData.hasActiveLiquidity
+                  ? `Vol: ${kalshiData.totalVolume.toLocaleString()} contracts`
+                  : "No trading volume yet"
+                } · {timeAgo(kalshiData.fetchedAt)} · {kalshiData.fromCache ? "cached" : "live"}
+              </p>
+            </div>
+          );
+        })() : kalshiData?.error ? (
+          <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl px-4 py-3">
+            <p className="text-[10px] text-gray-500 text-center">Kalshi unavailable: {kalshiData.error}</p>
+          </div>
+        ) : null}
 
         {/* ── Wallet ───────────────────────────────────────────────────────── */}
         {savedWallet?.address ? (

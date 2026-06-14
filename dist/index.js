@@ -4473,8 +4473,8 @@ function parseFreqtradeParams(code) {
 async function getStrategyContext(symbol) {
   const assetClass = classifySymbol(symbol);
   const cacheKey = `strategy_${assetClass}`;
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
+  const cached2 = getCached(cacheKey);
+  if (cached2) return cached2;
   const baseRules = { ...ASSET_DEFAULTS[assetClass] };
   let externalParams = {};
   let sourceNote = `Embedded validated defaults (${assetClass})`;
@@ -4667,9 +4667,9 @@ function rateLabel(wr) {
 }
 async function getLearnedInsights(userId, symbol) {
   const cacheKey = userId;
-  const cached = learningCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < LEARNING_CACHE_TTL) {
-    return cached.insights;
+  const cached2 = learningCache.get(cacheKey);
+  if (cached2 && Date.now() - cached2.ts < LEARNING_CACHE_TTL) {
+    return cached2.insights;
   }
   try {
     const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1e3);
@@ -15242,10 +15242,10 @@ function decryptPassword(encryptedPassword) {
 }
 async function getOrCreateService(connection2) {
   const connId = connection2.id || 0;
-  const cached = serviceCache.get(connId);
-  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
+  const cached2 = serviceCache.get(connId);
+  if (cached2 && Date.now() - cached2.createdAt < SERVICE_CACHE_TTL) {
     console.log("[TradeLocker] Reusing cached service for connection", connId);
-    return cached.service;
+    return cached2.service;
   }
   const service = new TradeLockerService(
     connection2.accountType,
@@ -15908,9 +15908,9 @@ var init_tradelocker = __esm({
         await this.resolveAccNum();
         const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
         let tradableInstrumentId = null;
-        const cached = instrumentCache.get(instCacheKey);
-        if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
-          tradableInstrumentId = cached.tradableInstrumentId;
+        const cached2 = instrumentCache.get(instCacheKey);
+        if (cached2 && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached2.tradableInstrumentId;
         } else {
           const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
             headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
@@ -17219,16 +17219,16 @@ var init_service = __esm({
         if (!provider) {
           throw new Error(`No provider available for asset type: ${request.assetType}`);
         }
-        const cached = marketDataCache.get(
+        const cached2 = marketDataCache.get(
           request.symbol,
           request.timeframe,
           provider.name
         );
-        if (cached) {
+        if (cached2) {
           return {
-            bars: cached,
+            bars: cached2,
             provider: provider.name,
-            hash: this.generateHash(cached),
+            hash: this.generateHash(cached2),
             fromCache: true
           };
         }
@@ -22564,14 +22564,14 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
     }
     if (!usedMultiModel) {
       const cacheKey = Object.keys(marketAnalysis).sort().join("|");
-      const cached = state.aiResponseCache[cacheKey];
+      const cached2 = state.aiResponseCache[cacheKey];
       const pairPrices = Object.values(marketAnalysis).map((d) => d.currentPrice || 0);
       const avgPrice = pairPrices.length > 0 ? pairPrices.reduce((a, b) => a + b, 0) / pairPrices.length : 0;
-      const cachedPrice = cached?.price ?? 0;
+      const cachedPrice = cached2?.price ?? 0;
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 1e4 : 999;
-      const cacheAge = cached ? Date.now() - cached.ts : 999999;
-      if (cached && cacheAge < 6e4 && pipMove < 3) {
-        decisions = cached.response;
+      const cacheAge = cached2 ? Date.now() - cached2.ts : 999999;
+      if (cached2 && cacheAge < 6e4 && pipMove < 3) {
+        decisions = cached2.response;
         addActivity2(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
       } else {
         const modelToUse = model;
@@ -24635,6 +24635,134 @@ var init_btc_5min_predictor = __esm({
   }
 });
 
+// server/services/kalshi.ts
+var kalshi_exports = {};
+__export(kalshi_exports, {
+  clearKalshiCache: () => clearKalshiCache,
+  getKalshiBTCEvent: () => getKalshiBTCEvent
+});
+function parseDollars(val) {
+  if (val == null) return 0;
+  const n = parseFloat(String(val));
+  return isNaN(n) ? 0 : Math.round(n * 100);
+}
+async function fetchNearestEvent() {
+  const url = `${KALSHI_BASE}/events?series_ticker=KXBTC&limit=10&status=open`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res.ok) throw new Error(`Kalshi events API ${res.status}`);
+  const data = await res.json();
+  const events = data.events ?? [];
+  if (!events.length) return null;
+  const now = Date.now();
+  const upcoming = events.map((e) => ({
+    eventTicker: e.event_ticker,
+    title: e.title,
+    closeTime: e.strike_date ?? ""
+  })).filter((e) => new Date(e.closeTime).getTime() > now).sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+  return upcoming[0] ?? null;
+}
+async function fetchEventMarkets(eventTicker) {
+  const url = `${KALSHI_BASE}/markets?event_ticker=${eventTicker}&limit=200`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) throw new Error(`Kalshi markets API ${res.status}`);
+  const data = await res.json();
+  return data.markets ?? [];
+}
+function buildBrackets(rawMarkets) {
+  return rawMarkets.filter((m) => m.status === "active" || m.status === "open").map((m) => {
+    const yesAsk = parseDollars(m.yes_ask_dollars);
+    const yesBid = parseDollars(m.yes_bid_dollars);
+    const noAsk = parseDollars(m.no_ask_dollars);
+    const noBid = parseDollars(m.no_bid_dollars);
+    const lastPct = parseDollars(m.last_price_dollars);
+    const volume = parseFloat(m.volume_fp ?? "0") || 0;
+    let yesProbability;
+    if (lastPct > 0) {
+      yesProbability = lastPct;
+    } else if (yesBid > 0 || yesAsk > 0) {
+      yesProbability = yesBid > 0 && yesAsk > 0 ? Math.round((yesBid + yesAsk) / 2) : Math.max(yesBid, yesAsk);
+    } else if (noBid > 0) {
+      yesProbability = 100 - noBid;
+    } else {
+      yesProbability = 0;
+    }
+    const hasLiquidity = volume > 0 || yesBid > 1 && yesAsk < 99;
+    return {
+      ticker: m.ticker,
+      subtitle: m.subtitle ?? m.yes_sub_title ?? "",
+      strikeType: m.strike_type,
+      floorStrike: m.floor_strike != null ? Number(m.floor_strike) : null,
+      capStrike: m.cap_strike != null ? Number(m.cap_strike) : null,
+      yesProbability,
+      noProb: Math.max(0, 100 - yesProbability),
+      hasLiquidity,
+      volume,
+      yesAsk,
+      yesBid
+    };
+  });
+}
+async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cached && now - cacheTs < CACHE_TTL_MS5) {
+    return { ...cached, fromCache: true };
+  }
+  const nearestEvent = await fetchNearestEvent();
+  if (!nearestEvent) {
+    throw new Error("No active KXBTC events on Kalshi");
+  }
+  const rawMarkets = await fetchEventMarkets(nearestEvent.eventTicker);
+  const brackets = buildBrackets(rawMarkets);
+  const totalVolume = brackets.reduce((s, b) => s + b.volume, 0);
+  const hasActiveLiquidity = brackets.some((b) => b.hasLiquidity);
+  const consensusBracket = brackets.reduce((best, b) => b.yesProbability > (best?.yesProbability ?? -1) ? b : best, null);
+  let nearestBracket = null;
+  if (currentBTCPrice && brackets.length) {
+    nearestBracket = brackets.reduce((best, b) => {
+      const mid = b.floorStrike != null && b.capStrike != null ? (b.floorStrike + b.capStrike) / 2 : b.floorStrike ?? b.capStrike ?? 0;
+      const bestMid = best.floorStrike != null && best.capStrike != null ? (best.floorStrike + best.capStrike) / 2 : best.floorStrike ?? best.capStrike ?? 0;
+      return Math.abs(mid - currentBTCPrice) < Math.abs(bestMid - currentBTCPrice) ? b : best;
+    });
+  }
+  const msUntilClose = Math.max(0, new Date(nearestEvent.closeTime).getTime() - now);
+  const result = {
+    eventTicker: nearestEvent.eventTicker,
+    title: nearestEvent.title,
+    closeTime: nearestEvent.closeTime,
+    msUntilClose,
+    brackets: brackets.sort((a, b) => b.yesProbability - a.yesProbability).slice(0, 10),
+    nearestBracket,
+    consensusBracket,
+    totalVolume,
+    hasActiveLiquidity,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache: false
+  };
+  cached = result;
+  cacheTs = now;
+  return result;
+}
+function clearKalshiCache() {
+  cached = null;
+  cacheTs = 0;
+}
+var KALSHI_BASE, CACHE_TTL_MS5, cached, cacheTs;
+var init_kalshi = __esm({
+  "server/services/kalshi.ts"() {
+    "use strict";
+    KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+    CACHE_TTL_MS5 = 6e4;
+    cached = null;
+    cacheTs = 0;
+  }
+});
+
 // server/services/polymarket-autonomous-engine.ts
 var polymarket_autonomous_engine_exports = {};
 __export(polymarket_autonomous_engine_exports, {
@@ -25457,13 +25585,13 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     ...openPositions.map((p) => p.symbol).sort()
   ].join("|");
   const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached = state.aiReviewCache[cacheKey];
-  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached.ts) / 1e3);
+  const cached2 = state.aiReviewCache[cacheKey];
+  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
     const macroBiasCache = state.lastMacro?.bias ?? null;
     const cacheConsensus = [];
     let confirms = 0, skips = 0;
-    for (const d of cached.result) {
+    for (const d of cached2.result) {
       if (!d || !d.symbol || d.type !== "signal") continue;
       const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
       if (!tokenData) continue;
@@ -31113,9 +31241,9 @@ var TradovateService = class {
     return fills.slice(0, limit);
   }
   async resolveContractId(rootSymbol) {
-    const cached = this.contractCache.get(rootSymbol.toUpperCase());
-    if (cached && Date.now() - cached.cachedAt.getTime() < 10 * 60 * 1e3) {
-      return { contractId: cached.contractId, name: cached.name };
+    const cached2 = this.contractCache.get(rootSymbol.toUpperCase());
+    if (cached2 && Date.now() - cached2.cachedAt.getTime() < 10 * 60 * 1e3) {
+      return { contractId: cached2.contractId, name: cached2.name };
     }
     await this.ensureAuthenticated();
     const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
@@ -31180,9 +31308,9 @@ function getCacheKey(userId, accountType) {
 }
 async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
   const cacheKey = getCacheKey(userId, accountType);
-  const cached = serviceCache2.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt.getTime() < CACHE_TTL_MS2) {
-    return cached.service;
+  const cached2 = serviceCache2.get(cacheKey);
+  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS2) {
+    return cached2.service;
   }
   const { decryptPassword: decryptPassword3 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
   const password = decryptPassword3(encryptedPassword);
@@ -46831,9 +46959,9 @@ Respond with ONLY valid JSON:
       } catch (mdErr) {
         const mt5Cache = global.mt5ChartDataCache || {};
         const cacheKey = `mt5_chart_${userId}_${pair}_H1`;
-        const cached = mt5Cache[cacheKey];
-        if (cached?.candles?.length >= 50) {
-          bars = cached.candles.map((c) => ({
+        const cached2 = mt5Cache[cacheKey];
+        if (cached2?.candles?.length >= 50) {
+          bars = cached2.candles.map((c) => ({
             timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
             open: Number(c.open),
             high: Number(c.high),
@@ -47243,6 +47371,31 @@ Respond with ONLY valid JSON:
       });
     }
   });
+  app2.get("/api/kalshi/btc", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getKalshiBTCEvent: getKalshiBTCEvent2 } = await Promise.resolve().then(() => (init_kalshi(), kalshi_exports));
+      const btcPrice = req.query.btcPrice ? parseFloat(req.query.btcPrice) : void 0;
+      const data = await getKalshiBTCEvent2(btcPrice);
+      res.set("Cache-Control", "no-store");
+      res.json(data);
+    } catch (err) {
+      res.status(200).json({
+        error: err.message,
+        eventTicker: null,
+        title: "Kalshi BTC Markets Unavailable",
+        closeTime: null,
+        msUntilClose: 0,
+        brackets: [],
+        nearestBracket: null,
+        consensusBracket: null,
+        totalVolume: 0,
+        hasActiveLiquidity: false,
+        fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        fromCache: false
+      });
+    }
+  });
   const _polyWalletsFile = path4.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
@@ -47646,10 +47799,10 @@ Respond with ONLY valid JSON:
     const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
     let mt5 = null;
     try {
-      const cached = global.mt5AccountData?.[userId];
-      const isOnline = cached && Date.now() - new Date(cached.timestamp || 0).getTime() < 6e5;
-      const bal = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
-      const eq11 = cached?.equity ?? cached?.accounts?.[0]?.equity ?? bal;
+      const cached2 = global.mt5AccountData?.[userId];
+      const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
+      const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
+      const eq11 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const [todayDbTrades, weekDbTrades] = await Promise.all([
         db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
         db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])

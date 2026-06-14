@@ -16244,6 +16244,34 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/btc — CFTC-regulated BTC price-range markets (60 s cache)
+  app.get("/api/kalshi/btc", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getKalshiBTCEvent } = await import('./services/kalshi');
+      // Optionally pass current BTC price to find the nearest bracket
+      const btcPrice = req.query.btcPrice ? parseFloat(req.query.btcPrice as string) : undefined;
+      const data = await getKalshiBTCEvent(btcPrice);
+      res.set('Cache-Control', 'no-store');
+      res.json(data);
+    } catch (err: any) {
+      res.status(200).json({
+        error: err.message,
+        eventTicker: null,
+        title: 'Kalshi BTC Markets Unavailable',
+        closeTime: null,
+        msUntilClose: 0,
+        brackets: [],
+        nearestBracket: null,
+        consensusBracket: null,
+        totalVolume: 0,
+        hasActiveLiquidity: false,
+        fetchedAt: new Date().toISOString(),
+        fromCache: false,
+      });
+    }
+  });
+
   // ── Polymarket / Composite wallet storage ─────────────────────────────────
   // Helpers: load/save wallet map from data/polymarket_wallets.json
   const _polyWalletsFile = path.join(process.cwd(), 'data', 'polymarket_wallets.json');
