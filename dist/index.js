@@ -19822,12 +19822,18 @@ function computeConfidenceAdjustment(score, signalDirection) {
   return 0;
 }
 async function fetchPolymarketBTCMarkets() {
-  const url = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volumeNum&order=DESC`;
-  const res = await fetch(url, {
+  const urlSorted = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volume&order=desc`;
+  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20`;
+  let res = await fetch(urlSorted, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
-    // 8s timeout
   });
+  if (!res.ok && res.status === 422) {
+    res = await fetch(urlFallback, {
+      headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+      signal: AbortSignal.timeout(8e3)
+    });
+  }
   if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
   const data = await res.json();
   if (!Array.isArray(data)) throw new Error("Unexpected Polymarket response format");

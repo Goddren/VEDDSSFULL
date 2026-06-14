@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Play, Square, RefreshCw, Settings, TrendingUp, TrendingDown, X, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Play, Square, RefreshCw, Settings, TrendingUp, TrendingDown, X, ChevronDown, ChevronUp, Wallet, ExternalLink } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +94,11 @@ export default function PolymarketEnginePage() {
   const { data: polyData } = useQuery<any>({
     queryKey: ["/api/polymarket/btc"],
     refetchInterval: 5 * 60 * 1000,
+    enabled: !!user,
+  });
+
+  const { data: savedWallet } = useQuery<{ address: string } | null>({
+    queryKey: ["/api/user/polymarket-wallet"],
     enabled: !!user,
   });
 
@@ -238,6 +243,39 @@ export default function PolymarketEnginePage() {
             </p>
           </div>
         </div>
+
+        {/* ── Wallet Connect Card ─────────────────────────────────────── */}
+        {savedWallet?.address ? (
+          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-4 py-3">
+            <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.18)' }}>
+              <Wallet className="w-4 h-4 text-emerald-400" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-emerald-300">Polygon Wallet Connected</p>
+              <p className="text-[10px] text-gray-400 mt-0.5 font-mono truncate">
+                {savedWallet.address.slice(0, 8)}…{savedWallet.address.slice(-6)}
+              </p>
+            </div>
+            <Link href="/polymarket-wallet">
+              <button className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0">
+                Manage <ExternalLink className="w-3 h-3" />
+              </button>
+            </Link>
+          </div>
+        ) : (
+          <Link href="/polymarket-wallet">
+            <button className="w-full flex items-center gap-3 bg-purple-500/10 border border-purple-500/30 border-dashed rounded-xl px-4 py-3 hover:bg-purple-500/15 transition-colors active:scale-[0.98]">
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(139,92,246,0.18)' }}>
+                <Wallet className="w-4 h-4 text-purple-400" />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-xs font-bold text-purple-300">Connect Polygon Wallet</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Required for live execution — uses USDC on Polygon</p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-purple-400 flex-shrink-0" />
+            </button>
+          </Link>
+        )}
 
         {/* ── Polymarket Sentiment ────────────────────────────────────── */}
         <div className={`bg-gray-900/60 border ${sentimentBorder} rounded-xl p-4`}>

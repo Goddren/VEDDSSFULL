@@ -118,13 +118,22 @@ function computeConfidenceAdjustment(score: number, signalDirection?: 'BUY' | 'S
 // ─── Polymarket API fetcher ───────────────────────────────────────────────────
 
 async function fetchPolymarketBTCMarkets(): Promise<PolymarketMarket[]> {
-  // Fetch active BTC/Bitcoin markets sorted by volume descending
-  const url = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volumeNum&order=DESC`;
+  // Try sorted URL first; fall back to unsorted if API rejects sort params (422)
+  const urlSorted   = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20&sort_by=volume&order=desc`;
+  const urlFallback = `${GAMMA_BASE}/markets?tag=bitcoin&active=true&closed=false&limit=20`;
 
-  const res = await fetch(url, {
+  let res = await fetch(urlSorted, {
     headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
-    signal: AbortSignal.timeout(8000), // 8s timeout
+    signal: AbortSignal.timeout(8000),
   });
+
+  if (!res.ok && res.status === 422) {
+    // Sort params rejected — retry without them
+    res = await fetch(urlFallback, {
+      headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+  }
 
   if (!res.ok) throw new Error(`Polymarket API error: ${res.status}`);
 
