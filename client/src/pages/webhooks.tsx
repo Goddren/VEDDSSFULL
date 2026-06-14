@@ -459,7 +459,16 @@ export default function WebhooksPage() {
       toast({ title: "TradeLocker connected", description: "Account linked for trade execution." });
     },
     onError: (error) => {
-      toast({ title: "Connection failed", description: error.message, variant: "destructive" });
+      // error.message is "400: {"error":"..."}" — extract the inner message
+      let msg = error.message || 'Connection failed';
+      try {
+        const jsonStart = msg.indexOf('{');
+        if (jsonStart !== -1) {
+          const parsed = JSON.parse(msg.slice(jsonStart));
+          msg = parsed.error || parsed.message || msg;
+        }
+      } catch {}
+      toast({ title: "TradeLocker connection failed", description: msg, variant: "destructive" });
     }
   });
 

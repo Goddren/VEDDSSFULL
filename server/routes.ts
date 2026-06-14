@@ -13645,10 +13645,7 @@ Rules:
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
 
-    // Encrypt password
-    const encryptedPw = encryptPassword(password);
-    
-    // Test connection first and resolve accNum
+    // Test connection FIRST — authenticate before encrypting anything
     let resolvedAccNum: string | undefined;
     try {
       const service = new TradeLockerService(accountType || 'live', accountId, serverId);
@@ -13656,8 +13653,12 @@ Rules:
       const accNum = service.getResolvedAccNum();
       if (accNum && accNum !== '0') resolvedAccNum = accNum;
     } catch (err) {
-      return res.status(400).json({ error: `Failed to connect to TradeLocker: ${err instanceof Error ? err.message : 'Unknown error'}` });
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return res.status(400).json({ error: `TradeLocker login failed: ${msg}` });
     }
+
+    // Encrypt password after successful auth
+    const encryptedPw = encryptPassword(password);
     
     const connection = await storage.createTradelockerConnection({
       userId,

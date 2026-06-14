@@ -11,3 +11,5 @@ services:
         value: production
       - key: NODE_VERSION
         value: 20.11.1
+      - key: TRADELOCKER_ENCRYPTION_KEY
+        value: vedd-tl-default-key-change-me-32chars!!

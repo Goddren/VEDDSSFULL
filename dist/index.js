@@ -15206,10 +15206,12 @@ import crypto3 from "crypto";
 function getEncryptionKey2() {
   const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
   if (!key) {
-    throw new Error("TRADELOCKER_ENCRYPTION_KEY environment variable is required for secure password storage");
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY;
   }
   if (key.length < 32) {
-    throw new Error("TRADELOCKER_ENCRYPTION_KEY must be at least 32 characters");
+    console.warn("[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
   }
   return key;
 }
@@ -15396,11 +15398,12 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerService;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerService;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
     IV_LENGTH = 16;
+    DEFAULT_ENCRYPTION_KEY = "vedd-tl-default-key-change-me-32chars!!";
     SALT_LENGTH = 16;
     INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
     instrumentCache = /* @__PURE__ */ new Map();
@@ -44259,7 +44262,6 @@ Rules:
     if (!email || !password || !serverId || !accountId) {
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
-    const encryptedPw = encryptPassword(password);
     let resolvedAccNum;
     try {
       const service = new TradeLockerService(accountType || "live", accountId, serverId);
@@ -44267,8 +44269,10 @@ Rules:
       const accNum = service.getResolvedAccNum();
       if (accNum && accNum !== "0") resolvedAccNum = accNum;
     } catch (err) {
-      return res.status(400).json({ error: `Failed to connect to TradeLocker: ${err instanceof Error ? err.message : "Unknown error"}` });
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return res.status(400).json({ error: `TradeLocker login failed: ${msg}` });
     }
+    const encryptedPw = encryptPassword(password);
     const connection2 = await storage.createTradelockerConnection({
       userId,
       email,

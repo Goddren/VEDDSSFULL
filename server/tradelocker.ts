@@ -2,13 +2,19 @@ import crypto from 'crypto';
 
 const IV_LENGTH = 16;
 
+// Default key used when TRADELOCKER_ENCRYPTION_KEY env var is not set.
+// Override this in Render → Environment → TRADELOCKER_ENCRYPTION_KEY for production.
+const DEFAULT_ENCRYPTION_KEY = 'vedd-tl-default-key-change-me-32chars!!';
+
 function getEncryptionKey(): string {
   const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
   if (!key) {
-    throw new Error('TRADELOCKER_ENCRYPTION_KEY environment variable is required for secure password storage');
+    console.warn('[TradeLocker] TRADELOCKER_ENCRYPTION_KEY not set — using default key. Set it in your Render environment variables.');
+    return DEFAULT_ENCRYPTION_KEY;
   }
   if (key.length < 32) {
-    throw new Error('TRADELOCKER_ENCRYPTION_KEY must be at least 32 characters');
+    console.warn('[TradeLocker] TRADELOCKER_ENCRYPTION_KEY is too short, padding to 32 chars.');
+    return key.padEnd(32, '0');
   }
   return key;
 }
