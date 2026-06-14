@@ -24551,6 +24551,2038 @@ var init_polymarket_autonomous_engine = __esm({
   }
 });
 
+// server/services/sol-engine.ts
+var sol_engine_exports = {};
+__export(sol_engine_exports, {
+  SOL_STRATEGIES: () => SOL_STRATEGIES,
+  cancelSignal: () => cancelSignal,
+  clearServerWallet: () => clearServerWallet,
+  confirmLiveExit: () => confirmLiveExit,
+  confirmLiveTrade: () => confirmLiveTrade,
+  getAutoTradePositions: () => getAutoTradePositions,
+  getPendingExits: () => getPendingExits,
+  getPendingSignals: () => getPendingSignals,
+  getServerWalletStatus: () => getServerWalletStatus,
+  getSolEngineStatus: () => getSolEngineStatus,
+  getSolStrategies: () => getSolStrategies,
+  recordSolSignalResult: () => recordSolSignalResult,
+  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
+  saveServerWallet: () => saveServerWallet,
+  setAutoTrade: () => setAutoTrade,
+  setCompoundSettings: () => setCompoundSettings,
+  setShieldActive: () => setShieldActive,
+  setSolStrategies: () => setSolStrategies,
+  setSolStrategy: () => setSolStrategy,
+  setSolWeeklyGoal: () => setSolWeeklyGoal,
+  startSolEngine: () => startSolEngine,
+  stopSolEngine: () => stopSolEngine,
+  triggerSolAIReview: () => triggerSolAIReview,
+  updateSolPortfolioValue: () => updateSolPortfolioValue
+});
+import { eq as eq8 } from "drizzle-orm";
+import crypto4 from "crypto";
+function getEncryptionKey3() {
+  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
+  return crypto4.createHash("sha256").update(seed).digest();
+}
+function encryptWalletKey(plain) {
+  const iv = crypto4.randomBytes(16);
+  const cipher = crypto4.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
+  return iv.toString("hex") + ":" + enc.toString("hex");
+}
+function decryptWalletKey(ciphertext) {
+  const [ivHex, encHex] = ciphertext.split(":");
+  const iv = Buffer.from(ivHex, "hex");
+  const decipher = crypto4.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
+  return dec.toString("utf8");
+}
+async function saveEngineState(userId, state) {
+  try {
+    await db.insert(solEngineSettings).values({
+      userId,
+      activeStrategy: state.activeStrategy,
+      activeStrategies: state.activeStrategies,
+      autoTradeEnabled: state.autoTradeEnabled,
+      liveTradeEnabled: state.liveTradeEnabled,
+      autoTradeTP: state.autoTradeTP,
+      autoTradeSL: state.autoTradeSL,
+      weeklyGoal: state.weeklyGoal,
+      autoTradeStats: state.autoTradeStats,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: {
+        activeStrategy: state.activeStrategy,
+        activeStrategies: state.activeStrategies,
+        autoTradeEnabled: state.autoTradeEnabled,
+        liveTradeEnabled: state.liveTradeEnabled,
+        autoTradeTP: state.autoTradeTP,
+        autoTradeSL: state.autoTradeSL,
+        weeklyGoal: state.weeklyGoal,
+        autoTradeStats: state.autoTradeStats,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] saveEngineState settings error:", err);
+  }
+}
+async function upsertPosition(userId, pos) {
+  try {
+    await db.insert(solEnginePositions).values({
+      userId,
+      positionId: pos.id,
+      mode: pos.mode,
+      symbol: pos.symbol,
+      mint: pos.mint,
+      entryPrice: pos.entryPrice,
+      currentPrice: pos.currentPrice,
+      targetPct: pos.targetPct,
+      slPct: pos.slPct,
+      size: pos.size,
+      tokenAmount: pos.tokenAmount,
+      decimals: pos.decimals,
+      strategyId: pos.strategyId,
+      txHash: pos.txHash,
+      status: pos.status,
+      openedAt: pos.openedAt,
+      closedAt: pos.closedAt,
+      closePnlPct: pos.closePnlPct,
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEnginePositions.positionId,
+      set: {
+        currentPrice: pos.currentPrice,
+        status: pos.status,
+        closedAt: pos.closedAt,
+        closePnlPct: pos.closePnlPct,
+        tokenAmount: pos.tokenAmount,
+        updatedAt: /* @__PURE__ */ new Date()
+      }
+    });
+  } catch (err) {
+    console.error("[SolEngine] upsertPosition error:", err);
+  }
+}
+async function loadEngineStateFromDb(userId, state) {
+  try {
+    const [settings] = await db.select().from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    if (settings) {
+      state.activeStrategy = settings.activeStrategy;
+      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
+      state.autoTradeEnabled = settings.autoTradeEnabled;
+      state.liveTradeEnabled = settings.liveTradeEnabled;
+      state.autoTradeTP = settings.autoTradeTP;
+      state.autoTradeSL = settings.autoTradeSL;
+      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
+      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
+      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
+        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
+      }
+      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
+        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
+      }
+      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
+        try {
+          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+          const bs58 = (await import("bs58")).default;
+          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+          const lamports = await connection2.getBalance(keypair.publicKey);
+          const solBalance = lamports / 1e9;
+          if (solBalance > 0) {
+            state.currentPortfolioValue = solBalance;
+            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
+          }
+        } catch (walletErr) {
+          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
+        }
+      }
+    }
+    const positions = await db.select().from(solEnginePositions).where(eq8(solEnginePositions.userId, userId));
+    for (const row of positions) {
+      const pos = {
+        id: row.positionId,
+        symbol: row.symbol,
+        mint: row.mint,
+        entryPrice: row.entryPrice,
+        currentPrice: row.currentPrice,
+        targetPct: row.targetPct,
+        slPct: row.slPct,
+        size: row.size,
+        tokenAmount: row.tokenAmount,
+        decimals: row.decimals,
+        strategyId: row.strategyId,
+        txHash: row.txHash || void 0,
+        mode: row.mode,
+        status: row.status,
+        openedAt: row.openedAt,
+        closedAt: row.closedAt || void 0,
+        closePnlPct: row.closePnlPct || void 0
+      };
+      if (pos.mode === "paper") {
+        if (pos.status === "open") state.paperPositions.push(pos);
+        else state.closedPaperPositions.push(pos);
+      } else {
+        if (pos.status === "open") state.livePositions.push(pos);
+        else state.closedLivePositions.push(pos);
+      }
+    }
+    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
+  } catch (err) {
+    console.error("[SolEngine] loadEngineStateFromDb error:", err);
+  }
+}
+async function executeServerSideSell(userId, pos, reason, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const amount = Math.floor(pos.tokenAmount);
+    if (amount <= 0) return false;
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=300`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: "auto"
+      })
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+    const txBuffer = Buffer.from(swapTransaction, "base64");
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const signature = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
+    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
+    pos.status = "closed";
+    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+    pos.closePnlPct = gainPct;
+    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
+    state.closedLivePositions.unshift(pos);
+    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+    const isWin = gainPct >= 0;
+    state.autoTradeStats.totalTrades++;
+    state.autoTradeStats.totalPnlPct += gainPct;
+    if (isWin) {
+      state.autoTradeStats.wins++;
+      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+    } else {
+      state.autoTradeStats.losses++;
+      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+    }
+    const dexKeyLive = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
+    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
+    if (isWin) {
+      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
+      state.kellyStats[dexKeyLive].wins++;
+      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
+      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    } else {
+      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
+      state.kellyStats[dexKeyLive].losses++;
+      state.weeklyGoal.winStreak = 0;
+    }
+    if (state.weeklyGoal.phase !== "idle") {
+      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+      state.weeklyGoal.tradeHistory.unshift({
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: pos.symbol,
+        sol: pos.size,
+        gainPct,
+        outcome: isWin ? "WIN" : "LOSS",
+        strategy: pos.strategyId || state.activeStrategy
+      });
+      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    addActivity3(state, {
+      type: "live_sell",
+      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideSell error:", err);
+    return false;
+  }
+}
+async function executeServerSideBuy(userId, signal, state) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return false;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const SOL_MINT = "So11111111111111111111111111111111111111112";
+    const lamports = Math.floor(signal.sizeSOL * 1e9);
+    if (lamports <= 0) return false;
+    const quoteResp = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
+    );
+    if (!quoteResp.ok) return false;
+    const quote = await quoteResp.json();
+    if (quote.error) {
+      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
+      return false;
+    }
+    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse: quote,
+        userPublicKey: keypair.publicKey.toBase58(),
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: "auto"
+      })
+    });
+    if (!swapResp.ok) return false;
+    const { swapTransaction } = await swapResp.json();
+    const txBuffer = Buffer.from(swapTransaction, "base64");
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+    transaction.sign([keypair]);
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: true,
+      maxRetries: 3
+    });
+    const rawOut = parseInt(quote.outAmount || "0");
+    const decimals = 9;
+    const tokenAmount = rawOut;
+    const pos = {
+      id: `live_pos_${Date.now()}_${signal.symbol}`,
+      symbol: signal.symbol,
+      mint: signal.mint,
+      entryPrice: signal.price,
+      currentPrice: signal.price,
+      targetPct: state.autoTradeTP,
+      slPct: state.autoTradeSL,
+      size: signal.sizeSOL,
+      tokenAmount,
+      decimals,
+      strategyId: signal.strategyId,
+      mode: "live",
+      txHash: signature,
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open"
+    };
+    state.livePositions.push(pos);
+    addActivity3(state, {
+      type: "live_buy",
+      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
+    });
+    upsertPosition(userId, pos).catch(() => {
+    });
+    saveEngineState(userId, state).catch(() => {
+    });
+    state.lastWalletRefreshAt = 0;
+    refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    return true;
+  } catch (err) {
+    console.error("[SolEngine] executeServerSideBuy error:", err);
+    return false;
+  }
+}
+function passesStrategyFilter(analysis, strategy) {
+  const token = analysis.token;
+  const totalTxns = token.txns24h.buys + token.txns24h.sells;
+  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
+  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
+  const priceChg = token.priceChange24h;
+  switch (strategy.id) {
+    case "whale_follower":
+      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
+    case "momentum_surfer":
+      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
+    case "breakout_hunter":
+      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
+    case "dip_sniper":
+      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
+    case "meme_velocity":
+      return priceChg >= 20 && token.volume24h >= 15e3;
+    case "volume_explosion":
+      return token.volume24h >= 25e4 && buyRatio > 0.52;
+    case "smart_money_flow":
+      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
+    case "liquidity_sweep":
+      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
+    case "adaptive":
+      return true;
+    default:
+      return true;
+  }
+}
+function selectAdaptiveSolStrategy(macro, scanResult) {
+  if (scanResult.length === 0) {
+    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
+  }
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0 };
+  for (const t of scanResult) {
+    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
+    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
+    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
+    const chg = t.token.priceChange24h;
+    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
+    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
+    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
+    if (t.token.volume24h >= 25e4) counts.volExplosion++;
+    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
+    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
+  }
+  if (macro?.bias === "RISK_OFF") {
+    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
+    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
+    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
+  }
+  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
+  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
+  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
+  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
+  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
+  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
+  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
+  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
+  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
+}
+function getStrategyEntryContext(strategyId) {
+  switch (strategyId) {
+    case "whale_follower":
+      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
+    case "momentum_surfer":
+      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
+    case "breakout_hunter":
+      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
+    case "dip_sniper":
+      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
+    case "meme_velocity":
+      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
+    case "volume_explosion":
+      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
+    case "smart_money_flow":
+      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
+    case "liquidity_sweep":
+      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
+    case "adaptive":
+      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
+    default:
+      return "";
+  }
+}
+function createInitialState(config) {
+  return {
+    isRunning: false,
+    config,
+    lastScanAt: 0,
+    lastTokenSnapshot: {},
+    lastTriggerAt: {},
+    activityFeed: [],
+    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
+    sessionHighWatermark: 0,
+    currentPortfolioValue: 0,
+    shieldActive: false,
+    scanTimer: null,
+    lastResults: [],
+    lastMacro: null,
+    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+    activeStrategy: "momentum_surfer",
+    activeStrategies: ["momentum_surfer"],
+    lastAgentConsensus: [],
+    autoTradeEnabled: false,
+    liveTradeEnabled: false,
+    paperPositions: [],
+    closedPaperPositions: [],
+    livePositions: [],
+    closedLivePositions: [],
+    pendingSignals: [],
+    pendingExits: [],
+    signalCooldowns: /* @__PURE__ */ new Map(),
+    autoTradeTP: 8,
+    autoTradeSL: 4,
+    autoTrailActivationPct: 4,
+    autoTrailDistancePct: 3,
+    paperTradeSize: 0,
+    compoundMode: false,
+    compoundRate: 100,
+    paperBaseCapital: 0,
+    paperPortfolioValue: 0,
+    paperPortfolioHistory: [],
+    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
+    aiReviewCache: {},
+    serverWalletBalance: 0,
+    lastWalletRefreshAt: 0,
+    dailyTradeCount: 0,
+    dailyTradeDate: ""
+  };
+}
+function addActivity3(state, entry) {
+  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
+}
+function getAdaptiveScanInterval2(config) {
+  if (!config.adaptiveScan) return 6e4;
+  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
+  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
+  if (dayUtc === 0 || dayUtc === 6) return 12e4;
+  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
+  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
+  return 12e4;
+}
+function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
+  const total = wins + losses;
+  if (total < 3 || portfolioSol <= 0) return 0;
+  const winRate2 = wins / total;
+  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
+  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
+  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
+  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
+}
+function getPhaseMultiplier(phase, winStreak) {
+  switch (phase) {
+    case "warming_up":
+      return 0.8;
+    case "building":
+      return 1;
+    case "accelerating":
+      return 1.25;
+    case "cruising":
+      return 1;
+    case "pushing":
+      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
+    case "target_reached":
+      return 0.5;
+    default:
+      return 1;
+  }
+}
+function computeGoalPhase(goal) {
+  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
+  const pct2 = goal.currentProfitSol / goal.targetSol;
+  if (pct2 >= 1) return "target_reached";
+  if (pct2 >= 0.85) return "pushing";
+  if (pct2 >= 0.7) return "cruising";
+  if (pct2 >= 0.5) return "accelerating";
+  if (pct2 >= 0.2) return "building";
+  return "warming_up";
+}
+function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
+  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
+  let portfolio;
+  if (mode === "paper") {
+    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
+  } else {
+    portfolio = state.currentPortfolioValue;
+  }
+  if (portfolio <= 0) return 0;
+  const riskPct = state.config.riskPerTradePct;
+  if (riskPct > 0) {
+    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+    const riskFraction = riskPct / 100 * phaseMultiplier2;
+    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
+    return Math.round(portfolio * capped * 1e3) / 1e3;
+  }
+  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
+  let fraction = strategy.baseFraction * phaseMultiplier;
+  if (state.config.useKelly) {
+    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
+    const kellySize = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
+    if (kellySize > 0) {
+      const kellyFrac = kellySize / portfolio;
+      fraction = (fraction + kellyFrac) / 2;
+    }
+  }
+  fraction = Math.max(5e-3, Math.min(0.15, fraction));
+  return Math.round(portfolio * fraction * 1e3) / 1e3;
+}
+function runQuantRulesAgent(token, macroBias) {
+  let score = 0;
+  if (token.sentimentScore > 70) score += 20;
+  else if (token.sentimentScore >= 50) score += 5;
+  else if (token.sentimentScore < 40) score -= 15;
+  if (token.tokenomicsScore > 70) score += 20;
+  else if (token.tokenomicsScore >= 50) score += 5;
+  else if (token.tokenomicsScore < 40) score -= 15;
+  if (token.whaleScore > 65) score += 15;
+  else if (token.whaleScore >= 45) score += 5;
+  else if (token.whaleScore < 35) score -= 10;
+  const buys = token.token.txns24h?.buys ?? 0;
+  const sells = token.token.txns24h?.sells ?? 0;
+  const totalTxns = buys + sells;
+  if (totalTxns > 0) {
+    const buyRatio = buys / totalTxns;
+    if (buyRatio > 0.65) score += 15;
+    else if (buyRatio > 0.5) score += 5;
+    else if (buyRatio < 0.35) score -= 15;
+  }
+  const chg = token.token.priceChange24h;
+  if (chg > 50) score -= 15;
+  else if (chg > 20) score -= 5;
+  else if (chg >= 5) score += 10;
+  else if (chg >= 0) score += 5;
+  else score -= 5;
+  if (macroBias === "bullish") score += 10;
+  else if (macroBias === "bearish") score -= 15;
+  if (token.riskLevel === "EXTREME") score -= 10;
+  else if (token.riskLevel === "LOW") score += 5;
+  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
+  if (score >= 30) return { verdict: "WATCH", score };
+  return { verdict: "SKIP", score };
+}
+async function runSolAIReview(userId, state, scanResult, openPositions) {
+  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
+  if (buySignals.length === 0 && openPositions.length === 0) return;
+  const cacheKey = [
+    ...buySignals.map((t) => t.token.symbol).sort(),
+    ...openPositions.map((p) => p.symbol).sort()
+  ].join("|");
+  const REVIEW_CACHE_TTL = 5 * 6e4;
+  const cached = state.aiReviewCache[cacheKey];
+  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached.ts) / 1e3);
+    const macroBiasCache = state.lastMacro?.bias ?? null;
+    const cacheConsensus = [];
+    let confirms = 0, skips = 0;
+    for (const d of cached.result) {
+      if (!d || !d.symbol || d.type !== "signal") continue;
+      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+      if (!tokenData) continue;
+      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
+      let consensusLabel = "WATCH";
+      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
+        consensusLabel = "STRONG_CONFIRM";
+        confirms++;
+      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
+        consensusLabel = "STRONG_SKIP";
+        skips++;
+      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
+      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
+      cacheConsensus.push({
+        symbol: d.symbol,
+        quantVerdict: quant.verdict,
+        quantScore: quant.score,
+        gptVerdict: d.action,
+        consensus: consensusLabel,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (cacheConsensus.length > 0) {
+      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
+    });
+    return;
+  }
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    let openai2;
+    let modelLabel = "GPT-4o";
+    const userClient = await getUniversalAIClientForUser2(userId);
+    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
+    if (useEconomy) {
+      const groqKey = process.env.GROQ_API_KEY;
+      if (groqKey) {
+        const OpenAI5 = (await import("openai")).default;
+        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
+        openai2.defaultModel = "llama-3.3-70b-versatile";
+        modelLabel = "Groq Llama";
+        addActivity3(state, {
+          type: "info",
+          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
+        });
+      } else {
+        openai2 = userClient;
+        modelLabel = userClient.defaultModel || "User model";
+      }
+    } else {
+      openai2 = userClient;
+    }
+    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
+    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
+    const macro = state.lastMacro;
+    const goal = state.weeklyGoal;
+    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
+    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
+    const entryContext = getStrategyEntryContext(effectiveStrategyId);
+    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
+STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
+${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
+${macroLine}
+
+Output a JSON array only (no markdown):
+- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
+  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
+- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
+    const signalsText = buySignals.length > 0 ? buySignals.map(
+      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
+    ).join("\n") : "None";
+    const positionsText = openPositions.length > 0 ? openPositions.map(
+      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
+    ).join("\n") : "None";
+    const userPrompt = `SIGNALS:
+${signalsText}
+
+OPEN POSITIONS:
+${positionsText}`;
+    const response = await openai2.chat.completions.create({
+      model: openai2.defaultModel || "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      temperature: 0.25,
+      max_tokens: 600
+    });
+    const raw = response.choices[0]?.message?.content?.trim() || "[]";
+    let decisions = [];
+    try {
+      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      if (!Array.isArray(decisions)) decisions = [];
+    } catch {
+      addActivity3(state, {
+        type: "info",
+        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
+      });
+      return;
+    }
+    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
+    const newConsensus = [];
+    const macroBias = state.lastMacro?.bias ?? null;
+    for (const d of decisions) {
+      if (!d || !d.symbol) continue;
+      if (d.type === "signal") {
+        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
+        let gptVerdict = d.action;
+        let consensusLabel = "WATCH";
+        if (tokenData) {
+          const quant = runQuantRulesAgent(tokenData, macroBias);
+          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
+          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
+          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
+          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
+          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
+          else if (bothSkip) consensusLabel = "STRONG_SKIP";
+          else if (disagree) consensusLabel = "CAUTION";
+          else if (oneWatch) consensusLabel = "WATCH";
+          newConsensus.push({
+            symbol: d.symbol,
+            quantVerdict: quant.verdict,
+            quantScore: quant.score,
+            gptVerdict,
+            consensus: consensusLabel,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
+          addActivity3(state, { type: "signal", message: consensusMsg });
+        }
+        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
+        addActivity3(state, {
+          type: "signal",
+          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
+        });
+      } else if (d.type === "position") {
+        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
+        addActivity3(state, {
+          type: "strategy",
+          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
+        });
+      }
+    }
+    if (newConsensus.length > 0) {
+      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
+    }
+  } catch (reviewErr) {
+    addActivity3(state, {
+      type: "info",
+      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
+    });
+  }
+}
+async function triggerSolAIReview(userId, openPositions = []) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  await runSolAIReview(userId, state, state.lastResults, openPositions);
+}
+function computeServerTrailDist(gainPct, volStatus) {
+  const isStrong = volStatus === "surging" || volStatus === "above_average";
+  const isWeak = volStatus === "below_average" || volStatus === "dry";
+  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
+  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
+  return isStrong ? 15 : isWeak ? 10 : 12;
+}
+function getVolStatus(entryVol, currentVol) {
+  if (entryVol <= 0) return "average";
+  const ratio = currentVol / entryVol;
+  if (ratio >= 2.5) return "surging";
+  if (ratio >= 1.25) return "above_average";
+  if (ratio <= 0.5) return "dry";
+  if (ratio <= 0.75) return "below_average";
+  return "average";
+}
+function monitorPaperPositions(state) {
+  const openPositions = state.paperPositions.filter((p) => p.status === "open");
+  if (openPositions.length === 0) return;
+  const priceMap = {};
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+  }
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.symbol];
+    if (!currentPrice || currentPrice <= 0) continue;
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
+      pos.peakPrice = currentPrice;
+    }
+    const currentVol = volumeMap[pos.symbol] || 0;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
+    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    let isTrailHit = false;
+    if (gainPct >= trailActivation) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        const dist2 = computeServerTrailDist(gainPct, volStatus);
+        addActivity3(state, {
+          type: "info",
+          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
+        });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const trailFloor = pos.peakPrice * (1 - dist / 100);
+      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
+      if (currentPrice <= effectiveFloor) {
+        isTrailHit = true;
+      }
+    } else if (gainPct >= 8) {
+      if (!pos.breakevenActive) {
+        pos.breakevenActive = true;
+        addActivity3(state, {
+          type: "info",
+          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
+        });
+      }
+    }
+    const isWin = gainPct >= pos.targetPct;
+    const isLoss = gainPct <= -pos.slPct;
+    if (isWin || isLoss || isTrailHit) {
+      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
+      pos.status = "closed";
+      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+      pos.closePnlPct = gainPct;
+      pos.closeReason = reason;
+      state.closedPaperPositions.unshift(pos);
+      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
+      state.autoTradeStats.totalTrades++;
+      state.autoTradeStats.totalPnlPct += gainPct;
+      const isProfit = gainPct > 0;
+      if (isProfit) {
+        state.autoTradeStats.wins++;
+        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+      } else {
+        state.autoTradeStats.losses++;
+        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+      }
+      if (state.compoundMode && state.paperPortfolioValue > 0) {
+        const tradeSol = pos.size;
+        const rawPnlSol = tradeSol * (gainPct / 100);
+        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
+        const prev = state.paperPortfolioValue;
+        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
+        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
+        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
+        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
+        addActivity3(state, {
+          type: "info",
+          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
+        });
+      }
+      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
+      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
+      addActivity3(state, {
+        type: "paper_sell",
+        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
+      });
+      const dexKeyClose = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
+      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
+      if (isProfit) {
+        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
+        state.kellyStats[dexKeyClose].wins++;
+        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
+        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+      } else {
+        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
+        state.kellyStats[dexKeyClose].losses++;
+        state.weeklyGoal.winStreak = 0;
+      }
+      if (state.weeklyGoal.phase !== "idle") {
+        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
+        state.weeklyGoal.tradeHistory.unshift({
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          symbol: pos.symbol,
+          sol: pos.size,
+          gainPct,
+          outcome: isProfit ? "WIN" : "LOSS",
+          strategy: pos.strategyId || state.activeStrategy
+        });
+        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+      }
+    }
+  }
+  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
+}
+async function monitorLivePositions(userId, state) {
+  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
+  if (openPositions.length === 0) return;
+  const now = Date.now();
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  const priceMap = {};
+  const volumeMap = {};
+  for (const r of state.lastResults) {
+    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
+    volumeMap[r.token.symbol] = r.token.volume24h || 0;
+  }
+  for (const pos of openPositions) {
+    const currentPrice = priceMap[pos.symbol];
+    if (!currentPrice || currentPrice <= 0) continue;
+    pos.currentPrice = currentPrice;
+    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
+    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
+    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
+    if (alreadyQueued) continue;
+    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
+    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
+    let trailHit = false;
+    if (gainPct >= liveTrailActivation && pos.peakPrice) {
+      if (!pos.trailingActive) {
+        pos.trailingActive = true;
+        addActivity3(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
+      }
+      const dist = computeServerTrailDist(gainPct, volStatus);
+      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
+      if (currentPrice <= effectiveFloor) trailHit = true;
+    }
+    const tpHit = gainPct >= pos.targetPct;
+    const slHit = gainPct <= -pos.slPct;
+    if (tpHit || slHit || trailHit) {
+      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
+      const serverSold = await executeServerSideSell(userId, pos, reason, state);
+      if (!serverSold) {
+        const created = /* @__PURE__ */ new Date();
+        const expires = new Date(created.getTime() + 9e4);
+        state.pendingExits.push({
+          positionId: pos.id,
+          symbol: pos.symbol,
+          mint: pos.mint,
+          tokenAmount: pos.tokenAmount,
+          decimals: pos.decimals,
+          reason: reason === "trail" ? "sl" : reason,
+          createdAt: created.toISOString(),
+          expiresAt: expires.toISOString()
+        });
+        addActivity3(state, {
+          type: "live_sell",
+          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
+        });
+      }
+    }
+  }
+}
+async function refreshServerWalletBalance(userId, state) {
+  if (!state.liveTradeEnabled) return;
+  const now = Date.now();
+  if (now - state.lastWalletRefreshAt < 6e4) return;
+  state.lastWalletRefreshAt = now;
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return;
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+    const lamports = await connection2.getBalance(keypair.publicKey);
+    const solBalance = lamports / 1e9;
+    state.serverWalletBalance = solBalance;
+    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
+      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
+      state.currentPortfolioValue = solBalance;
+    }
+  } catch (err) {
+    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
+  }
+}
+async function runScan(userId, state, triggerToken) {
+  if (!state.isRunning) return;
+  try {
+    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    if (state.dailyTradeDate !== todayUTC) {
+      state.dailyTradeDate = todayUTC;
+      state.dailyTradeCount = 0;
+    }
+    await refreshServerWalletBalance(userId, state).catch(() => {
+    });
+    const macro = await fetchCryptoMacroContext().catch(() => null);
+    state.lastMacro = macro;
+    if (macro && macro.bias === "RISK_OFF") {
+      addActivity3(state, {
+        type: "info",
+        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
+      });
+    }
+    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
+    const scanResult = await scanAndAnalyzeTokens(
+      state.config.maxTokens,
+      state.config.dexFilter,
+      {
+        signalWeights: state.signalWeights,
+        macro: macro || void 0,
+        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
+        portfolioSol: state.currentPortfolioValue,
+        shieldActive: shieldFilter,
+        minConfidence: state.config.minConfidence,
+        openai: userOpenai || void 0
+      }
+    );
+    const now = Date.now();
+    state.lastScanAt = now;
+    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
+    const allOpenPositions = [
+      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      }),
+      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
+        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
+        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
+        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
+        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
+      })
+    ].slice(0, 5);
+    if (hasBuySignals || allOpenPositions.length > 0) {
+      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
+      });
+    }
+    for (const dex of DEX_NAMES) {
+      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
+    }
+    for (const analysis of scanResult) {
+      const key = analysis.token.address;
+      const prev = state.lastTokenSnapshot[key];
+      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
+        const volumeMultiple = analysis.token.volume24h / prev.volume;
+        const lastTrigger = state.lastTriggerAt[key] || 0;
+        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
+          state.lastTriggerAt[key] = now;
+          addActivity3(state, {
+            type: "trigger",
+            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
+          });
+          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
+        }
+      }
+      state.lastTokenSnapshot[key] = {
+        volume: analysis.token.volume24h,
+        price: parseFloat(analysis.token.priceUsd) || 0,
+        signal: analysis.signal,
+        confidence: analysis.confidence
+      };
+      const hasPaperCapital = state.autoTradeEnabled;
+      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
+      const canEnterTrade = hasPaperCapital || hasLiveCapital;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
+        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
+          });
+        } else {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
+          });
+        }
+        continue;
+      }
+      const dirFilter = state.config.directionFilter || "buy_only";
+      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
+      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
+      if (dirFilter === "buy_only" && !isBuySignal) continue;
+      if (dirFilter === "sell_only" && !isSellSignal) continue;
+      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
+        if (analysis.token.priceChange24h > 80) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
+          });
+          continue;
+        }
+        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
+        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
+        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
+        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
+        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
+          });
+          continue;
+        }
+        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
+          });
+          continue;
+        }
+        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
+        if (isAdaptiveMode) {
+          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
+          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
+            state._adaptiveStrategy = autoRec.strategyId;
+            addActivity3(state, {
+              type: "strategy",
+              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
+            });
+          }
+          activeStrats = [autoRec.strategyId];
+        }
+        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
+          if (analysis.confidence < s.minConfidence) return false;
+          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
+          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
+          if (!passesStrategyFilter(analysis, s)) return false;
+          return true;
+        });
+        if (confirmingStrats.length >= 2) {
+          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
+          addActivity3(state, {
+            type: "strategy",
+            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
+          });
+        }
+        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
+        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
+        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
+        if (paperAutoSize > 0) {
+          analysis.recommendedSolAmount = paperAutoSize;
+        }
+        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
+        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
+        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
+        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
+        const tokenMint = analysis.token.address;
+        const now2 = (/* @__PURE__ */ new Date()).toISOString();
+        const maxDaily = state.config.maxDailyTrades || 0;
+        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
+          addActivity3(state, {
+            type: "info",
+            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
+          });
+          continue;
+        }
+        let stopLossPrice;
+        let takeProfitPrice;
+        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
+          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
+          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
+        }
+        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          if (!alreadyOpen) {
+            const pos = {
+              id: `paper_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              entryPrice: tokenPrice,
+              currentPrice: tokenPrice,
+              targetPct: state.autoTradeTP,
+              slPct: state.autoTradeSL,
+              size: paperSizeSOL,
+              tokenAmount: 0,
+              decimals: 9,
+              strategyId: topStrat.id,
+              mode: "paper",
+              openedAt: now2,
+              status: "open",
+              peakPrice: tokenPrice,
+              trailingActive: false,
+              breakevenActive: false,
+              trailActivationPct: state.autoTrailActivationPct,
+              trailDistancePct: state.autoTrailDistancePct,
+              entryVolume24h: analysis.token.volume24h || 0,
+              stopLossPrice,
+              takeProfitPrice
+            };
+            state.paperPositions.push(pos);
+            state.dailyTradeCount++;
+            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
+            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
+            addActivity3(state, {
+              type: "paper_buy",
+              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
+            });
+          }
+        }
+        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
+          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
+          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
+          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
+          const lastRejected = state.signalCooldowns.get(tokenMint);
+          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
+          if (!alreadyOpen && !alreadyQueued && !onCooldown) {
+            const created = /* @__PURE__ */ new Date();
+            const expires = new Date(created.getTime() + 9e4);
+            const sig = {
+              id: `live_${Date.now()}_${analysis.token.symbol}`,
+              symbol: analysis.token.symbol,
+              mint: tokenMint,
+              signal: "BUY",
+              confidence: analysis.confidence,
+              price: tokenPrice,
+              sizeSOL,
+              strategyId: topStrat.id,
+              createdAt: created.toISOString(),
+              expiresAt: expires.toISOString()
+            };
+            state.dailyTradeCount++;
+            addActivity3(state, {
+              type: "live_signal",
+              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`
+            });
+            executeServerSideBuy(userId, sig, state).then((executed) => {
+              if (!executed) {
+                state.pendingSignals.push(sig);
+                addActivity3(state, {
+                  type: "live_signal",
+                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+                });
+              }
+            }).catch(() => {
+              state.pendingSignals.push(sig);
+              addActivity3(state, {
+                type: "live_signal",
+                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
+              });
+            });
+          }
+        }
+      }
+    }
+    state.lastResults = scanResult;
+    monitorPaperPositions(state);
+    await monitorLivePositions(userId, state);
+    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
+    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
+    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
+    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
+    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
+      const s = SOL_STRATEGIES.find((x) => x.id === id);
+      return s ? s.icon + s.name : id;
+    }).join(" + ")}]` : (() => {
+      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
+      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
+    })();
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
+    });
+    if (macro) {
+      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
+      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
+      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
+      addActivity3(state, {
+        type: "info",
+        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
+      });
+    }
+    if (state.currentPortfolioValue > 0) {
+      for (const analysis of scanResult) {
+        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
+          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
+          const phase = state.weeklyGoal.phase;
+          const mult = getPhaseMultiplier(phase, state.weeklyGoal.winStreak);
+          addActivity3(state, {
+            type: "kelly",
+            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase.replace("_", " ")} phase)`
+          });
+        }
+      }
+    }
+  } catch (err) {
+    addActivity3(state, {
+      type: "info",
+      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
+    });
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+  if (state.isRunning) {
+    const nextMs = getAdaptiveScanInterval2(state.config);
+    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
+  }
+}
+async function startSolEngine(userId, config = {}) {
+  const existing = engineStates2.get(userId);
+  if (existing?.isRunning) stopSolEngine(userId);
+  const fullConfig = { ...DEFAULT_CONFIG2, ...config };
+  const state = createInitialState(fullConfig);
+  if (existing) {
+    state.weeklyGoal = existing.weeklyGoal;
+    state.activeStrategy = existing.activeStrategy;
+    state.activeStrategies = existing.activeStrategies;
+    state.signalWeights = existing.signalWeights;
+    state.kellyStats = existing.kellyStats;
+    state.sessionHighWatermark = existing.sessionHighWatermark;
+    state.currentPortfolioValue = existing.currentPortfolioValue;
+    state.shieldActive = existing.shieldActive;
+    state.autoTradeEnabled = existing.autoTradeEnabled;
+    state.liveTradeEnabled = existing.liveTradeEnabled;
+    state.paperPositions = existing.paperPositions;
+    state.closedPaperPositions = existing.closedPaperPositions;
+    state.livePositions = existing.livePositions;
+    state.closedLivePositions = existing.closedLivePositions;
+    state.pendingExits = existing.pendingExits || [];
+    state.autoTradeStats = existing.autoTradeStats;
+    state.autoTradeTP = existing.autoTradeTP;
+    state.autoTradeSL = existing.autoTradeSL;
+    state.serverWalletBalance = existing.serverWalletBalance;
+    state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
+    state.dailyTradeCount = existing.dailyTradeCount;
+    state.dailyTradeDate = existing.dailyTradeDate;
+  } else {
+    await loadEngineStateFromDb(userId, state);
+  }
+  if (state.currentPortfolioValue <= 0) {
+    try {
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+      if (settings?.serverWalletKey) {
+        const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+        const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+        const bs58 = (await import("bs58")).default;
+        const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
+        const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+        const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+        const lamports = await connection2.getBalance(keypair.publicKey);
+        const solBalance = lamports / 1e9;
+        if (solBalance > 0) {
+          state.currentPortfolioValue = solBalance;
+          state.liveTradeEnabled = true;
+          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL`);
+        }
+      }
+    } catch {
+    }
+  }
+  state.isRunning = true;
+  engineStates2.set(userId, state);
+  const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
+  const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
+  const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
+  const stratLabel = activeIds.map((id) => {
+    const s = SOL_STRATEGIES.find((x) => x.id === id);
+    return s ? `${s.icon}${s.name}` : id;
+  }).join(" + ");
+  addActivity3(state, {
+    type: "info",
+    message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
+  });
+  runScan(userId, state);
+}
+function stopSolEngine(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.isRunning = false;
+  if (state.scanTimer) {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = null;
+  }
+  addActivity3(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
+}
+function getSolEngineStatus(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      running: false,
+      activityFeed: [],
+      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
+      shieldActive: false,
+      lastResults: [],
+      kellyStats: {},
+      lastMacro: null,
+      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
+      activeStrategy: "momentum_surfer",
+      activeStrategies: ["momentum_surfer"]
+    };
+  }
+  return {
+    running: state.isRunning,
+    config: state.config,
+    activityFeed: state.activityFeed.slice(0, 20),
+    signalWeights: state.signalWeights,
+    kellyStats: state.kellyStats,
+    shieldActive: state.shieldActive,
+    sessionHighWatermark: state.sessionHighWatermark,
+    currentPortfolioValue: state.currentPortfolioValue,
+    lastScanAt: state.lastScanAt,
+    lastResults: state.lastResults,
+    lastMacro: state.lastMacro,
+    weeklyGoal: state.weeklyGoal,
+    activeStrategy: state.activeStrategy,
+    activeStrategies: state.activeStrategies,
+    lastAgentConsensus: state.lastAgentConsensus,
+    paperTradeSize: state.paperTradeSize,
+    compoundMode: state.compoundMode,
+    compoundRate: state.compoundRate,
+    paperBaseCapital: state.paperBaseCapital,
+    paperPortfolioValue: state.paperPortfolioValue,
+    paperPortfolioHistory: state.paperPortfolioHistory,
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
+    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
+    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
+    serverWalletBalance: state.serverWalletBalance,
+    dailyTradeCount: state.dailyTradeCount,
+    dailyTradeDate: state.dailyTradeDate
+  };
+}
+function getSolStrategies() {
+  return SOL_STRATEGIES;
+}
+function setSolStrategies(userId, strategyIds) {
+  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
+  if (valid.length === 0) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategies = valid;
+  state.activeStrategy = valid[0];
+  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
+  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
+  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
+  addActivity3(state, {
+    type: "strategy",
+    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
+  });
+  return { success: true, strategies: strats };
+}
+function setSolStrategy(userId, strategyId) {
+  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
+  if (!strategy) return { success: false };
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    engineStates2.set(userId, state);
+  }
+  state.activeStrategy = strategyId;
+  state.activeStrategies = [strategyId];
+  addActivity3(state, {
+    type: "strategy",
+    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
+  });
+  return { success: true, strategy };
+}
+function setSolWeeklyGoal(userId, params) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    engineStates2.set(userId, state);
+  }
+  const portfolio = state.currentPortfolioValue;
+  let targetSol = params.targetSol || 0;
+  let targetPct = params.targetPct || 0;
+  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
+    targetSol = portfolio * (targetPct / 100);
+  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
+    targetPct = targetSol / portfolio * 100;
+  }
+  if (targetSol <= 0) return { success: false };
+  state.weeklyGoal = {
+    targetSol,
+    targetPct,
+    startPortfolio: portfolio,
+    currentProfitSol: 0,
+    phase: "warming_up",
+    weekStart: Date.now(),
+    winStreak: 0,
+    tradeHistory: []
+  };
+  addActivity3(state, {
+    type: "goal",
+    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
+  });
+  return { success: true };
+}
+function resetSolWeeklyGoal(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
+  addActivity3(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
+  return { success: true };
+}
+function recordSolSignalResult(userId, params) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false };
+  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
+  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
+  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
+  if (params.outcome === "WIN") {
+    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
+    state.kellyStats[dex].wins++;
+    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
+    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
+    addActivity3(state, {
+      type: "signal",
+      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
+    });
+  } else {
+    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
+    state.kellyStats[dex].losses++;
+    state.weeklyGoal.winStreak = 0;
+    addActivity3(state, {
+      type: "signal",
+      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
+    });
+  }
+  if (state.weeklyGoal.phase !== "idle") {
+    const solAmount = params.sol || 0;
+    const actualGainPct = params.gainPct;
+    const gainSol = solAmount * (actualGainPct / 100);
+    state.weeklyGoal.currentProfitSol += gainSol;
+    state.weeklyGoal.tradeHistory.unshift({
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol: params.symbol || dex,
+      sol: solAmount,
+      gainPct: actualGainPct,
+      outcome: params.outcome,
+      strategy: state.activeStrategy
+    });
+    if (state.weeklyGoal.tradeHistory.length > 100) {
+      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
+    }
+    const prevPhase = state.weeklyGoal.phase;
+    const newPhase = computeGoalPhase(state.weeklyGoal);
+    if (newPhase !== prevPhase) {
+      state.weeklyGoal.phase = newPhase;
+      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
+      const phaseNames = {
+        warming_up: "\u{1F535} WARMING UP",
+        building: "\u{1F535} BUILDING",
+        accelerating: "\u{1F7E1} ACCELERATING",
+        cruising: "\u{1F7E2} CRUISING",
+        pushing: "\u{1F7E0} PUSHING",
+        target_reached: "\u{1F3C6} TARGET REACHED"
+      };
+      addActivity3(state, {
+        type: "goal",
+        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
+      });
+    }
+  }
+  return { success: true };
+}
+function setAutoTrade(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    engineStates2.set(userId, state);
+  }
+  if (opts.paperEnabled !== void 0) {
+    state.autoTradeEnabled = opts.paperEnabled;
+    addActivity3(state, {
+      type: "info",
+      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
+    });
+  }
+  if (opts.liveEnabled !== void 0) {
+    state.liveTradeEnabled = opts.liveEnabled;
+    if (!opts.liveEnabled) state.pendingSignals = [];
+    addActivity3(state, {
+      type: "info",
+      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
+    });
+  }
+  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
+    state.autoTradeTP = opts.tpPct;
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
+    });
+  }
+  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
+    state.autoTradeSL = opts.slPct;
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
+    });
+  }
+  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
+    state.autoTrailActivationPct = opts.trailActivationPct;
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
+    });
+  }
+  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
+    state.autoTrailDistancePct = opts.trailDistancePct;
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
+    });
+  }
+  if (opts.paperTradeSize !== void 0) {
+    const sz = Math.max(0, opts.paperTradeSize);
+    state.paperTradeSize = sz;
+    addActivity3(state, {
+      type: "info",
+      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
+    });
+  }
+  saveEngineState(userId, state).catch(() => {
+  });
+}
+function setCompoundSettings(userId, opts) {
+  let state = engineStates2.get(userId);
+  if (!state) {
+    state = createInitialState({ ...DEFAULT_CONFIG2 });
+    engineStates2.set(userId, state);
+  }
+  if (opts.compoundMode !== void 0) {
+    state.compoundMode = opts.compoundMode;
+    addActivity3(state, {
+      type: "info",
+      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
+    });
+  }
+  if (opts.compoundRate !== void 0) {
+    const rate = Math.max(1, Math.min(100, opts.compoundRate));
+    state.compoundRate = rate;
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
+    });
+  }
+  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
+    state.paperBaseCapital = opts.paperBaseCapital;
+    state.paperPortfolioValue = opts.paperBaseCapital;
+    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
+    addActivity3(state, {
+      type: "info",
+      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
+    });
+  }
+}
+function getPendingSignals(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
+  state.pendingSignals = [];
+  return valid;
+}
+function cancelSignal(userId, mint) {
+  const state = engineStates2.get(userId);
+  if (!state) return;
+  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
+  state.signalCooldowns.set(mint, Date.now());
+}
+function confirmLiveTrade(userId, signalId, txHash, tradeData) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const parts = signalId.split("_");
+  const symbol = parts.slice(2).join("_");
+  if (!symbol) return false;
+  const signal = state.pendingSignals.find((s) => s.id === signalId);
+  const sizeSOL = signal?.sizeSOL || 0;
+  if (signal) {
+    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
+  }
+  const pos = {
+    id: `live_pos_${Date.now()}_${symbol}`,
+    symbol,
+    mint: tradeData?.mint || signal?.mint || "",
+    entryPrice: tradeData?.entryPrice || 0,
+    currentPrice: tradeData?.entryPrice || 0,
+    targetPct: state.autoTradeTP,
+    slPct: state.autoTradeSL,
+    size: sizeSOL,
+    tokenAmount: tradeData?.tokenAmount || 0,
+    decimals: tradeData?.decimals || 9,
+    strategyId: signal?.strategyId || state.activeStrategy,
+    mode: "live",
+    txHash,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "open"
+  };
+  state.livePositions.push(pos);
+  addActivity3(state, {
+    type: "live_buy",
+    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  return true;
+}
+function getPendingExits(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) return [];
+  const now = Date.now();
+  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  return valid;
+}
+function confirmLiveExit(userId, positionId, txHash) {
+  const state = engineStates2.get(userId);
+  if (!state) return false;
+  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
+  if (!pos) return false;
+  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
+  pos.status = "closed";
+  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  pos.closePnlPct = gainPct;
+  state.closedLivePositions.unshift(pos);
+  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
+  const isWin = gainPct >= 0;
+  state.autoTradeStats.totalTrades++;
+  state.autoTradeStats.totalPnlPct += gainPct;
+  if (isWin) {
+    state.autoTradeStats.wins++;
+    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
+  } else {
+    state.autoTradeStats.losses++;
+    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
+  }
+  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
+  addActivity3(state, {
+    type: "live_sell",
+    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
+  });
+  upsertPosition(userId, pos).catch(() => {
+  });
+  saveEngineState(userId, state).catch(() => {
+  });
+  return true;
+}
+function getAutoTradePositions(userId) {
+  const state = engineStates2.get(userId);
+  if (!state) {
+    return {
+      autoTradeEnabled: false,
+      liveTradeEnabled: false,
+      paperPositions: [],
+      closedPaperPositions: [],
+      livePositions: [],
+      closedLivePositions: [],
+      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
+    };
+  }
+  return {
+    autoTradeEnabled: state.autoTradeEnabled,
+    liveTradeEnabled: state.liveTradeEnabled,
+    autoTradeTP: state.autoTradeTP,
+    autoTradeSL: state.autoTradeSL,
+    autoTrailActivationPct: state.autoTrailActivationPct,
+    autoTrailDistancePct: state.autoTrailDistancePct,
+    paperPositions: state.paperPositions,
+    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
+    livePositions: state.livePositions,
+    closedLivePositions: state.closedLivePositions.slice(0, 20),
+    autoTradeStats: state.autoTradeStats
+  };
+}
+function updateSolPortfolioValue(userId, solValue) {
+  const state = engineStates2.get(userId);
+  if (!state) return { shieldActive: false };
+  state.currentPortfolioValue = solValue;
+  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
+  if (!state.config.shieldEnabled) return { shieldActive: false };
+  const threshold = state.config.shieldThreshold / 100;
+  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
+  const disengageLevel = state.sessionHighWatermark * 0.97;
+  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
+    state.shieldActive = true;
+    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
+    addActivity3(state, {
+      type: "shield",
+      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
+    });
+  } else if (state.shieldActive && solValue >= disengageLevel) {
+    state.shieldActive = false;
+    addActivity3(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
+  }
+  return { shieldActive: state.shieldActive };
+}
+function setShieldActive(userId, active) {
+  const state = engineStates2.get(userId);
+  if (!state) return { success: false, shieldActive: false };
+  state.shieldActive = active;
+  addActivity3(state, {
+    type: "shield",
+    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
+  });
+  return { success: true, shieldActive: state.shieldActive };
+}
+async function saveServerWallet(userId, privateKeyBase58) {
+  try {
+    const { Keypair: Keypair2 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    const encrypted = encryptWalletKey(privateKeyBase58);
+    await db.insert(solEngineSettings).values({
+      userId,
+      serverWalletKey: encrypted,
+      activeStrategy: "momentum_surfer",
+      activeStrategies: [],
+      autoTradeEnabled: false,
+      liveTradeEnabled: true,
+      // auto-enable live trade when wallet is connected
+      autoTradeTP: 8,
+      autoTradeSL: 4,
+      weeklyGoal: {},
+      autoTradeStats: {},
+      updatedAt: /* @__PURE__ */ new Date()
+    }).onConflictDoUpdate({
+      target: solEngineSettings.userId,
+      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
+    });
+    try {
+      const { Connection: Connection3 } = await import("@solana/web3.js");
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      const lamports = await connection2.getBalance(keypair.publicKey);
+      const solBalance = lamports / 1e9;
+      if (solBalance > 0) {
+        const existing = engineStates2.get(userId);
+        if (existing) {
+          existing.currentPortfolioValue = solBalance;
+          existing.liveTradeEnabled = true;
+          addActivity3(existing, {
+            type: "info",
+            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
+          });
+        }
+      }
+    } catch {
+    }
+    return { success: true, walletAddress };
+  } catch (err) {
+    return { success: false, error: err.message || "Invalid private key" };
+  }
+}
+async function clearServerWallet(userId) {
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(solEngineSettings.userId, userId));
+}
+async function getServerWalletStatus(userId) {
+  try {
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    if (!settings?.serverWalletKey) return { hasServerWallet: false };
+    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
+    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
+    const bs58 = (await import("bs58")).default;
+    const secretKey = bs58.decode(privateKeyBase58);
+    const keypair = Keypair2.fromSecretKey(secretKey);
+    const walletAddress = keypair.publicKey.toBase58();
+    let balanceLamports = 0;
+    let balanceSol = 0;
+    try {
+      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
+      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
+      balanceLamports = await connection2.getBalance(keypair.publicKey);
+      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
+    } catch {
+    }
+    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
+  } catch {
+    return { hasServerWallet: false };
+  }
+}
+var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG2, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var init_sol_engine = __esm({
+  "server/services/sol-engine.ts"() {
+    "use strict";
+    init_solana_scanner();
+    init_db();
+    init_schema();
+    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
+    SOL_STRATEGIES = [
+      {
+        id: "momentum_surfer",
+        name: "Momentum Surfer",
+        icon: "\u{1F3C4}",
+        description: "Rides strong directional price momentum with buy pressure confirmation",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "1\u20134h"
+      },
+      {
+        id: "breakout_hunter",
+        name: "Breakout Hunter",
+        icon: "\u{1F680}",
+        description: "Targets tokens breaking out of consolidation on strong buy signals",
+        minConfidence: 75,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "30min\u20132h"
+      },
+      {
+        id: "dip_sniper",
+        name: "Dip Sniper",
+        icon: "\u{1F3AF}",
+        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
+        minConfidence: 68,
+        maxRisk: "LOW",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "2\u20138h"
+      },
+      {
+        id: "meme_velocity",
+        name: "Meme Velocity",
+        icon: "\u26A1",
+        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
+        minConfidence: 65,
+        maxRisk: "HIGH",
+        baseFraction: 0.04,
+        minSignal: "BUY",
+        holdTarget: "10\u201315min",
+        dexPreference: "pumpfun"
+      },
+      {
+        id: "whale_follower",
+        name: "Whale Follower",
+        icon: "\u{1F40B}",
+        description: "Tracks large wallet accumulation patterns and high maker counts",
+        minConfidence: 72,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.02,
+        minSignal: "BUY",
+        holdTarget: "4\u201324h"
+      },
+      {
+        id: "volume_explosion",
+        name: "Volume Explosion",
+        icon: "\u{1F4A5}",
+        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
+        minConfidence: 65,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.035,
+        minSignal: "STRONG_BUY",
+        holdTarget: "20\u201345min"
+      },
+      {
+        id: "smart_money_flow",
+        name: "Smart Money Flow",
+        icon: "\u{1F9E0}",
+        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
+        minConfidence: 78,
+        maxRisk: "LOW",
+        baseFraction: 0.025,
+        minSignal: "STRONG_BUY",
+        holdTarget: "1\u20133 days"
+      },
+      {
+        id: "liquidity_sweep",
+        name: "Liquidity Sweep",
+        icon: "\u{1F30A}",
+        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
+        minConfidence: 60,
+        maxRisk: "HIGH",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "10\u201330min"
+      },
+      {
+        id: "adaptive",
+        name: "Adaptive (Auto)",
+        icon: "\u{1F916}",
+        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
+        minConfidence: 68,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "varies"
+      }
+    ];
+    DEFAULT_CONFIG2 = {
+      dexFilter: "all",
+      minConfidence: 65,
+      maxTokens: 10,
+      useKelly: false,
+      shieldEnabled: true,
+      shieldThreshold: 10,
+      adaptiveScan: true,
+      aiMode: "full",
+      directionFilter: "buy_only",
+      riskPerTradePct: 1,
+      maxDailyTrades: 0,
+      stopOrdersEnabled: false
+    };
+    DEFAULT_WEEKLY_GOAL = {
+      targetSol: 0,
+      targetPct: 0,
+      startPortfolio: 0,
+      currentProfitSol: 0,
+      phase: "idle",
+      weekStart: 0,
+      winStreak: 0,
+      tradeHistory: []
+    };
+    engineStates2 = /* @__PURE__ */ new Map();
+    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
+  }
+});
+
 // server/certificate-service.ts
 var certificate_service_exports = {};
 __export(certificate_service_exports, {
@@ -24561,7 +26593,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 import { createCanvas as createCanvas2 } from "canvas";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
@@ -24576,7 +26608,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto4.createHash("sha256").update(payload2).digest("hex");
+  return crypto5.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   const width = 1200;
@@ -26802,2038 +28834,6 @@ var init_strategic_community_data = __esm({
       }
     ];
     strategic_community_data_default = { strategicEvents, strategicChallenges, weeklyContentFlow };
-  }
-});
-
-// server/services/sol-engine.ts
-var sol_engine_exports = {};
-__export(sol_engine_exports, {
-  SOL_STRATEGIES: () => SOL_STRATEGIES,
-  cancelSignal: () => cancelSignal,
-  clearServerWallet: () => clearServerWallet,
-  confirmLiveExit: () => confirmLiveExit,
-  confirmLiveTrade: () => confirmLiveTrade,
-  getAutoTradePositions: () => getAutoTradePositions,
-  getPendingExits: () => getPendingExits,
-  getPendingSignals: () => getPendingSignals,
-  getServerWalletStatus: () => getServerWalletStatus,
-  getSolEngineStatus: () => getSolEngineStatus,
-  getSolStrategies: () => getSolStrategies,
-  recordSolSignalResult: () => recordSolSignalResult,
-  resetSolWeeklyGoal: () => resetSolWeeklyGoal,
-  saveServerWallet: () => saveServerWallet,
-  setAutoTrade: () => setAutoTrade,
-  setCompoundSettings: () => setCompoundSettings,
-  setShieldActive: () => setShieldActive,
-  setSolStrategies: () => setSolStrategies,
-  setSolStrategy: () => setSolStrategy,
-  setSolWeeklyGoal: () => setSolWeeklyGoal,
-  startSolEngine: () => startSolEngine,
-  stopSolEngine: () => stopSolEngine,
-  triggerSolAIReview: () => triggerSolAIReview,
-  updateSolPortfolioValue: () => updateSolPortfolioValue
-});
-import { eq as eq8 } from "drizzle-orm";
-import crypto5 from "crypto";
-function getEncryptionKey3() {
-  const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto5.createHash("sha256").update(seed).digest();
-}
-function encryptWalletKey(plain) {
-  const iv = crypto5.randomBytes(16);
-  const cipher = crypto5.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
-  const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return iv.toString("hex") + ":" + enc.toString("hex");
-}
-function decryptWalletKey(ciphertext) {
-  const [ivHex, encHex] = ciphertext.split(":");
-  const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto5.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
-  const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
-  return dec.toString("utf8");
-}
-async function saveEngineState(userId, state) {
-  try {
-    await db.insert(solEngineSettings).values({
-      userId,
-      activeStrategy: state.activeStrategy,
-      activeStrategies: state.activeStrategies,
-      autoTradeEnabled: state.autoTradeEnabled,
-      liveTradeEnabled: state.liveTradeEnabled,
-      autoTradeTP: state.autoTradeTP,
-      autoTradeSL: state.autoTradeSL,
-      weeklyGoal: state.weeklyGoal,
-      autoTradeStats: state.autoTradeStats,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: {
-        activeStrategy: state.activeStrategy,
-        activeStrategies: state.activeStrategies,
-        autoTradeEnabled: state.autoTradeEnabled,
-        liveTradeEnabled: state.liveTradeEnabled,
-        autoTradeTP: state.autoTradeTP,
-        autoTradeSL: state.autoTradeSL,
-        weeklyGoal: state.weeklyGoal,
-        autoTradeStats: state.autoTradeStats,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] saveEngineState settings error:", err);
-  }
-}
-async function upsertPosition(userId, pos) {
-  try {
-    await db.insert(solEnginePositions).values({
-      userId,
-      positionId: pos.id,
-      mode: pos.mode,
-      symbol: pos.symbol,
-      mint: pos.mint,
-      entryPrice: pos.entryPrice,
-      currentPrice: pos.currentPrice,
-      targetPct: pos.targetPct,
-      slPct: pos.slPct,
-      size: pos.size,
-      tokenAmount: pos.tokenAmount,
-      decimals: pos.decimals,
-      strategyId: pos.strategyId,
-      txHash: pos.txHash,
-      status: pos.status,
-      openedAt: pos.openedAt,
-      closedAt: pos.closedAt,
-      closePnlPct: pos.closePnlPct,
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEnginePositions.positionId,
-      set: {
-        currentPrice: pos.currentPrice,
-        status: pos.status,
-        closedAt: pos.closedAt,
-        closePnlPct: pos.closePnlPct,
-        tokenAmount: pos.tokenAmount,
-        updatedAt: /* @__PURE__ */ new Date()
-      }
-    });
-  } catch (err) {
-    console.error("[SolEngine] upsertPosition error:", err);
-  }
-}
-async function loadEngineStateFromDb(userId, state) {
-  try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-    if (settings) {
-      state.activeStrategy = settings.activeStrategy;
-      state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
-      state.autoTradeEnabled = settings.autoTradeEnabled;
-      state.liveTradeEnabled = settings.liveTradeEnabled;
-      state.autoTradeTP = settings.autoTradeTP;
-      state.autoTradeSL = settings.autoTradeSL;
-      state.autoTrailActivationPct = settings.autoTrailActivationPct ?? 4;
-      state.autoTrailDistancePct = settings.autoTrailDistancePct ?? 3;
-      if (settings.weeklyGoal && typeof settings.weeklyGoal === "object") {
-        state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL, ...settings.weeklyGoal };
-      }
-      if (settings.autoTradeStats && typeof settings.autoTradeStats === "object") {
-        state.autoTradeStats = { ...state.autoTradeStats, ...settings.autoTradeStats };
-      }
-      if (settings.serverWalletKey && state.currentPortfolioValue <= 0) {
-        try {
-          const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-          const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-          const bs58 = (await import("bs58")).default;
-          const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-          const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-          const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-          const lamports = await connection2.getBalance(keypair.publicKey);
-          const solBalance = lamports / 1e9;
-          if (solBalance > 0) {
-            state.currentPortfolioValue = solBalance;
-            console.log(`[SolEngine] Auto-set portfolio value from server wallet: ${solBalance.toFixed(4)} SOL`);
-          }
-        } catch (walletErr) {
-          console.warn("[SolEngine] Could not fetch server wallet balance for portfolio init:", walletErr);
-        }
-      }
-    }
-    const positions = await db.select().from(solEnginePositions).where(eq8(solEnginePositions.userId, userId));
-    for (const row of positions) {
-      const pos = {
-        id: row.positionId,
-        symbol: row.symbol,
-        mint: row.mint,
-        entryPrice: row.entryPrice,
-        currentPrice: row.currentPrice,
-        targetPct: row.targetPct,
-        slPct: row.slPct,
-        size: row.size,
-        tokenAmount: row.tokenAmount,
-        decimals: row.decimals,
-        strategyId: row.strategyId,
-        txHash: row.txHash || void 0,
-        mode: row.mode,
-        status: row.status,
-        openedAt: row.openedAt,
-        closedAt: row.closedAt || void 0,
-        closePnlPct: row.closePnlPct || void 0
-      };
-      if (pos.mode === "paper") {
-        if (pos.status === "open") state.paperPositions.push(pos);
-        else state.closedPaperPositions.push(pos);
-      } else {
-        if (pos.status === "open") state.livePositions.push(pos);
-        else state.closedLivePositions.push(pos);
-      }
-    }
-    console.log(`[SolEngine] Loaded state for user ${userId}: ${positions.length} positions restored`);
-  } catch (err) {
-    console.error("[SolEngine] loadEngineStateFromDb error:", err);
-  }
-}
-async function executeServerSideSell(userId, pos, reason, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const amount = Math.floor(pos.tokenAmount);
-    if (amount <= 0) return false;
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${pos.mint}&outputMint=${SOL_MINT}&amount=${amount}&slippageBps=300`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: "auto"
-      })
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-    const txBuffer = Buffer.from(swapTransaction, "base64");
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const signature = await connection2.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 3 });
-    const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-    const label = reason === "tp" ? "TP \u2705" : "SL \u{1F6E1}\uFE0F";
-    pos.status = "closed";
-    pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-    pos.closePnlPct = gainPct;
-    state.livePositions = state.livePositions.filter((p) => p.id !== pos.id);
-    state.closedLivePositions.unshift(pos);
-    if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-    const isWin = gainPct >= 0;
-    state.autoTradeStats.totalTrades++;
-    state.autoTradeStats.totalPnlPct += gainPct;
-    if (isWin) {
-      state.autoTradeStats.wins++;
-      if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-    } else {
-      state.autoTradeStats.losses++;
-      if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-    }
-    const dexKeyLive = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-    if (!state.signalWeights[dexKeyLive]) state.signalWeights[dexKeyLive] = 1;
-    if (!state.kellyStats[dexKeyLive]) state.kellyStats[dexKeyLive] = { wins: 0, losses: 0, totalGainPct: 0 };
-    if (isWin) {
-      state.signalWeights[dexKeyLive] = Math.min(2, state.signalWeights[dexKeyLive] + 0.05);
-      state.kellyStats[dexKeyLive].wins++;
-      state.kellyStats[dexKeyLive].totalGainPct += Math.abs(gainPct);
-      state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    } else {
-      state.signalWeights[dexKeyLive] = Math.max(0.2, state.signalWeights[dexKeyLive] - 0.08);
-      state.kellyStats[dexKeyLive].losses++;
-      state.weeklyGoal.winStreak = 0;
-    }
-    if (state.weeklyGoal.phase !== "idle") {
-      state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-      state.weeklyGoal.tradeHistory.unshift({
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: pos.symbol,
-        sol: pos.size,
-        gainPct,
-        outcome: isWin ? "WIN" : "LOSS",
-        strategy: pos.strategyId || state.activeStrategy
-      });
-      if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    addActivity3(state, {
-      type: "live_sell",
-      message: `\u{1F916} Server auto-sold ${pos.symbol} [${label}] ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% \u2014 TX: ${signature.slice(0, 16)}...`
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideSell error:", err);
-    return false;
-  }
-}
-async function executeServerSideBuy(userId, signal, state) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return false;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const SOL_MINT = "So11111111111111111111111111111111111111112";
-    const lamports = Math.floor(signal.sizeSOL * 1e9);
-    if (lamports <= 0) return false;
-    const quoteResp = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${SOL_MINT}&outputMint=${signal.mint}&amount=${lamports}&slippageBps=200`
-    );
-    if (!quoteResp.ok) return false;
-    const quote = await quoteResp.json();
-    if (quote.error) {
-      console.warn("[SolEngine] Jupiter buy quote error:", quote.error);
-      return false;
-    }
-    const swapResp = await fetch("https://quote-api.jup.ag/v6/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse: quote,
-        userPublicKey: keypair.publicKey.toBase58(),
-        wrapAndUnwrapSol: true,
-        dynamicComputeUnitLimit: true,
-        prioritizationFeeLamports: "auto"
-      })
-    });
-    if (!swapResp.ok) return false;
-    const { swapTransaction } = await swapResp.json();
-    const txBuffer = Buffer.from(swapTransaction, "base64");
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const signature = await connection2.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: true,
-      maxRetries: 3
-    });
-    const rawOut = parseInt(quote.outAmount || "0");
-    const decimals = 9;
-    const tokenAmount = rawOut;
-    const pos = {
-      id: `live_pos_${Date.now()}_${signal.symbol}`,
-      symbol: signal.symbol,
-      mint: signal.mint,
-      entryPrice: signal.price,
-      currentPrice: signal.price,
-      targetPct: state.autoTradeTP,
-      slPct: state.autoTradeSL,
-      size: signal.sizeSOL,
-      tokenAmount,
-      decimals,
-      strategyId: signal.strategyId,
-      mode: "live",
-      txHash: signature,
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open"
-    };
-    state.livePositions.push(pos);
-    addActivity3(state, {
-      type: "live_buy",
-      message: `\u{1F916} Server auto-bought ${signal.symbol} \u2014 ${signal.sizeSOL.toFixed(3)} SOL @ $${signal.price.toFixed(6)} | TX: ${signature.slice(0, 16)}... | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`
-    });
-    upsertPosition(userId, pos).catch(() => {
-    });
-    saveEngineState(userId, state).catch(() => {
-    });
-    state.lastWalletRefreshAt = 0;
-    refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    return true;
-  } catch (err) {
-    console.error("[SolEngine] executeServerSideBuy error:", err);
-    return false;
-  }
-}
-function passesStrategyFilter(analysis, strategy) {
-  const token = analysis.token;
-  const totalTxns = token.txns24h.buys + token.txns24h.sells;
-  const buyRatio = totalTxns > 0 ? token.txns24h.buys / totalTxns : 0.5;
-  const avgTxSize = totalTxns > 0 ? token.volume24h / totalTxns : 0;
-  const priceChg = token.priceChange24h;
-  switch (strategy.id) {
-    case "whale_follower":
-      return avgTxSize > 200 && token.makers24h < 500 && buyRatio > 0.55 && analysis.whaleScore >= 60;
-    case "momentum_surfer":
-      return priceChg >= 5 && priceChg <= 80 && buyRatio > 0.55 && token.volume24h >= 3e4;
-    case "breakout_hunter":
-      return priceChg >= 10 && priceChg <= 80 && token.volume24h >= 3e4 && buyRatio > 0.54;
-    case "dip_sniper":
-      return priceChg >= -40 && priceChg <= -4 && buyRatio > 0.62;
-    case "meme_velocity":
-      return priceChg >= 20 && token.volume24h >= 15e3;
-    case "volume_explosion":
-      return token.volume24h >= 25e4 && buyRatio > 0.52;
-    case "smart_money_flow":
-      return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
-    case "liquidity_sweep":
-      return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
-    case "adaptive":
-      return true;
-    default:
-      return true;
-  }
-}
-function selectAdaptiveSolStrategy(macro, scanResult) {
-  if (scanResult.length === 0) {
-    return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
-  }
-  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0 };
-  for (const t of scanResult) {
-    const tt = t.token.txns24h.buys + t.token.txns24h.sells;
-    const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
-    const avgTx = tt > 0 ? t.token.volume24h / tt : 0;
-    const chg = t.token.priceChange24h;
-    if (avgTx > 1e3 && t.token.makers24h < 150 && t.whaleScore >= 65) counts.whale++;
-    if (chg >= -40 && chg <= -4 && br > 0.62) counts.dip++;
-    if (chg >= 12 && chg <= 70 && t.token.volume24h >= 8e4) counts.breakout++;
-    if (t.token.volume24h >= 25e4) counts.volExplosion++;
-    if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
-    if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
-  }
-  if (macro?.bias === "RISK_OFF") {
-    if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
-    if (counts.dip >= 1) return { strategyId: "dip_sniper", reason: `RISK_OFF macro \u2014 ${counts.dip} accumulation dip(s) with strong buy pressure. Cautious entries only` };
-    return { strategyId: "smart_money_flow", reason: "RISK_OFF macro \u2014 conservative mode, waiting for institutional quality setups" };
-  }
-  if (counts.volExplosion >= 2) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} tokens with explosive volume (>$250K) \u2014 institutional attention confirmed` };
-  if (counts.whale >= 2) return { strategyId: "whale_follower", reason: `${counts.whale} tokens with real whale accumulation (large avg tx + concentrated wallets)` };
-  if (counts.breakout >= 2) return { strategyId: "breakout_hunter", reason: `${counts.breakout} confirmed breakout setups (12\u201370% move + volume >$80K)` };
-  if (counts.meme >= 2) return { strategyId: "meme_velocity", reason: `${counts.meme} meme tokens pumping on Pump.fun \u2014 velocity play` };
-  if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
-  if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
-  if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
-  if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
-  return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
-}
-function getStrategyEntryContext(strategyId) {
-  switch (strategyId) {
-    case "whale_follower":
-      return "ENTRY FILTER: avg transaction size >$1K (whale-sized, not retail), <150 unique wallets (concentrated accumulation), whale score \u226565, buy/sell ratio >58%. SKIP tokens with many small retail txns or scattered wallets.";
-    case "momentum_surfer":
-      return "ENTRY FILTER: price up 5\u201380%, buy ratio >55%, volume >$30K. Riding an existing uptrend. Skip flat or down tokens.";
-    case "breakout_hunter":
-      return "ENTRY FILTER: price up 12\u201370% (not overextended), volume >$80K, buy ratio >58%. STRONG_BUY preferred. Skip micro-cap low-volume setups.";
-    case "dip_sniper":
-      return "ENTRY FILTER: price DOWN 4\u201340% in 24h BUT buy ratio >62% (smart accumulation against the trend). Counter-trend entry \u2014 requires clear accumulation signal in the dip.";
-    case "meme_velocity":
-      return "ENTRY FILTER: price up >20%, Pump.fun preferred, high velocity short-lived pump. Quick in-out (10\u201315 min). Accept HIGH risk. Prioritise momentum and exit speed.";
-    case "volume_explosion":
-      return "ENTRY FILTER: 24h volume >$250K (institutional or viral event), buy ratio >52%. Volume is the primary signal \u2014 price direction secondary.";
-    case "smart_money_flow":
-      return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
-    case "liquidity_sweep":
-      return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
-    case "adaptive":
-      return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
-    default:
-      return "";
-  }
-}
-function createInitialState(config) {
-  return {
-    isRunning: false,
-    config,
-    lastScanAt: 0,
-    lastTokenSnapshot: {},
-    lastTriggerAt: {},
-    activityFeed: [],
-    signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-    kellyStats: Object.fromEntries(DEX_NAMES.map((d) => [d, { wins: 0, losses: 0, totalGainPct: 0 }])),
-    sessionHighWatermark: 0,
-    currentPortfolioValue: 0,
-    shieldActive: false,
-    scanTimer: null,
-    lastResults: [],
-    lastMacro: null,
-    weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-    activeStrategy: "momentum_surfer",
-    activeStrategies: ["momentum_surfer"],
-    lastAgentConsensus: [],
-    autoTradeEnabled: false,
-    liveTradeEnabled: false,
-    paperPositions: [],
-    closedPaperPositions: [],
-    livePositions: [],
-    closedLivePositions: [],
-    pendingSignals: [],
-    pendingExits: [],
-    signalCooldowns: /* @__PURE__ */ new Map(),
-    autoTradeTP: 8,
-    autoTradeSL: 4,
-    autoTrailActivationPct: 4,
-    autoTrailDistancePct: 3,
-    paperTradeSize: 0,
-    compoundMode: false,
-    compoundRate: 100,
-    paperBaseCapital: 0,
-    paperPortfolioValue: 0,
-    paperPortfolioHistory: [],
-    autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 },
-    aiReviewCache: {},
-    serverWalletBalance: 0,
-    lastWalletRefreshAt: 0,
-    dailyTradeCount: 0,
-    dailyTradeDate: ""
-  };
-}
-function addActivity3(state, entry) {
-  state.activityFeed.unshift({ ...entry, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  if (state.activityFeed.length > 100) state.activityFeed = state.activityFeed.slice(0, 100);
-}
-function getAdaptiveScanInterval2(config) {
-  if (!config.adaptiveScan) return 6e4;
-  const hourUtc = (/* @__PURE__ */ new Date()).getUTCHours();
-  const dayUtc = (/* @__PURE__ */ new Date()).getUTCDay();
-  if (dayUtc === 0 || dayUtc === 6) return 12e4;
-  if (hourUtc >= 13 && hourUtc < 20) return 3e4;
-  if (hourUtc >= 7 && hourUtc < 13) return 6e4;
-  return 12e4;
-}
-function calculateSolKellySize2(wins, losses, totalGainPct, portfolioSol) {
-  const total = wins + losses;
-  if (total < 3 || portfolioSol <= 0) return 0;
-  const winRate2 = wins / total;
-  const avgGain = wins > 0 ? totalGainPct / wins / 100 : 0.5;
-  const kelly = winRate2 - (1 - winRate2) / Math.max(avgGain, 0.01);
-  const fractional = Math.max(5e-3, Math.min(0.15, kelly * 0.25));
-  return Math.round(portfolioSol * fractional * 1e3) / 1e3;
-}
-function getPhaseMultiplier(phase, winStreak) {
-  switch (phase) {
-    case "warming_up":
-      return 0.8;
-    case "building":
-      return 1;
-    case "accelerating":
-      return 1.25;
-    case "cruising":
-      return 1;
-    case "pushing":
-      return Math.min(2, 1.5 + (winStreak >= 3 ? 0.25 : 0));
-    case "target_reached":
-      return 0.5;
-    default:
-      return 1;
-  }
-}
-function computeGoalPhase(goal) {
-  if (goal.targetSol <= 0 || goal.phase === "idle") return "idle";
-  const pct2 = goal.currentProfitSol / goal.targetSol;
-  if (pct2 >= 1) return "target_reached";
-  if (pct2 >= 0.85) return "pushing";
-  if (pct2 >= 0.7) return "cruising";
-  if (pct2 >= 0.5) return "accelerating";
-  if (pct2 >= 0.2) return "building";
-  return "warming_up";
-}
-function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
-  if (mode === "paper" && state.paperTradeSize > 0) return state.paperTradeSize;
-  let portfolio;
-  if (mode === "paper") {
-    portfolio = state.compoundMode && state.paperPortfolioValue > 0 ? state.paperPortfolioValue : state.currentPortfolioValue > 0 ? state.currentPortfolioValue : PAPER_DEFAULT_PORTFOLIO_SOL;
-  } else {
-    portfolio = state.currentPortfolioValue;
-  }
-  if (portfolio <= 0) return 0;
-  const riskPct = state.config.riskPerTradePct;
-  if (riskPct > 0) {
-    const phaseMultiplier2 = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-    const riskFraction = riskPct / 100 * phaseMultiplier2;
-    const capped = Math.max(5e-3, Math.min(0.15, riskFraction));
-    return Math.round(portfolio * capped * 1e3) / 1e3;
-  }
-  const strategy = overrideStrategy || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-  const phaseMultiplier = getPhaseMultiplier(state.weeklyGoal.phase, state.weeklyGoal.winStreak);
-  let fraction = strategy.baseFraction * phaseMultiplier;
-  if (state.config.useKelly) {
-    const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
-    const kellySize = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
-    if (kellySize > 0) {
-      const kellyFrac = kellySize / portfolio;
-      fraction = (fraction + kellyFrac) / 2;
-    }
-  }
-  fraction = Math.max(5e-3, Math.min(0.15, fraction));
-  return Math.round(portfolio * fraction * 1e3) / 1e3;
-}
-function runQuantRulesAgent(token, macroBias) {
-  let score = 0;
-  if (token.sentimentScore > 70) score += 20;
-  else if (token.sentimentScore >= 50) score += 5;
-  else if (token.sentimentScore < 40) score -= 15;
-  if (token.tokenomicsScore > 70) score += 20;
-  else if (token.tokenomicsScore >= 50) score += 5;
-  else if (token.tokenomicsScore < 40) score -= 15;
-  if (token.whaleScore > 65) score += 15;
-  else if (token.whaleScore >= 45) score += 5;
-  else if (token.whaleScore < 35) score -= 10;
-  const buys = token.token.txns24h?.buys ?? 0;
-  const sells = token.token.txns24h?.sells ?? 0;
-  const totalTxns = buys + sells;
-  if (totalTxns > 0) {
-    const buyRatio = buys / totalTxns;
-    if (buyRatio > 0.65) score += 15;
-    else if (buyRatio > 0.5) score += 5;
-    else if (buyRatio < 0.35) score -= 15;
-  }
-  const chg = token.token.priceChange24h;
-  if (chg > 50) score -= 15;
-  else if (chg > 20) score -= 5;
-  else if (chg >= 5) score += 10;
-  else if (chg >= 0) score += 5;
-  else score -= 5;
-  if (macroBias === "bullish") score += 10;
-  else if (macroBias === "bearish") score -= 15;
-  if (token.riskLevel === "EXTREME") score -= 10;
-  else if (token.riskLevel === "LOW") score += 5;
-  if (score >= 60) return { verdict: "CONFIRM_BUY", score };
-  if (score >= 30) return { verdict: "WATCH", score };
-  return { verdict: "SKIP", score };
-}
-async function runSolAIReview(userId, state, scanResult, openPositions) {
-  const buySignals = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").slice(0, 5);
-  if (buySignals.length === 0 && openPositions.length === 0) return;
-  const cacheKey = [
-    ...buySignals.map((t) => t.token.symbol).sort(),
-    ...openPositions.map((p) => p.symbol).sort()
-  ].join("|");
-  const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached = state.aiReviewCache[cacheKey];
-  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached.ts) / 1e3);
-    const macroBiasCache = state.lastMacro?.bias ?? null;
-    const cacheConsensus = [];
-    let confirms = 0, skips = 0;
-    for (const d of cached.result) {
-      if (!d || !d.symbol || d.type !== "signal") continue;
-      const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-      if (!tokenData) continue;
-      const quant = runQuantRulesAgent(tokenData, macroBiasCache);
-      let consensusLabel = "WATCH";
-      if (quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY") {
-        consensusLabel = "STRONG_CONFIRM";
-        confirms++;
-      } else if (quant.verdict === "SKIP" && d.action === "SKIP") {
-        consensusLabel = "STRONG_SKIP";
-        skips++;
-      } else if (quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY") consensusLabel = "CAUTION";
-      else if (quant.verdict === "WATCH" || d.action === "WATCH") consensusLabel = "WATCH";
-      cacheConsensus.push({
-        symbol: d.symbol,
-        quantVerdict: quant.verdict,
-        quantScore: quant.score,
-        gptVerdict: d.action,
-        consensus: consensusLabel,
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    if (cacheConsensus.length > 0) {
-      state.lastAgentConsensus = [...cacheConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BE} Sol AI cache hit (${ageS}s old) \u2014 consensus rebuilt: ${confirms} confirm, ${skips} skip${cacheConsensus.length > 0 ? ` across ${cacheConsensus.length} signals` : " (no matching signals)"}`
-    });
-    return;
-  }
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    let openai2;
-    let modelLabel = "GPT-4o";
-    const userClient = await getUniversalAIClientForUser2(userId);
-    const useEconomy = state.config.aiMode === "economy" || userClient.provider === "groq";
-    if (useEconomy) {
-      const groqKey = process.env.GROQ_API_KEY;
-      if (groqKey) {
-        const OpenAI5 = (await import("openai")).default;
-        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
-        openai2.defaultModel = "llama-3.3-70b-versatile";
-        modelLabel = "Groq Llama";
-        addActivity3(state, {
-          type: "info",
-          message: "\u{1F49A} Sol Economy: Groq Llama 3.3-70b (free) \u2014 full analysis, zero cost"
-        });
-      } else {
-        openai2 = userClient;
-        modelLabel = userClient.defaultModel || "User model";
-      }
-    } else {
-      openai2 = userClient;
-    }
-    const effectiveStrategyId = state.activeStrategy === "adaptive" || state.activeStrategies.includes("adaptive") ? state._adaptiveStrategy || "momentum_surfer" : state.activeStrategy;
-    const strategy = SOL_STRATEGIES.find((s) => s.id === effectiveStrategyId) || SOL_STRATEGIES[0];
-    const macro = state.lastMacro;
-    const goal = state.weeklyGoal;
-    const macroLine = macro ? `MACRO: BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% | ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% | SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 Bias: ${macro.bias}` : "";
-    const goalLine = goal.phase !== "idle" ? `WEEKLY GOAL: ${goal.currentProfitSol.toFixed(3)} / ${goal.targetSol.toFixed(3)} SOL (${(goal.currentProfitSol / Math.max(goal.targetSol, 1e-3) * 100).toFixed(1)}%) \u2014 Phase: ${goal.phase.replace(/_/g, " ").toUpperCase()}` : "WEEKLY GOAL: None set";
-    const entryContext = getStrategyEntryContext(effectiveStrategyId);
-    const systemPrompt = `You are VEDD Sol AI \u2014 autonomous Solana trading mind. Supreme Mathematics style: use "Peace", "Word is bond", "That's the mathematics", "Stay in the cipher", "dropping science" naturally in reason fields.
-STRATEGY: ${strategy.icon} ${strategy.name} \u2014 ${strategy.description} | Hold: ${strategy.holdTarget} | Min conf: ${strategy.minConfidence}% | Max risk: ${strategy.maxRisk}
-${entryContext ? entryContext + "\n" : ""}${goalLine} | Win streak: ${goal.winStreak} | Shield: ${state.shieldActive ? "ACTIVE" : "off"}
-${macroLine}
-
-Output a JSON array only (no markdown):
-- Signals: {symbol, type:"signal", action:CONFIRM_BUY|SKIP|WATCH|WAIT, reason:<80chars}
-  CONFIRM_BUY only if token matches THIS strategy's entry criteria. SKIP if it doesn't fit regardless of confidence.
-- Positions: {symbol, type:"position", action:HOLD|TRAIL|PARTIAL_CLOSE|CLOSE, trailPct?:int, reason:<80chars}`;
-    const signalsText = buySignals.length > 0 ? buySignals.map(
-      (t) => `${t.token.symbol}: ${t.signal} | Conf:${t.confidence}% | Sent:${t.sentimentScore} | Tok:${t.tokenomicsScore} | Whale:${t.whaleScore} | Vol:$${(t.token.volume24h / 1e3).toFixed(0)}K | Chg:${t.token.priceChange24h.toFixed(1)}%`
-    ).join("\n") : "None";
-    const positionsText = openPositions.length > 0 ? openPositions.map(
-      (p) => `${p.symbol}: entry $${p.entryPrice.toFixed(8)} \u2192 now $${p.currentPrice.toFixed(8)} | ${p.gainPct >= 0 ? "+" : ""}${p.gainPct.toFixed(1)}% | vol:${p.volumeStatus}`
-    ).join("\n") : "None";
-    const userPrompt = `SIGNALS:
-${signalsText}
-
-OPEN POSITIONS:
-${positionsText}`;
-    const response = await openai2.chat.completions.create({
-      model: openai2.defaultModel || "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt }
-      ],
-      temperature: 0.25,
-      max_tokens: 600
-    });
-    const raw = response.choices[0]?.message?.content?.trim() || "[]";
-    let decisions = [];
-    try {
-      decisions = JSON.parse(raw.replace(/```json|```/g, "").trim());
-      if (!Array.isArray(decisions)) decisions = [];
-    } catch {
-      addActivity3(state, {
-        type: "info",
-        message: `\u26A0\uFE0F 2nd confirmation AI returned invalid JSON \u2014 consensus skipped this cycle. Raw: ${raw.slice(0, 80)}`
-      });
-      return;
-    }
-    state.aiReviewCache[cacheKey] = { ts: Date.now(), result: decisions };
-    const newConsensus = [];
-    const macroBias = state.lastMacro?.bias ?? null;
-    for (const d of decisions) {
-      if (!d || !d.symbol) continue;
-      if (d.type === "signal") {
-        const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
-        let gptVerdict = d.action;
-        let consensusLabel = "WATCH";
-        if (tokenData) {
-          const quant = runQuantRulesAgent(tokenData, macroBias);
-          const bothConfirm = quant.verdict === "CONFIRM_BUY" && d.action === "CONFIRM_BUY";
-          const bothSkip = quant.verdict === "SKIP" && d.action === "SKIP";
-          const disagree = quant.verdict === "CONFIRM_BUY" && d.action === "SKIP" || quant.verdict === "SKIP" && d.action === "CONFIRM_BUY";
-          const oneWatch = quant.verdict === "WATCH" || d.action === "WATCH";
-          if (bothConfirm) consensusLabel = "STRONG_CONFIRM";
-          else if (bothSkip) consensusLabel = "STRONG_SKIP";
-          else if (disagree) consensusLabel = "CAUTION";
-          else if (oneWatch) consensusLabel = "WATCH";
-          newConsensus.push({
-            symbol: d.symbol,
-            quantVerdict: quant.verdict,
-            quantScore: quant.score,
-            gptVerdict,
-            consensus: consensusLabel,
-            timestamp: (/* @__PURE__ */ new Date()).toISOString()
-          });
-          const consensusMsg = consensusLabel === "STRONG_CONFIRM" ? `\u{1F91D} STRONG CONFIRM: ${d.symbol} \u2014 Both agents aligned. Word is bond.` : consensusLabel === "STRONG_SKIP" ? `\u274C STRONG SKIP: ${d.symbol} \u2014 Both agents say pass. That's the mathematics.` : consensusLabel === "CAUTION" ? `\u26A0\uFE0F SPLIT SIGNAL: ${d.symbol} \u2014 Agents disagree. Knowledge yourself before entry.` : `\u{1F441}\uFE0F WATCH: ${d.symbol} \u2014 Mixed readings. Stay in the cipher.`;
-          addActivity3(state, { type: "signal", message: consensusMsg });
-        }
-        const icon = d.action === "CONFIRM_BUY" ? "\u{1F916}\u2705" : d.action === "SKIP" ? "\u{1F916}\u274C" : d.action === "WAIT" ? "\u{1F916}\u23F8\uFE0F" : "\u{1F916}\u{1F441}\uFE0F";
-        addActivity3(state, {
-          type: "signal",
-          message: `${icon} ${modelLabel} ${d.action}: ${d.symbol} \u2014 ${d.reason || ""}`
-        });
-      } else if (d.type === "position") {
-        const icon = d.action === "CLOSE" ? "\u{1F4CA}\u{1F534}" : d.action === "TRAIL" ? "\u{1F4CA}\u{1F53C}" : d.action === "PARTIAL_CLOSE" ? "\u{1F4CA}\u26A1" : "\u{1F4CA}\u{1F7E2}";
-        addActivity3(state, {
-          type: "strategy",
-          message: `${icon} AI ${d.action}: ${d.symbol}${d.trailPct ? ` (${d.trailPct}% trail dist)` : ""} \u2014 ${d.reason || ""}`
-        });
-      }
-    }
-    if (newConsensus.length > 0) {
-      state.lastAgentConsensus = [...newConsensus, ...state.lastAgentConsensus].slice(0, 20);
-    }
-  } catch (reviewErr) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F 2nd confirmation AI error: ${reviewErr instanceof Error ? reviewErr.message : "unknown"} \u2014 trades will proceed without consensus this cycle`
-    });
-  }
-}
-async function triggerSolAIReview(userId, openPositions = []) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  await runSolAIReview(userId, state, state.lastResults, openPositions);
-}
-function computeServerTrailDist(gainPct, volStatus) {
-  const isStrong = volStatus === "surging" || volStatus === "above_average";
-  const isWeak = volStatus === "below_average" || volStatus === "dry";
-  if (gainPct >= 80) return isStrong ? 10 : isWeak ? 6 : 8;
-  if (gainPct >= 40) return isStrong ? 12 : isWeak ? 8 : 10;
-  return isStrong ? 15 : isWeak ? 10 : 12;
-}
-function getVolStatus(entryVol, currentVol) {
-  if (entryVol <= 0) return "average";
-  const ratio = currentVol / entryVol;
-  if (ratio >= 2.5) return "surging";
-  if (ratio >= 1.25) return "above_average";
-  if (ratio <= 0.5) return "dry";
-  if (ratio <= 0.75) return "below_average";
-  return "average";
-}
-function monitorPaperPositions(state) {
-  const openPositions = state.paperPositions.filter((p) => p.status === "open");
-  if (openPositions.length === 0) return;
-  const priceMap = {};
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
-  }
-  for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
-    if (!currentPrice || currentPrice <= 0) continue;
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) {
-      pos.peakPrice = currentPrice;
-    }
-    const currentVol = volumeMap[pos.symbol] || 0;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, currentVol);
-    const trailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    let isTrailHit = false;
-    if (gainPct >= trailActivation) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        const dist2 = computeServerTrailDist(gainPct, volStatus);
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F512} Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${trailActivation}%) \u2014 staged trail active | vol: ${volStatus} | dist: ${dist2}% from peak`
-        });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const trailFloor = pos.peakPrice * (1 - dist / 100);
-      const effectiveFloor = Math.max(trailFloor, pos.entryPrice);
-      if (currentPrice <= effectiveFloor) {
-        isTrailHit = true;
-      }
-    } else if (gainPct >= 8) {
-      if (!pos.breakevenActive) {
-        pos.breakevenActive = true;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F6E1}\uFE0F Breakeven floor set: ${pos.symbol} at +${gainPct.toFixed(1)}% \u2014 floor locked at entry price`
-        });
-      }
-    }
-    const isWin = gainPct >= pos.targetPct;
-    const isLoss = gainPct <= -pos.slPct;
-    if (isWin || isLoss || isTrailHit) {
-      const reason = isTrailHit ? "trail" : isWin ? "tp" : "sl";
-      pos.status = "closed";
-      pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-      pos.closePnlPct = gainPct;
-      pos.closeReason = reason;
-      state.closedPaperPositions.unshift(pos);
-      if (state.closedPaperPositions.length > 50) state.closedPaperPositions = state.closedPaperPositions.slice(0, 50);
-      state.autoTradeStats.totalTrades++;
-      state.autoTradeStats.totalPnlPct += gainPct;
-      const isProfit = gainPct > 0;
-      if (isProfit) {
-        state.autoTradeStats.wins++;
-        if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-      } else {
-        state.autoTradeStats.losses++;
-        if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-      }
-      if (state.compoundMode && state.paperPortfolioValue > 0) {
-        const tradeSol = pos.size;
-        const rawPnlSol = tradeSol * (gainPct / 100);
-        const compoundedPnl = rawPnlSol * (state.compoundRate / 100);
-        const prev = state.paperPortfolioValue;
-        state.paperPortfolioValue = Math.max(1e-3, prev + compoundedPnl);
-        state.paperPortfolioHistory.push({ t: Date.now(), v: state.paperPortfolioValue });
-        if (state.paperPortfolioHistory.length > 50) state.paperPortfolioHistory = state.paperPortfolioHistory.slice(-50);
-        const growthPct = (state.paperPortfolioValue - state.paperBaseCapital) / state.paperBaseCapital * 100;
-        addActivity3(state, {
-          type: "info",
-          message: `\u{1F4B9} Compound update: ${compoundedPnl >= 0 ? "+" : ""}${compoundedPnl.toFixed(4)} SOL ${state.compoundRate < 100 ? `(${state.compoundRate}% reinvested)` : "fully reinvested"} \u2192 pool now ${state.paperPortfolioValue.toFixed(4)} SOL (${growthPct >= 0 ? "+" : ""}${growthPct.toFixed(1)}% from base)`
-        });
-      }
-      const emoji = isTrailHit ? "\u{1F512}" : isWin ? "\u2705" : "\u274C";
-      const label = isTrailHit ? `TRAIL EXIT` : isWin ? "WIN" : "LOSS";
-      addActivity3(state, {
-        type: "paper_sell",
-        message: `${emoji} Paper ${label}: ${pos.symbol} closed @ $${currentPrice.toFixed(6)} \u2014 ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% | ${pos.size.toFixed(3)} SOL ${isTrailHit ? "(trailing stop hit)" : isWin ? "profit sealed" : "lesson built"}`
-      });
-      const dexKeyClose = (pos.strategyId || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-      if (!state.signalWeights[dexKeyClose]) state.signalWeights[dexKeyClose] = 1;
-      if (!state.kellyStats[dexKeyClose]) state.kellyStats[dexKeyClose] = { wins: 0, losses: 0, totalGainPct: 0 };
-      if (isProfit) {
-        state.signalWeights[dexKeyClose] = Math.min(2, state.signalWeights[dexKeyClose] + 0.05);
-        state.kellyStats[dexKeyClose].wins++;
-        state.kellyStats[dexKeyClose].totalGainPct += Math.abs(gainPct);
-        state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-      } else {
-        state.signalWeights[dexKeyClose] = Math.max(0.2, state.signalWeights[dexKeyClose] - 0.08);
-        state.kellyStats[dexKeyClose].losses++;
-        state.weeklyGoal.winStreak = 0;
-      }
-      if (state.weeklyGoal.phase !== "idle") {
-        state.weeklyGoal.currentProfitSol += pos.size * (gainPct / 100);
-        state.weeklyGoal.tradeHistory.unshift({
-          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-          symbol: pos.symbol,
-          sol: pos.size,
-          gainPct,
-          outcome: isProfit ? "WIN" : "LOSS",
-          strategy: pos.strategyId || state.activeStrategy
-        });
-        if (state.weeklyGoal.tradeHistory.length > 100) state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-      }
-    }
-  }
-  state.paperPositions = state.paperPositions.filter((p) => p.status === "open");
-}
-async function monitorLivePositions(userId, state) {
-  const openPositions = state.livePositions.filter((p) => p.status === "open" && p.entryPrice > 0 && p.tokenAmount > 0);
-  if (openPositions.length === 0) return;
-  const now = Date.now();
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  const priceMap = {};
-  const volumeMap = {};
-  for (const r of state.lastResults) {
-    priceMap[r.token.symbol] = parseFloat(r.token.priceUsd) || 0;
-    volumeMap[r.token.symbol] = r.token.volume24h || 0;
-  }
-  for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.symbol];
-    if (!currentPrice || currentPrice <= 0) continue;
-    pos.currentPrice = currentPrice;
-    const gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100;
-    if (!pos.peakPrice || currentPrice > pos.peakPrice) pos.peakPrice = currentPrice;
-    const alreadyQueued = state.pendingExits.some((e) => e.positionId === pos.id);
-    if (alreadyQueued) continue;
-    const liveTrailActivation = pos.trailActivationPct && pos.trailActivationPct > 0 ? pos.trailActivationPct : 20;
-    const volStatus = getVolStatus(pos.entryVolume24h || 0, volumeMap[pos.symbol] || 0);
-    let trailHit = false;
-    if (gainPct >= liveTrailActivation && pos.peakPrice) {
-      if (!pos.trailingActive) {
-        pos.trailingActive = true;
-        addActivity3(state, { type: "info", message: `\u{1F512} Live Trail LOCKED: ${pos.symbol} hit +${gainPct.toFixed(1)}% (activation: ${liveTrailActivation}%) \u2014 staged trail active (${volStatus} vol)` });
-      }
-      const dist = computeServerTrailDist(gainPct, volStatus);
-      const effectiveFloor = Math.max(pos.peakPrice * (1 - dist / 100), pos.entryPrice);
-      if (currentPrice <= effectiveFloor) trailHit = true;
-    }
-    const tpHit = gainPct >= pos.targetPct;
-    const slHit = gainPct <= -pos.slPct;
-    if (tpHit || slHit || trailHit) {
-      const reason = tpHit ? "tp" : trailHit ? "trail" : "sl";
-      const serverSold = await executeServerSideSell(userId, pos, reason, state);
-      if (!serverSold) {
-        const created = /* @__PURE__ */ new Date();
-        const expires = new Date(created.getTime() + 9e4);
-        state.pendingExits.push({
-          positionId: pos.id,
-          symbol: pos.symbol,
-          mint: pos.mint,
-          tokenAmount: pos.tokenAmount,
-          decimals: pos.decimals,
-          reason: reason === "trail" ? "sl" : reason,
-          createdAt: created.toISOString(),
-          expiresAt: expires.toISOString()
-        });
-        addActivity3(state, {
-          type: "live_sell",
-          message: tpHit ? `\u{1F3AF} TP hit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : trailHit ? `\u{1F512} Trail exit: ${pos.symbol} +${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution` : `\u{1F6E1}\uFE0F SL hit: ${pos.symbol} ${gainPct.toFixed(1)}% \u2014 sell queued for wallet execution`
-        });
-      }
-    }
-  }
-}
-async function refreshServerWalletBalance(userId, state) {
-  if (!state.liveTradeEnabled) return;
-  const now = Date.now();
-  if (now - state.lastWalletRefreshAt < 6e4) return;
-  state.lastWalletRefreshAt = now;
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return;
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-    const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-    const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-    const lamports = await connection2.getBalance(keypair.publicKey);
-    const solBalance = lamports / 1e9;
-    state.serverWalletBalance = solBalance;
-    if (Math.abs(state.currentPortfolioValue - solBalance) > 1e-3) {
-      console.log(`[SolEngine] Wallet sync: ${state.currentPortfolioValue.toFixed(4)} \u2192 ${solBalance.toFixed(4)} SOL (user ${userId})`);
-      state.currentPortfolioValue = solBalance;
-    }
-  } catch (err) {
-    console.warn("[SolEngine] refreshServerWalletBalance failed:", err instanceof Error ? err.message : err);
-  }
-}
-async function runScan(userId, state, triggerToken) {
-  if (!state.isRunning) return;
-  try {
-    const todayUTC = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    if (state.dailyTradeDate !== todayUTC) {
-      state.dailyTradeDate = todayUTC;
-      state.dailyTradeCount = 0;
-    }
-    await refreshServerWalletBalance(userId, state).catch(() => {
-    });
-    const macro = await fetchCryptoMacroContext().catch(() => null);
-    state.lastMacro = macro;
-    if (macro && macro.bias === "RISK_OFF") {
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4C9} Macro RISK_OFF: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}% / ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}% / SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% \u2014 signal confidence reduced by 8%. Engine still trading at reduced size.`
-      });
-    }
-    const shieldFilter = state.config.shieldEnabled && state.shieldActive;
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const userOpenai = await getUniversalAIClientForUser2(userId).catch(() => null);
-    const scanResult = await scanAndAnalyzeTokens(
-      state.config.maxTokens,
-      state.config.dexFilter,
-      {
-        signalWeights: state.signalWeights,
-        macro: macro || void 0,
-        kellyStats: state.config.useKelly ? state.kellyStats : void 0,
-        portfolioSol: state.currentPortfolioValue,
-        shieldActive: shieldFilter,
-        minConfidence: state.config.minConfidence,
-        openai: userOpenai || void 0
-      }
-    );
-    const now = Date.now();
-    state.lastScanAt = now;
-    const hasBuySignals = scanResult.some((t) => t.signal === "STRONG_BUY" || t.signal === "BUY");
-    const allOpenPositions = [
-      ...state.livePositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      }),
-      ...state.paperPositions.filter((p) => p.status === "open").map((p) => {
-        const latestPrice = scanResult.find((r) => r.token.symbol === p.symbol);
-        const currentPrice = latestPrice ? parseFloat(latestPrice.token.priceUsd) || p.currentPrice : p.currentPrice;
-        const gainPct = p.entryPrice > 0 ? (currentPrice - p.entryPrice) / p.entryPrice * 100 : 0;
-        return { symbol: p.symbol, entryPrice: p.entryPrice, currentPrice, gainPct, volumeStatus: "average" };
-      })
-    ].slice(0, 5);
-    if (hasBuySignals || allOpenPositions.length > 0) {
-      await runSolAIReview(userId, state, scanResult, allOpenPositions).catch(() => {
-      });
-    }
-    for (const dex of DEX_NAMES) {
-      state.signalWeights[dex] = Math.round((state.signalWeights[dex] * 0.99 + 1 * 0.01) * 1e3) / 1e3;
-    }
-    for (const analysis of scanResult) {
-      const key = analysis.token.address;
-      const prev = state.lastTokenSnapshot[key];
-      if (prev && analysis.token.volume24h > 0 && prev.volume > 0) {
-        const volumeMultiple = analysis.token.volume24h / prev.volume;
-        const lastTrigger = state.lastTriggerAt[key] || 0;
-        if (volumeMultiple >= 3 && now - lastTrigger > 6e4) {
-          state.lastTriggerAt[key] = now;
-          addActivity3(state, {
-            type: "trigger",
-            message: `\u26A1 Power surge on ${analysis.token.symbol} (${volumeMultiple.toFixed(1)}\xD7) \u2014 knowledge deepens in 8s`
-          });
-          setTimeout(() => runScan(userId, state, analysis.token.symbol), 8e3);
-        }
-      }
-      state.lastTokenSnapshot[key] = {
-        volume: analysis.token.volume24h,
-        price: parseFloat(analysis.token.priceUsd) || 0,
-        signal: analysis.signal,
-        confidence: analysis.confidence
-      };
-      const hasPaperCapital = state.autoTradeEnabled;
-      const hasLiveCapital = state.liveTradeEnabled && state.currentPortfolioValue > 0;
-      const canEnterTrade = hasPaperCapital || hasLiveCapital;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && !canEnterTrade) {
-        if (state.liveTradeEnabled && state.currentPortfolioValue <= 0) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26A0\uFE0F Live signal skipped: ${analysis.token.symbol} \u2014 Live Trade is ON but portfolio SOL value is 0. Set it in engine settings \u2192 Portfolio Value.`
-          });
-        } else {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4E1} Signal: ${analysis.token.symbol} [${analysis.signal} ${analysis.confidence}%] \u2014 Paper & Live trade are OFF. Toggle Paper Trade ON in the \u2699\uFE0F Settings panel to auto-execute.`
-          });
-        }
-        continue;
-      }
-      const dirFilter = state.config.directionFilter || "buy_only";
-      const isBuySignal = analysis.signal === "STRONG_BUY" || analysis.signal === "BUY";
-      const isSellSignal = analysis.signal === "SELL" || analysis.signal === "STRONG_SELL";
-      if (dirFilter === "buy_only" && !isBuySignal) continue;
-      if (dirFilter === "sell_only" && !isSellSignal) continue;
-      if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && canEnterTrade) {
-        if (analysis.token.priceChange24h > 80) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u26D4 Overextended: ${analysis.token.symbol} skipped \u2014 already +${analysis.token.priceChange24h.toFixed(0)}% in 24h (>80% = likely top)`
-          });
-          continue;
-        }
-        const CONSENSUS_TTL_MS = 10 * 60 * 1e3;
-        const priorConsensus = state.lastAgentConsensus?.find((c) => c.symbol === analysis.token.symbol);
-        const consensusAge = priorConsensus?.timestamp ? Date.now() - new Date(priorConsensus.timestamp).getTime() : Infinity;
-        const consensusStale = consensusAge > CONSENSUS_TTL_MS;
-        if (priorConsensus && !consensusStale && priorConsensus.consensus === "STRONG_SKIP") {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F916}\u274C Consensus BLOCK: ${analysis.token.symbol} \u2014 both AI and quant said SKIP (quant score: ${priorConsensus.quantScore}). That's the mathematics.`
-          });
-          continue;
-        }
-        if (priorConsensus && !consensusStale && priorConsensus.quantVerdict === "SKIP" && priorConsensus.quantScore < 10) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F4D0}\u274C Quant BLOCK: ${analysis.token.symbol} \u2014 quant score ${priorConsensus.quantScore} too low. Knowledge yourself.`
-          });
-          continue;
-        }
-        const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-        let activeStrats = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-        const isAdaptiveMode = activeStrats.includes("adaptive") || state.activeStrategy === "adaptive";
-        if (isAdaptiveMode) {
-          const autoRec = selectAdaptiveSolStrategy(state.lastMacro, scanResult);
-          if (!state._adaptiveStrategy || state._adaptiveStrategy !== autoRec.strategyId) {
-            state._adaptiveStrategy = autoRec.strategyId;
-            addActivity3(state, {
-              type: "strategy",
-              message: `\u{1F916} Adaptive selected: ${SOL_STRATEGIES.find((s) => s.id === autoRec.strategyId)?.icon || ""}${autoRec.strategyId.replace(/_/g, " ").toUpperCase()} \u2014 ${autoRec.reason}`
-            });
-          }
-          activeStrats = [autoRec.strategyId];
-        }
-        const confirmingStrats = activeStrats.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter((s) => !!s).filter((s) => {
-          if (analysis.confidence < s.minConfidence) return false;
-          if (s.minSignal === "STRONG_BUY" && analysis.signal !== "STRONG_BUY") return false;
-          if (s.maxRisk === "LOW" && (analysis.riskLevel === "HIGH" || analysis.riskLevel === "EXTREME")) return false;
-          if (!passesStrategyFilter(analysis, s)) return false;
-          return true;
-        });
-        if (confirmingStrats.length >= 2) {
-          const names = confirmingStrats.map((s) => `${s.icon}${s.name}`).join(" + ");
-          addActivity3(state, {
-            type: "strategy",
-            message: `\u{1F3AF} Multi-Strategy Confirmed: ${analysis.token.symbol} \u2014 ${names} all in agreement. Knowledge multiplied.`
-          });
-        }
-        const bestStrat = confirmingStrats.sort((a, b) => b.baseFraction - a.baseFraction)[0];
-        const paperAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "paper");
-        const liveAutoSize = computeAutoSolSize(state, dexKey, bestStrat, "live");
-        if (paperAutoSize > 0) {
-          analysis.recommendedSolAmount = paperAutoSize;
-        }
-        const paperSizeSOL = paperAutoSize > 0 ? paperAutoSize : computeAutoSolSize(state, dexKey, void 0, "paper");
-        const sizeSOL = liveAutoSize > 0 ? liveAutoSize : computeAutoSolSize(state, dexKey, void 0, "live");
-        const topStrat = confirmingStrats[0] || SOL_STRATEGIES.find((s) => s.id === state.activeStrategy) || SOL_STRATEGIES[0];
-        const tokenPrice = parseFloat(analysis.token.priceUsd) || 0;
-        const tokenMint = analysis.token.address;
-        const now2 = (/* @__PURE__ */ new Date()).toISOString();
-        const maxDaily = state.config.maxDailyTrades || 0;
-        if (maxDaily > 0 && state.dailyTradeCount >= maxDaily) {
-          addActivity3(state, {
-            type: "info",
-            message: `\u{1F6AB} Daily limit reached: ${analysis.token.symbol} skipped \u2014 ${state.dailyTradeCount}/${maxDaily} trades taken today. Resets at UTC midnight.`
-          });
-          continue;
-        }
-        let stopLossPrice;
-        let takeProfitPrice;
-        if (state.config.stopOrdersEnabled && tokenPrice > 0) {
-          stopLossPrice = tokenPrice * (1 - state.autoTradeSL / 100);
-          takeProfitPrice = tokenPrice * (1 + state.autoTradeTP / 100);
-        }
-        if (state.autoTradeEnabled && paperSizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.paperPositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          if (!alreadyOpen) {
-            const pos = {
-              id: `paper_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              entryPrice: tokenPrice,
-              currentPrice: tokenPrice,
-              targetPct: state.autoTradeTP,
-              slPct: state.autoTradeSL,
-              size: paperSizeSOL,
-              tokenAmount: 0,
-              decimals: 9,
-              strategyId: topStrat.id,
-              mode: "paper",
-              openedAt: now2,
-              status: "open",
-              peakPrice: tokenPrice,
-              trailingActive: false,
-              breakevenActive: false,
-              trailActivationPct: state.autoTrailActivationPct,
-              trailDistancePct: state.autoTrailDistancePct,
-              entryVolume24h: analysis.token.volume24h || 0,
-              stopLossPrice,
-              takeProfitPrice
-            };
-            state.paperPositions.push(pos);
-            state.dailyTradeCount++;
-            const compoundNote = state.compoundMode ? ` [\u{1F4B9} Compounding ON \u2014 ${state.paperPortfolioValue.toFixed(3)} SOL pool]` : "";
-            const stopNote = state.config.stopOrdersEnabled && stopLossPrice ? ` | \u{1F6D1} Stop @$${stopLossPrice.toFixed(6)} \xB7 \u{1F3AF} TP @$${takeProfitPrice?.toFixed(6)}` : ` | TP: +${state.autoTradeTP}% | SL: -${state.autoTradeSL}%`;
-            addActivity3(state, {
-              type: "paper_buy",
-              message: `\u{1F4C4} Paper BUY: ${analysis.token.symbol} \u2014 ${paperSizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}]${stopNote} | Breakeven @+8% \xB7 Trail @+20% (vol-adjusted)${compoundNote}`
-            });
-          }
-        }
-        if (state.liveTradeEnabled && sizeSOL > 0 && tokenPrice > 0) {
-          const alreadyOpen = state.livePositions.some((p) => p.symbol === analysis.token.symbol && p.status === "open");
-          const alreadyQueued = state.pendingSignals.some((s) => s.symbol === analysis.token.symbol);
-          const SIGNAL_COOLDOWN_MS = 5 * 60 * 1e3;
-          const lastRejected = state.signalCooldowns.get(tokenMint);
-          const onCooldown = lastRejected && Date.now() - lastRejected < SIGNAL_COOLDOWN_MS;
-          if (!alreadyOpen && !alreadyQueued && !onCooldown) {
-            const created = /* @__PURE__ */ new Date();
-            const expires = new Date(created.getTime() + 9e4);
-            const sig = {
-              id: `live_${Date.now()}_${analysis.token.symbol}`,
-              symbol: analysis.token.symbol,
-              mint: tokenMint,
-              signal: "BUY",
-              confidence: analysis.confidence,
-              price: tokenPrice,
-              sizeSOL,
-              strategyId: topStrat.id,
-              createdAt: created.toISOString(),
-              expiresAt: expires.toISOString()
-            };
-            state.dailyTradeCount++;
-            addActivity3(state, {
-              type: "live_signal",
-              message: `\u26A1 Live signal: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | Attempting server-side execution...`
-            });
-            executeServerSideBuy(userId, sig, state).then((executed) => {
-              if (!executed) {
-                state.pendingSignals.push(sig);
-                addActivity3(state, {
-                  type: "live_signal",
-                  message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-                });
-              }
-            }).catch(() => {
-              state.pendingSignals.push(sig);
-              addActivity3(state, {
-                type: "live_signal",
-                message: `\u26A1 Live signal queued: ${analysis.token.symbol} \u2014 ${sizeSOL.toFixed(3)} SOL @ $${tokenPrice.toFixed(6)} [${topStrat.icon}${topStrat.name}] | \u26A0\uFE0F APPROVE IN PHANTOM (90s window)`
-              });
-            });
-          }
-        }
-      }
-    }
-    state.lastResults = scanResult;
-    monitorPaperPositions(state);
-    await monitorLivePositions(userId, state);
-    const label = triggerToken ? ` (trigger: ${triggerToken})` : "";
-    const intervalSec = getAdaptiveScanInterval2(state.config) / 1e3;
-    const buys = scanResult.filter((t) => t.signal === "STRONG_BUY" || t.signal === "BUY").length;
-    const shieldNote = shieldFilter ? " \u{1F6E1}\uFE0F" : "";
-    const activeStrats2 = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-    const stratNote = activeStrats2.length > 1 ? ` [${activeStrats2.map((id) => {
-      const s = SOL_STRATEGIES.find((x) => x.id === id);
-      return s ? s.icon + s.name : id;
-    }).join(" + ")}]` : (() => {
-      const strategy = SOL_STRATEGIES.find((s) => s.id === state.activeStrategy);
-      return strategy ? ` [${strategy.icon}${strategy.name}]` : "";
-    })();
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F50D} Knowledge dropped on ${scanResult.length} tokens${label}${shieldNote}${stratNote} \u2014 ${buys} buy signal${buys !== 1 ? "s" : ""} born. Next cipher in ${intervalSec}s`
-    });
-    if (macro) {
-      const btcStr = `BTC ${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%`;
-      const ethStr = `ETH ${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%`;
-      const solStr = `SOL ${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}%`;
-      addActivity3(state, {
-        type: "info",
-        message: `\u{1F4CA} The science: ${btcStr} \u2022 ${ethStr} \u2022 ${solStr} \u2014 bias: ${macro.bias}`
-      });
-    }
-    if (state.currentPortfolioValue > 0) {
-      for (const analysis of scanResult) {
-        if ((analysis.signal === "STRONG_BUY" || analysis.signal === "BUY") && analysis.recommendedSolAmount && analysis.recommendedSolAmount > 0) {
-          const dexKey = (analysis.token.dexId || "").toLowerCase().split("_")[0];
-          const phase = state.weeklyGoal.phase;
-          const mult = getPhaseMultiplier(phase, state.weeklyGoal.winStreak);
-          addActivity3(state, {
-            type: "kelly",
-            message: `\u{1F4D0} Mathematics: ${analysis.token.symbol} on ${dexKey} \u2192 ${analysis.recommendedSolAmount.toFixed(3)} SOL (${mult}\xD7 ${phase.replace("_", " ")} phase)`
-          });
-        }
-      }
-    }
-  } catch (err) {
-    addActivity3(state, {
-      type: "info",
-      message: `\u26A0\uFE0F Interruption in the cipher: ${err instanceof Error ? err.message : "unknown"}`
-    });
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-  if (state.isRunning) {
-    const nextMs = getAdaptiveScanInterval2(state.config);
-    state.scanTimer = setTimeout(() => runScan(userId, state), nextMs);
-  }
-}
-async function startSolEngine(userId, config = {}) {
-  const existing = engineStates2.get(userId);
-  if (existing?.isRunning) stopSolEngine(userId);
-  const fullConfig = { ...DEFAULT_CONFIG2, ...config };
-  const state = createInitialState(fullConfig);
-  if (existing) {
-    state.weeklyGoal = existing.weeklyGoal;
-    state.activeStrategy = existing.activeStrategy;
-    state.activeStrategies = existing.activeStrategies;
-    state.signalWeights = existing.signalWeights;
-    state.kellyStats = existing.kellyStats;
-    state.sessionHighWatermark = existing.sessionHighWatermark;
-    state.currentPortfolioValue = existing.currentPortfolioValue;
-    state.shieldActive = existing.shieldActive;
-    state.autoTradeEnabled = existing.autoTradeEnabled;
-    state.liveTradeEnabled = existing.liveTradeEnabled;
-    state.paperPositions = existing.paperPositions;
-    state.closedPaperPositions = existing.closedPaperPositions;
-    state.livePositions = existing.livePositions;
-    state.closedLivePositions = existing.closedLivePositions;
-    state.pendingExits = existing.pendingExits || [];
-    state.autoTradeStats = existing.autoTradeStats;
-    state.autoTradeTP = existing.autoTradeTP;
-    state.autoTradeSL = existing.autoTradeSL;
-    state.serverWalletBalance = existing.serverWalletBalance;
-    state.lastWalletRefreshAt = existing.lastWalletRefreshAt;
-    state.dailyTradeCount = existing.dailyTradeCount;
-    state.dailyTradeDate = existing.dailyTradeDate;
-  } else {
-    await loadEngineStateFromDb(userId, state);
-  }
-  if (state.currentPortfolioValue <= 0) {
-    try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-      if (settings?.serverWalletKey) {
-        const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-        const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-        const bs58 = (await import("bs58")).default;
-        const keypair = Keypair2.fromSecretKey(bs58.decode(privateKeyBase58));
-        const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-        const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-        const lamports = await connection2.getBalance(keypair.publicKey);
-        const solBalance = lamports / 1e9;
-        if (solBalance > 0) {
-          state.currentPortfolioValue = solBalance;
-          state.liveTradeEnabled = true;
-          console.log(`[SolEngine] Portfolio auto-set from wallet on start: ${solBalance.toFixed(4)} SOL`);
-        }
-      }
-    } catch {
-    }
-  }
-  state.isRunning = true;
-  engineStates2.set(userId, state);
-  const intervalSec = getAdaptiveScanInterval2(fullConfig) / 1e3;
-  const windowLabel = intervalSec === 30 ? "peak hours (13\u201320 UTC)" : intervalSec === 60 ? "standard hours" : "overnight / weekend";
-  const activeIds = state.activeStrategies.length > 0 ? state.activeStrategies : [state.activeStrategy];
-  const stratLabel = activeIds.map((id) => {
-    const s = SOL_STRATEGIES.find((x) => x.id === id);
-    return s ? `${s.icon}${s.name}` : id;
-  }).join(" + ");
-  addActivity3(state, {
-    type: "info",
-    message: `\u26A1 Peace \u2014 Sol cipher activated. ${stratLabel} in rotation, dropping knowledge every ${intervalSec}s (${windowLabel})`
-  });
-  runScan(userId, state);
-}
-function stopSolEngine(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.isRunning = false;
-  if (state.scanTimer) {
-    clearTimeout(state.scanTimer);
-    state.scanTimer = null;
-  }
-  addActivity3(state, { type: "info", message: "\u{1F6D1} Engine at rest \u2014 knowledge preserved, cipher closed" });
-}
-function getSolEngineStatus(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      running: false,
-      activityFeed: [],
-      signalWeights: Object.fromEntries(DEX_NAMES.map((d) => [d, 1])),
-      shieldActive: false,
-      lastResults: [],
-      kellyStats: {},
-      lastMacro: null,
-      weeklyGoal: { ...DEFAULT_WEEKLY_GOAL },
-      activeStrategy: "momentum_surfer",
-      activeStrategies: ["momentum_surfer"]
-    };
-  }
-  return {
-    running: state.isRunning,
-    config: state.config,
-    activityFeed: state.activityFeed.slice(0, 20),
-    signalWeights: state.signalWeights,
-    kellyStats: state.kellyStats,
-    shieldActive: state.shieldActive,
-    sessionHighWatermark: state.sessionHighWatermark,
-    currentPortfolioValue: state.currentPortfolioValue,
-    lastScanAt: state.lastScanAt,
-    lastResults: state.lastResults,
-    lastMacro: state.lastMacro,
-    weeklyGoal: state.weeklyGoal,
-    activeStrategy: state.activeStrategy,
-    activeStrategies: state.activeStrategies,
-    lastAgentConsensus: state.lastAgentConsensus,
-    paperTradeSize: state.paperTradeSize,
-    compoundMode: state.compoundMode,
-    compoundRate: state.compoundRate,
-    paperBaseCapital: state.paperBaseCapital,
-    paperPortfolioValue: state.paperPortfolioValue,
-    paperPortfolioHistory: state.paperPortfolioHistory,
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeMode: state.liveTradeEnabled ? "live" : state.autoTradeEnabled ? "paper" : "off",
-    pendingSignalsCount: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).length,
-    pendingSignalSymbols: state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > Date.now()).map((s) => s.symbol),
-    serverWalletBalance: state.serverWalletBalance,
-    dailyTradeCount: state.dailyTradeCount,
-    dailyTradeDate: state.dailyTradeDate
-  };
-}
-function getSolStrategies() {
-  return SOL_STRATEGIES;
-}
-function setSolStrategies(userId, strategyIds) {
-  const valid = strategyIds.filter((id) => SOL_STRATEGIES.some((s) => s.id === id));
-  if (valid.length === 0) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategies = valid;
-  state.activeStrategy = valid[0];
-  const strats = valid.map((id) => SOL_STRATEGIES.find((s) => s.id === id)).filter(Boolean);
-  const label = strats.map((s) => `${s.icon}${s.name}`).join(" + ");
-  const modeNote = valid.length > 1 ? ` \u2014 Multi-Strategy Mode \u{1F3AF} active` : "";
-  addActivity3(state, {
-    type: "strategy",
-    message: `\u{1F504} Cipher updated \u2014 ${label}${modeNote}. Word is bond.`
-  });
-  return { success: true, strategies: strats };
-}
-function setSolStrategy(userId, strategyId) {
-  const strategy = SOL_STRATEGIES.find((s) => s.id === strategyId);
-  if (!strategy) return { success: false };
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
-    engineStates2.set(userId, state);
-  }
-  state.activeStrategy = strategyId;
-  state.activeStrategies = [strategyId];
-  addActivity3(state, {
-    type: "strategy",
-    message: `${strategy.icon} Word is bond \u2014 ${strategy.name} now in rotation. Min ${strategy.minConfidence}% confidence, ${strategy.baseFraction * 100}% base size, ${strategy.holdTarget} hold`
-  });
-  return { success: true, strategy };
-}
-function setSolWeeklyGoal(userId, params) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
-    engineStates2.set(userId, state);
-  }
-  const portfolio = state.currentPortfolioValue;
-  let targetSol = params.targetSol || 0;
-  let targetPct = params.targetPct || 0;
-  if (targetPct > 0 && portfolio > 0 && targetSol <= 0) {
-    targetSol = portfolio * (targetPct / 100);
-  } else if (targetSol > 0 && portfolio > 0 && targetPct <= 0) {
-    targetPct = targetSol / portfolio * 100;
-  }
-  if (targetSol <= 0) return { success: false };
-  state.weeklyGoal = {
-    targetSol,
-    targetPct,
-    startPortfolio: portfolio,
-    currentProfitSol: 0,
-    phase: "warming_up",
-    weekStart: Date.now(),
-    winStreak: 0,
-    tradeHistory: []
-  };
-  addActivity3(state, {
-    type: "goal",
-    message: `\u{1F3AF} Target manifested \u2014 +${targetSol.toFixed(3)} SOL (${targetPct.toFixed(1)}%) this week. Warming up the cipher (0.8\xD7 size)`
-  });
-  return { success: true };
-}
-function resetSolWeeklyGoal(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  state.weeklyGoal = { ...DEFAULT_WEEKLY_GOAL };
-  addActivity3(state, { type: "goal", message: "\u{1F504} Cipher cleared \u2014 knowledge reset, back to zero point" });
-  return { success: true };
-}
-function recordSolSignalResult(userId, params) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false };
-  const dex = (params.dex || "unknown").toLowerCase().replace(/[^a-z]/g, "") || "unknown";
-  if (!state.signalWeights[dex]) state.signalWeights[dex] = 1;
-  if (!state.kellyStats[dex]) state.kellyStats[dex] = { wins: 0, losses: 0, totalGainPct: 0 };
-  if (params.outcome === "WIN") {
-    state.signalWeights[dex] = Math.min(2, state.signalWeights[dex] + 0.05);
-    state.kellyStats[dex].wins++;
-    state.kellyStats[dex].totalGainPct += Math.abs(params.gainPct);
-    state.weeklyGoal.winStreak = (state.weeklyGoal.winStreak || 0) + 1;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u2705 Born \u2014 ${params.symbol || dex} +${params.gainPct.toFixed(1)}% sealed in profit. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak: ${state.weeklyGoal.winStreak}`
-    });
-  } else {
-    state.signalWeights[dex] = Math.max(0.2, state.signalWeights[dex] - 0.08);
-    state.kellyStats[dex].losses++;
-    state.weeklyGoal.winStreak = 0;
-    addActivity3(state, {
-      type: "signal",
-      message: `\u274C Lesson built \u2014 ${params.symbol || dex}. The cipher teaches. ${dex} weight ${state.signalWeights[dex].toFixed(2)} | Streak reset`
-    });
-  }
-  if (state.weeklyGoal.phase !== "idle") {
-    const solAmount = params.sol || 0;
-    const actualGainPct = params.gainPct;
-    const gainSol = solAmount * (actualGainPct / 100);
-    state.weeklyGoal.currentProfitSol += gainSol;
-    state.weeklyGoal.tradeHistory.unshift({
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      symbol: params.symbol || dex,
-      sol: solAmount,
-      gainPct: actualGainPct,
-      outcome: params.outcome,
-      strategy: state.activeStrategy
-    });
-    if (state.weeklyGoal.tradeHistory.length > 100) {
-      state.weeklyGoal.tradeHistory = state.weeklyGoal.tradeHistory.slice(0, 100);
-    }
-    const prevPhase = state.weeklyGoal.phase;
-    const newPhase = computeGoalPhase(state.weeklyGoal);
-    if (newPhase !== prevPhase) {
-      state.weeklyGoal.phase = newPhase;
-      const mult = getPhaseMultiplier(newPhase, state.weeklyGoal.winStreak);
-      const phaseNames = {
-        warming_up: "\u{1F535} WARMING UP",
-        building: "\u{1F535} BUILDING",
-        accelerating: "\u{1F7E1} ACCELERATING",
-        cruising: "\u{1F7E2} CRUISING",
-        pushing: "\u{1F7E0} PUSHING",
-        target_reached: "\u{1F3C6} TARGET REACHED"
-      };
-      addActivity3(state, {
-        type: "goal",
-        message: `${phaseNames[newPhase] || newPhase} \u2014 the God builds on. Sizing ${mult}\xD7 | Progress: ${(state.weeklyGoal.currentProfitSol / state.weeklyGoal.targetSol * 100).toFixed(1)}%`
-      });
-    }
-  }
-  return { success: true };
-}
-function setAutoTrade(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.paperEnabled !== void 0) {
-    state.autoTradeEnabled = opts.paperEnabled;
-    addActivity3(state, {
-      type: "info",
-      message: opts.paperEnabled ? "\u{1F4C4} Paper Auto-Trade ENABLED \u2014 the cipher will open virtual positions on every buy signal" : "\u{1F4C4} Paper Auto-Trade DISABLED"
-    });
-  }
-  if (opts.liveEnabled !== void 0) {
-    state.liveTradeEnabled = opts.liveEnabled;
-    if (!opts.liveEnabled) state.pendingSignals = [];
-    addActivity3(state, {
-      type: "info",
-      message: opts.liveEnabled ? "\u26A1 Live Auto-Trade ENABLED \u2014 buy signals will be queued for wallet execution" : "\u26A1 Live Auto-Trade DISABLED \u2014 pending signals cleared"
-    });
-  }
-  if (opts.tpPct !== void 0 && opts.tpPct > 0 && opts.tpPct <= 200) {
-    state.autoTradeTP = opts.tpPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F3AF} Take-profit updated \u2014 positions will close at +${opts.tpPct}%`
-    });
-  }
-  if (opts.slPct !== void 0 && opts.slPct > 0 && opts.slPct <= 50) {
-    state.autoTradeSL = opts.slPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F6E1}\uFE0F Stop-loss updated \u2014 positions protected at -${opts.slPct}%`
-    });
-  }
-  if (opts.trailActivationPct !== void 0 && opts.trailActivationPct > 0 && opts.trailActivationPct <= 100) {
-    state.autoTrailActivationPct = opts.trailActivationPct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F512} Trail activation updated \u2014 trailing stop kicks in at +${opts.trailActivationPct}%`
-    });
-  }
-  if (opts.trailDistancePct !== void 0 && opts.trailDistancePct > 0 && opts.trailDistancePct <= 50) {
-    state.autoTrailDistancePct = opts.trailDistancePct;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4CF} Trail distance updated \u2014 will exit if price drops ${opts.trailDistancePct}% from peak`
-    });
-  }
-  if (opts.paperTradeSize !== void 0) {
-    const sz = Math.max(0, opts.paperTradeSize);
-    state.paperTradeSize = sz;
-    addActivity3(state, {
-      type: "info",
-      message: sz > 0 ? `\u{1F4D0} Paper trade size fixed at ${sz} SOL per position \u2014 overrides portfolio-fraction sizing` : `\u{1F4D0} Paper trade size set to auto (portfolio-fraction mode restored)`
-    });
-  }
-  saveEngineState(userId, state).catch(() => {
-  });
-}
-function setCompoundSettings(userId, opts) {
-  let state = engineStates2.get(userId);
-  if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG2 });
-    engineStates2.set(userId, state);
-  }
-  if (opts.compoundMode !== void 0) {
-    state.compoundMode = opts.compoundMode;
-    addActivity3(state, {
-      type: "info",
-      message: opts.compoundMode ? `\u{1F4B9} Compound Mode ACTIVATED \u2014 profits will grow your paper pool (${state.compoundRate}% reinvestment rate)` : "\u{1F4B9} Compound Mode OFF \u2014 fixed position sizing restored"
-    });
-  }
-  if (opts.compoundRate !== void 0) {
-    const rate = Math.max(1, Math.min(100, opts.compoundRate));
-    state.compoundRate = rate;
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4B9} Compound rate set to ${rate}% \u2014 ${rate === 100 ? "all profits" : `${rate}% of profits`} reinvested into paper pool`
-    });
-  }
-  if (opts.paperBaseCapital !== void 0 && opts.paperBaseCapital > 0) {
-    state.paperBaseCapital = opts.paperBaseCapital;
-    state.paperPortfolioValue = opts.paperBaseCapital;
-    state.paperPortfolioHistory = [{ t: Date.now(), v: opts.paperBaseCapital }];
-    addActivity3(state, {
-      type: "info",
-      message: `\u{1F4BC} Paper capital reset to ${opts.paperBaseCapital.toFixed(3)} SOL \u2014 compound growth clock starts now`
-    });
-  }
-}
-function getPendingSignals(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
-  state.pendingSignals = [];
-  return valid;
-}
-function cancelSignal(userId, mint) {
-  const state = engineStates2.get(userId);
-  if (!state) return;
-  state.pendingSignals = state.pendingSignals.filter((s) => s.mint !== mint);
-  state.signalCooldowns.set(mint, Date.now());
-}
-function confirmLiveTrade(userId, signalId, txHash, tradeData) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const parts = signalId.split("_");
-  const symbol = parts.slice(2).join("_");
-  if (!symbol) return false;
-  const signal = state.pendingSignals.find((s) => s.id === signalId);
-  const sizeSOL = signal?.sizeSOL || 0;
-  if (signal) {
-    state.pendingSignals = state.pendingSignals.filter((s) => s.id !== signalId);
-  }
-  const pos = {
-    id: `live_pos_${Date.now()}_${symbol}`,
-    symbol,
-    mint: tradeData?.mint || signal?.mint || "",
-    entryPrice: tradeData?.entryPrice || 0,
-    currentPrice: tradeData?.entryPrice || 0,
-    targetPct: state.autoTradeTP,
-    slPct: state.autoTradeSL,
-    size: sizeSOL,
-    tokenAmount: tradeData?.tokenAmount || 0,
-    decimals: tradeData?.decimals || 9,
-    strategyId: signal?.strategyId || state.activeStrategy,
-    mode: "live",
-    txHash,
-    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    status: "open"
-  };
-  state.livePositions.push(pos);
-  addActivity3(state, {
-    type: "live_buy",
-    message: `\u26A1 Live EXECUTED: ${symbol} \u2014 ${tradeData?.tokenAmount ? (tradeData.tokenAmount / Math.pow(10, tradeData.decimals || 9)).toFixed(4) + " tokens @ $" + (tradeData.entryPrice || 0).toFixed(6) : ""} tx: ${txHash.slice(0, 16)}...`
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  return true;
-}
-function getPendingExits(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) return [];
-  const now = Date.now();
-  const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
-  return valid;
-}
-function confirmLiveExit(userId, positionId, txHash) {
-  const state = engineStates2.get(userId);
-  if (!state) return false;
-  const pos = state.livePositions.find((p) => p.id === positionId && p.status === "open");
-  if (!pos) return false;
-  const gainPct = pos.entryPrice > 0 ? (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100 : 0;
-  pos.status = "closed";
-  pos.closedAt = (/* @__PURE__ */ new Date()).toISOString();
-  pos.closePnlPct = gainPct;
-  state.closedLivePositions.unshift(pos);
-  if (state.closedLivePositions.length > 50) state.closedLivePositions = state.closedLivePositions.slice(0, 50);
-  const isWin = gainPct >= 0;
-  state.autoTradeStats.totalTrades++;
-  state.autoTradeStats.totalPnlPct += gainPct;
-  if (isWin) {
-    state.autoTradeStats.wins++;
-    if (gainPct > state.autoTradeStats.bestTradePct) state.autoTradeStats.bestTradePct = gainPct;
-  } else {
-    state.autoTradeStats.losses++;
-    if (gainPct < state.autoTradeStats.worstTradePct) state.autoTradeStats.worstTradePct = gainPct;
-  }
-  state.livePositions = state.livePositions.filter((p) => p.id !== positionId);
-  addActivity3(state, {
-    type: "live_sell",
-    message: `\u2705 Live SOLD: ${pos.symbol} \u2014 P&L: ${gainPct >= 0 ? "+" : ""}${gainPct.toFixed(2)}% [TX: ${txHash.slice(0, 12)}...]`
-  });
-  upsertPosition(userId, pos).catch(() => {
-  });
-  saveEngineState(userId, state).catch(() => {
-  });
-  return true;
-}
-function getAutoTradePositions(userId) {
-  const state = engineStates2.get(userId);
-  if (!state) {
-    return {
-      autoTradeEnabled: false,
-      liveTradeEnabled: false,
-      paperPositions: [],
-      closedPaperPositions: [],
-      livePositions: [],
-      closedLivePositions: [],
-      autoTradeStats: { totalTrades: 0, wins: 0, losses: 0, totalPnlPct: 0, bestTradePct: 0, worstTradePct: 0 }
-    };
-  }
-  return {
-    autoTradeEnabled: state.autoTradeEnabled,
-    liveTradeEnabled: state.liveTradeEnabled,
-    autoTradeTP: state.autoTradeTP,
-    autoTradeSL: state.autoTradeSL,
-    autoTrailActivationPct: state.autoTrailActivationPct,
-    autoTrailDistancePct: state.autoTrailDistancePct,
-    paperPositions: state.paperPositions,
-    closedPaperPositions: state.closedPaperPositions.slice(0, 20),
-    livePositions: state.livePositions,
-    closedLivePositions: state.closedLivePositions.slice(0, 20),
-    autoTradeStats: state.autoTradeStats
-  };
-}
-function updateSolPortfolioValue(userId, solValue) {
-  const state = engineStates2.get(userId);
-  if (!state) return { shieldActive: false };
-  state.currentPortfolioValue = solValue;
-  if (solValue > state.sessionHighWatermark) state.sessionHighWatermark = solValue;
-  if (!state.config.shieldEnabled) return { shieldActive: false };
-  const threshold = state.config.shieldThreshold / 100;
-  const triggerLevel = state.sessionHighWatermark * (1 - threshold);
-  const disengageLevel = state.sessionHighWatermark * 0.97;
-  if (!state.shieldActive && state.sessionHighWatermark > 0 && solValue < triggerLevel) {
-    state.shieldActive = true;
-    const dropPct = ((1 - solValue / state.sessionHighWatermark) * 100).toFixed(1);
-    addActivity3(state, {
-      type: "shield",
-      message: `\u{1F6E1}\uFE0F Shield of protection manifested \u2014 portfolio dropped ${dropPct}% from peak (${state.sessionHighWatermark.toFixed(3)} SOL). Righteously restricting to 85%+ confidence only`
-    });
-  } else if (state.shieldActive && solValue >= disengageLevel) {
-    state.shieldActive = false;
-    addActivity3(state, { type: "shield", message: "\u2705 Shield lifted \u2014 peace restored. Full cipher resumed" });
-  }
-  return { shieldActive: state.shieldActive };
-}
-function setShieldActive(userId, active) {
-  const state = engineStates2.get(userId);
-  if (!state) return { success: false, shieldActive: false };
-  state.shieldActive = active;
-  addActivity3(state, {
-    type: "shield",
-    message: active ? "\u{1F6E1}\uFE0F Shield manually activated \u2014 restricting to high-confidence signals only" : "\u2705 Shield manually deactivated \u2014 full cipher resumed"
-  });
-  return { success: true, shieldActive: state.shieldActive };
-}
-async function saveServerWallet(userId, privateKeyBase58) {
-  try {
-    const { Keypair: Keypair2 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    const encrypted = encryptWalletKey(privateKeyBase58);
-    await db.insert(solEngineSettings).values({
-      userId,
-      serverWalletKey: encrypted,
-      activeStrategy: "momentum_surfer",
-      activeStrategies: [],
-      autoTradeEnabled: false,
-      liveTradeEnabled: true,
-      // auto-enable live trade when wallet is connected
-      autoTradeTP: 8,
-      autoTradeSL: 4,
-      weeklyGoal: {},
-      autoTradeStats: {},
-      updatedAt: /* @__PURE__ */ new Date()
-    }).onConflictDoUpdate({
-      target: solEngineSettings.userId,
-      set: { serverWalletKey: encrypted, liveTradeEnabled: true, updatedAt: /* @__PURE__ */ new Date() }
-    });
-    try {
-      const { Connection: Connection3 } = await import("@solana/web3.js");
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      const lamports = await connection2.getBalance(keypair.publicKey);
-      const solBalance = lamports / 1e9;
-      if (solBalance > 0) {
-        const existing = engineStates2.get(userId);
-        if (existing) {
-          existing.currentPortfolioValue = solBalance;
-          existing.liveTradeEnabled = true;
-          addActivity3(existing, {
-            type: "info",
-            message: `\u{1F511} Server wallet connected: ${walletAddress.slice(0, 8)}... | Balance: ${solBalance.toFixed(4)} SOL | Live trading ENABLED \u2014 ready to execute`
-          });
-        }
-      }
-    } catch {
-    }
-    return { success: true, walletAddress };
-  } catch (err) {
-    return { success: false, error: err.message || "Invalid private key" };
-  }
-}
-async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(solEngineSettings.userId, userId));
-}
-async function getServerWalletStatus(userId) {
-  try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
-    if (!settings?.serverWalletKey) return { hasServerWallet: false };
-    const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
-    const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
-    const bs58 = (await import("bs58")).default;
-    const secretKey = bs58.decode(privateKeyBase58);
-    const keypair = Keypair2.fromSecretKey(secretKey);
-    const walletAddress = keypair.publicKey.toBase58();
-    let balanceLamports = 0;
-    let balanceSol = 0;
-    try {
-      const rpcUrl = process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=15319bf4-5b40-4958-ac8d-6313aa55eb92";
-      const connection2 = new Connection3(rpcUrl, { commitment: "confirmed" });
-      balanceLamports = await connection2.getBalance(keypair.publicKey);
-      balanceSol = Math.round(balanceLamports / 1e9 * 1e4) / 1e4;
-    } catch {
-    }
-    return { hasServerWallet: true, walletAddress, balanceLamports, balanceSol };
-  } catch {
-    return { hasServerWallet: false };
-  }
-}
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG2, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
-var init_sol_engine = __esm({
-  "server/services/sol-engine.ts"() {
-    "use strict";
-    init_solana_scanner();
-    init_db();
-    init_schema();
-    DEX_NAMES = ["raydium", "orca", "meteora", "pumpfun", "jupiter"];
-    SOL_STRATEGIES = [
-      {
-        id: "momentum_surfer",
-        name: "Momentum Surfer",
-        icon: "\u{1F3C4}",
-        description: "Rides strong directional price momentum with buy pressure confirmation",
-        minConfidence: 70,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "1\u20134h"
-      },
-      {
-        id: "breakout_hunter",
-        name: "Breakout Hunter",
-        icon: "\u{1F680}",
-        description: "Targets tokens breaking out of consolidation on strong buy signals",
-        minConfidence: 75,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "30min\u20132h"
-      },
-      {
-        id: "dip_sniper",
-        name: "Dip Sniper",
-        icon: "\u{1F3AF}",
-        description: "Enters on brief pullbacks in overall uptrends \u2014 low risk entries",
-        minConfidence: 68,
-        maxRisk: "LOW",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "2\u20138h"
-      },
-      {
-        id: "meme_velocity",
-        name: "Meme Velocity",
-        icon: "\u26A1",
-        description: "Captures explosive meme token moves with quick in-out on Pump.fun",
-        minConfidence: 65,
-        maxRisk: "HIGH",
-        baseFraction: 0.04,
-        minSignal: "BUY",
-        holdTarget: "10\u201315min",
-        dexPreference: "pumpfun"
-      },
-      {
-        id: "whale_follower",
-        name: "Whale Follower",
-        icon: "\u{1F40B}",
-        description: "Tracks large wallet accumulation patterns and high maker counts",
-        minConfidence: 72,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.02,
-        minSignal: "BUY",
-        holdTarget: "4\u201324h"
-      },
-      {
-        id: "volume_explosion",
-        name: "Volume Explosion",
-        icon: "\u{1F4A5}",
-        description: "Enters tokens with sudden 3x+ volume spikes on strong buy signals",
-        minConfidence: 65,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.035,
-        minSignal: "STRONG_BUY",
-        holdTarget: "20\u201345min"
-      },
-      {
-        id: "smart_money_flow",
-        name: "Smart Money Flow",
-        icon: "\u{1F9E0}",
-        description: "Institutional-grade entries on high-confidence, low-risk accumulation",
-        minConfidence: 78,
-        maxRisk: "LOW",
-        baseFraction: 0.025,
-        minSignal: "STRONG_BUY",
-        holdTarget: "1\u20133 days"
-      },
-      {
-        id: "liquidity_sweep",
-        name: "Liquidity Sweep",
-        icon: "\u{1F30A}",
-        description: "Scalps sharp moves after liquidity pool sweeps \u2014 small, frequent gains",
-        minConfidence: 60,
-        maxRisk: "HIGH",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "10\u201330min"
-      },
-      {
-        id: "adaptive",
-        name: "Adaptive (Auto)",
-        icon: "\u{1F916}",
-        description: "Auto-selects the best strategy each scan based on current market conditions \u2014 whale activity, breakouts, dips, macro bias",
-        minConfidence: 68,
-        maxRisk: "MEDIUM",
-        baseFraction: 0.03,
-        minSignal: "BUY",
-        holdTarget: "varies"
-      }
-    ];
-    DEFAULT_CONFIG2 = {
-      dexFilter: "all",
-      minConfidence: 65,
-      maxTokens: 10,
-      useKelly: false,
-      shieldEnabled: true,
-      shieldThreshold: 10,
-      adaptiveScan: true,
-      aiMode: "full",
-      directionFilter: "buy_only",
-      riskPerTradePct: 1,
-      maxDailyTrades: 0,
-      stopOrdersEnabled: false
-    };
-    DEFAULT_WEEKLY_GOAL = {
-      targetSol: 0,
-      targetPct: 0,
-      startPortfolio: 0,
-      currentProfitSol: 0,
-      phase: "idle",
-      weekStart: 0,
-      winStreak: 0,
-      tradeHistory: []
-    };
-    engineStates2 = /* @__PURE__ */ new Map();
-    PAPER_DEFAULT_PORTFOLIO_SOL = 10;
   }
 });
 
@@ -46833,6 +46833,132 @@ Respond with ONLY valid JSON:
       console.error("Error executing flip trade:", error);
       res.status(500).json({ error: "Failed to execute flip trade: " + error.message });
     }
+  });
+  app2.get("/api/platform-monitors", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const todayStart = /* @__PURE__ */ new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const weekStart = /* @__PURE__ */ new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
+    const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
+    let mt5 = null;
+    try {
+      const cached = global.mt5AccountData?.[userId];
+      const isOnline = cached && Date.now() - new Date(cached.timestamp || 0).getTime() < 6e5;
+      const bal = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
+      const eq11 = cached?.equity ?? cached?.accounts?.[0]?.equity ?? bal;
+      const [todayDbTrades, weekDbTrades] = await Promise.all([
+        db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
+        db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
+      ]);
+      const dailyPnl = parseFloat(todayDbTrades[0]?.[0]?.pnl ?? 0);
+      const weeklyPnl = parseFloat(weekDbTrades[0]?.[0]?.pnl ?? 0);
+      mt5 = { balance: bal, equity: eq11, dailyPnl, weeklyPnl, isOnline };
+    } catch {
+      mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
+    }
+    const tlAccounts = [];
+    try {
+      const conns = await storage.getUserTradelockerConnections(userId);
+      const active = conns.filter((c) => c.isActive);
+      await Promise.all(active.map(async (conn) => {
+        try {
+          const svc = await getOrCreateService(conn);
+          const [positions, filledOrders] = await Promise.all([
+            svc.getPositions().catch(() => []),
+            svc.getFilledOrders(weekStartTs).catch(() => [])
+          ]);
+          const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          let dailyPnl = 0, weeklyPnl = 0;
+          for (const o of filledOrders) {
+            const ct = o.closeTime ? new Date(o.closeTime).getTime() : 0;
+            if (ct >= weekStart.getTime()) weeklyPnl += o.profit || 0;
+            if (ct >= todayStart.getTime()) dailyPnl += o.profit || 0;
+          }
+          let balance = 0, equity = 0;
+          try {
+            const balData = await svc.getAccountInfo().catch(() => null);
+            balance = balData?.balance ?? 0;
+            equity = balData?.equity ?? balance;
+          } catch {
+          }
+          tlAccounts.push({
+            id: conn.id,
+            email: conn.email,
+            accountId: conn.accountId,
+            accountType: conn.accountType,
+            accountName: conn.accountName,
+            balance,
+            equity,
+            unrealizedPnl: unrealized,
+            dailyPnl,
+            weeklyPnl,
+            openTrades: positions.length
+          });
+        } catch (e) {
+          tlAccounts.push({
+            id: conn.id,
+            email: conn.email,
+            accountId: conn.accountId,
+            accountType: conn.accountType,
+            error: e.message,
+            balance: 0,
+            equity: 0,
+            unrealizedPnl: 0,
+            dailyPnl: 0,
+            weeklyPnl: 0,
+            openTrades: 0
+          });
+        }
+      }));
+    } catch {
+    }
+    let solana = null;
+    try {
+      const { getSolEngineStatus: getSolEngineStatus2 } = await Promise.resolve().then(() => (init_sol_engine(), sol_engine_exports));
+      const solState = getSolEngineStatus2(userId);
+      const goal = solState.weeklyGoal;
+      const history = goal?.tradeHistory ?? [];
+      const dailySolPnl = history.filter((t) => t.timestamp && new Date(t.timestamp) >= todayStart).reduce((s, t) => s + (t.pnlSol ?? 0), 0);
+      const weeklySolPnl = goal?.currentProfitSol ?? 0;
+      const walletSol = solState.paperPortfolioValue ?? solState.currentPortfolioValue ?? 0;
+      solana = {
+        balanceSol: walletSol,
+        dailyPnlSol: dailySolPnl,
+        weeklyPnlSol: weeklySolPnl,
+        weeklyTargetSol: goal?.targetSol ?? 0,
+        openPositions: solState.pendingSignalsCount ?? 0,
+        isRunning: solState.running ?? false,
+        autoTradeMode: solState.autoTradeMode ?? "off",
+        phase: goal?.phase ?? "idle",
+        winStreak: goal?.winStreak ?? 0
+      };
+    } catch {
+      solana = { balanceSol: 0, dailyPnlSol: 0, weeklyPnlSol: 0, openPositions: 0, isRunning: false };
+    }
+    let polymarket = null;
+    try {
+      const { getEngineState: getEngineState2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+      const polyState = getEngineState2(userId);
+      const closed = polyState.closedPositions ?? [];
+      const dailyRealizedPnl = closed.filter((p) => p.closedAt && new Date(p.closedAt) >= todayStart).reduce((s, p) => s + (p.realizedPnl ?? 0), 0);
+      const weeklyRealizedPnl = closed.filter((p) => p.closedAt && new Date(p.closedAt) >= weekStart).reduce((s, p) => s + (p.realizedPnl ?? 0), 0);
+      polymarket = {
+        isRunning: polyState.isRunning,
+        openPositions: polyState.openPositions.length,
+        totalUnrealizedPnl: polyState.totalUnrealizedPnl,
+        totalRealizedPnl: polyState.totalRealizedPnl,
+        dailyRealizedPnl,
+        weeklyRealizedPnl,
+        tradesOpened: polyState.tradesOpened
+      };
+    } catch {
+      polymarket = { isRunning: false, openPositions: 0, totalUnrealizedPnl: 0, totalRealizedPnl: 0, dailyRealizedPnl: 0, weeklyRealizedPnl: 0, tradesOpened: 0 };
+    }
+    res.json({ mt5, tradelocker: tlAccounts, solana, polymarket });
   });
   app2.get("/api/tradelocker/debug-accounts", async (req, res) => {
     if (!req.isAuthenticated()) {

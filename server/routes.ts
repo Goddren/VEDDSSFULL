@@ -16674,6 +16674,125 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── GET /api/platform-monitors ─────────────────────────────────────────────
+  // Single endpoint returning per-platform balance + daily + weekly P&L for
+  // the dashboard "Platform Monitors" section. Each platform is fully separate.
+  app.get("/api/platform-monitors", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const todayStart  = new Date(); todayStart.setHours(0,0,0,0);
+    const weekStart   = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
+    const todayStartTs = Math.floor(todayStart.getTime() / 1000);
+    const weekStartTs  = Math.floor(weekStart.getTime() / 1000);
+
+    // ── MT5 ──────────────────────────────────────────────────────────────────
+    let mt5: any = null;
+    try {
+      const cached = (global as any).mt5AccountData?.[userId];
+      const isOnline = cached && (Date.now() - new Date(cached.timestamp || 0).getTime()) < 600_000;
+      const bal = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
+      const eq  = cached?.equity  ?? cached?.accounts?.[0]?.equity  ?? bal;
+
+      // daily + weekly P&L from DB trades
+      const [todayDbTrades, weekDbTrades] = await Promise.all([
+        db.execute(sql`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
+        db.execute(sql`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
+      ]);
+      const dailyPnl  = parseFloat((todayDbTrades as any)[0]?.[0]?.pnl ?? 0);
+      const weeklyPnl = parseFloat((weekDbTrades  as any)[0]?.[0]?.pnl ?? 0);
+
+      mt5 = { balance: bal, equity: eq, dailyPnl, weeklyPnl, isOnline };
+    } catch { mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false }; }
+
+    // ── TradeLocker — per account ─────────────────────────────────────────────
+    const tlAccounts: any[] = [];
+    try {
+      const conns = await storage.getUserTradelockerConnections(userId);
+      const active = conns.filter((c: any) => c.isActive);
+      await Promise.all(active.map(async (conn: any) => {
+        try {
+          const svc = await tlGetOrCreateService(conn);
+          const [positions, filledOrders] = await Promise.all([
+            svc.getPositions().catch(() => []),
+            svc.getFilledOrders(weekStartTs).catch(() => []),
+          ]);
+          const unrealized = positions.reduce((s: number, p: any) =>
+            s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
+          let dailyPnl = 0, weeklyPnl = 0;
+          for (const o of filledOrders) {
+            const ct = o.closeTime ? new Date(o.closeTime).getTime() : 0;
+            if (ct >= weekStart.getTime()) weeklyPnl += (o.profit || 0);
+            if (ct >= todayStart.getTime()) dailyPnl  += (o.profit || 0);
+          }
+          // Try to fetch live balance
+          let balance = 0, equity = 0;
+          try {
+            const balData = await svc.getAccountInfo().catch(() => null);
+            balance = balData?.balance ?? 0;
+            equity  = balData?.equity  ?? balance;
+          } catch {}
+          tlAccounts.push({
+            id: conn.id, email: conn.email, accountId: conn.accountId,
+            accountType: conn.accountType, accountName: conn.accountName,
+            balance, equity, unrealizedPnl: unrealized,
+            dailyPnl, weeklyPnl, openTrades: positions.length,
+          });
+        } catch (e: any) {
+          tlAccounts.push({
+            id: conn.id, email: conn.email, accountId: conn.accountId,
+            accountType: conn.accountType, error: e.message,
+            balance: 0, equity: 0, unrealizedPnl: 0, dailyPnl: 0, weeklyPnl: 0, openTrades: 0,
+          });
+        }
+      }));
+    } catch {}
+
+    // ── Solana ───────────────────────────────────────────────────────────────
+    let solana: any = null;
+    try {
+      const { getSolEngineStatus } = await import('./services/sol-engine');
+      const solState = getSolEngineStatus(userId);
+      const goal = (solState as any).weeklyGoal;
+      const history: any[] = goal?.tradeHistory ?? [];
+      const dailySolPnl  = history.filter((t: any) => t.timestamp && new Date(t.timestamp) >= todayStart).reduce((s: number, t: any) => s + (t.pnlSol ?? 0), 0);
+      const weeklySolPnl = goal?.currentProfitSol ?? 0;
+      const walletSol = (solState as any).paperPortfolioValue ?? (solState as any).currentPortfolioValue ?? 0;
+      solana = {
+        balanceSol: walletSol,
+        dailyPnlSol: dailySolPnl,
+        weeklyPnlSol: weeklySolPnl,
+        weeklyTargetSol: goal?.targetSol ?? 0,
+        openPositions: ((solState as any).pendingSignalsCount ?? 0),
+        isRunning: (solState as any).running ?? false,
+        autoTradeMode: (solState as any).autoTradeMode ?? 'off',
+        phase: goal?.phase ?? 'idle',
+        winStreak: goal?.winStreak ?? 0,
+      };
+    } catch { solana = { balanceSol: 0, dailyPnlSol: 0, weeklyPnlSol: 0, openPositions: 0, isRunning: false }; }
+
+    // ── Polymarket ───────────────────────────────────────────────────────────
+    let polymarket: any = null;
+    try {
+      const { getEngineState } = await import('./services/polymarket-autonomous-engine');
+      const polyState = getEngineState(userId);
+      const closed = polyState.closedPositions ?? [];
+      const dailyRealizedPnl  = closed.filter((p: any) => p.closedAt && new Date(p.closedAt) >= todayStart).reduce((s: number, p: any) => s + (p.realizedPnl ?? 0), 0);
+      const weeklyRealizedPnl = closed.filter((p: any) => p.closedAt && new Date(p.closedAt) >= weekStart).reduce((s: number, p: any) => s + (p.realizedPnl ?? 0), 0);
+      polymarket = {
+        isRunning: polyState.isRunning,
+        openPositions: polyState.openPositions.length,
+        totalUnrealizedPnl: polyState.totalUnrealizedPnl,
+        totalRealizedPnl: polyState.totalRealizedPnl,
+        dailyRealizedPnl,
+        weeklyRealizedPnl,
+        tradesOpened: polyState.tradesOpened,
+      };
+    } catch { polymarket = { isRunning: false, openPositions: 0, totalUnrealizedPnl: 0, totalRealizedPnl: 0, dailyRealizedPnl: 0, weeklyRealizedPnl: 0, tradesOpened: 0 }; }
+
+    res.json({ mt5, tradelocker: tlAccounts, solana, polymarket });
+  });
+
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });

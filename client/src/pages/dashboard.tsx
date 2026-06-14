@@ -556,9 +556,22 @@ const Dashboard: React.FC = () => {
   const { data: tlTrades } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/trades'],
     enabled: !!user,
-    refetchInterval: 15000,   // faster: 15s so new trades show quickly
+    refetchInterval: 15000,
     staleTime: 0,
     select: (data) => (Array.isArray(data) ? data.slice(0, 20) : []),
+  });
+
+  // Platform Monitors — per-platform balance + daily + weekly P&L
+  const { data: platformMonitors } = useQuery<{
+    mt5: { balance: number; equity: number; dailyPnl: number; weeklyPnl: number; isOnline: boolean } | null;
+    tradelocker: Array<{ id: number; email: string; accountId: string; accountType: string; accountName?: string; balance: number; equity: number; unrealizedPnl: number; dailyPnl: number; weeklyPnl: number; openTrades: number; error?: string }>;
+    solana: { balanceSol: number; dailyPnlSol: number; weeklyPnlSol: number; weeklyTargetSol: number; openPositions: number; isRunning: boolean; autoTradeMode: string; phase: string; winStreak: number } | null;
+    polymarket: { isRunning: boolean; openPositions: number; totalUnrealizedPnl: number; totalRealizedPnl: number; dailyRealizedPnl: number; weeklyRealizedPnl: number; tradesOpened: number } | null;
+  }>({
+    queryKey: ['/api/platform-monitors'],
+    enabled: !!user,
+    refetchInterval: 30000,
+    staleTime: 0,
   });
 
   // Derive account balances for header display
@@ -758,6 +771,141 @@ const Dashboard: React.FC = () => {
                     </div>
                   </Link>
                 ))}
+              </div>
+            )}
+
+            {/* ── Platform Monitors ─────────────────────────────────────── */}
+            {platformMonitors && (
+              <div className="space-y-1.5">
+                {/* Section label */}
+                <div className="flex items-center gap-2 px-0.5 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Platform Monitors</span>
+                  <div className="flex-1 h-px bg-gray-800" />
+                </div>
+
+                {/* MT5 */}
+                {platformMonitors.mt5 && (
+                  <Link href="/mt5-chart-data">
+                    <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-cyan-500/30 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${platformMonitors.mt5.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                          <span className="text-xs font-bold text-white">MT5</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${platformMonitors.mt5.isOnline ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700 text-gray-500'}`}>
+                            {platformMonitors.mt5.isOnline ? 'ONLINE' : 'OFFLINE'}
+                          </span>
+                        </div>
+                        <span className="text-sm font-bold text-white">${platformMonitors.mt5.balance.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5 text-[10px]">
+                        <span className="text-gray-500">Equity: <span className="text-gray-300">${platformMonitors.mt5.equity.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-500">Today: <span className={platformMonitors.mt5.dailyPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.mt5.dailyPnl >= 0 ? '+' : ''}${platformMonitors.mt5.dailyPnl.toFixed(2)}</span></span>
+                          <span className="text-gray-500">Week: <span className={platformMonitors.mt5.weeklyPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.mt5.weeklyPnl >= 0 ? '+' : ''}${platformMonitors.mt5.weeklyPnl.toFixed(2)}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                )}
+
+                {/* TradeLocker — one card per account */}
+                {platformMonitors.tradelocker.map((acc) => (
+                  <Link key={acc.id} href="/webhooks">
+                    <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-purple-500/30 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 flex-shrink-0" />
+                          <span className="text-xs font-bold text-white truncate max-w-[120px]">TL: {acc.accountName || acc.email.split('@')[0]}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${acc.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                            {acc.accountType?.toUpperCase()}
+                          </span>
+                        </div>
+                        {acc.error ? (
+                          <span className="text-[9px] text-red-400">Auth error</span>
+                        ) : (
+                          <span className="text-sm font-bold text-white">${acc.balance.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                        )}
+                      </div>
+                      {!acc.error && (
+                        <div className="flex items-center justify-between mt-1.5 text-[10px]">
+                          <span className="text-gray-500">Eq: <span className="text-gray-300">${acc.equity.toFixed(2)}</span> · Open: <span className="text-gray-300">{acc.openTrades}</span> · Unreal: <span className={acc.unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>{acc.unrealizedPnl >= 0 ? '+' : ''}${acc.unrealizedPnl.toFixed(2)}</span></span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-gray-500">Today: <span className={acc.dailyPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{acc.dailyPnl >= 0 ? '+' : ''}${acc.dailyPnl.toFixed(2)}</span></span>
+                            <span className="text-gray-500">Week: <span className={acc.weeklyPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{acc.weeklyPnl >= 0 ? '+' : ''}${acc.weeklyPnl.toFixed(2)}</span></span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                ))}
+
+                {/* Solana */}
+                {platformMonitors.solana && (
+                  <Link href="/solana-scanner">
+                    <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-purple-500/30 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${platformMonitors.solana.isRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                          <span className="text-xs font-bold text-white">Solana</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${platformMonitors.solana.isRunning ? 'bg-purple-500/20 text-purple-300' : 'bg-gray-700 text-gray-500'}`}>
+                            {platformMonitors.solana.isRunning ? platformMonitors.solana.autoTradeMode.toUpperCase() : 'OFF'}
+                          </span>
+                        </div>
+                        <span className="text-sm font-bold text-white">{platformMonitors.solana.balanceSol.toFixed(4)} SOL</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5 text-[10px]">
+                        <span className="text-gray-500">
+                          Phase: <span className="text-purple-300 capitalize">{platformMonitors.solana.phase}</span>
+                          {platformMonitors.solana.winStreak > 0 && <span className="text-amber-400 ml-1">🔥{platformMonitors.solana.winStreak}</span>}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-500">Today: <span className={platformMonitors.solana.dailyPnlSol >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.solana.dailyPnlSol >= 0 ? '+' : ''}{platformMonitors.solana.dailyPnlSol.toFixed(4)} SOL</span></span>
+                          <span className="text-gray-500">Week: <span className={platformMonitors.solana.weeklyPnlSol >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.solana.weeklyPnlSol >= 0 ? '+' : ''}{platformMonitors.solana.weeklyPnlSol.toFixed(4)} SOL</span></span>
+                        </div>
+                      </div>
+                      {platformMonitors.solana.weeklyTargetSol > 0 && (
+                        <div className="mt-1.5">
+                          <div className="w-full h-1 rounded-full bg-gray-800">
+                            <div className="h-1 rounded-full bg-purple-500" style={{ width: `${Math.min((platformMonitors.solana.weeklyPnlSol / platformMonitors.solana.weeklyTargetSol) * 100, 100)}%` }} />
+                          </div>
+                          <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                            <span>Weekly goal</span>
+                            <span>{((platformMonitors.solana.weeklyPnlSol / platformMonitors.solana.weeklyTargetSol) * 100).toFixed(0)}% of {platformMonitors.solana.weeklyTargetSol.toFixed(2)} SOL</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                )}
+
+                {/* Polymarket */}
+                {platformMonitors.polymarket && (
+                  <Link href="/polymarket-engine">
+                    <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-violet-500/30 transition-colors">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${platformMonitors.polymarket.isRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-600'}`} />
+                          <span className="text-xs font-bold text-white">Polymarket</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${platformMonitors.polymarket.isRunning ? 'bg-violet-500/20 text-violet-300' : 'bg-gray-700 text-gray-500'}`}>
+                            {platformMonitors.polymarket.isRunning ? 'RUNNING' : 'OFF'}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-bold ${platformMonitors.polymarket.totalRealizedPnl + platformMonitors.polymarket.totalUnrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {(platformMonitors.polymarket.totalRealizedPnl + platformMonitors.polymarket.totalUnrealizedPnl) >= 0 ? '+' : ''}${(platformMonitors.polymarket.totalRealizedPnl + platformMonitors.polymarket.totalUnrealizedPnl).toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-1.5 text-[10px]">
+                        <span className="text-gray-500">Open: <span className="text-gray-300">{platformMonitors.polymarket.openPositions}</span> · Trades: <span className="text-gray-300">{platformMonitors.polymarket.tradesOpened}</span> · Unreal: <span className={platformMonitors.polymarket.totalUnrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>{platformMonitors.polymarket.totalUnrealizedPnl >= 0 ? '+' : ''}${platformMonitors.polymarket.totalUnrealizedPnl.toFixed(2)}</span></span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-500">Today: <span className={platformMonitors.polymarket.dailyRealizedPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.polymarket.dailyRealizedPnl >= 0 ? '+' : ''}${platformMonitors.polymarket.dailyRealizedPnl.toFixed(2)}</span></span>
+                          <span className="text-gray-500">Week: <span className={platformMonitors.polymarket.weeklyRealizedPnl >= 0 ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>{platformMonitors.polymarket.weeklyRealizedPnl >= 0 ? '+' : ''}${platformMonitors.polymarket.weeklyRealizedPnl.toFixed(2)}</span></span>
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+                )}
               </div>
             )}
 
