@@ -1107,6 +1107,13 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   // Build-version endpoint — client polls this on startup to detect new deploys.
   // Returns the server start timestamp which changes on every Render restart.
   // Must be no-cache so the SW never serves a stale version number.
+  // Expose public config (Google Client ID for OAuth, etc.)
+  app.get("/api/config", (_req: Request, res: Response) => {
+    res.json({
+      googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+    });
+  });
+
   app.get("/api/build-version", (_req: Request, res: Response) => {
     res.set({
       "Cache-Control": "no-cache, no-store, must-revalidate",

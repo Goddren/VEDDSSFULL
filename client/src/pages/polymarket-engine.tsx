@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -235,6 +235,9 @@ export default function PolymarketEnginePage() {
   const [kalshiPassword, setKalshiPassword]   = useState("");
   const [showKalshiPw, setShowKalshiPw]       = useState(false);
   const [showKalshiConfig, setShowKalshiConfig] = useState(false);
+  const [gisReady, setGisReady]               = useState(false);
+  const [googleEmailPrefilled, setGoogleEmailPrefilled] = useState(false);
+  const googleBtnRef                          = useRef<HTMLDivElement>(null);
   const [kalshiCfgContracts, setKalshiCfgContracts] = useState("");
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
@@ -245,6 +248,54 @@ export default function PolymarketEnginePage() {
   const [polyPrivateKey, setPolyPrivateKey]     = useState("");
   const [showPolyKey, setShowPolyKey]           = useState(false);
 
+
+  // ── Public app config (Google Client ID, etc.) ───────────────────────────
+  const { data: appConfig } = useQuery<{ googleClientId: string | null }>({
+    queryKey: ["/api/config"],
+    staleTime: Infinity,
+  });
+
+  // Load Google Identity Services when setup panel is open and client ID is configured
+  useEffect(() => {
+    const clientId = appConfig?.googleClientId;
+    if (!clientId || !showKalshiSetup) return;
+    if ((window as any).google?.accounts?.id) { initGIS(clientId); return; }
+    const script = document.createElement('script');
+    script.id = 'gis-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => initGIS(clientId);
+    document.head.appendChild(script);
+  }, [appConfig?.googleClientId, showKalshiSetup]);
+
+  function initGIS(clientId: string) {
+    (window as any).google?.accounts.id.initialize({
+      client_id: clientId,
+      callback: (resp: { credential: string }) => {
+        try {
+          const payload = JSON.parse(atob(resp.credential.split('.')[1]));
+          if (payload.email) {
+            setKalshiEmail(payload.email);
+            setGoogleEmailPrefilled(true);
+          }
+        } catch { /* ignore decode errors */ }
+      },
+      cancel_on_tap_outside: true,
+    });
+    setGisReady(true);
+  }
+
+  // Render the native Google Sign-In button into the ref'd div
+  useEffect(() => {
+    if (!gisReady || !googleBtnRef.current) return;
+    (window as any).google?.accounts.id.renderButton(googleBtnRef.current, {
+      theme: 'filled_black',
+      size: 'large',
+      text: 'signin_with',
+      width: googleBtnRef.current.offsetWidth || 320,
+    });
+  }, [gisReady, showKalshiSetup]);
 
   // ── 5-min BTC prediction — Binance feed, US-legal ─────────────────────────
   const {
@@ -805,17 +856,50 @@ export default function PolymarketEnginePage() {
               ) : (
                 <div className="space-y-2 bg-black/20 rounded-xl p-3">
                   <p className="text-[10px] font-bold text-indigo-300">Kalshi Login</p>
-                  <input
-                    type="email"
-                    placeholder="Kalshi email"
-                    value={kalshiEmail}
-                    onChange={e => setKalshiEmail(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500"
-                  />
+
+                  {/* Google Sign-In button — shown when GOOGLE_CLIENT_ID is configured */}
+                  {appConfig?.googleClientId && (
+                    <>
+                      <div ref={googleBtnRef} className="w-full flex justify-center" />
+                      {googleEmailPrefilled && (
+                        <p className="text-[9px] text-emerald-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block" />
+                          Google email detected — enter your Kalshi password below
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 my-1">
+                        <div className="flex-1 h-px bg-gray-700/60" />
+                        <span className="text-[9px] text-gray-600">or enter manually</span>
+                        <div className="flex-1 h-px bg-gray-700/60" />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Email field — read-only when prefilled from Google */}
+                  <div className="relative">
+                    <input
+                      type="email"
+                      placeholder="Kalshi email"
+                      value={kalshiEmail}
+                      readOnly={googleEmailPrefilled}
+                      onChange={e => { setKalshiEmail(e.target.value); setGoogleEmailPrefilled(false); }}
+                      className={`w-full bg-gray-900 border rounded-lg text-xs text-white px-3 py-2 focus:outline-none focus:border-indigo-500 ${googleEmailPrefilled ? "border-emerald-600/60 text-emerald-300 cursor-default" : "border-gray-700"}`}
+                    />
+                    {googleEmailPrefilled && (
+                      <button
+                        onClick={() => { setGoogleEmailPrefilled(false); setKalshiEmail(""); }}
+                        title="Clear Google email"
+                        className="absolute right-2 top-2 text-gray-500 hover:text-gray-300"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
                   <div className="relative">
                     <input
                       type={showKalshiPw ? "text" : "password"}
-                      placeholder="Kalshi password"
+                      placeholder={googleEmailPrefilled ? "Kalshi password (set one at kalshi.com if Google-only)" : "Kalshi password"}
                       value={kalshiPassword}
                       onChange={e => setKalshiPassword(e.target.value)}
                       className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 focus:outline-none focus:border-indigo-500"
@@ -824,6 +908,15 @@ export default function PolymarketEnginePage() {
                       {showKalshiPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                     </button>
                   </div>
+
+                  {googleEmailPrefilled && (
+                    <p className="text-[9px] text-gray-500 leading-tight">
+                      If you signed up on Kalshi with Google only, set a password at{" "}
+                      <a href="https://kalshi.com" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">kalshi.com</a>{" "}
+                      → Account Settings first.
+                    </p>
+                  )}
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => saveKalshiCredsMutation.mutate({ email: kalshiEmail, password: kalshiPassword })}
@@ -832,7 +925,7 @@ export default function PolymarketEnginePage() {
                     >
                       {saveKalshiCredsMutation.isPending ? "Connecting…" : "Connect"}
                     </button>
-                    <button onClick={() => setShowKalshiSetup(false)} className="text-xs text-gray-500 px-3">Cancel</button>
+                    <button onClick={() => { setShowKalshiSetup(false); setGoogleEmailPrefilled(false); setKalshiEmail(""); setKalshiPassword(""); }} className="text-xs text-gray-500 px-3">Cancel</button>
                   </div>
                 </div>
               )}
