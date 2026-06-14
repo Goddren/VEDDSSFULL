@@ -16206,7 +16206,21 @@ Respond with ONLY valid JSON:
     }
   });
 
-  // GET /api/polymarket/btc-live — 5-min BTC predictions with CLOB live prices (10 s cache)
+  // GET /api/btc/5min-prediction — Binance-sourced 5-min BTC TA prediction (US-legal, no auth)
+  app.get("/api/btc/5min-prediction", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getBTC5MinPrediction } = await import('./services/btc-5min-predictor');
+      const forceRefresh = req.query.refresh === 'true';
+      const prediction = await getBTC5MinPrediction(forceRefresh);
+      res.set('Cache-Control', 'no-store');
+      res.json(prediction);
+    } catch (err: any) {
+      res.status(500).json({ error: `BTC prediction failed: ${err.message}` });
+    }
+  });
+
+  // GET /api/polymarket/btc-live — near-term BTC Polymarket markets (10 s cache)
   app.get("/api/polymarket/btc-live", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     try {

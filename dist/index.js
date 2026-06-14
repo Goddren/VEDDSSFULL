@@ -7081,8 +7081,8 @@ ${ictLines.join("\n")}`;
         const pdConflicts = !pdResult.aligns && pdResult.zone !== "EQUILIBRIUM";
         const aligns = bosAligns && !pdConflicts;
         const recentCloses = level.candles.slice(0, 10).map((c) => c.c);
-        const sma = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
-        const trendDirection = recentCloses[0] > sma * 1.001 ? "BULLISH" : recentCloses[0] < sma * 0.999 ? "BEARISH" : "NEUTRAL";
+        const sma2 = recentCloses.reduce((s, v) => s + v, 0) / recentCloses.length;
+        const trendDirection = recentCloses[0] > sma2 * 1.001 ? "BULLISH" : recentCloses[0] < sma2 * 0.999 ? "BEARISH" : "NEUTRAL";
         levelResults.push({ label: role, tf: tfLabel, trendDirection, aligns, bosCHOCH: bosResult, pd: pdResult, wyckoff: wyckoffResult });
       }
       if (levelResults.length > 0) {
@@ -17747,11 +17747,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k = 2 / (period + 1);
-  const ema = [values[0]];
+  const ema2 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema.push(values[i] * k + ema[i - 1] * (1 - k));
+    ema2.push(values[i] * k + ema2[i - 1] * (1 - k));
   }
-  return ema;
+  return ema2;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -17939,9 +17939,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k = 2 / (emaPeriod + 1);
-  let ema = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema2 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema = chronological[i].c * k + ema * (1 - k);
+    ema2 = chronological[i].c * k + ema2 * (1 - k);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -17951,10 +17951,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr === 0) return void 0;
-  const upper = ema + multiplier * atr;
-  const lower = ema - multiplier * atr;
+  const upper = ema2 + multiplier * atr;
+  const lower = ema2 - multiplier * atr;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema * 100;
+  const bandwidth = (upper - lower) / ema2 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -18011,7 +18011,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema * 1e5) / 1e5,
+    middle: Math.round(ema2 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -19902,12 +19902,40 @@ async function fetchBTCMarketsFromGamma(limit = 30) {
       msUntilEnd
     });
   }
-  return markets.filter((m) => m.volume > 500).sort((a, b) => {
+  const MAX_DAYS = 30;
+  const maxMs = MAX_DAYS * 24 * 60 * 60 * 1e3;
+  const BLOCK_PHRASES = [
+    "gta",
+    "grand theft",
+    "before 20",
+    "by 202",
+    "end of 202",
+    "never",
+    "all time high",
+    "all-time high",
+    "ath",
+    "halving",
+    "etf",
+    "election",
+    "president",
+    "trump",
+    "biden",
+    "$1 million",
+    "$1m",
+    "1,000,000",
+    "500,000",
+    "$500k"
+  ];
+  function isBlockedMarket(question) {
+    const q = question.toLowerCase();
+    return BLOCK_PHRASES.some((p) => q.includes(p));
+  }
+  return markets.filter((m) => m.volume > 500).filter((m) => !isBlockedMarket(m.question)).filter((m) => m.msUntilEnd == null || m.msUntilEnd <= maxMs).sort((a, b) => {
     const aT = a.msUntilEnd ?? Infinity;
     const bT = b.msUntilEnd ?? Infinity;
     if (aT === bT) return b.volume - a.volume;
     return aT - bT;
-  }).slice(0, 10);
+  }).slice(0, 8);
 }
 async function fetchLiveBTCMarkets() {
   const markets = await fetchBTCMarketsFromGamma(30);
@@ -20926,14 +20954,14 @@ async function scanMarkets(userId) {
         } else if (adxStrength > 12 && diSeparation > 8) {
           trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
         }
-        const rsi = indicators.stochastic?.k || 50;
+        const rsi2 = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
         state.marketSnapshot[symbol] = {
           price: currentPrice,
           change: Math.round(change * 100) / 100,
           trend,
-          rsi: Math.round(rsi),
+          rsi: Math.round(rsi2),
           atr: Math.round(atr * 1e5) / 1e5,
           adx: adxStrength,
           // stored so processDecision can access it directly
@@ -21409,28 +21437,28 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
   const trend = indicators.trend ?? "NEUTRAL";
   const trendIsStrong = adxVal > 18 && trend !== "NEUTRAL";
-  const rsi = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  const rsi2 = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
   if (trendIsStrong) {
-    if (trend === "BULLISH" && rsi > 50) {
+    if (trend === "BULLISH" && rsi2 > 50) {
       bull++;
-      votes.push(`RSI ${rsi.toFixed(1)} above 50 (bullish trend confirmation)`);
-    } else if (trend === "BEARISH" && rsi < 50) {
+      votes.push(`RSI ${rsi2.toFixed(1)} above 50 (bullish trend confirmation)`);
+    } else if (trend === "BEARISH" && rsi2 < 50) {
       bear++;
-      votes.push(`RSI ${rsi.toFixed(1)} below 50 (bearish trend confirmation)`);
-    } else if (trend === "BULLISH" && rsi < 30) {
+      votes.push(`RSI ${rsi2.toFixed(1)} below 50 (bearish trend confirmation)`);
+    } else if (trend === "BULLISH" && rsi2 < 30) {
       bear++;
-      votes.push(`RSI ${rsi.toFixed(1)} extreme oversold (exhaustion warning)`);
-    } else if (trend === "BEARISH" && rsi > 70) {
+      votes.push(`RSI ${rsi2.toFixed(1)} extreme oversold (exhaustion warning)`);
+    } else if (trend === "BEARISH" && rsi2 > 70) {
       bull++;
-      votes.push(`RSI ${rsi.toFixed(1)} extreme overbought (exhaustion warning)`);
+      votes.push(`RSI ${rsi2.toFixed(1)} extreme overbought (exhaustion warning)`);
     }
   } else {
-    if (rsi < 35) {
+    if (rsi2 < 35) {
       bull++;
-      votes.push(`RSI oversold (${rsi.toFixed(1)})`);
-    } else if (rsi > 65) {
+      votes.push(`RSI oversold (${rsi2.toFixed(1)})`);
+    } else if (rsi2 > 65) {
       bear++;
-      votes.push(`RSI overbought (${rsi.toFixed(1)})`);
+      votes.push(`RSI overbought (${rsi2.toFixed(1)})`);
     }
   }
   const stochK = indicators.stochastic?.k ?? 50;
@@ -24423,6 +24451,187 @@ var init_breakout_monitor = __esm({
     init_indicators();
     monitorStates = {};
     pollInterval = null;
+  }
+});
+
+// server/services/btc-5min-predictor.ts
+var btc_5min_predictor_exports = {};
+__export(btc_5min_predictor_exports, {
+  clearBTCPredictionCache: () => clearBTCPredictionCache,
+  getBTC5MinPrediction: () => getBTC5MinPrediction
+});
+function ema(values, period) {
+  const k = 2 / (period + 1);
+  const result = [];
+  let e = values[0];
+  result.push(e);
+  for (let i = 1; i < values.length; i++) {
+    e = values[i] * k + e * (1 - k);
+    result.push(e);
+  }
+  return result;
+}
+function rsi(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gains += d;
+    else losses -= d;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return Math.round(100 - 100 / (1 + rs));
+}
+function macd(closes) {
+  const ema12 = ema(closes, 12);
+  const ema26 = ema(closes, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = ema(macdLine, 9);
+  const last = closes.length - 1;
+  return {
+    macdLine: macdLine[last],
+    signalLine: signalLine[last],
+    histogram: macdLine[last] - signalLine[last]
+  };
+}
+function sma(values, period) {
+  const slice = values.slice(-period);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+async function fetchBinanceCandles(symbol, interval, limit) {
+  const url = `${BINANCE_BASE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res.ok) throw new Error(`Binance API ${res.status}: ${res.statusText}`);
+  const raw = await res.json();
+  return raw.map((c) => ({
+    openTime: c[0],
+    open: parseFloat(c[1]),
+    high: parseFloat(c[2]),
+    low: parseFloat(c[3]),
+    close: parseFloat(c[4]),
+    volume: parseFloat(c[5])
+  }));
+}
+function buildPrediction(candles, fromCache) {
+  const closes = candles.map((c) => c.close);
+  const volumes = candles.map((c) => c.volume);
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const last = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+  const currentPrice = last.close;
+  const priceChange5m = (last.close - prev.close) / prev.close * 100;
+  const priceChange1h = (last.close - candles[candles.length - 13].close) / candles[candles.length - 13].close * 100;
+  const ema9Val = ema(closes, 9)[closes.length - 1];
+  const ema21Val = ema(closes, 21)[closes.length - 1];
+  const ema50Val = ema(closes, 50)[closes.length - 1];
+  const rsiVal = rsi(closes, 14);
+  const { macdLine, signalLine, histogram } = macd(closes);
+  const volSma20 = sma(volumes, 20);
+  const volLast3 = sma(volumes.slice(-3), 3);
+  const volumeTrend = volLast3 > volSma20 * 1.15 ? "rising" : volLast3 < volSma20 * 0.85 ? "falling" : "flat";
+  const macdSignalDir = histogram > 0 ? "bullish" : histogram < 0 ? "bearish" : "neutral";
+  const recent20H = Math.max(...highs.slice(-20));
+  const recent20L = Math.min(...lows.slice(-20));
+  const signals = [];
+  if (ema9Val > ema21Val && ema21Val > ema50Val) {
+    signals.push({ score: 2, reason: "EMA stack bullish (9 > 21 > 50)" });
+  } else if (ema9Val < ema21Val && ema21Val < ema50Val) {
+    signals.push({ score: -2, reason: "EMA stack bearish (9 < 21 < 50)" });
+  }
+  if (currentPrice > ema9Val) {
+    signals.push({ score: 1, reason: `Price above EMA9 ($${ema9Val.toFixed(0)})` });
+  } else {
+    signals.push({ score: -1, reason: `Price below EMA9 ($${ema9Val.toFixed(0)})` });
+  }
+  if (rsiVal > 60) {
+    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 momentum bullish` });
+  } else if (rsiVal < 40) {
+    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 momentum bearish` });
+  } else if (rsiVal > 50) {
+    signals.push({ score: 0.5, reason: `RSI ${rsiVal} \u2014 mildly bullish` });
+  } else {
+    signals.push({ score: -0.5, reason: `RSI ${rsiVal} \u2014 mildly bearish` });
+  }
+  if (macdSignalDir === "bullish") {
+    signals.push({ score: histogram > 50 ? 2 : 1, reason: `MACD histogram positive (+${histogram.toFixed(1)})` });
+  } else {
+    signals.push({ score: histogram < -50 ? -2 : -1, reason: `MACD histogram negative (${histogram.toFixed(1)})` });
+  }
+  if (volumeTrend === "rising" && priceChange5m > 0) {
+    signals.push({ score: 1, reason: "Volume rising with price \u2014 buyers active" });
+  } else if (volumeTrend === "rising" && priceChange5m < 0) {
+    signals.push({ score: -1, reason: "Volume rising with drop \u2014 sellers active" });
+  }
+  if (priceChange1h > 0.5) {
+    signals.push({ score: 1, reason: `1h trend +${priceChange1h.toFixed(2)}%` });
+  } else if (priceChange1h < -0.5) {
+    signals.push({ score: -1, reason: `1h trend ${priceChange1h.toFixed(2)}%` });
+  }
+  if (rsiVal >= 75) {
+    signals.push({ score: -1, reason: `RSI ${rsiVal} \u2014 overbought, watch for reversal` });
+  } else if (rsiVal <= 25) {
+    signals.push({ score: 1, reason: `RSI ${rsiVal} \u2014 oversold, watch for bounce` });
+  }
+  const rawScore = signals.reduce((s, x) => s + x.score, 0);
+  const maxScore = 9;
+  const normalised = (rawScore / maxScore + 1) / 2;
+  const confidence2 = Math.min(95, Math.max(30, Math.round(normalised * 100)));
+  let direction;
+  if (rawScore >= 2) direction = "BUY";
+  else if (rawScore <= -2) direction = "SELL";
+  else direction = "NEUTRAL";
+  const sorted = signals.sort((a, b) => direction === "BUY" ? b.score - a.score : a.score - b.score).slice(0, 3).map((s) => s.reason);
+  return {
+    direction,
+    confidence: direction === "NEUTRAL" ? Math.round(50 + Math.abs(rawScore) * 5) : confidence2,
+    currentPrice,
+    priceChange5m: Math.round(priceChange5m * 1e3) / 1e3,
+    priceChange1h: Math.round(priceChange1h * 1e3) / 1e3,
+    rsi: rsiVal,
+    macdSignal: macdSignalDir,
+    macdHistogram: Math.round(histogram * 100) / 100,
+    ema9: Math.round(ema9Val),
+    ema21: Math.round(ema21Val),
+    ema50: Math.round(ema50Val),
+    volumeTrend,
+    supportLevel: Math.round(recent20L),
+    resistanceLevel: Math.round(recent20H),
+    reasons: sorted,
+    fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    fromCache,
+    symbol: "BTCUSDT"
+  };
+}
+async function getBTC5MinPrediction(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedPrediction && now - cacheTimestamp2 < CACHE_TTL_MS4) {
+    return { ...cachedPrediction, fromCache: true };
+  }
+  const candles = await fetchBinanceCandles("BTCUSDT", "5m", 100);
+  const prediction = buildPrediction(candles, false);
+  cachedPrediction = prediction;
+  cacheTimestamp2 = now;
+  return prediction;
+}
+function clearBTCPredictionCache() {
+  cachedPrediction = null;
+  cacheTimestamp2 = 0;
+}
+var BINANCE_BASE, CACHE_TTL_MS4, cachedPrediction, cacheTimestamp2;
+var init_btc_5min_predictor = __esm({
+  "server/services/btc-5min-predictor.ts"() {
+    "use strict";
+    BINANCE_BASE = "https://api.binance.com";
+    CACHE_TTL_MS4 = 3e4;
+    cachedPrediction = null;
+    cacheTimestamp2 = 0;
   }
 });
 
@@ -31350,9 +31559,9 @@ function buildBuyConditions(analyses, symbol) {
   const conditions = [];
   for (const analysis of analyses.slice(0, 2)) {
     if (analysis.indicators?.rsi !== void 0) {
-      const rsi = analysis.indicators.rsi;
-      if (rsi < 50) conditions.push(`rsi14 < 55`);
-      if (rsi > 40) conditions.push(`rsi14 > 35`);
+      const rsi2 = analysis.indicators.rsi;
+      if (rsi2 < 50) conditions.push(`rsi14 < 55`);
+      if (rsi2 > 40) conditions.push(`rsi14 > 35`);
     }
     if (analysis.direction === "BUY" || analysis.signal === "BUY") {
       conditions.push("Close[0] > ema20");
@@ -31933,19 +32142,19 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const adx = data.adx?.adx || 0;
       const plusDI = data.adx?.plusDI || 0;
       const minusDI = data.adx?.minusDI || 0;
-      const rsi = data.rsi?.value || 50;
+      const rsi2 = data.rsi?.value || 50;
       const macdCross = data.macd?.histogram > 0;
       const candles = data.candles || [];
       let direction = null;
       let confluences = [];
       let confidence2 = 0;
       let strategy = "rule_based";
-      if (adx > 25 && plusDI > minusDI && rsi < 65 && macdCross) {
+      if (adx > 25 && plusDI > minusDI && rsi2 < 65 && macdCross) {
         direction = "BUY";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
         confidence2 = 65;
         strategy = "adx_macd";
-      } else if (adx > 25 && minusDI > plusDI && rsi > 35 && !macdCross) {
+      } else if (adx > 25 && minusDI > plusDI && rsi2 > 35 && !macdCross) {
         direction = "SELL";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
         confidence2 = 65;
@@ -34138,11 +34347,11 @@ function runForexQuantAgent(signal, indicators, smcContext) {
       }
     }
   }
-  const macd = indicators.macd;
-  if (macd) {
-    const hist = macd.histogram?.value ?? macd.histogram;
-    const main = macd.main?.value ?? macd.main;
-    const sig = macd.signal?.value ?? macd.signal;
+  const macd2 = indicators.macd;
+  if (macd2) {
+    const hist = macd2.histogram?.value ?? macd2.histogram;
+    const main = macd2.main?.value ?? macd2.main;
+    const sig = macd2.signal?.value ?? macd2.signal;
     if (typeof hist === "number") {
       if (isBuy && hist > 0) {
         score += 15;
@@ -39882,7 +40091,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let advanced = {};
       if (indicators && typeof indicators === "object") {
         try {
-          const rsi = typeof indicators.rsi === "number" ? indicators.rsi : null;
+          const rsi2 = typeof indicators.rsi === "number" ? indicators.rsi : null;
           const macdMain = indicators.macd?.main;
           const macdSignal = indicators.macd?.signal;
           const macdHist = indicators.macd?.histogram;
@@ -39915,23 +40124,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
           let rsiSignal = "NEUTRAL";
           let rsiStatus = "";
-          if (rsi !== null) {
-            if (rsi > 70) {
+          if (rsi2 !== null) {
+            if (rsi2 > 70) {
               rsiSignal = "SELL";
               rsiStatus = "OVERBOUGHT";
               analysis.patterns.push("RSI Overbought (>70)");
               analysis.alerts.push("RSI indicates overbought conditions");
-            } else if (rsi < 30) {
+            } else if (rsi2 < 30) {
               rsiSignal = "BUY";
               rsiStatus = "OVERSOLD";
               analysis.patterns.push("RSI Oversold (<30)");
               analysis.alerts.push("RSI indicates oversold conditions");
-            } else if (rsi > 50) {
+            } else if (rsi2 > 50) {
               rsiStatus = "BULLISH";
             } else {
               rsiStatus = "BEARISH";
             }
-            analysis.indicators.rsi = { value: rsi, status: rsiStatus, signal: rsiSignal };
+            analysis.indicators.rsi = { value: rsi2, status: rsiStatus, signal: rsiSignal };
           }
           let macdSignalDir = "NEUTRAL";
           let macdStatus = "";
@@ -40476,14 +40685,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 slScore -= 8;
                 slFactors.push(`Low volume - weak level (${volumeRatio.toFixed(1)}x avg)`);
               }
-              if (rsi !== null) {
-                if (analysis.signal === "BUY" && rsi > 35 && rsi < 65) {
+              if (rsi2 !== null) {
+                if (analysis.signal === "BUY" && rsi2 > 35 && rsi2 < 65) {
                   slScore += 8;
                   slFactors.push("RSI neutral zone - room for movement");
-                } else if (analysis.signal === "SELL" && rsi > 35 && rsi < 65) {
+                } else if (analysis.signal === "SELL" && rsi2 > 35 && rsi2 < 65) {
                   slScore += 8;
                   slFactors.push("RSI neutral zone - room for movement");
-                } else if (analysis.signal === "BUY" && rsi < 25 || analysis.signal === "SELL" && rsi > 75) {
+                } else if (analysis.signal === "BUY" && rsi2 < 25 || analysis.signal === "SELL" && rsi2 > 75) {
                   slScore += 5;
                   slFactors.push("RSI extreme - reversal likely near SL");
                 }
@@ -40622,18 +40831,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 trailScore += 3;
                 trailFactors.push("Moderate volatility");
               }
-              if (rsi !== null) {
-                if (analysis.signal === "BUY" && rsi >= 60 && rsi <= 75) {
+              if (rsi2 !== null) {
+                if (analysis.signal === "BUY" && rsi2 >= 60 && rsi2 <= 75) {
                   trailScore += 10;
                   trailFactors.push("RSI bullish momentum supports trailing");
-                } else if (analysis.signal === "SELL" && rsi >= 25 && rsi <= 40) {
+                } else if (analysis.signal === "SELL" && rsi2 >= 25 && rsi2 <= 40) {
                   trailScore += 10;
                   trailFactors.push("RSI bearish momentum supports trailing");
-                } else if (analysis.signal === "BUY" && rsi > 75) {
+                } else if (analysis.signal === "BUY" && rsi2 > 75) {
                   trailScore -= 5;
                   trailRecommendation = "AGGRESSIVE";
                   trailFactors.push("RSI overbought - tighten trail, exit pressure likely");
-                } else if (analysis.signal === "SELL" && rsi < 25) {
+                } else if (analysis.signal === "SELL" && rsi2 < 25) {
                   trailScore -= 5;
                   trailRecommendation = "AGGRESSIVE";
                   trailFactors.push("RSI oversold - tighten trail, bounce likely");
@@ -45757,7 +45966,7 @@ Format each recommendation as a clear, concise action item.`;
         const candles = getBestCandles(sym);
         const latest = candles[0];
         const atr = latest?.atr || null;
-        const rsi = latest?.rsi || null;
+        const rsi2 = latest?.rsi || null;
         const trend = latest?.trend || null;
         const close = latest?.c || latest?.close || null;
         let vpData = {};
@@ -45789,7 +45998,7 @@ Format each recommendation as a clear, concise action item.`;
           ...cleanKnowledge,
           currentPrice: pairData?.price || close || null,
           atr,
-          rsi,
+          rsi: rsi2,
           trend,
           hasOpenPosition: hasOpenPos,
           volumeProfile: vpData.poc ? vpData : void 0,
@@ -46602,11 +46811,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k = 2 / (period + 1);
-        let ema = closes2[i - period + 1];
+        let ema2 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema = closes2[j] * k + ema * (1 - k);
+          ema2 = closes2[j] * k + ema2 * (1 - k);
         }
-        return ema;
+        return ema2;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];
@@ -46693,16 +46902,16 @@ Respond with ONLY valid JSON:
           }
           continue;
         }
-        const rsi = computeRSI2(closes, i);
+        const rsi2 = computeRSI2(closes, i);
         const prevRsi = computeRSI2(closes, i - 1);
         const ema10 = computeEMA2(closes, i, 10);
         const ema20 = computeEMA2(closes, i, 20);
         let signal = null;
         const rsiThresholdLow = mode === "sniper" ? 30 : 35;
         const rsiThresholdHigh = mode === "sniper" ? 70 : 65;
-        if (rsi < rsiThresholdLow && ema10 > ema20 || rsi > 40 && prevRsi <= 40 && ema10 > ema20) {
+        if (rsi2 < rsiThresholdLow && ema10 > ema20 || rsi2 > 40 && prevRsi <= 40 && ema10 > ema20) {
           signal = "BUY";
-        } else if (rsi > rsiThresholdHigh && ema10 < ema20 || rsi < 60 && prevRsi >= 60 && ema10 < ema20) {
+        } else if (rsi2 > rsiThresholdHigh && ema10 < ema20 || rsi2 < 60 && prevRsi >= 60 && ema10 < ema20) {
           signal = "SELL";
         }
         if (!signal) {
@@ -46999,6 +47208,18 @@ Respond with ONLY valid JSON:
         fromCache: false,
         error: err.message
       });
+    }
+  });
+  app2.get("/api/btc/5min-prediction", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { getBTC5MinPrediction: getBTC5MinPrediction2 } = await Promise.resolve().then(() => (init_btc_5min_predictor(), btc_5min_predictor_exports));
+      const forceRefresh = req.query.refresh === "true";
+      const prediction = await getBTC5MinPrediction2(forceRefresh);
+      res.set("Cache-Control", "no-store");
+      res.json(prediction);
+    } catch (err) {
+      res.status(500).json({ error: `BTC prediction failed: ${err.message}` });
     }
   });
   app2.get("/api/polymarket/btc-live", async (req, res) => {

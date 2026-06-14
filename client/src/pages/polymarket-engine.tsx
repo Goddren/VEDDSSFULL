@@ -7,11 +7,34 @@ import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Play, Square, RefreshCw, Settings, X,
-  ChevronDown, ChevronUp, Wallet, ExternalLink, Wifi, WifiOff, Clock,
-  TrendingUp, TrendingDown, Activity,
+  ChevronDown, ChevronUp, Wallet, ExternalLink,
+  TrendingUp, TrendingDown, Activity, Zap, Clock,
+  BarChart2, Info,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface BTC5MinPrediction {
+  direction: "BUY" | "SELL" | "NEUTRAL";
+  confidence: number;
+  currentPrice: number;
+  priceChange5m: number;
+  priceChange1h: number;
+  rsi: number;
+  macdSignal: "bullish" | "bearish" | "neutral";
+  macdHistogram: number;
+  ema9: number;
+  ema21: number;
+  ema50: number;
+  volumeTrend: "rising" | "falling" | "flat";
+  supportLevel: number;
+  resistanceLevel: number;
+  reasons: string[];
+  fetchedAt: string;
+  fromCache: boolean;
+  symbol: string;
+  error?: string;
+}
 
 interface PolymarketMarket {
   id: string;
@@ -20,21 +43,17 @@ interface PolymarketMarket {
   noProbability: number;
   volume: number;
   endDate: string | null;
-  closed: boolean;
   direction: "bullish" | "bearish" | "neutral";
-  outcomes: string[];
   livePrice?: boolean;
   msUntilEnd?: number | null;
 }
 
-interface LiveBTCData {
+interface PolymarketData {
   overallBullishScore: number;
   sentimentLabel: string;
   markets: PolymarketMarket[];
-  fetchedAt: string;
   fromCache: boolean;
   livePrices?: boolean;
-  cacheExpiresIn?: number;
   error?: string;
 }
 
@@ -59,15 +78,12 @@ interface PolymarketPosition {
 
 interface EngineState {
   isRunning: boolean;
-  isPaperMode: boolean;
   lastScanAt: string | null;
-  lastTradeAt: string | null;
   lastScanResult: string | null;
   openPositions: PolymarketPosition[];
   closedPositions: PolymarketPosition[];
   totalRealizedPnl: number;
   totalUnrealizedPnl: number;
-  tradesOpened: number;
   config: {
     minBullishScore: number;
     minBearishScore: number;
@@ -81,6 +97,9 @@ interface EngineState {
 
 const fmt = (n: number, dec = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec });
+
+const fmtPrice = (n: number) =>
+  n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
 const pnlColor = (n: number) =>
   n > 0 ? "text-emerald-400" : n < 0 ? "text-red-400" : "text-gray-400";
@@ -100,18 +119,13 @@ const timeAgo = (iso: string) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-/** Format milliseconds into "Xh Ym" or "Xd" or "< 1h" */
 function fmtTimeUntil(ms: number | null | undefined): string {
   if (ms == null || ms <= 0) return "soon";
   const totalMin = Math.floor(ms / 60000);
   if (totalMin < 60) return `${totalMin}m`;
   const h = Math.floor(totalMin / 60);
-  if (h < 24) {
-    const m = totalMin % 60;
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  }
-  const d = Math.floor(h / 24);
-  return `${d}d`;
+  if (h < 24) { const m = totalMin % 60; return m > 0 ? `${h}h ${m}m` : `${h}h`; }
+  return `${Math.floor(h / 24)}d`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -120,32 +134,38 @@ export default function PolymarketEnginePage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [showConfig, setShowConfig] = useState(false);
-  const [secondsSinceFetch, setSecondsSinceFetch] = useState(0);
+  const [showPolymarkets, setShowPolymarkets] = useState(false);
+  const [secondsAge, setSecondsAge] = useState(0);
 
-  // Config form state
   const [cfgBullish, setCfgBullish]   = useState("");
   const [cfgBearish, setCfgBearish]   = useState("");
   const [cfgStake, setCfgStake]       = useState("");
   const [cfgMaxPos, setCfgMaxPos]     = useState("");
   const [cfgCooldown, setCfgCooldown] = useState("");
 
-  // ── Live BTC data — polls every 30 s ──────────────────────────────────────
-  const { data: liveData, isLoading: liveLoading, dataUpdatedAt, refetch: refetchLive, isError: liveError } =
-    useQuery<LiveBTCData>({
-      queryKey: ["/api/polymarket/btc-live"],
-      refetchInterval: 30_000,
-      staleTime: 0,
-      retry: 2,
-      enabled: !!user,
-    });
+  // ── 5-min BTC prediction — Binance feed, US-legal ─────────────────────────
+  const {
+    data: btcPred,
+    isLoading: btcLoading,
+    isError: btcError,
+    dataUpdatedAt,
+    refetch: refetchBTC,
+  } = useQuery<BTC5MinPrediction>({
+    queryKey: ["/api/btc/5min-prediction"],
+    refetchInterval: 30_000,
+    staleTime: 0,
+    retry: 2,
+    enabled: !!user,
+  });
 
-  // ── Tick the "seconds since fetch" counter ────────────────────────────────
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSecondsSinceFetch(Math.floor((Date.now() - (dataUpdatedAt ?? Date.now())) / 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [dataUpdatedAt]);
+  // ── Polymarket near-term BTC markets (supplemental context) ───────────────
+  const { data: polyData } = useQuery<PolymarketData>({
+    queryKey: ["/api/polymarket/btc-live"],
+    refetchInterval: 60_000,
+    staleTime: 0,
+    retry: 1,
+    enabled: !!user,
+  });
 
   // ── Engine status ─────────────────────────────────────────────────────────
   const { data: state } = useQuery<EngineState>({
@@ -159,16 +179,22 @@ export default function PolymarketEnginePage() {
     enabled: !!user,
   });
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
+  // Live age counter
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsAge(Math.floor((Date.now() - (dataUpdatedAt ?? Date.now())) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [dataUpdatedAt]);
 
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const startMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/polymarket-engine/start").then(r => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/polymarket-engine/status"] });
-      toast({ title: "Polymarket Engine started" });
+      toast({ title: "Engine started" });
     },
   });
-
   const stopMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/polymarket-engine/stop").then(r => r.json()),
     onSuccess: () => {
@@ -176,18 +202,13 @@ export default function PolymarketEnginePage() {
       toast({ title: "Engine stopped" });
     },
   });
-
   const scanMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/polymarket-engine/scan").then(r => r.json()),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/polymarket-engine/status"] });
-      toast({
-        title: data.fired ? "Position opened!" : "Scan complete — no trade",
-        description: data.reason,
-      });
+      toast({ title: data.fired ? "Position opened!" : "Scan complete — no trade", description: data.reason });
     },
   });
-
   const configMutation = useMutation({
     mutationFn: (cfg: any) => apiRequest("PUT", "/api/polymarket-engine/config", cfg).then(r => r.json()),
     onSuccess: () => {
@@ -196,12 +217,10 @@ export default function PolymarketEnginePage() {
       toast({ title: "Config saved" });
     },
   });
-
   const closePosMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/polymarket-engine/positions/${id}/close`).then(r => r.json()),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/polymarket-engine/status"] }),
   });
-
   const closeAllMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/polymarket-engine/positions/close-all").then(r => r.json()),
     onSuccess: (data) => {
@@ -209,8 +228,6 @@ export default function PolymarketEnginePage() {
       toast({ title: `Closed ${data.closed} position(s)` });
     },
   });
-
-  // ── Handlers ───────────────────────────────────────────────────────────────
 
   const saveConfig = () => {
     const patch: any = {};
@@ -222,7 +239,6 @@ export default function PolymarketEnginePage() {
     if (!Object.keys(patch).length) return;
     configMutation.mutate(patch);
   };
-
   const openConfigPanel = () => {
     if (state) {
       setCfgBullish(String(state.config.minBullishScore));
@@ -234,32 +250,28 @@ export default function PolymarketEnginePage() {
     setShowConfig(v => !v);
   };
 
-  // ── Derived values ─────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const isRunning   = state?.isRunning ?? false;
+  const openCount   = state?.openPositions.length ?? 0;
+  const closedCount = state?.closedPositions.length ?? 0;
+  const totalPnl    = (state?.totalRealizedPnl ?? 0) + (state?.totalUnrealizedPnl ?? 0);
 
-  const isRunning      = state?.isRunning ?? false;
-  const openCount      = state?.openPositions.length ?? 0;
-  const closedCount    = state?.closedPositions.length ?? 0;
-  const totalPnl       = (state?.totalRealizedPnl ?? 0) + (state?.totalUnrealizedPnl ?? 0);
+  const dir        = btcPred?.direction ?? "NEUTRAL";
+  const confidence = btcPred?.confidence ?? 50;
 
-  const bullishScore   = liveData?.overallBullishScore ?? 50;
-  const sentimentLabel = liveData?.sentimentLabel ?? "Neutral";
-  const markets        = liveData?.markets ?? [];
-  const isLive         = liveData?.livePrices ?? false;
+  const dirColor =
+    dir === "BUY"  ? "text-emerald-400" :
+    dir === "SELL" ? "text-red-400"     : "text-gray-400";
 
-  const sentimentColor =
-    bullishScore >= 70 ? "text-emerald-400" :
-    bullishScore >= 55 ? "text-green-400"   :
-    bullishScore <= 30 ? "text-red-400"     :
-    bullishScore <= 45 ? "text-orange-400"  : "text-gray-400";
+  const dirBg =
+    dir === "BUY"  ? "from-emerald-900/40 to-emerald-800/20 border-emerald-700/40" :
+    dir === "SELL" ? "from-red-900/40 to-red-800/20 border-red-700/40"             :
+    "from-gray-800/40 to-gray-900/20 border-gray-700/40";
 
-  // Connection status indicator
-  const connectionStatus = liveError
-    ? "error"
-    : liveLoading
-    ? "connecting"
-    : secondsSinceFetch > 60
-    ? "stale"
-    : "live";
+  const dirIcon =
+    dir === "BUY"  ? <TrendingUp  className="w-5 h-5 text-emerald-400" /> :
+    dir === "SELL" ? <TrendingDown className="w-5 h-5 text-red-400" />    :
+    <Activity className="w-5 h-5 text-gray-400" />;
 
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-24">
@@ -272,42 +284,22 @@ export default function PolymarketEnginePage() {
           </button>
         </Link>
         <div className="flex items-center gap-2">
-          <span className="text-lg">🏦</span>
+          <span className="text-lg">📊</span>
           <div>
-            <h1 className="text-sm font-bold text-white leading-none">Polymarket Engine</h1>
-            <p className="text-[10px] text-gray-500 mt-0.5">5-Min BTC Predictions · Live CLOB Feed</p>
+            <h1 className="text-sm font-bold text-white leading-none">BTC 5-Min Prediction</h1>
+            <p className="text-[10px] text-gray-500 mt-0.5">Binance live feed · US-accessible · 30 s refresh</p>
           </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {/* Live connection indicator */}
-          <div className="flex items-center gap-1.5">
-            {connectionStatus === "live" ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[10px] text-emerald-400 font-bold">LIVE</span>
-                {isLive && <span className="text-[9px] text-emerald-500">CLOB</span>}
-              </>
-            ) : connectionStatus === "stale" ? (
-              <>
-                <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span className="text-[10px] text-amber-400">{secondsSinceFetch}s ago</span>
-              </>
-            ) : connectionStatus === "connecting" ? (
-              <>
-                <RefreshCw className="w-3 h-3 text-gray-400 animate-spin" />
-                <span className="text-[10px] text-gray-400">Connecting…</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3 h-3 text-red-400" />
-                <span className="text-[10px] text-red-400">Offline</span>
-              </>
-            )}
-          </div>
+          <span className="flex items-center gap-1 text-[10px]">
+            <span className={`w-2 h-2 rounded-full ${secondsAge < 35 ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+            <span className={secondsAge < 35 ? "text-emerald-400" : "text-amber-400"}>
+              {secondsAge < 35 ? "LIVE" : `${secondsAge}s`}
+            </span>
+          </span>
           {isRunning ? (
             <span className="flex items-center gap-1 text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              ACTIVE
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />ACTIVE
             </span>
           ) : (
             <span className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">STOPPED</span>
@@ -317,19 +309,159 @@ export default function PolymarketEnginePage() {
 
       <div className="max-w-lg mx-auto px-4 pt-4 space-y-4">
 
-        {/* ── Paper Mode Banner ────────────────────────────────────────────── */}
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
-          <span className="text-lg mt-0.5">📋</span>
-          <div>
-            <p className="text-xs font-bold text-amber-300">Paper Trading Mode — No wallet needed</p>
-            <p className="text-[10px] text-amber-200/70 mt-0.5">
-              Tracks real Polymarket YES/NO positions using live CLOB prices. P&L is simulated. Live execution needs{' '}
-              <span className="text-emerald-300 font-semibold">USDC on Polygon</span>.{' '}
-              <a href="https://polymarket.com/deposit" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2">Deposit</a>{' '}
-              or{' '}
-              <a href="https://wallet.polygon.technology/polygon/bridge" target="_blank" rel="noopener noreferrer" className="text-purple-300 underline underline-offset-2">Bridge</a>.
-            </p>
+        {/* ── US-legal notice ──────────────────────────────────────────────── */}
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-2.5 flex items-center gap-3">
+          <span className="text-base">🇺🇸</span>
+          <p className="text-[10px] text-blue-200/80">
+            <span className="font-bold text-blue-300">US-accessible.</span>{' '}
+            Price predictions use the Binance public API — no geo-restriction, no account required.
+            Polymarket prediction markets below are supplemental context only.
+          </p>
+        </div>
+
+        {/* ── PRIMARY: 5-Min BTC Prediction ───────────────────────────────── */}
+        <div className={`bg-gradient-to-br ${dirBg} border rounded-xl p-4`}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-cyan-400" />
+              <h2 className="text-sm font-bold text-white">5-Min BTC Prediction</h2>
+              <span className="text-[9px] text-gray-500 bg-gray-800/60 px-1.5 py-0.5 rounded">Binance BTCUSDT</span>
+            </div>
+            <button
+              onClick={() => refetchBTC()}
+              disabled={btcLoading}
+              className="p-1 rounded hover:bg-gray-800/60 transition-colors"
+              title="Refresh now"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${btcLoading ? "animate-spin" : ""}`} />
+            </button>
           </div>
+
+          {btcLoading && !btcPred ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-gray-500">
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span className="text-xs">Fetching live BTC data…</span>
+            </div>
+          ) : btcError || btcPred?.error ? (
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <p className="text-red-300 text-xs">Could not reach Binance — check connection</p>
+              <button onClick={() => refetchBTC()} className="text-[10px] text-gray-400 underline">Retry</button>
+            </div>
+          ) : btcPred ? (
+            <>
+              {/* Direction + price row */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-14 h-14 rounded-xl flex items-center justify-center bg-gray-900/60 border ${
+                    dir === "BUY" ? "border-emerald-500/40" : dir === "SELL" ? "border-red-500/40" : "border-gray-700/40"
+                  }`}>
+                    {dirIcon}
+                    <span className={`text-xs font-black ml-0.5 ${dirColor}`}>{dir}</span>
+                  </div>
+                  <div>
+                    <p className="text-[9px] text-gray-400">Confidence</p>
+                    <p className={`text-2xl font-black ${dirColor}`}>{confidence}%</p>
+                    <div className="w-24 h-1.5 bg-gray-800 rounded-full mt-1 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${
+                          dir === "BUY" ? "bg-emerald-500" : dir === "SELL" ? "bg-red-500" : "bg-gray-500"
+                        }`}
+                        style={{ width: `${confidence}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] text-gray-400 mb-0.5">BTC Price</p>
+                  <p className="text-xl font-black text-white">${fmtPrice(btcPred.currentPrice)}</p>
+                  <p className={`text-[10px] font-bold ${btcPred.priceChange5m >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {btcPred.priceChange5m >= 0 ? "▲" : "▼"} {Math.abs(btcPred.priceChange5m).toFixed(3)}% (5m)
+                  </p>
+                  <p className={`text-[9px] ${btcPred.priceChange1h >= 0 ? "text-emerald-400/70" : "text-red-400/70"}`}>
+                    {btcPred.priceChange1h >= 0 ? "+" : ""}{btcPred.priceChange1h.toFixed(2)}% (1h)
+                  </p>
+                </div>
+              </div>
+
+              {/* Technical signals grid */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {/* RSI */}
+                <div className="bg-black/30 rounded-lg p-2 text-center">
+                  <p className="text-[8px] text-gray-500 mb-0.5">RSI(14)</p>
+                  <p className={`text-sm font-bold ${
+                    btcPred.rsi >= 70 ? "text-red-400" : btcPred.rsi <= 30 ? "text-emerald-400" :
+                    btcPred.rsi >= 55 ? "text-emerald-300" : "text-orange-300"
+                  }`}>{btcPred.rsi}</p>
+                  <p className="text-[8px] text-gray-600">
+                    {btcPred.rsi >= 70 ? "Overbought" : btcPred.rsi <= 30 ? "Oversold" : btcPred.rsi >= 50 ? "Bullish" : "Bearish"}
+                  </p>
+                </div>
+
+                {/* MACD */}
+                <div className="bg-black/30 rounded-lg p-2 text-center">
+                  <p className="text-[8px] text-gray-500 mb-0.5">MACD</p>
+                  <p className={`text-sm font-bold ${btcPred.macdSignal === "bullish" ? "text-emerald-400" : "text-red-400"}`}>
+                    {btcPred.macdSignal === "bullish" ? "▲" : "▼"}{Math.abs(btcPred.macdHistogram).toFixed(0)}
+                  </p>
+                  <p className="text-[8px] text-gray-600 capitalize">{btcPred.macdSignal}</p>
+                </div>
+
+                {/* Volume */}
+                <div className="bg-black/30 rounded-lg p-2 text-center">
+                  <p className="text-[8px] text-gray-500 mb-0.5">Volume</p>
+                  <p className={`text-sm font-bold ${
+                    btcPred.volumeTrend === "rising" ? "text-emerald-400" :
+                    btcPred.volumeTrend === "falling" ? "text-red-400" : "text-gray-400"
+                  }`}>
+                    {btcPred.volumeTrend === "rising" ? "↑" : btcPred.volumeTrend === "falling" ? "↓" : "→"}
+                  </p>
+                  <p className="text-[8px] text-gray-600 capitalize">{btcPred.volumeTrend}</p>
+                </div>
+              </div>
+
+              {/* EMA levels */}
+              <div className="flex items-center gap-2 mb-3 bg-black/20 rounded-lg px-3 py-2">
+                <BarChart2 className="w-3 h-3 text-gray-500 shrink-0" />
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className={btcPred.currentPrice > btcPred.ema9 ? "text-emerald-400" : "text-red-400"}>
+                    EMA9 <span className="font-bold">${fmtPrice(btcPred.ema9)}</span>
+                  </span>
+                  <span className={btcPred.currentPrice > btcPred.ema21 ? "text-emerald-400" : "text-red-400"}>
+                    EMA21 <span className="font-bold">${fmtPrice(btcPred.ema21)}</span>
+                  </span>
+                  <span className={btcPred.currentPrice > btcPred.ema50 ? "text-emerald-400" : "text-red-400"}>
+                    EMA50 <span className="font-bold">${fmtPrice(btcPred.ema50)}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* S/R levels */}
+              <div className="flex items-center gap-3 mb-3 text-[10px]">
+                <div className="flex-1 bg-emerald-900/20 border border-emerald-700/30 rounded-lg px-3 py-1.5 text-center">
+                  <p className="text-[8px] text-gray-500">Support (20-bar)</p>
+                  <p className="font-bold text-emerald-400">${fmtPrice(btcPred.supportLevel)}</p>
+                </div>
+                <div className="flex-1 bg-red-900/20 border border-red-700/30 rounded-lg px-3 py-1.5 text-center">
+                  <p className="text-[8px] text-gray-500">Resistance (20-bar)</p>
+                  <p className="font-bold text-red-400">${fmtPrice(btcPred.resistanceLevel)}</p>
+                </div>
+              </div>
+
+              {/* Signal reasons */}
+              <div className="space-y-1">
+                {btcPred.reasons.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-black/20 rounded-lg px-2.5 py-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dir === "BUY" ? "bg-emerald-400" : dir === "SELL" ? "bg-red-400" : "bg-gray-500"}`} />
+                    <p className="text-[10px] text-gray-300">{r}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[9px] text-gray-600 text-center mt-2">
+                Updated {timeAgo(btcPred.fetchedAt)} · Binance BTCUSDT 5m · {btcPred.fromCache ? "cached" : "live"}
+              </p>
+            </>
+          ) : null}
         </div>
 
         {/* ── Wallet ───────────────────────────────────────────────────────── */}
@@ -352,174 +484,26 @@ export default function PolymarketEnginePage() {
               <Wallet className="w-4 h-4 text-purple-400 shrink-0" />
               <div className="flex-1 text-left">
                 <p className="text-xs font-bold text-purple-300">Connect Polygon Wallet</p>
-                <p className="text-[10px] text-gray-500">Required for live execution — USDC on Polygon</p>
+                <p className="text-[10px] text-gray-500">Required for Polymarket live execution — USDC on Polygon</p>
               </div>
               <ExternalLink className="w-4 h-4 text-purple-400 shrink-0" />
             </button>
           </Link>
         )}
 
-        {/* ── Live BTC Predictions ─────────────────────────────────────────── */}
-        <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
-              <h2 className="text-sm font-bold text-white">BTC Prediction Markets</h2>
-              <span className="text-[9px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded">via Polymarket</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-gray-500">
-                {liveData?.fromCache ? `stale ${secondsSinceFetch}s` : `live ${secondsSinceFetch}s ago`}
-              </span>
-              <button
-                onClick={() => refetchLive()}
-                disabled={liveLoading}
-                className="p-1 rounded hover:bg-gray-800 transition-colors"
-                title="Force refresh"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 text-gray-400 ${liveLoading ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-          </div>
-
-          {/* Overall sentiment bar */}
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <p className="text-[9px] text-gray-400 uppercase mb-0.5">Overall BTC Sentiment</p>
-              <p className={`text-base font-black ${sentimentColor}`}>{sentimentLabel}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-[9px] text-gray-400">Bullish score</p>
-              <p className={`text-2xl font-black ${sentimentColor}`}>{bullishScore}%</p>
-            </div>
-          </div>
-          <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-4">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${
-                bullishScore >= 60 ? "bg-emerald-500" : bullishScore <= 40 ? "bg-red-500" : "bg-gray-500"
-              }`}
-              style={{ width: `${bullishScore}%` }}
-            />
-          </div>
-
-          {/* Live market list */}
-          {liveLoading && markets.length === 0 ? (
-            <div className="flex items-center justify-center py-6 gap-2 text-gray-500">
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              <span className="text-xs">Connecting to Polymarket CLOB…</span>
-            </div>
-          ) : liveError && markets.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-4 text-center">
-              <WifiOff className="w-5 h-5 text-red-400" />
-              <p className="text-xs text-red-300">Cannot reach Polymarket</p>
-              <button onClick={() => refetchLive()} className="text-[10px] text-gray-400 underline">Retry</button>
-            </div>
-          ) : markets.length === 0 ? (
-            <p className="text-xs text-gray-500 text-center py-4">No active BTC prediction markets found</p>
-          ) : (
-            <div className="space-y-2">
-              {markets.slice(0, 5).map((m, i) => {
-                const endingSoon = m.msUntilEnd != null && m.msUntilEnd < 3 * 60 * 60 * 1000; // < 3h
-                return (
-                  <div
-                    key={m.id || i}
-                    className={`rounded-xl border p-3 ${
-                      m.direction === "bullish"
-                        ? "bg-emerald-950/30 border-emerald-800/30"
-                        : "bg-red-950/30 border-red-800/30"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <p className="text-[10px] text-gray-200 leading-snug flex-1">{m.question}</p>
-                      <div className="flex flex-col items-end gap-0.5 shrink-0">
-                        {m.livePrice && (
-                          <span className="text-[8px] bg-emerald-500/20 text-emerald-400 px-1 rounded font-bold">CLOB</span>
-                        )}
-                        <span className={`text-[8px] px-1 rounded font-bold ${
-                          m.direction === "bullish"
-                            ? "bg-emerald-500/20 text-emerald-400"
-                            : "bg-red-500/20 text-red-400"
-                        }`}>
-                          {m.direction === "bullish" ? "↑ BULL" : "↓ BEAR"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {/* YES probability */}
-                      <div className="bg-black/30 rounded-lg p-2 text-center">
-                        <p className="text-[8px] text-gray-500 mb-0.5">YES</p>
-                        <p className={`text-sm font-black ${
-                          m.yesProbability >= 60 ? "text-emerald-400"
-                          : m.yesProbability <= 40 ? "text-red-400"
-                          : "text-gray-300"
-                        }`}>{m.yesProbability}%</p>
-                        <div className="h-0.5 bg-gray-800 rounded-full mt-1 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${m.yesProbability >= 50 ? "bg-emerald-500" : "bg-red-500"}`}
-                            style={{ width: `${m.yesProbability}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* NO probability */}
-                      <div className="bg-black/30 rounded-lg p-2 text-center">
-                        <p className="text-[8px] text-gray-500 mb-0.5">NO</p>
-                        <p className={`text-sm font-black ${
-                          m.noProbability >= 60 ? "text-red-400"
-                          : m.noProbability <= 40 ? "text-emerald-400"
-                          : "text-gray-300"
-                        }`}>{m.noProbability}%</p>
-                        <div className="h-0.5 bg-gray-800 rounded-full mt-1 overflow-hidden">
-                          <div className="h-full rounded-full bg-red-500" style={{ width: `${m.noProbability}%` }} />
-                        </div>
-                      </div>
-
-                      {/* Volume + time until end */}
-                      <div className="bg-black/30 rounded-lg p-2 text-center">
-                        <p className="text-[8px] text-gray-500 mb-0.5">Volume</p>
-                        <p className="text-xs font-bold text-white">
-                          ${m.volume >= 1_000_000
-                            ? `${(m.volume / 1_000_000).toFixed(1)}M`
-                            : m.volume >= 1_000
-                            ? `${(m.volume / 1_000).toFixed(0)}K`
-                            : m.volume.toFixed(0)}
-                        </p>
-                        {m.msUntilEnd != null && (
-                          <p className={`text-[8px] mt-0.5 ${endingSoon ? "text-amber-400 font-bold" : "text-gray-500"}`}>
-                            <Clock className="w-2.5 h-2.5 inline mr-0.5" />
-                            {fmtTimeUntil(m.msUntilEnd)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* CLOB live prices note */}
-          {isLive && (
-            <p className="text-[9px] text-emerald-500/70 text-center mt-3">
-              Prices sourced from Polymarket CLOB order book · updates every 30s
-            </p>
-          )}
-        </div>
-
         {/* ── Engine Controls ───────────────────────────────────────────────── */}
         <div className={`bg-gray-900/60 border rounded-xl p-4 ${isRunning ? "border-emerald-700/40" : "border-gray-800"}`}>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="text-base">🤖</span>
-              <h2 className="text-sm font-bold text-white">Engine Controls</h2>
+              <h2 className="text-sm font-bold text-white">Prediction Engine</h2>
+              <span className="text-[9px] text-gray-500 bg-gray-800/60 px-1.5 py-0.5 rounded">Polymarket</span>
             </div>
             <button
               onClick={openConfigPanel}
-              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white transition-colors px-2 py-1 bg-gray-800/60 rounded-lg"
+              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-gray-800/60 rounded-lg"
             >
-              <Settings className="w-3 h-3" />
-              Config
+              <Settings className="w-3 h-3" />Config
               {showConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </button>
           </div>
@@ -534,78 +518,56 @@ export default function PolymarketEnginePage() {
               <p className="text-sm font-bold text-white">{closedCount}</p>
             </div>
             <div className={`rounded-lg p-2 text-center border ${pnlBg(totalPnl)}`}>
-              <p className="text-[9px] text-gray-500">Total P&L</p>
-              <p className={`text-sm font-bold ${pnlColor(totalPnl)}`}>
-                {totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)}
-              </p>
+              <p className="text-[9px] text-gray-500">P&L</p>
+              <p className={`text-sm font-bold ${pnlColor(totalPnl)}`}>{totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)}</p>
             </div>
           </div>
 
           <div className="flex gap-2 mb-3">
             {isRunning ? (
-              <button
-                onClick={() => stopMutation.mutate()}
-                disabled={stopMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5 transition-colors"
-              >
+              <button onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5">
                 <Square className="w-3.5 h-3.5" />Stop Engine
               </button>
             ) : (
-              <button
-                onClick={() => startMutation.mutate()}
-                disabled={startMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-lg py-2.5 transition-colors"
-              >
+              <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-lg py-2.5">
                 <Play className="w-3.5 h-3.5" />Start Engine
               </button>
             )}
-            <button
-              onClick={() => scanMutation.mutate()}
-              disabled={scanMutation.isPending}
-              className="flex items-center gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5 transition-colors"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${scanMutation.isPending ? "animate-spin" : ""}`} />
-              Scan Now
+            <button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}
+              className="flex items-center gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5">
+              <RefreshCw className={`w-3.5 h-3.5 ${scanMutation.isPending ? "animate-spin" : ""}`} />Scan Now
             </button>
           </div>
 
           {state?.lastScanAt && (
             <div className="bg-black/20 rounded-lg px-3 py-2">
               <p className="text-[9px] text-gray-500">Last scan: {timeAgo(state.lastScanAt)}</p>
-              {state.lastScanResult && (
-                <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{state.lastScanResult}</p>
-              )}
+              {state.lastScanResult && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{state.lastScanResult}</p>}
             </div>
           )}
 
           {showConfig && (
             <div className="mt-3 bg-black/30 rounded-xl p-3 border border-gray-700/40">
-              <p className="text-[10px] font-bold text-gray-300 mb-3">Engine Configuration</p>
+              <p className="text-[10px] font-bold text-gray-300 mb-3">Engine Config</p>
               <div className="grid grid-cols-2 gap-2">
                 {([
-                  { label: "Min Bullish %", val: cfgBullish, set: setCfgBullish, hint: "BUY threshold" },
-                  { label: "Min Bearish %", val: cfgBearish, set: setCfgBearish, hint: "SELL threshold" },
-                  { label: "Stake / trade ($)", val: cfgStake, set: setCfgStake, hint: "USDC per position" },
-                  { label: "Max positions", val: cfgMaxPos, set: setCfgMaxPos, hint: "concurrent" },
-                  { label: "Cooldown (min)", val: cfgCooldown, set: setCfgCooldown, hint: "between trades" },
+                  { label: "Min Bullish %", val: cfgBullish, set: setCfgBullish },
+                  { label: "Min Bearish %", val: cfgBearish, set: setCfgBearish },
+                  { label: "Stake ($)", val: cfgStake, set: setCfgStake },
+                  { label: "Max positions", val: cfgMaxPos, set: setCfgMaxPos },
+                  { label: "Cooldown (min)", val: cfgCooldown, set: setCfgCooldown },
                 ] as const).map(f => (
                   <div key={f.label}>
                     <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
-                    <input
-                      type="number"
-                      value={f.val}
-                      onChange={e => (f.set as any)(e.target.value)}
-                      placeholder={f.hint}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5"
-                    />
+                    <input type="number" value={f.val} onChange={e => (f.set as any)(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
                   </div>
                 ))}
               </div>
-              <button
-                onClick={saveConfig}
-                disabled={configMutation.isPending}
-                className="w-full mt-3 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-lg py-2 transition-colors"
-              >
+              <button onClick={saveConfig} disabled={configMutation.isPending}
+                className="w-full mt-3 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-lg py-2">
                 Save Config
               </button>
             </div>
@@ -613,80 +575,36 @@ export default function PolymarketEnginePage() {
         </div>
 
         {/* ── Open Positions ────────────────────────────────────────────────── */}
-        <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-purple-400" />
-              <h2 className="text-sm font-bold text-white">Open Positions</h2>
-              {openCount > 0 && <Badge className="text-[9px] bg-purple-500/20 text-purple-300 border-purple-500/30">{openCount}</Badge>}
+        {openCount > 0 && (
+          <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-purple-400" />
+                <h2 className="text-sm font-bold text-white">Open Positions</h2>
+                <Badge className="text-[9px] bg-purple-500/20 text-purple-300 border-purple-500/30">{openCount}</Badge>
+              </div>
+              <button onClick={() => closeAllMutation.mutate()} disabled={closeAllMutation.isPending}
+                className="text-[10px] text-red-400/70 hover:text-red-400">Close all</button>
             </div>
-            {openCount > 0 && (
-              <button
-                onClick={() => closeAllMutation.mutate()}
-                disabled={closeAllMutation.isPending}
-                className="text-[10px] text-red-400/70 hover:text-red-400 transition-colors"
-              >
-                Close all
-              </button>
-            )}
-          </div>
-
-          {openCount === 0 ? (
-            <div className="text-center py-6">
-              <p className="text-gray-500 text-sm">No open positions</p>
-              <p className="text-gray-600 text-[10px] mt-1">
-                {isRunning
-                  ? `Watching for sentiment ≥ ${state?.config.minBullishScore}% bullish or bearish…`
-                  : "Start the engine to begin scanning."}
-              </p>
-            </div>
-          ) : (
             <div className="space-y-2">
               {state!.openPositions.map(pos => (
                 <div key={pos.id} className={`border rounded-xl p-3 ${pnlBg(pos.unrealizedPnl)}`}>
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <p className="text-[10px] text-gray-300 leading-tight line-clamp-2 flex-1">{pos.market.question}</p>
-                    <button
-                      onClick={() => closePosMutation.mutate(pos.id)}
-                      className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    <button onClick={() => closePosMutation.mutate(pos.id)} className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><X className="w-3 h-3" /></button>
                   </div>
                   <div className="grid grid-cols-4 gap-1.5">
-                    <div>
-                      <p className="text-[8px] text-gray-500">Side</p>
-                      <p className={`text-[10px] font-bold ${pos.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>
-                        {pos.side} {pos.direction === "BUY" ? "📈" : "📉"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[8px] text-gray-500">Entry</p>
-                      <p className="text-[10px] font-bold text-white">{pos.entryProbability}%</p>
-                    </div>
-                    <div>
-                      <p className="text-[8px] text-gray-500">Now</p>
-                      <p className={`text-[10px] font-bold ${
-                        pos.currentProbability > pos.entryProbability ? "text-emerald-400"
-                        : pos.currentProbability < pos.entryProbability ? "text-red-400"
-                        : "text-white"
-                      }`}>{pos.currentProbability}%</p>
-                    </div>
-                    <div>
-                      <p className="text-[8px] text-gray-500">P&L</p>
-                      <p className={`text-[10px] font-bold ${pnlColor(pos.unrealizedPnl)}`}>
-                        {pos.unrealizedPnl >= 0 ? "+" : ""}{fmt(pos.unrealizedPnl)}
-                      </p>
-                    </div>
+                    <div><p className="text-[8px] text-gray-500">Side</p><p className={`text-[10px] font-bold ${pos.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{pos.side}</p></div>
+                    <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] font-bold text-white">{pos.entryProbability}%</p></div>
+                    <div><p className="text-[8px] text-gray-500">Now</p><p className={`text-[10px] font-bold ${pos.currentProbability > pos.entryProbability ? "text-emerald-400" : "text-red-400"}`}>{pos.currentProbability}%</p></div>
+                    <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${pnlColor(pos.unrealizedPnl)}`}>{pos.unrealizedPnl >= 0 ? "+" : ""}{fmt(pos.unrealizedPnl)}</p></div>
                   </div>
-                  <p className="text-[8px] text-gray-600 mt-1.5">
-                    Stake ${fmt(pos.stake)} · {pos.signal.sentimentLabel} ({pos.signal.bullishScore}%) · {timeAgo(pos.openedAt)}
-                  </p>
+                  <p className="text-[8px] text-gray-600 mt-1.5">Stake ${fmt(pos.stake)} · {timeAgo(pos.openedAt)}</p>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* ── Closed Positions ─────────────────────────────────────────────── */}
         {closedCount > 0 && (
@@ -702,26 +620,73 @@ export default function PolymarketEnginePage() {
             <div className="space-y-2">
               {state!.closedPositions.slice(0, 10).map(pos => (
                 <div key={pos.id} className="bg-black/20 border border-gray-800/60 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-300 leading-tight mb-2 line-clamp-1">{pos.market.question}</p>
+                  <p className="text-[10px] text-gray-300 mb-2 line-clamp-1">{pos.market.question}</p>
                   <div className="grid grid-cols-4 gap-1.5">
                     <div><p className="text-[8px] text-gray-500">Side</p><p className={`text-[10px] font-bold ${pos.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{pos.side}</p></div>
                     <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] text-gray-300">{pos.entryProbability}%</p></div>
                     <div><p className="text-[8px] text-gray-500">Exit</p><p className="text-[10px] text-gray-300">{pos.closedProbability}%</p></div>
-                    <div>
-                      <p className="text-[8px] text-gray-500">P&L</p>
-                      <p className={`text-[10px] font-bold ${pnlColor(pos.realizedPnl ?? 0)}`}>
-                        {(pos.realizedPnl ?? 0) >= 0 ? "+" : ""}{fmt(pos.realizedPnl ?? 0)}
-                      </p>
-                    </div>
+                    <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${pnlColor(pos.realizedPnl ?? 0)}`}>{(pos.realizedPnl ?? 0) >= 0 ? "+" : ""}{fmt(pos.realizedPnl ?? 0)}</p></div>
                   </div>
-                  <p className="text-[8px] text-gray-600 mt-1.5">
-                    {pos.status === "resolved" ? "✅ Resolved" : "Closed"} {pos.closedAt ? timeAgo(pos.closedAt) : ""}
-                  </p>
+                  <p className="text-[8px] text-gray-600 mt-1.5">{pos.status === "resolved" ? "✅ Resolved" : "Closed"} {pos.closedAt ? timeAgo(pos.closedAt) : ""}</p>
                 </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* ── Polymarket near-term markets (supplemental, collapsible) ──────── */}
+        <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowPolymarkets(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-800/30 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-gray-500" />
+              <span className="text-xs font-bold text-gray-400">Polymarket BTC Markets (supplemental)</span>
+              <span className="text-[9px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Not US-accessible</span>
+            </div>
+            {showPolymarkets ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+          </button>
+
+          {showPolymarkets && (
+            <div className="px-4 pb-4 space-y-2">
+              <p className="text-[9px] text-gray-500 pb-1">
+                Near-term BTC price markets (≤30 days). Polymarket is not available to US residents.
+                Use as supplemental market sentiment only.
+              </p>
+              {!polyData || polyData.markets.length === 0 ? (
+                <p className="text-[10px] text-gray-600 text-center py-3">
+                  {polyData?.error ? "Polymarket unavailable" : "No near-term BTC markets found"}
+                </p>
+              ) : (
+                polyData.markets.slice(0, 5).map((m, i) => (
+                  <div key={m.id || i} className="bg-black/30 border border-gray-800/60 rounded-lg p-3">
+                    <p className="text-[10px] text-gray-300 mb-2 leading-snug">{m.question}</p>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-[10px] font-bold ${m.yesProbability >= 60 ? "text-emerald-400" : m.yesProbability <= 40 ? "text-red-400" : "text-gray-300"}`}>
+                        YES {m.yesProbability}%
+                      </span>
+                      <span className="text-[10px] text-gray-500">·</span>
+                      <span className="text-[10px] text-gray-400">NO {m.noProbability}%</span>
+                      <span className="text-[10px] text-gray-500">·</span>
+                      <span className={`text-[9px] ${m.direction === "bullish" ? "text-emerald-500" : "text-red-500"}`}>
+                        {m.direction === "bullish" ? "↑ bull" : "↓ bear"}
+                      </span>
+                      {m.msUntilEnd != null && (
+                        <>
+                          <span className="text-[10px] text-gray-500">·</span>
+                          <span className="text-[9px] text-gray-500 flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" />{fmtTimeUntil(m.msUntilEnd)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
 
       </div>
     </div>

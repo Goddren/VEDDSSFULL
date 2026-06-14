@@ -201,16 +201,33 @@ async function fetchBTCMarketsFromGamma(limit = 30): Promise<PolymarketMarket[]>
     });
   }
 
+  const MAX_DAYS = 30; // only show markets resolving within 30 days
+  const maxMs = MAX_DAYS * 24 * 60 * 60 * 1000;
+
+  // Block obviously long-term / meme speculative markets
+  const BLOCK_PHRASES = [
+    'gta', 'grand theft', 'before 20', 'by 202', 'end of 202',
+    'never', 'all time high', 'all-time high', 'ath', 'halving',
+    'etf', 'election', 'president', 'trump', 'biden',
+    '$1 million', '$1m', '1,000,000', '500,000', '$500k',
+  ];
+  function isBlockedMarket(question: string): boolean {
+    const q = question.toLowerCase();
+    return BLOCK_PHRASES.some(p => q.includes(p));
+  }
+
   return markets
     .filter(m => m.volume > 500)
+    .filter(m => !isBlockedMarket(m.question))
+    .filter(m => m.msUntilEnd == null || m.msUntilEnd <= maxMs)
     .sort((a, b) => {
-      // Soonest-resolving markets first (most "5-minute prediction" relevant)
+      // Soonest-resolving markets first
       const aT = a.msUntilEnd ?? Infinity;
       const bT = b.msUntilEnd ?? Infinity;
       if (aT === bT) return b.volume - a.volume;
       return aT - bT;
     })
-    .slice(0, 10);
+    .slice(0, 8);
 }
 
 // ─── Live fetch: Gamma + CLOB price overlay ──────────────────────────────────
