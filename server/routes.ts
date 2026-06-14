@@ -1111,8 +1111,6 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   app.get("/api/config", (_req: Request, res: Response) => {
     res.json({
       googleClientId: process.env.GOOGLE_CLIENT_ID || null,
-      // TEMP auto-deploy webhook test — source-only push, dist/ NOT rebuilt.
-      autoDeployTest: "webhook-check-2",
     });
   });
 
