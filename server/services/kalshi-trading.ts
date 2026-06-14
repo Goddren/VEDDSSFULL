@@ -74,9 +74,50 @@ export function saveKalshiCredentials(userId: number, creds: KalshiCredentials):
   saveAllCreds(map);
 }
 
+/**
+ * Normalize a pasted RSA private key into valid PEM:
+ *  - strip surrounding quotes / BOM / whitespace
+ *  - convert literal "\n" (and "\r\n") escapes into real newlines
+ *  - if the body got flattened onto one line, re-wrap base64 at 64 chars
+ * Throws a clear error if the result isn't a parseable private key.
+ */
+function normalizePrivateKey(raw: string): string {
+  let pem = (raw ?? '').trim();
+  // Strip wrapping quotes a copy/paste may add
+  if ((pem.startsWith('"') && pem.endsWith('"')) || (pem.startsWith("'") && pem.endsWith("'"))) {
+    pem = pem.slice(1, -1).trim();
+  }
+  // Convert escaped newlines to real ones
+  if (pem.includes('\\n')) pem = pem.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n');
+  pem = pem.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // If header/body/footer ended up on one line, rebuild with proper wrapping
+  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
+  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
+  if (headerMatch && footerMatch && !pem.includes('\n')) {
+    const label = headerMatch[1];
+    const body = pem
+      .replace(/-----BEGIN [A-Z ]+?-----/, '')
+      .replace(/-----END [A-Z ]+?-----/, '')
+      .replace(/\s+/g, '');
+    const wrapped = body.match(/.{1,64}/g)?.join('\n') ?? body;
+    pem = `-----BEGIN ${label}-----\n${wrapped}\n-----END ${label}-----`;
+  }
+  pem = pem.trim();
+
+  // Validate it actually parses as a private key (clear error if not)
+  try {
+    crypto.createPrivateKey(pem);
+  } catch {
+    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
+  }
+  return pem;
+}
+
 export function saveKalshiApiKey(userId: number, keyId: string, privateKeyPem: string): void {
+  const normalized = normalizePrivateKey(privateKeyPem);
   const map = loadAllCreds();
-  map[String(userId)] = { authMethod: 'apikey', keyId, privateKeyPem };
+  map[String(userId)] = { authMethod: 'apikey', keyId: keyId.trim(), privateKeyPem: normalized };
   saveAllCreds(map);
   _sessions.delete(userId); // clear any stale JWT session
 }

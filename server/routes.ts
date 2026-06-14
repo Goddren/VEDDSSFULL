@@ -16466,15 +16466,26 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const { keyId, privateKeyPem } = req.body;
-    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "keyId and privateKeyPem required" });
+    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "Enter both the Key ID and the private key." });
     try {
-      const { saveKalshiApiKey, testKalshiCredentials } = await import('./services/kalshi-trading');
-      saveKalshiApiKey(userId, keyId.trim(), privateKeyPem.trim());
+      const { saveKalshiApiKey, testKalshiCredentials, deleteKalshiCredentials } = await import('./services/kalshi-trading');
+      // saveKalshiApiKey validates/normalizes the PEM and throws a clear message if it's malformed
+      try {
+        saveKalshiApiKey(userId, keyId.trim(), privateKeyPem);
+      } catch (keyErr: any) {
+        return res.status(400).json({ error: keyErr.message });
+      }
       const test = await testKalshiCredentials(userId);
       if (!test.valid) {
-        const { deleteKalshiCredentials } = await import('./services/kalshi-trading');
         deleteKalshiCredentials(userId);
-        return res.status(400).json({ error: `Kalshi API key test failed: ${test.error}` });
+        const raw = test.error || "";
+        let msg = `Kalshi rejected the key: ${raw}`;
+        if (/\b(401|403)\b/.test(raw) || /unauthorized|forbidden|signature|authentication/i.test(raw)) {
+          msg = "Kalshi rejected the API key. Double-check the Key ID matches the private key, that the key is still active in your Kalshi dashboard (kalshi.com/account/api), and that you pasted the whole private key file.";
+        } else if (/timeout|ENOTFOUND|fetch failed|network/i.test(raw)) {
+          msg = "Couldn't reach Kalshi to verify the key. Please try again in a moment.";
+        }
+        return res.status(400).json({ error: msg });
       }
       res.json({ success: true, memberId: test.memberId, balance: test.balance });
     } catch (err: any) {

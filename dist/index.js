@@ -25225,9 +25225,35 @@ function saveKalshiCredentials(userId, creds) {
   map[String(userId)] = creds;
   saveAllCreds(map);
 }
+function normalizePrivateKey(raw) {
+  let pem = (raw ?? "").trim();
+  if (pem.startsWith('"') && pem.endsWith('"') || pem.startsWith("'") && pem.endsWith("'")) {
+    pem = pem.slice(1, -1).trim();
+  }
+  if (pem.includes("\\n")) pem = pem.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  pem = pem.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
+  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
+  if (headerMatch && footerMatch && !pem.includes("\n")) {
+    const label = headerMatch[1];
+    const body = pem.replace(/-----BEGIN [A-Z ]+?-----/, "").replace(/-----END [A-Z ]+?-----/, "").replace(/\s+/g, "");
+    const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
+    pem = `-----BEGIN ${label}-----
+${wrapped}
+-----END ${label}-----`;
+  }
+  pem = pem.trim();
+  try {
+    crypto4.createPrivateKey(pem);
+  } catch {
+    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
+  }
+  return pem;
+}
 function saveKalshiApiKey(userId, keyId, privateKeyPem) {
+  const normalized = normalizePrivateKey(privateKeyPem);
   const map = loadAllCreds();
-  map[String(userId)] = { authMethod: "apikey", keyId, privateKeyPem };
+  map[String(userId)] = { authMethod: "apikey", keyId: keyId.trim(), privateKeyPem: normalized };
   saveAllCreds(map);
   _sessions.delete(userId);
 }
@@ -48404,15 +48430,25 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const { keyId, privateKeyPem } = req.body;
-    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "keyId and privateKeyPem required" });
+    if (!keyId || !privateKeyPem) return res.status(400).json({ error: "Enter both the Key ID and the private key." });
     try {
-      const { saveKalshiApiKey: saveKalshiApiKey2, testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
-      saveKalshiApiKey2(userId, keyId.trim(), privateKeyPem.trim());
+      const { saveKalshiApiKey: saveKalshiApiKey2, testKalshiCredentials: testKalshiCredentials2, deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+      try {
+        saveKalshiApiKey2(userId, keyId.trim(), privateKeyPem);
+      } catch (keyErr) {
+        return res.status(400).json({ error: keyErr.message });
+      }
       const test = await testKalshiCredentials2(userId);
       if (!test.valid) {
-        const { deleteKalshiCredentials: deleteKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
         deleteKalshiCredentials2(userId);
-        return res.status(400).json({ error: `Kalshi API key test failed: ${test.error}` });
+        const raw = test.error || "";
+        let msg = `Kalshi rejected the key: ${raw}`;
+        if (/\b(401|403)\b/.test(raw) || /unauthorized|forbidden|signature|authentication/i.test(raw)) {
+          msg = "Kalshi rejected the API key. Double-check the Key ID matches the private key, that the key is still active in your Kalshi dashboard (kalshi.com/account/api), and that you pasted the whole private key file.";
+        } else if (/timeout|ENOTFOUND|fetch failed|network/i.test(raw)) {
+          msg = "Couldn't reach Kalshi to verify the key. Please try again in a moment.";
+        }
+        return res.status(400).json({ error: msg });
       }
       res.json({ success: true, memberId: test.memberId, balance: test.balance });
     } catch (err) {
