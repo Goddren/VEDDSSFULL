@@ -109,6 +109,11 @@ async function getOrRefreshToken(userId: number, creds: KalshiCredentials): Prom
 
   if (!res.ok) {
     const body = await res.text();
+    // Kalshi removed email/password API login — /login now 404s on the
+    // current api.elections.kalshi.com host. Direct users to the API Key flow.
+    if (res.status === 404) {
+      throw new Error('Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi → Settings → API Keys → kalshi.com/account/api).');
+    }
     throw new Error(`Kalshi login failed (${res.status}): ${body.slice(0, 200)}`);
   }
 
@@ -125,10 +130,23 @@ async function getOrRefreshToken(userId: number, creds: KalshiCredentials): Prom
 // ── RSA signing for API key auth ──────────────────────────────────────────────
 
 function signKalshiRequest(privateKeyPem: string, timestampMs: number, method: string, endpoint: string): string {
-  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + endpoint;
-  const sign = crypto.createSign('RSA-SHA256');
+  // Kalshi signs `timestampMs + METHOD + /trade-api/v2 + path`.
+  // Strip any query string — the signature covers the path only.
+  const pathOnly = endpoint.split('?')[0];
+  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
+  const sign = crypto.createSign('sha256');
   sign.update(message);
-  return sign.sign(privateKeyPem, 'base64');
+  sign.end();
+  // Kalshi REQUIRES RSASSA-PSS with SHA-256 and digest-length salt — NOT the
+  // default PKCS#1 v1.5. Wrong padding → 401 "invalid signature".
+  return sign.sign(
+    {
+      key: privateKeyPem,
+      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
+    },
+    'base64',
+  );
 }
 
 // ── Auth header builder (handles both methods) ────────────────────────────────
