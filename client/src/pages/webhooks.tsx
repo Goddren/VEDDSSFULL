@@ -255,7 +255,9 @@ export default function WebhooksPage() {
   const [showHowItWorks, toggleHowItWorks] = useSectionToggle("webhooks", "how_it_works", true);
   const [showMt5Copier, toggleMt5Copier] = useSectionToggle("webhooks", "mt5_copier", true);
   const [showMt5ChartEa, toggleMt5ChartEa] = useSectionToggle("webhooks", "mt5_chart_ea", true);
-  const [showTradelocker, toggleTradelocker] = useSectionToggle("webhooks", "tradelocker", true);
+  // Don't persist TL section toggle — always start expanded so accounts are never hidden by stale localStorage
+  const [showTradelocker, setShowTradelocker] = useState(true);
+  const toggleTradelocker = () => setShowTradelocker(v => !v);
   const [showEaAiRefresh, toggleEaAiRefresh] = useSectionToggle("webhooks", "ea_ai_refresh", true);
 
   const [newWebhook, setNewWebhook] = useState({
@@ -426,10 +428,11 @@ export default function WebhooksPage() {
   });
 
   // TradeLocker queries and mutations — multi-account
-  const { data: tlConnections = [], isLoading: tlLoading } = useQuery<TradelockerConnection[]>({
+  const { data: tlConnections = [], isLoading: tlLoading, isError: tlError, refetch: refetchTLConnections } = useQuery<TradelockerConnection[]>({
     queryKey: ['/api/tradelocker/connections'],
     refetchInterval: 30000,  // refresh TL account status every 30s
     staleTime: 0,
+    retry: 2,
   });
 
   // Legacy single-connection alias for instruments dialog (uses first connected)
@@ -1539,6 +1542,14 @@ export default function WebhooksPage() {
             {tlLoading ? (
               <div className="flex items-center justify-center py-8">
                 <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : tlError ? (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <XCircle className="w-8 h-8 text-red-400" />
+                <p className="text-red-300 text-sm">Failed to load TradeLocker accounts. The server may be restarting.</p>
+                <Button variant="outline" size="sm" onClick={() => refetchTLConnections()} className="border-gray-600 text-gray-300">
+                  <RefreshCw className="w-4 h-4 mr-2" />Retry
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">

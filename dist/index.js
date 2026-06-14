@@ -54771,7 +54771,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         // Multi-TradeLocker: drop the unique constraint so multiple accounts per user are allowed
         `ALTER TABLE tradelocker_connections DROP CONSTRAINT IF EXISTS tradelocker_connections_user_id_unique`,
         // Per-account lot multiplier — allows different lot sizes per TradeLocker account
-        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS lot_multiplier double precision NOT NULL DEFAULT 1.0`
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS lot_multiplier double precision NOT NULL DEFAULT 1.0`,
+        // Gate mode — 'basic' (original EA permissive) or 'full' (strict live-engine gates)
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`
       ];
       for (const m of migrations) {
         await db.execute(sql8.raw(m));
