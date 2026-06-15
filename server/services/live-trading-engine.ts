@@ -4,6 +4,7 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
 import { getPipSize, getPipValue } from '../utils/pipUtils';
+import { getTLRisk } from './tl-risk-settings';
 import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult } from '../utils/smcUtils';
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
 import { buildTransitionMatrix } from './markov-chain';
@@ -4266,7 +4267,24 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _refBal     = config.accountBalance || 0;
 
           let acctLot: number;
-          if (config.copyMode === 'proportional' && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
+          let acctSizeLabel = '';
+          const _risk = getTLRisk(tlConn.id);
+          const _slDist = (entryPrice && stopLoss) ? Math.abs(entryPrice - stopLoss) : 0;
+
+          if (_risk.useRiskPercent && _tlAcctBal !== null && _tlAcctBal > 0 && _slDist > 0) {
+            // Risk-% sizing: size THIS account's lot so a stop-out loses riskPercent of its balance.
+            //   lots = (balance × risk%) / (slPips × pipValuePerLot)
+            const pipSize  = getPipSize(decision.symbol);
+            const pipValue = getPipValue(decision.symbol);
+            const slPips   = pipSize > 0 ? _slDist / pipSize : 0;
+            const riskUsd  = _tlAcctBal * (_risk.riskPercent / 100);
+            if (slPips > 0 && pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round((riskUsd / (slPips * pipValue)) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctBal.toLocaleString()})`;
+            } else {
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+            }
+          } else if (config.copyMode === 'proportional' && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
             // Scale lot proportionally: $50k account copying a $10k engine → 5× the lot
             const ratio = _tlAcctBal / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
@@ -4307,17 +4325,19 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             errorMessage: tradeResult.error || null,
           });
 
-          return { tlConn, tradeResult, acctLot };
+          return { tlConn, tradeResult, acctLot, acctSizeLabel };
         })
       );
 
       let anySuccess = false;
       for (const result of openResults) {
         if (result.status === 'fulfilled') {
-          const { tlConn, tradeResult, acctLot: executedLot } = result.value;
+          const { tlConn, tradeResult, acctLot: executedLot, acctSizeLabel } = result.value;
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           const _tlBal2 = (global as any).tlAccountBalances?.[userId]?.[tlConn.accountId];
-          const multLabel = config.copyMode === 'proportional' && _tlBal2
+          const multLabel = acctSizeLabel
+            ? acctSizeLabel
+            : config.copyMode === 'proportional' && _tlBal2
             ? ` (proportional $${_tlBal2.toLocaleString()})`
             : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (×${tlConn.lotMultiplier})` : '';
           if (tradeResult.success) {

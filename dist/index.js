@@ -19485,6 +19485,63 @@ var init_share_card_service = __esm({
   }
 });
 
+// server/services/tl-risk-settings.ts
+var tl_risk_settings_exports = {};
+__export(tl_risk_settings_exports, {
+  deleteTLRisk: () => deleteTLRisk,
+  getAllTLRisk: () => getAllTLRisk,
+  getTLRisk: () => getTLRisk,
+  setTLRisk: () => setTLRisk
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function loadAll() {
+  try {
+    if (fs4.existsSync(FILE)) return JSON.parse(fs4.readFileSync(FILE, "utf-8"));
+  } catch {
+  }
+  return {};
+}
+function saveAll(map) {
+  try {
+    const dir = path4.dirname(FILE);
+    if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
+    fs4.writeFileSync(FILE, JSON.stringify(map, null, 2));
+  } catch {
+  }
+}
+function getTLRisk(connectionId) {
+  const s = loadAll()[String(connectionId)];
+  return s ? { ...DEFAULT, ...s } : { ...DEFAULT };
+}
+function getAllTLRisk() {
+  return loadAll();
+}
+function setTLRisk(connectionId, patch) {
+  const map = loadAll();
+  const cur = map[String(connectionId)] ?? { ...DEFAULT };
+  const next = {
+    useRiskPercent: patch.useRiskPercent !== void 0 ? !!patch.useRiskPercent : cur.useRiskPercent,
+    riskPercent: patch.riskPercent !== void 0 && !isNaN(patch.riskPercent) ? Math.max(0.05, Math.min(20, patch.riskPercent)) : cur.riskPercent
+  };
+  map[String(connectionId)] = next;
+  saveAll(map);
+  return next;
+}
+function deleteTLRisk(connectionId) {
+  const map = loadAll();
+  delete map[String(connectionId)];
+  saveAll(map);
+}
+var FILE, DEFAULT;
+var init_tl_risk_settings = __esm({
+  "server/services/tl-risk-settings.ts"() {
+    "use strict";
+    FILE = path4.join(process.cwd(), "data", "tl_risk_settings.json");
+    DEFAULT = { useRiskPercent: false, riskPercent: 1 };
+  }
+});
+
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -23554,7 +23611,21 @@ async function processDecision(userId, decision, newsCtx) {
           const _tlAcctBal = _tlBalCache[tlConn.accountId] ?? null;
           const _refBal = config.accountBalance || 0;
           let acctLot;
-          if (config.copyMode === "proportional" && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
+          let acctSizeLabel = "";
+          const _risk = getTLRisk(tlConn.id);
+          const _slDist = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+          if (_risk.useRiskPercent && _tlAcctBal !== null && _tlAcctBal > 0 && _slDist > 0) {
+            const pipSize = getPipSize(decision.symbol);
+            const pipValue = getPipValue(decision.symbol);
+            const slPips = pipSize > 0 ? _slDist / pipSize : 0;
+            const riskUsd = _tlAcctBal * (_risk.riskPercent / 100);
+            if (slPips > 0 && pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round(riskUsd / (slPips * pipValue) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctBal.toLocaleString()})`;
+            } else {
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+            }
+          } else if (config.copyMode === "proportional" && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
             const ratio = _tlAcctBal / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
           } else {
@@ -23587,16 +23658,16 @@ async function processDecision(userId, decision, newsCtx) {
             status: tradeResult.success ? "executed" : "failed",
             errorMessage: tradeResult.error || null
           });
-          return { tlConn, tradeResult, acctLot };
+          return { tlConn, tradeResult, acctLot, acctSizeLabel };
         })
       );
       let anySuccess = false;
       for (const result of openResults) {
         if (result.status === "fulfilled") {
-          const { tlConn, tradeResult, acctLot: executedLot } = result.value;
+          const { tlConn, tradeResult, acctLot: executedLot, acctSizeLabel } = result.value;
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           const _tlBal2 = global.tlAccountBalances?.[userId]?.[tlConn.accountId];
-          const multLabel = config.copyMode === "proportional" && _tlBal2 ? ` (proportional $${_tlBal2.toLocaleString()})` : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
+          const multLabel = acctSizeLabel ? acctSizeLabel : config.copyMode === "proportional" && _tlBal2 ? ` (proportional $${_tlBal2.toLocaleString()})` : (tlConn.lotMultiplier ?? 1) !== 1 ? ` (\xD7${tlConn.lotMultiplier})` : "";
           if (tradeResult.success) {
             anySuccess = true;
             addActivity2(userId, {
@@ -24283,6 +24354,7 @@ var init_live_trading_engine = __esm({
     init_storage();
     init_news_service();
     init_pipUtils();
+    init_tl_risk_settings();
     init_smcUtils();
     init_ictMacroUtils();
     init_markov_chain();
@@ -25206,21 +25278,21 @@ __export(kalshi_trading_exports, {
   saveKalshiCredentials: () => saveKalshiCredentials,
   testKalshiCredentials: () => testKalshiCredentials
 });
-import * as fs4 from "fs";
-import * as path4 from "path";
+import * as fs5 from "fs";
+import * as path5 from "path";
 import * as crypto4 from "crypto";
 function loadAllCreds() {
   try {
-    if (fs4.existsSync(CREDS_FILE)) return JSON.parse(fs4.readFileSync(CREDS_FILE, "utf-8"));
+    if (fs5.existsSync(CREDS_FILE)) return JSON.parse(fs5.readFileSync(CREDS_FILE, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAllCreds(map) {
   try {
-    const dir = path4.dirname(CREDS_FILE);
-    if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
-    fs4.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
+    const dir = path5.dirname(CREDS_FILE);
+    if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
+    fs5.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
   } catch {
   }
 }
@@ -25417,7 +25489,7 @@ var init_kalshi_trading = __esm({
     "use strict";
     KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path4.join(process.cwd(), "data", "kalshi_credentials.json");
+    CREDS_FILE = path5.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
   }
 });
@@ -30279,8 +30351,8 @@ import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs5 from "fs";
-import * as path5 from "path";
+import * as fs6 from "fs";
+import * as path6 from "path";
 
 // server/twilio.ts
 import twilio from "twilio";
@@ -32184,20 +32256,20 @@ var TradovateService = class {
     }
     return data;
   }
-  async get(path9) {
+  async get(path10) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path9}`, {
+    const response = await fetch(`${this.baseUrl}${path10}`, {
       headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path9} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate GET ${path10} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
-  async post(path9, body) {
+  async post(path10, body) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path9}`, {
+    const response = await fetch(`${this.baseUrl}${path10}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.accessToken}`,
@@ -32208,7 +32280,7 @@ var TradovateService = class {
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path9} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate POST ${path10} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
@@ -35257,9 +35329,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path5.join(process.cwd(), "uploads");
-if (!fs5.existsSync(uploadsDir2)) {
-  fs5.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path6.join(process.cwd(), "uploads");
+if (!fs6.existsSync(uploadsDir2)) {
+  fs6.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -35607,11 +35679,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path5.join(uploadsDir2, fileName);
+      const filePath = path6.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs5.promises.writeFile(filePath, req.file.buffer);
+        await fs6.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -35637,14 +35709,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path5.join(process.cwd(), "uploads", "avatars");
-      if (!fs5.existsSync(avatarsDir)) {
-        fs5.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path6.join(process.cwd(), "uploads", "avatars");
+      if (!fs6.existsSync(avatarsDir)) {
+        fs6.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path5.join(avatarsDir, fileName);
-      await fs5.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path6.join(avatarsDir, fileName);
+      await fs6.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -35739,11 +35811,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path5.join(uploadsDir2, generatedFilename);
+      const filePath = path6.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs5.promises.writeFile(filePath, imageBuffer);
+        await fs6.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -35860,9 +35932,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path5.join(uploadsDir2, frameFileName);
+          const framePath = path6.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs5.promises.writeFile(framePath, frameBuffer);
+          await fs6.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -36260,12 +36332,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path5.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path6.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs5.existsSync(filePath)) {
-        const alternativePath = path5.join(uploadsDir2, path5.basename(imageUrl));
+      if (!fs6.existsSync(filePath)) {
+        const alternativePath = path6.join(uploadsDir2, path6.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs5.existsSync(alternativePath)) {
+        if (!fs6.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -36274,7 +36346,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs5.promises.readFile(filePath);
+      const imageBuffer = await fs6.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -36449,11 +36521,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path5.basename(imagePath);
+        const basename2 = path6.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path5.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path6.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs5.existsSync(originalImagePath)) {
+        if (!fs6.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -36550,13 +36622,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path5.basename(filename);
-      const sharedPath = path5.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs5.existsSync(sharedPath)) {
+      const sanitizedFilename = path6.basename(filename);
+      const sharedPath = path6.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs6.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path5.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs5.existsSync(regularPath)) {
+      const regularPath = path6.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs6.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -36568,9 +36640,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path5.basename(filename);
-      const annotatedPath = path5.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs5.existsSync(annotatedPath)) {
+      const sanitizedFilename = path6.basename(filename);
+      const annotatedPath = path6.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs6.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -39803,12 +39875,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path5.join(process.cwd(), "uploads", "share-cards");
-      if (!fs5.existsSync(shareCardPath)) {
-        fs5.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path6.join(process.cwd(), "uploads", "share-cards");
+      if (!fs6.existsSync(shareCardPath)) {
+        fs6.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path5.join(shareCardPath, shareCardFileName);
-      fs5.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path6.join(shareCardPath, shareCardFileName);
+      fs6.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -45519,8 +45591,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas: createCanvas3, loadImage: loadImage3 } = await import("canvas");
-      const path9 = await import("path");
-      const fs7 = await import("fs");
+      const path10 = await import("path");
+      const fs8 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -45606,8 +45678,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path9.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs7.default.existsSync(logoPath)) {
+        const logoPath = path10.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs8.default.existsSync(logoPath)) {
           const logo = await loadImage3(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -45868,10 +45940,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path9.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs7.default.existsSync(outDir)) fs7.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path9.default.join(outDir, fileName);
-      fs7.default.writeFileSync(filePath, buffer);
+      const outDir = path10.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs8.default.existsSync(outDir)) fs8.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path10.default.join(outDir, fileName);
+      fs8.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -46111,7 +46183,8 @@ Rules:
     }
     const userId = req.user.id;
     const connections = await storage.getUserTradelockerConnections(userId);
-    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => c);
+    const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
+    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => ({ ...c, ...getTLRisk2(c.id) }));
     res.json(safe);
   });
   app2.get("/api/tradelocker/account-balance", async (req, res) => {
@@ -46215,7 +46288,7 @@ Rules:
     if (!connection2 || connection2.userId !== userId) {
       return res.status(404).json({ error: "No connection found" });
     }
-    const { isActive, autoExecute, lotMultiplier, gateMode } = req.body;
+    const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
     if (autoExecute !== void 0) updateDataById.autoExecute = autoExecute;
@@ -46226,12 +46299,26 @@ Rules:
     if (gateMode !== void 0 && (gateMode === "full" || gateMode === "basic")) {
       updateDataById.gateMode = gateMode;
     }
-    const updated = await storage.updateTradelockerConnection(connId, updateDataById);
+    if (useRiskPercent !== void 0 || riskPercent !== void 0) {
+      const { setTLRisk: setTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
+      const patch = {};
+      if (useRiskPercent !== void 0) patch.useRiskPercent = !!useRiskPercent;
+      if (riskPercent !== void 0) {
+        const r = parseFloat(riskPercent);
+        if (!isNaN(r)) patch.riskPercent = r;
+      }
+      setTLRisk2(connId, patch);
+    }
+    let updated = await storage.getTradelockerConnection(connId);
+    if (Object.keys(updateDataById).length > 0) {
+      updated = await storage.updateTradelockerConnection(connId, updateDataById);
+    }
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
+    const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
-    res.json(safeConnection);
+    res.json({ ...safeConnection, ...getTLRisk2(connId) });
   });
   app2.patch("/api/tradelocker/connection", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -46983,9 +47070,9 @@ Format each recommendation as a clear, concise action item.`;
     brain.optimalMinConfidence = optimalMinConfidence;
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path5.join(process.cwd(), "data", "brains");
-      if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
-      fs5.writeFileSync(path5.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path6.join(process.cwd(), "data", "brains");
+      if (!fs6.existsSync(brainDir)) fs6.mkdirSync(brainDir, { recursive: true });
+      fs6.writeFileSync(path6.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -46994,9 +47081,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs5.existsSync(p)) return null;
-      const brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
+      const p = path6.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs6.existsSync(p)) return null;
+      const brain = JSON.parse(fs6.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -47031,9 +47118,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = global.veddAIBrain?.[userId];
     if (!brain) {
       try {
-        const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs5.existsSync(p)) {
-          brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
+        const p = path6.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs6.existsSync(p)) {
+          brain = JSON.parse(fs6.readFileSync(p, "utf-8"));
           global.veddAIBrain = global.veddAIBrain || {};
           global.veddAIBrain[userId] = brain;
         }
@@ -47049,9 +47136,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = global.veddAIBrain?.[userId];
     if (!brain) {
       try {
-        const p = path5.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs5.existsSync(p)) {
-          brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
+        const p = path6.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs6.existsSync(p)) {
+          brain = JSON.parse(fs6.readFileSync(p, "utf-8"));
           global.veddAIBrain = global.veddAIBrain || {};
           global.veddAIBrain[userId] = brain;
         }
@@ -47789,9 +47876,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path5.join(process.cwd(), "data", "brains");
-          if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
-          fs5.writeFileSync(path5.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path6.join(process.cwd(), "data", "brains");
+          if (!fs6.existsSync(brainDir)) fs6.mkdirSync(brainDir, { recursive: true });
+          fs6.writeFileSync(path6.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -48412,19 +48499,19 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path5.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path6.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs5.existsSync(_polyWalletsFile)) return JSON.parse(fs5.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs6.existsSync(_polyWalletsFile)) return JSON.parse(fs6.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path5.join(process.cwd(), "data");
-      if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
-      fs5.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path6.join(process.cwd(), "data");
+      if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+      fs6.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -48664,19 +48751,19 @@ Respond with ONLY valid JSON:
     const closed = closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path5.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path6.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs5.existsSync(_polyKeysFile)) return JSON.parse(fs5.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs6.existsSync(_polyKeysFile)) return JSON.parse(fs6.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path5.join(process.cwd(), "data");
-      if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
-      fs5.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const dir = path6.join(process.cwd(), "data");
+      if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+      fs6.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -49629,11 +49716,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs7 = await import("fs/promises");
-        const path9 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path9.extname(req.file.originalname)}`;
-        const uploadPath = path9.join(process.cwd(), "uploads", filename);
-        await fs7.writeFile(uploadPath, req.file.buffer);
+        const fs8 = await import("fs/promises");
+        const path10 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path10.extname(req.file.originalname)}`;
+        const uploadPath = path10.join(process.cwd(), "uploads", filename);
+        await fs8.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -50436,8 +50523,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path5.join(uploadsDir2, filename);
-      fs5.writeFileSync(filePath, file.buffer);
+      const filePath = path6.join(uploadsDir2, filename);
+      fs6.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -54793,10 +54880,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path5.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path6.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs6.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -54806,8 +54893,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         ...req.body
       };
       curricula.push(entry);
-      fs5.mkdirSync(path5.join(process.cwd(), "data"), { recursive: true });
-      fs5.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs6.mkdirSync(path6.join(process.cwd(), "data"), { recursive: true });
+      fs6.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -54816,10 +54903,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path5.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path6.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs6.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -54830,10 +54917,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path6.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs6.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = {
@@ -54844,8 +54931,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       };
       if (!certs.find((c) => c.certId === cert.certId)) {
         certs.push(cert);
-        fs5.mkdirSync(path5.join(process.cwd(), "data"), { recursive: true });
-        fs5.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+        fs6.mkdirSync(path6.join(process.cwd(), "data"), { recursive: true });
+        fs6.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
       }
       res.json({ success: true });
     } catch (err) {
@@ -54855,10 +54942,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path6.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs6.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const mine = certs.filter((c) => c.userId === req.user.id);
@@ -54869,10 +54956,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path5.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path6.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs5.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs6.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -55344,14 +55431,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
 // server/vite.ts
 import express from "express";
-import fs6 from "fs";
-import path7 from "path";
+import fs7 from "fs";
+import path8 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path6 from "path";
+import path7 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -55370,14 +55457,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path6.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path6.resolve(import.meta.dirname, "shared"),
-      "@assets": path6.resolve(import.meta.dirname, "attached_assets")
+      "@": path7.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path7.resolve(import.meta.dirname, "shared"),
+      "@assets": path7.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path6.resolve(import.meta.dirname, "client"),
+  root: path7.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path6.resolve(import.meta.dirname, "dist/public"),
+    outDir: path7.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -55433,13 +55520,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path7.resolve(
+      const clientTemplate = path8.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs6.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs7.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -55458,8 +55545,8 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path7.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs6.existsSync(distPath)) {
+  const distPath = path8.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs7.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -55480,7 +55567,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path7.resolve(distPath, "index.html");
+  const indexPath = path8.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -55513,7 +55600,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs6.promises.readFile(indexPath, "utf-8");
+      let html = await fs7.promises.readFile(indexPath, "utf-8");
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
     } catch {
@@ -55523,7 +55610,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path8 from "path";
+import path9 from "path";
 
 // server/auth.ts
 init_storage();
@@ -56351,19 +56438,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path8.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path8.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path8.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path9.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path9.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path9.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path8.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path9.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path9 = req.path;
+  const path10 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -56372,8 +56459,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path9.startsWith("/api")) {
-      let logLine = `${req.method} ${path9} ${res.statusCode} in ${duration}ms`;
+    if (path10.startsWith("/api")) {
+      let logLine = `${req.method} ${path10} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

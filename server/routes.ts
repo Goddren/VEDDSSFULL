@@ -13577,7 +13577,8 @@ Rules:
     }
     const userId = (req.user as User).id;
     const connections = await storage.getUserTradelockerConnections(userId);
-    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => c);
+    const { getTLRisk } = await import('./services/tl-risk-settings');
+    const safe = connections.map(({ encryptedPassword, accessToken, refreshToken, ...c }) => ({ ...c, ...getTLRisk(c.id) }));
     res.json(safe);
   });
 
@@ -13707,7 +13708,7 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
 
-    const { isActive, autoExecute, lotMultiplier, gateMode } = req.body;
+    const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
@@ -13718,13 +13719,28 @@ Rules:
     if (gateMode !== undefined && (gateMode === 'full' || gateMode === 'basic')) {
       updateDataById.gateMode = gateMode;
     }
-    const updated = await storage.updateTradelockerConnection(connId, updateDataById);
+
+    // Per-account risk-% sizing (stored in JSON sidecar — no DB column)
+    if (useRiskPercent !== undefined || riskPercent !== undefined) {
+      const { setTLRisk } = await import('./services/tl-risk-settings');
+      const patch: any = {};
+      if (useRiskPercent !== undefined) patch.useRiskPercent = !!useRiskPercent;
+      if (riskPercent !== undefined) { const r = parseFloat(riskPercent); if (!isNaN(r)) patch.riskPercent = r; }
+      setTLRisk(connId, patch);
+    }
+
+    // updateTradelockerConnection requires at least one DB field; skip if only risk changed
+    let updated = await storage.getTradelockerConnection(connId);
+    if (Object.keys(updateDataById).length > 0) {
+      updated = await storage.updateTradelockerConnection(connId, updateDataById);
+    }
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
 
+    const { getTLRisk } = await import('./services/tl-risk-settings');
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
-    res.json(safeConnection);
+    res.json({ ...safeConnection, ...getTLRisk(connId) });
   });
 
   // PATCH legacy (no ID) — updates first connection for backward compat
