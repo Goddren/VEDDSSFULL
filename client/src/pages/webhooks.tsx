@@ -1329,7 +1329,7 @@ export default function WebhooksPage() {
                             {signal.direction}
                           </Badge>
                           <span className="text-white font-mono">{signal.symbol}</span>
-                          <span className="text-gray-400">@ {signal.entryPrice.toFixed(5)}</span>
+                          <span className="text-gray-400">@ {typeof signal.entryPrice === 'number' ? signal.entryPrice.toFixed(5) : 'market'}</span>
                         </div>
                         <div className="flex items-center gap-2 text-gray-500">
                           {signal.relayedToWebhooks && (
