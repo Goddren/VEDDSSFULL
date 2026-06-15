@@ -1291,6 +1291,7 @@ export default function WeeklyStrategyPage() {
   const [engineMode, setEngineMode] = useState('aggressive');
   const [engineMinConf, setEngineMinConf] = useState(65);
   const [engineMaxTrades, setEngineMaxTrades] = useState(5);
+  const [engineMaxDailyTrades, setEngineMaxDailyTrades] = useState(0); // 0 = unlimited
   const [engineMaxLotSize, setEngineMaxLotSize] = useState(0.10);
   const [engineInterval, setEngineInterval] = useState(60);
   const [engineWeeklyTarget, setEngineWeeklyTarget] = useState(100);
@@ -1359,6 +1360,7 @@ export default function WeeklyStrategyPage() {
     if (saved.interval       != null) setEngineInterval(saved.interval);
     if (saved.minConf        != null) setEngineMinConf(saved.minConf);
     if (saved.maxTrades      != null) setEngineMaxTrades(saved.maxTrades);
+    if (saved.maxDailyTrades != null) setEngineMaxDailyTrades(saved.maxDailyTrades);
     if (saved.compounding    != null) setEngineCompounding(saved.compounding);
     if (saved.drawdownShield != null) setEngineDrawdownShield(saved.drawdownShield);
     if (saved.shieldThreshold!= null) setEngineShieldThreshold(saved.shieldThreshold);
@@ -1382,6 +1384,7 @@ export default function WeeklyStrategyPage() {
         riskPerTrade: engineRiskPerTrade, maxLotSize: engineMaxLotSize,
         weeklyTarget: engineWeeklyTarget, baseLotSize: engineBaseLotSize,
         interval: engineInterval, minConf: engineMinConf, maxTrades: engineMaxTrades,
+        maxDailyTrades: engineMaxDailyTrades,
         compounding: engineCompounding, drawdownShield: engineDrawdownShield,
         shieldThreshold: engineShieldThreshold, adaptiveScan: engineAdaptiveScan,
         propFirmMode: enginePropFirmMode, aiMode: engineAiMode,
@@ -1391,7 +1394,7 @@ export default function WeeklyStrategyPage() {
       });
     }, 800);
   }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
-      engineBaseLotSize, engineInterval, engineMinConf, engineMaxTrades, engineCompounding,
+      engineBaseLotSize, engineInterval, engineMinConf, engineMaxTrades, engineMaxDailyTrades, engineCompounding,
       engineDrawdownShield, engineShieldThreshold, engineAdaptiveScan, enginePropFirmMode,
       engineAiMode, engineVolatileCapMode, engineCopyMode, engineAccountBalance]);
 
@@ -1456,6 +1459,7 @@ export default function WeeklyStrategyPage() {
         strategyMode: engineMode,
         scanIntervalMs: engineInterval * 1000,
         maxOpenTrades: engineMaxTrades,
+        maxDailyTrades: engineMaxDailyTrades,
         minConfidence: engineMinConf,
         maxLotSize: engineMaxLotSize,
         weeklyProfitTarget: engineWeeklyTarget,
@@ -2241,6 +2245,16 @@ export default function WeeklyStrategyPage() {
                       <Label className="text-gray-400 text-xs">Max Open Trades</Label>
                       <Input type="number" value={engineMaxTrades} onChange={e => setEngineMaxTrades(Number(e.target.value))}
                         min={1} max={20} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Max Daily Trades <span className="text-gray-600">(0 = unlimited)</span></Label>
+                      <Input type="number" value={engineMaxDailyTrades}
+                        onChange={async e => {
+                          const v = Math.max(0, Number(e.target.value));
+                          setEngineMaxDailyTrades(v);
+                          try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { maxDailyTrades: v }); } catch { /* engine may not be running yet — applied on start */ }
+                        }}
+                        min={0} max={100} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
                     </div>
                     <div>
                       <Label className="text-gray-400 text-xs">Scan Interval (sec)</Label>
