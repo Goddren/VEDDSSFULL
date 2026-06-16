@@ -84,6 +84,7 @@ const STRATEGY_LABELS: Record<KalshiStrategy, string> = {
   momentum:       'Momentum',
   volume_profile: 'Volume Profile',
   markov:         'Markov',
+  order_flow:     'Order Flow',
 };
 
 export function getKalshiEngineState(userId: number): KalshiEngineState {

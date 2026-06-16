@@ -120,7 +120,7 @@ interface KalshiEngineState {
     cooldownMinutes: number;
     minConfidence: number;
     requireAlignedHourly: boolean;
-    strategy: "momentum" | "volume_profile" | "markov";
+    strategy: "momentum" | "volume_profile" | "markov" | "order_flow";
   };
 }
 
@@ -247,7 +247,7 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
-  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov">("");
+  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow">("");
 
   // Polymarket live key state
   const [showPolyKeySetup, setShowPolyKeySetup] = useState(false);
@@ -866,7 +866,7 @@ export default function PolymarketEnginePage() {
               )}
               {kalshiEngineState?.config.strategy && (
                 <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                  {kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : "Momentum"}
+                  {kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
                 </span>
               )}
             </div>
@@ -1002,11 +1002,12 @@ export default function PolymarketEnginePage() {
                   {/* Strategy selector */}
                   <div className="mb-3">
                     <label className="text-[9px] text-gray-400 block mb-1">Auto-Trade Strategy</label>
-                    <div className="grid grid-cols-3 gap-1.5">
+                    <div className="grid grid-cols-2 gap-1.5">
                       {([
-                        { key: "momentum",       label: "Momentum",   sub: "RSI/MACD/EMA" },
+                        { key: "momentum",       label: "Momentum",    sub: "RSI/MACD/EMA" },
                         { key: "volume_profile", label: "Vol Profile", sub: "POC / value area" },
-                        { key: "markov",         label: "Markov",     sub: "state transitions" },
+                        { key: "markov",         label: "Markov",      sub: "state transitions" },
+                        { key: "order_flow",     label: "Order Flow",  sub: "CVD / delta / absorption" },
                       ] as const).map(opt => {
                         const active = (kalshiCfgStrategy || kalshiEngineState?.config.strategy || "momentum") === opt.key;
                         return (

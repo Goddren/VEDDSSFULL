@@ -10,8 +10,9 @@
  */
 
 import { getBTC5MinPrediction, getBTCCandles, type BTC5MinCandle } from './btc-5min-predictor';
+import { computeOrderFlow } from './orderflow-strategy';
 
-export type KalshiStrategy = 'momentum' | 'volume_profile' | 'markov';
+export type KalshiStrategy = 'momentum' | 'volume_profile' | 'markov' | 'order_flow';
 
 export interface TradeSignal {
   direction: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -143,6 +144,32 @@ export function markovSignal(candles: BTC5MinCandle[]): TradeSignal {
   return { direction, confidence, currentPrice: price, priceChange1h, reason, strategy: 'markov' };
 }
 
+// ── Order Flow ──────────────────────────────────────────────────────────────────
+// Uses CVD (Cumulative Volume Delta), delta divergence, absorption, and volume
+// imbalance on BTC 5-min candles to detect institutional positioning before price moves.
+
+export function orderFlowSignal(candles: BTC5MinCandle[]): TradeSignal {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+
+  // Convert BTC5MinCandle → CandleData format expected by computeOrderFlow
+  const cdCandles = candles.map(c => ({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume }));
+  const of = computeOrderFlow(cdCandles, Math.min(30, cdCandles.length));
+
+  if (of.direction === 'NEUTRAL') {
+    return { direction: 'NEUTRAL', confidence: 45, currentPrice: price, priceChange1h, reason: 'Order flow neutral — no CVD divergence or imbalance detected', strategy: 'order_flow' };
+  }
+
+  return {
+    direction: of.direction,
+    confidence: of.confidence,
+    currentPrice: price,
+    priceChange1h,
+    reason: of.reason,
+    strategy: 'order_flow',
+  };
+}
+
 // ── Unified signal entry point ──────────────────────────────────────────────────
 
 export async function getKalshiSignal(strategy: KalshiStrategy): Promise<TradeSignal> {
@@ -162,5 +189,7 @@ export async function getKalshiSignal(strategy: KalshiStrategy): Promise<TradeSi
   if (!candles.length) {
     return { direction: 'NEUTRAL', confidence: 0, currentPrice: 0, priceChange1h: 0, reason: 'No candle data available', strategy };
   }
-  return strategy === 'volume_profile' ? volumeProfileSignal(candles) : markovSignal(candles);
+  if (strategy === 'volume_profile') return volumeProfileSignal(candles);
+  if (strategy === 'order_flow')    return orderFlowSignal(candles);
+  return markovSignal(candles);
 }

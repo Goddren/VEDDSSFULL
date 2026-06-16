@@ -25783,6 +25783,23 @@ function markovSignal(candles) {
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
 }
+function orderFlowSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  const cdCandles = candles.map((c) => ({ o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume }));
+  const of = computeOrderFlow(cdCandles, Math.min(30, cdCandles.length));
+  if (of.direction === "NEUTRAL") {
+    return { direction: "NEUTRAL", confidence: 45, currentPrice: price, priceChange1h, reason: "Order flow neutral \u2014 no CVD divergence or imbalance detected", strategy: "order_flow" };
+  }
+  return {
+    direction: of.direction,
+    confidence: of.confidence,
+    currentPrice: price,
+    priceChange1h,
+    reason: of.reason,
+    strategy: "order_flow"
+  };
+}
 async function getKalshiSignal(strategy) {
   if (strategy === "momentum") {
     const p = await getBTC5MinPrediction();
@@ -25799,13 +25816,16 @@ async function getKalshiSignal(strategy) {
   if (!candles.length) {
     return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
   }
-  return strategy === "volume_profile" ? volumeProfileSignal(candles) : markovSignal(candles);
+  if (strategy === "volume_profile") return volumeProfileSignal(candles);
+  if (strategy === "order_flow") return orderFlowSignal(candles);
+  return markovSignal(candles);
 }
 var clamp2;
 var init_kalshi_strategies = __esm({
   "server/services/kalshi-strategies.ts"() {
     "use strict";
     init_btc_5min_predictor();
+    init_orderflow_strategy();
     clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   }
 });
@@ -26072,7 +26092,8 @@ var init_kalshi_engine = __esm({
     STRATEGY_LABELS = {
       momentum: "Momentum",
       volume_profile: "Volume Profile",
-      markov: "Markov"
+      markov: "Markov",
+      order_flow: "Order Flow"
     };
   }
 });
