@@ -2112,8 +2112,8 @@ export interface UniversalAIClient {
 const PROVIDER_MODELS: Record<string, string> = {
   openai: 'gpt-4o',
   groq: 'llama-3.3-70b-versatile',
-  anthropic: 'claude-3-5-sonnet-20241022',
-  google: 'gemini-1.5-pro',
+  anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
+  google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
 };
 
