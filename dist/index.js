@@ -18429,6 +18429,175 @@ var init_markov_chain = __esm({
   }
 });
 
+// server/services/orderflow-strategy.ts
+var orderflow_strategy_exports = {};
+__export(orderflow_strategy_exports, {
+  computeOrderFlow: () => computeOrderFlow
+});
+function estimateDelta(c) {
+  const range = c.h - c.l;
+  if (range <= 0) return 0;
+  const buyFrac = (c.c - c.l) / range;
+  return (buyFrac * 2 - 1) * (c.v || 1);
+}
+function cvdSeries(candles) {
+  const series = [];
+  let running = 0;
+  for (const c of candles) {
+    running += estimateDelta(c);
+    series.push(running);
+  }
+  return series;
+}
+function computeOrderFlow(candles, lookback = 20) {
+  const empty = {
+    direction: "NEUTRAL",
+    confidence: 0,
+    reason: "Insufficient data",
+    confluences: [],
+    cvd: 0,
+    cvdTrend: "flat",
+    divergence: false,
+    divergenceType: null,
+    absorption: false,
+    absorptionType: null,
+    imbalance: false,
+    imbalanceType: null
+  };
+  if (candles.length < Math.min(lookback, 10)) return empty;
+  const recent = candles.slice(-lookback);
+  const cvd = cvdSeries(recent);
+  const currentCVD = cvd[cvd.length - 1];
+  const half = Math.floor(recent.length / 2);
+  const cvdEarlyAvg = cvd.slice(0, half).reduce((s, v) => s + v, 0) / half;
+  const cvdLateAvg = cvd.slice(half).reduce((s, v) => s + v, 0) / (cvd.length - half);
+  const cvdTrend = cvdLateAvg > cvdEarlyAvg * 1.03 ? "rising" : cvdLateAvg < cvdEarlyAvg * 0.97 ? "falling" : "flat";
+  const pricesEarly = recent.slice(0, half).map((c) => c.c);
+  const pricesLate = recent.slice(half).map((c) => c.c);
+  const priceEarlyAvg = pricesEarly.reduce((s, v) => s + v, 0) / pricesEarly.length;
+  const priceLateAvg = pricesLate.reduce((s, v) => s + v, 0) / pricesLate.length;
+  const priceTrend = priceLateAvg > priceEarlyAvg * 1.0008 ? "rising" : priceLateAvg < priceEarlyAvg * 0.9992 ? "falling" : "flat";
+  let divergence = false;
+  let divergenceType = null;
+  if (priceTrend === "falling" && cvdTrend === "rising") {
+    divergence = true;
+    divergenceType = "bullish";
+  }
+  if (priceTrend === "rising" && cvdTrend === "falling") {
+    divergence = true;
+    divergenceType = "bearish";
+  }
+  const last3 = recent.slice(-3);
+  const avgVol = recent.reduce((s, c) => s + (c.v || 1), 0) / recent.length;
+  const last3Vol = last3.reduce((s, c) => s + (c.v || 1), 0) / 3;
+  const moveRange = Math.abs(last3[2].c - last3[0].o) / Math.max(last3[0].o, 1e-6);
+  const isHighVolLowMove = last3Vol > avgVol * 1.4 && moveRange < 12e-4;
+  let absorption = false;
+  let absorptionType = null;
+  if (isHighVolLowMove) {
+    const last3Delta = last3.reduce((s, c) => s + estimateDelta(c), 0);
+    if (last3Delta > 0) {
+      absorption = true;
+      absorptionType = "buying";
+    }
+    if (last3Delta < 0) {
+      absorption = true;
+      absorptionType = "selling";
+    }
+  }
+  let imbalance = false;
+  let imbalanceType = null;
+  const last5 = recent.slice(-5);
+  let bullSeq = 0, bearSeq = 0;
+  for (const c of last5) {
+    const d = estimateDelta(c);
+    if (c.c > c.o && d > 0) {
+      bullSeq++;
+      bearSeq = 0;
+    } else if (c.c < c.o && d < 0) {
+      bearSeq++;
+      bullSeq = 0;
+    } else {
+      bullSeq = 0;
+      bearSeq = 0;
+    }
+  }
+  if (bullSeq >= 3) {
+    imbalance = true;
+    imbalanceType = "bullish";
+  }
+  if (bearSeq >= 3) {
+    imbalance = true;
+    imbalanceType = "bearish";
+  }
+  let bullScore = 0, bearScore = 0;
+  const confluences = [];
+  if (cvdTrend === "rising") {
+    bullScore += 2;
+    confluences.push("CVD rising \u2014 net buyer aggression");
+  }
+  if (cvdTrend === "falling") {
+    bearScore += 2;
+    confluences.push("CVD falling \u2014 net seller aggression");
+  }
+  if (divergence && divergenceType === "bullish") {
+    bullScore += 4;
+    confluences.push("Bullish delta divergence (price \u2193 / CVD \u2191)");
+  }
+  if (divergence && divergenceType === "bearish") {
+    bearScore += 4;
+    confluences.push("Bearish delta divergence (price \u2191 / CVD \u2193)");
+  }
+  if (absorption && absorptionType === "selling") {
+    bullScore += 3;
+    confluences.push("Selling absorption at support (passive buyers defending)");
+  }
+  if (absorption && absorptionType === "buying") {
+    bearScore += 3;
+    confluences.push("Buying absorption at resistance (passive sellers defending)");
+  }
+  if (imbalance && imbalanceType === "bullish") {
+    bullScore += 3;
+    confluences.push("Bullish volume imbalance (3+ consecutive buying candles)");
+  }
+  if (imbalance && imbalanceType === "bearish") {
+    bearScore += 3;
+    confluences.push("Bearish volume imbalance (3+ consecutive selling candles)");
+  }
+  const THRESHOLD = 3;
+  let direction = "NEUTRAL";
+  let confidence2 = 0;
+  let reason = "No order flow edge detected";
+  if (bullScore >= THRESHOLD && bullScore > bearScore) {
+    direction = "BUY";
+    confidence2 = Math.min(91, 53 + bullScore * 4);
+    reason = confluences.filter((c) => /bull|buyer|CVD ris|selling abs/i.test(c)).join(" | ") || "Bullish order flow";
+  } else if (bearScore >= THRESHOLD && bearScore > bullScore) {
+    direction = "SELL";
+    confidence2 = Math.min(91, 53 + bearScore * 4);
+    reason = confluences.filter((c) => /bear|seller|CVD fall|buying abs/i.test(c)).join(" | ") || "Bearish order flow";
+  }
+  return {
+    direction,
+    confidence: confidence2,
+    reason,
+    confluences,
+    cvd: currentCVD,
+    cvdTrend,
+    divergence,
+    divergenceType,
+    absorption,
+    absorptionType,
+    imbalance,
+    imbalanceType
+  };
+}
+var init_orderflow_strategy = __esm({
+  "server/services/orderflow-strategy.ts"() {
+    "use strict";
+  }
+});
+
 // server/solana-scanner.ts
 import OpenAI3 from "openai";
 async function fetchTrendingSolanaTokens() {
@@ -20719,7 +20888,7 @@ function getConfidenceLotMultiplier(confidence2) {
 }
 function getStrategyLotMultiplier(strategy) {
   const s = strategy.toLowerCase();
-  if (["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper", "smc_demand_supply"].includes(s)) {
+  if (["prop_firm_sniper", "ict_ote", "ict_order_blocks", "sniper", "smc_demand_supply", "order_flow"].includes(s)) {
     return { mult: 1.2, label: `sniper-tier (${s}) \u2192 1.2\xD7` };
   }
   if (["momentum", "swing", "breakout", "asia_range_breakout", "news_fade", "sunday_gap"].includes(s)) {
@@ -21918,6 +22087,27 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
       priority: "high",
       minConfluences: 5
     };
+  }
+  {
+    const { computeOrderFlow: computeOrderFlow2 } = (init_orderflow_strategy(), __toCommonJS(orderflow_strategy_exports));
+    const ofCandles = data.candles || [];
+    if (ofCandles.length >= 10) {
+      const of = computeOrderFlow2(ofCandles, Math.min(30, ofCandles.length));
+      if (of.direction !== "NEUTRAL" && of.confidence >= 60) {
+        const factors = [
+          of.divergence ? `delta divergence (${of.divergenceType})` : null,
+          of.absorption ? `absorption (${of.absorptionType})` : null,
+          of.imbalance ? `volume imbalance (${of.imbalanceType})` : null,
+          `CVD ${of.cvdTrend}`
+        ].filter(Boolean).join(" | ");
+        return {
+          strategy: "order_flow",
+          reason: `Order Flow ${of.direction}: ${factors}. Conf=${of.confidence}%. CVD reading institutional positioning \u2014 trade WITH the delta, not against it.`,
+          priority: of.confidence >= 75 ? "high" : "medium",
+          minConfluences: 4
+        };
+      }
+    }
   }
   if (vwapVal && price) {
     const vwapDevPct = Math.abs((price - vwapVal) / vwapVal * 100);
@@ -24386,7 +24576,8 @@ var init_live_trading_engine = __esm({
       "vwap_mean_reversion",
       "news_fade",
       "prop_firm_sniper",
-      "sunday_gap"
+      "sunday_gap",
+      "order_flow"
     ];
     TRAIL_METHOD_LABELS = {
       staged_volume: "Staged Volume Trail",
@@ -26439,6 +26630,8 @@ function passesStrategyFilter(analysis, strategy) {
       return analysis.riskLevel === "LOW" && token.makers24h >= 50 && analysis.signal === "STRONG_BUY";
     case "liquidity_sweep":
       return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
+    case "order_flow_scalper":
+      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
     case "adaptive":
       return true;
     default:
@@ -26449,7 +26642,7 @@ function selectAdaptiveSolStrategy(macro, scanResult) {
   if (scanResult.length === 0) {
     return { strategyId: "momentum_surfer", reason: "No scan data \u2014 defaulting to momentum" };
   }
-  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0 };
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
   for (const t of scanResult) {
     const tt = t.token.txns24h.buys + t.token.txns24h.sells;
     const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
@@ -26461,6 +26654,7 @@ function selectAdaptiveSolStrategy(macro, scanResult) {
     if (t.token.volume24h >= 25e4) counts.volExplosion++;
     if (chg >= 20 && (t.token.dexSource === "pumpfun" || (t.token.dexId || "").toLowerCase().includes("pump"))) counts.meme++;
     if (t.riskLevel === "LOW" && t.signal === "STRONG_BUY" && t.token.makers24h >= 150) counts.smartMoney++;
+    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 5e4) counts.orderFlow++;
   }
   if (macro?.bias === "RISK_OFF") {
     if (counts.smartMoney >= 1) return { strategyId: "smart_money_flow", reason: `RISK_OFF macro \u2014 ${counts.smartMoney} LOW-risk STRONG_BUY token(s). Institutional-grade entries only` };
@@ -26474,6 +26668,7 @@ function selectAdaptiveSolStrategy(macro, scanResult) {
   if (counts.dip >= 2) return { strategyId: "dip_sniper", reason: `${counts.dip} tokens dipping with smart-money accumulation` };
   if (counts.whale >= 1) return { strategyId: "whale_follower", reason: `${counts.whale} whale accumulation token detected \u2014 follow the smart money` };
   if (counts.volExplosion >= 1) return { strategyId: "volume_explosion", reason: `${counts.volExplosion} explosive volume token \u2014 institutional move in progress` };
+  if (counts.orderFlow >= 2) return { strategyId: "order_flow_scalper", reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved \u2014 order flow leading price, entry before the move` };
   if (macro?.bias === "RISK_ON") return { strategyId: "momentum_surfer", reason: `RISK_ON macro \u2014 BTC/ETH/SOL all positive. Ride the momentum` };
   return { strategyId: "momentum_surfer", reason: "Mixed market \u2014 default momentum scan" };
 }
@@ -26495,6 +26690,8 @@ function getStrategyEntryContext(strategyId) {
       return "ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, \u2265150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.";
     case "liquidity_sweep":
       return "ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment \u226555. Quick scalp on a liquidity sweep bounce. Small size, fast exit.";
+    case "order_flow_scalper":
+      return "ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price \u2014 hasn't moved yet), volume >$50K. SKIP tokens where price has already moved >20% \u2014 you want to catch the move BEFORE price reacts to the flow. 15\u201360min hold. This is an institutional order flow play \u2014 buy pressure is accumulating before the price reflects it.";
     case "adaptive":
       return "ENTRY FILTER: adaptive mode \u2014 strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.";
     default:
@@ -28043,6 +28240,17 @@ var init_sol_engine = __esm({
         baseFraction: 0.03,
         minSignal: "BUY",
         holdTarget: "10\u201330min"
+      },
+      {
+        id: "order_flow_scalper",
+        name: "Order Flow Scalper",
+        icon: "\u{1F4CA}",
+        description: "Institutional order flow \u2014 enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution",
+        minConfidence: 70,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.025,
+        minSignal: "BUY",
+        holdTarget: "15\u201360min"
       },
       {
         id: "adaptive",
@@ -33021,6 +33229,7 @@ init_service();
 init_indicators();
 init_storage();
 init_markov_chain();
+init_orderflow_strategy();
 
 // server/moomoo.ts
 var FUTU_SYMBOL_MAP = {
@@ -33440,6 +33649,41 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
           confluences.push(markov.reason);
           if (markov.confidenceAdjustment !== 0) {
             strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
+          }
+        }
+        if (candles.length >= 10) {
+          const of = computeOrderFlow(candles, Math.min(30, candles.length));
+          const isBull2 = direction === "BUY";
+          if (of.direction !== "NEUTRAL") {
+            if (of.direction === direction) {
+              if (of.divergence) {
+                confidence2 += 5;
+                confluences.push(`OF delta divergence (${of.divergenceType})`);
+              }
+              if (of.absorption) {
+                confidence2 += 4;
+                confluences.push(`OF absorption (${of.absorptionType})`);
+              }
+              if (of.imbalance) {
+                confidence2 += 3;
+                confluences.push(`OF imbalance (${of.imbalanceType})`);
+              }
+              if (of.cvdTrend !== "flat") {
+                confidence2 += 2;
+                confluences.push(`CVD ${of.cvdTrend}`);
+              }
+              strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
+            } else {
+              confidence2 -= 8;
+              confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
+            }
+          } else if (!direction) {
+            if (of.confidence >= 65) {
+              direction = of.direction;
+              confidence2 = of.confidence;
+              strategy = "order_flow";
+              confluences = of.confluences;
+            }
           }
         }
         if (newsBlock) {

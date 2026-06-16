@@ -655,7 +655,7 @@ const ALL_STRATEGY_KEYS = [
   'scalping','momentum','session_breakout','aggressive','sniper','compound',
   'chart_pattern','ict_order_blocks','ict_fvg','ict_liquidity_sweep','ict_bos','ict_ote',
   'smc_demand_supply','asia_range_breakout','vwap_mean_reversion','news_fade',
-  'prop_firm_sniper','sunday_gap',
+  'prop_firm_sniper','sunday_gap','order_flow',
 ];
 
 function getAdaptiveScanInterval(config: LiveEngineConfig): number {
@@ -699,8 +699,8 @@ function getConfidenceLotMultiplier(confidence: number): { mult: number; label: 
 
 function getStrategyLotMultiplier(strategy: string): { mult: number; label: string } {
   const s = strategy.toLowerCase();
-  // Tier 1 — rare, high-conviction setups: sniper / ICT / prop-firm
-  if (['prop_firm_sniper','ict_ote','ict_order_blocks','sniper','smc_demand_supply'].includes(s)) {
+  // Tier 1 — rare, high-conviction setups: sniper / ICT / prop-firm / order flow
+  if (['prop_firm_sniper','ict_ote','ict_order_blocks','sniper','smc_demand_supply','order_flow'].includes(s)) {
     return { mult: 1.2, label: `sniper-tier (${s}) → 1.2×` };
   }
   // Tier 2 — standard momentum / swing setups
@@ -2201,6 +2201,30 @@ function selectStrategyForPair(
       priority: 'high',
       minConfluences: 5,
     };
+  }
+
+  // ── 6b. ORDER FLOW ──────────────────────────────────────────────────────
+  // CVD divergence, absorption, or volume imbalance detected
+  {
+    const { computeOrderFlow } = require('./orderflow-strategy');
+    const ofCandles: any[] = data.candles || [];
+    if (ofCandles.length >= 10) {
+      const of = computeOrderFlow(ofCandles, Math.min(30, ofCandles.length));
+      if (of.direction !== 'NEUTRAL' && of.confidence >= 60) {
+        const factors = [
+          of.divergence    ? `delta divergence (${of.divergenceType})` : null,
+          of.absorption    ? `absorption (${of.absorptionType})` : null,
+          of.imbalance     ? `volume imbalance (${of.imbalanceType})` : null,
+          `CVD ${of.cvdTrend}`,
+        ].filter(Boolean).join(' | ');
+        return {
+          strategy: 'order_flow',
+          reason: `Order Flow ${of.direction}: ${factors}. Conf=${of.confidence}%. CVD reading institutional positioning — trade WITH the delta, not against it.`,
+          priority: of.confidence >= 75 ? 'high' : 'medium',
+          minConfluences: 4,
+        };
+      }
+    }
   }
 
   // ── 7. VWAP MEAN REVERSION ──────────────────────────────────────────────

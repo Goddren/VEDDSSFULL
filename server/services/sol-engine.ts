@@ -279,6 +279,17 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     holdTarget: '10–30min',
   },
   {
+    id: 'order_flow_scalper',
+    name: 'Order Flow Scalper',
+    icon: '📊',
+    description: 'Institutional order flow — enters when buy/sell delta diverges from price, signalling hidden accumulation or distribution',
+    minConfidence: 70,
+    maxRisk: 'MEDIUM',
+    baseFraction: 0.025,
+    minSignal: 'BUY',
+    holdTarget: '15–60min',
+  },
+  {
     id: 'adaptive',
     name: 'Adaptive (Auto)',
     icon: '🤖',
@@ -743,6 +754,11 @@ function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): b
       // Price bounced off a key level — recent dip/recovery with strong buying
       return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
 
+    case 'order_flow_scalper':
+      // Delta divergence proxy: buy ratio strongly positive while price hasn't moved yet
+      // (price lags the buy/sell flow — classic order flow setup for SOL tokens)
+      return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 50000;
+
     case 'adaptive':
       // Adaptive mode delegates to the auto-selected strategy — always passes here
       return true;
@@ -764,7 +780,7 @@ function selectAdaptiveSolStrategy(
   }
 
   // Measure market conditions from the current scan batch
-  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0 };
+  const counts = { whale: 0, dip: 0, breakout: 0, volExplosion: 0, meme: 0, smartMoney: 0, orderFlow: 0 };
   for (const t of scanResult) {
     const tt = t.token.txns24h.buys + t.token.txns24h.sells;
     const br = tt > 0 ? t.token.txns24h.buys / tt : 0.5;
@@ -776,6 +792,8 @@ function selectAdaptiveSolStrategy(
     if (t.token.volume24h >= 250000) counts.volExplosion++;
     if (chg >= 20 && ((t.token.dexSource === 'pumpfun') || (t.token.dexId || '').toLowerCase().includes('pump'))) counts.meme++;
     if (t.riskLevel === 'LOW' && t.signal === 'STRONG_BUY' && t.token.makers24h >= 150) counts.smartMoney++;
+    // Order flow proxy: strong buy delta but price not yet moved (delta leads price)
+    if (br > 0.65 && chg >= -5 && chg <= 20 && t.token.volume24h >= 50000) counts.orderFlow++;
   }
 
   // RISK_OFF macro = be conservative
@@ -793,6 +811,8 @@ function selectAdaptiveSolStrategy(
   if (counts.dip >= 2)          return { strategyId: 'dip_sniper',        reason: `${counts.dip} tokens dipping with smart-money accumulation` };
   if (counts.whale >= 1)        return { strategyId: 'whale_follower',    reason: `${counts.whale} whale accumulation token detected — follow the smart money` };
   if (counts.volExplosion >= 1) return { strategyId: 'volume_explosion',  reason: `${counts.volExplosion} explosive volume token — institutional move in progress` };
+
+  if (counts.orderFlow >= 2)  return { strategyId: 'order_flow_scalper', reason: `${counts.orderFlow} tokens with strong buy delta but price not yet moved — order flow leading price, entry before the move` };
 
   // RISK_ON = ride the wave
   if (macro?.bias === 'RISK_ON') return { strategyId: 'momentum_surfer', reason: `RISK_ON macro — BTC/ETH/SOL all positive. Ride the momentum` };
@@ -821,6 +841,8 @@ function getStrategyEntryContext(strategyId: string): string {
       return 'ENTRY FILTER: LOW risk ONLY, STRONG_BUY only, ≥150 unique wallets (distributed, not pumped), multi-day hold target. SKIP HIGH/EXTREME risk tokens.';
     case 'liquidity_sweep':
       return 'ENTRY FILTER: recent dip then bounce (price -15% to +10%), buy ratio >62%, sentiment ≥55. Quick scalp on a liquidity sweep bounce. Small size, fast exit.';
+    case 'order_flow_scalper':
+      return 'ENTRY FILTER: buy/sell ratio >65% (strong delta imbalance), price movement -5% to +20% (delta leading price — hasn\'t moved yet), volume >$50K. SKIP tokens where price has already moved >20% — you want to catch the move BEFORE price reacts to the flow. 15–60min hold. This is an institutional order flow play — buy pressure is accumulating before the price reflects it.';
     case 'adaptive':
       return 'ENTRY FILTER: adaptive mode — strategy selected each scan based on current conditions. Evaluate against the actual strategy in use this cycle.';
     default:

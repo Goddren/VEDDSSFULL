@@ -8,6 +8,7 @@ import { storage } from '../storage';
 import { getOrCreateTradovateService, executeFuturesSignal } from '../tradovate';
 import { FUTURES_INSTRUMENTS, getInstrument, calculateContractSize } from '../futures-instruments';
 import { getMarkovSignal } from './markov-chain';
+import { computeOrderFlow } from './orderflow-strategy';
 import { getMoomooService, type MoomooOrderResult } from '../moomoo';
 
 // ── Default instruments to scan (most liquid) ─────────────────────────────────
@@ -355,6 +356,34 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
           confluences.push(markov.reason);
           if (markov.confidenceAdjustment !== 0) {
             strategy = strategy === 'rule_based' ? 'markov_enhanced' : strategy + '+markov';
+          }
+        }
+
+        // Strategy 6: Order Flow — CVD divergence / absorption / imbalance
+        if (candles.length >= 10) {
+          const of = computeOrderFlow(candles, Math.min(30, candles.length));
+          const isBull = direction === 'BUY';
+          if (of.direction !== 'NEUTRAL') {
+            if (of.direction === direction) {
+              // Order flow agrees with signal → boost confidence
+              if (of.divergence)  { confidence += 5; confluences.push(`OF delta divergence (${of.divergenceType})`); }
+              if (of.absorption)  { confidence += 4; confluences.push(`OF absorption (${of.absorptionType})`); }
+              if (of.imbalance)   { confidence += 3; confluences.push(`OF imbalance (${of.imbalanceType})`); }
+              if (of.cvdTrend !== 'flat') { confidence += 2; confluences.push(`CVD ${of.cvdTrend}`); }
+              strategy = strategy.includes('order_flow') ? strategy : strategy + '+order_flow';
+            } else {
+              // Order flow opposes signal → penalize
+              confidence -= 8;
+              confluences.push(`OF opposing: ${of.reason.split('|')[0].trim()}`);
+            }
+          } else if (!direction) {
+            // No direction yet — use order flow as standalone signal
+            if (of.confidence >= 65) {
+              direction = of.direction as 'BUY' | 'SELL';
+              confidence = of.confidence;
+              strategy = 'order_flow';
+              confluences = of.confluences;
+            }
           }
         }
 
