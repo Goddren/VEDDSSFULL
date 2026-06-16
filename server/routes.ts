@@ -13492,15 +13492,15 @@ Rules:
     if (!conn) return res.status(404).json({ error: "Connection not found" });
 
     try {
-      const password = decryptPassword(conn.encryptedPassword);
-      const svc = new TradeLockerService(
-        conn.accountType as 'demo' | 'live',
-        conn.accountId,
-        conn.serverId,
-        conn.accNum || undefined
-      );
-      await svc.authenticate(conn.email, password);
+      // Reuse the cached/authenticated service — avoids re-login on every poll
+      const svc = await tlGetOrCreateService(conn);
       const info = await svc.getAccountInfo();
+      // Also cache for proportional lot sizing in live engine
+      if (info.balance > 0) {
+        (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
+        (global as any).tlAccountBalances[userId] = (global as any).tlAccountBalances[userId] || {};
+        (global as any).tlAccountBalances[userId][conn.accountId] = info.balance;
+      }
       res.json({
         balance: info.balance,
         equity: info.equity,
@@ -13510,6 +13510,7 @@ Rules:
         accountId: info.accountId,
       });
     } catch (err) {
+      console.error('[TL balance]', err);
       res.status(500).json({ error: `Balance fetch failed: ${err instanceof Error ? err.message : 'Unknown'}` });
     }
   });

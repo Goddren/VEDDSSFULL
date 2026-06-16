@@ -363,7 +363,7 @@ export function MobileBottomNav() {
                   </p>
                   <p className="text-xs mt-1" style={{ color: anyTradeActive ? 'rgba(252,165,165,0.75)' : 'rgba(134,239,172,0.65)' }}>
                     {anyTradeActive
-                      ? `${forexActive ? 'Forex EA' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to kill all`
+                      ? `${forexActive ? 'SS AI Engine' : ''}${forexActive && polyActive ? ' + ' : ''}${polyActive ? 'Polymarket' : ''} running — tap to kill all`
                       : 'No engines running'}
                   </p>
                 </div>
@@ -405,11 +405,11 @@ export function MobileBottomNav() {
           </div>
 
           {/* ═══════════════════════════════════════════════
-              LIVE ACCOUNTS — MT5 · TradeLocker · Kalshi
+              LIVE ACCOUNTS — SS AI Forex · TradeLocker · Kalshi
           ═══════════════════════════════════════════════ */}
           <SectionLabel label="Live Accounts" />
 
-          {/* MT5 card */}
+          {/* SS AI Forex Engine card */}
           <Link href="/weekly-strategy">
             <button
               onClick={close}
@@ -421,7 +421,7 @@ export function MobileBottomNav() {
                   <span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.25)' }}>
                     <BarChart3 className="w-3.5 h-3.5" style={{ color: '#818cf8' }} />
                   </span>
-                  <span className="text-xs font-bold text-indigo-300">MT5 Account</span>
+                  <span className="text-xs font-bold text-indigo-300">SS AI Forex Engine</span>
                 </div>
                 <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full"
                   style={{ background: forexActive ? 'rgba(239,68,68,0.2)' : 'rgba(100,116,139,0.2)', color: forexActive ? '#fca5a5' : '#94a3b8' }}>
@@ -430,7 +430,7 @@ export function MobileBottomNav() {
               </div>
               <div className="flex items-end justify-between">
                 <div>
-                  <p className="text-[10px] text-gray-500">Balance</p>
+                  <p className="text-[10px] text-gray-500">Ref. Balance</p>
                   <p className="text-sm font-bold text-white">${fmtUsd(mt5Balance)}</p>
                 </div>
                 <div className="text-right">

@@ -46377,15 +46377,13 @@ Rules:
     const conn = conns.find((c) => c.id === connectionId);
     if (!conn) return res.status(404).json({ error: "Connection not found" });
     try {
-      const password = decryptPassword(conn.encryptedPassword);
-      const svc = new TradeLockerService(
-        conn.accountType,
-        conn.accountId,
-        conn.serverId,
-        conn.accNum || void 0
-      );
-      await svc.authenticate(conn.email, password);
+      const svc = await getOrCreateService(conn);
       const info = await svc.getAccountInfo();
+      if (info.balance > 0) {
+        global.tlAccountBalances = global.tlAccountBalances || {};
+        global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
+        global.tlAccountBalances[userId][conn.accountId] = info.balance;
+      }
       res.json({
         balance: info.balance,
         equity: info.equity,
@@ -46395,6 +46393,7 @@ Rules:
         accountId: info.accountId
       });
     } catch (err) {
+      console.error("[TL balance]", err);
       res.status(500).json({ error: `Balance fetch failed: ${err instanceof Error ? err.message : "Unknown"}` });
     }
   });
