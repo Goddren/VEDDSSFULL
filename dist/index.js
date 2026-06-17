@@ -22485,7 +22485,7 @@ INSTRUCTION: Signals that ALIGN with ${promptHTFLabel} bias are high-quality ins
     const daysLeft = getDaysRemaining();
     const compMult = tracker.compoundMultiplier;
     const adjustedBaseLot = Math.round(config.baseLotSize * compMult * 100) / 100;
-    const effectiveMaxLot = config.maxLotSize;
+    const effectiveMaxLot2 = config.maxLotSize;
     const goalSection = config.weeklyProfitTarget > 0 ? `
 WEEKLY PROFIT GOAL SYSTEM:
 - Weekly Target: $${config.weeklyProfitTarget} | Current Profit: $${tracker.currentProfit} | Progress: ${tracker.progressPercent}%
@@ -22880,7 +22880,7 @@ NEWS FADE / POST-NEWS REVERSAL (fading the crowd after high-impact events):
 AGGRESSIVE COMPOUND GROWTH (tie it all together):
 - Combine ALL strategies above simultaneously across multiple pairs
 - Scale lot sizes: base=${adjustedBaseLot} | With confidence scaling: 65-75%=${adjustedBaseLot}, 75-85%=${Math.round(adjustedBaseLot * 1.5 * 100) / 100}, 85%+=${Math.round(adjustedBaseLot * 2 * 100) / 100}
-- Max lot size cap: ${effectiveMaxLot} (never exceed this)
+- Max lot size cap: ${effectiveMaxLot2} (never exceed this)
 - Pyramid into winning positions - add to trades that move 10+ pips in your favor
 - Trade correlated pairs in the same direction when macro trend aligns
 - Use partial closes to lock in profit (close 50% at TP1, trail the rest)
@@ -23741,7 +23741,8 @@ async function processDecision(userId, decision, newsCtx) {
     const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
     const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
-    const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : config.maxLotSize || 0.1;
+    const _dynMaxLot = config.accountBalance > 0 ? Math.max(0.1, Math.round(config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol)) * 100) / 100) : 0.1;
+    const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
     if (state.drawdownShieldActive && config.accountBalance > 0) {
       const shieldLot = Math.max(0.01, Math.round(config.accountBalance * 25e-4 / 1e3 * 100) / 100);
       const shieldFinal = Math.min(shieldLot, safeMaxLot);
@@ -35337,6 +35338,17 @@ async function hashPasswordForWallet(password) {
   const buf = await scryptAsync(password, salt, 64);
   return `${buf.toString("hex")}.${salt}`;
 }
+function dynamicMaxLot(balance, symbol) {
+  if (!(balance > 0)) return 0.1;
+  const pipVal = getPipValue(symbol) || 10;
+  const MAX_RISK_PCT = 0.05;
+  const REF_STOP_PIPS = 15;
+  const cap = balance * MAX_RISK_PCT / (REF_STOP_PIPS * pipVal);
+  return Math.max(0.1, Math.round(cap * 100) / 100);
+}
+function effectiveMaxLot(configuredMaxLot, balance, symbol) {
+  return Math.max(configuredMaxLot ?? 0, dynamicMaxLot(balance, symbol));
+}
 var PAIR_SESSION_WINDOWS = {
   EURUSD: [[7, 20]],
   GBPUSD: [[7, 17]],
@@ -41550,7 +41562,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const relaySlPips = relaySlDist / relayPipSz;
           if (relayBalance > 0 && relaySlPips > 0 && relayPipVal > 0) {
             const calc = relayRiskAmt / (relaySlPips * relayPipVal);
-            const _relayMaxLot = _rState?.config?.maxLotSize ?? 0.1;
+            const _relayMaxLot = effectiveMaxLot(_rState?.config?.maxLotSize, relayBalance, relaySym);
             relayVolume = Math.max(0.01, Math.min(_relayMaxLot, Math.round(calc * 100) / 100));
             console.log(`[TL Relay] Risk-based lot: balance=$${relayBalance} risk=${relayRiskPct}% SL=${relaySlPips.toFixed(1)}pips \u2192 ${relayVolume} lots`);
           } else if (relayBalance <= 0) {
@@ -43874,7 +43886,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
-          const engineMaxLot = _liveState?.config?.maxLotSize ?? 0.1;
+          const engineMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
           mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
@@ -43888,13 +43900,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && analysis.signal !== "NEUTRAL") {
         const preMult = mt5Volume;
-        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 0.1;
+        const _goalMaxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && veddLotOverride > 0) {
         const preMult = mt5Volume;
-        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 0.1;
+        const _goalMaxLot2 = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
@@ -43929,12 +43941,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         if (!tlGateBlocked && _acctBalKnown) {
           const _openLots = _positions.reduce((sum, p) => sum + (p.lots || p.volume || p.size || 0), 0);
-          const _maxLot = _liveState?.config?.maxLotSize ?? 0.1;
+          const _maxLot = effectiveMaxLot(_liveState?.config?.maxLotSize, accountData.balance, sanitizedSymbol);
           const _maxOpen = _liveState?.config?.maxOpenTrades ?? 3;
           const _aggCap = _maxLot * _maxOpen * 1.5;
           if (_openLots + mt5Volume > _aggCap) {
             tlGateBlocked = true;
             tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+          }
+        }
+        if (!tlGateBlocked && _acctBalKnown && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
+          const _slDist = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss);
+          const _pipSz = getPipSize(sanitizedSymbol);
+          const _pipVal = getPipValue(sanitizedSymbol);
+          if (_pipSz > 0 && _pipVal > 0 && _slDist > 0) {
+            const _slPips = _slDist / _pipSz;
+            const _potentialLoss = mt5Volume * _slPips * _pipVal;
+            const _maxLossUsd = accountData.balance * 0.05;
+            if (_potentialLoss > _maxLossUsd) {
+              tlGateBlocked = true;
+              tlGateReason = `Per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${_maxLossUsd.toFixed(0)} (${mt5Volume} lots \xD7 ${_slPips.toFixed(0)} pips)`;
+            }
           }
         }
         if (tlGateBlocked) {
@@ -44180,16 +44206,52 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const tlMaxOpen = matchingEA?.maxOpenTrades ?? _liveState?.config?.maxOpenTrades ?? 3;
       if (!tlGateBlocked && tlMaxOpen > 0 && analysis.signal !== "NEUTRAL") {
         try {
-          const _openLogs = await storage.getTradelockerTradeLogs(token.userId, 50);
-          const _openCount = _openLogs.filter(
-            (t) => t.action === "OPEN" && t.status === "executed" && t.createdAt && Date.now() - new Date(t.createdAt).getTime() < 24 * 60 * 60 * 1e3
-          ).length;
+          const _posData = global.mt5OpenPositions?.[token.userId];
+          const _posFresh = _posData?.lastUpdated && Date.now() - new Date(_posData.lastUpdated).getTime() < 15 * 60 * 1e3;
+          let _openCount;
+          if (_posFresh && Array.isArray(_posData.positions)) {
+            _openCount = _posData.positions.length;
+          } else {
+            const _logs = await storage.getTradelockerTradeLogs(token.userId, 100);
+            const _dayStart = /* @__PURE__ */ new Date();
+            _dayStart.setUTCHours(0, 0, 0, 0);
+            const _today = _logs.filter((t) => t.createdAt && new Date(t.createdAt) >= _dayStart && t.status === "executed");
+            const _opens = _today.filter((t) => t.action === "OPEN").length;
+            const _closes = _today.filter((t) => t.action === "CLOSE" || t.action === "CLOSE_ALL").length;
+            _openCount = Math.max(0, _opens - _closes);
+          }
           if (_openCount >= tlMaxOpen) {
             tlGateBlocked = true;
             tlGateReason = `Max open trades reached (${_openCount}/${tlMaxOpen})`;
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`BLOCKED: Max open trades ${_openCount}/${tlMaxOpen} on TradeLocker.`);
             console.log(`[TL Gate] ${tlGateReason}`);
+          }
+        } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL") {
+        try {
+          const _usdBias = (sym, dir) => {
+            const s = (sym || "").toUpperCase().replace("/", "");
+            if (!s.includes("USD")) return null;
+            const isBuy = dir === "BUY";
+            return s.startsWith("USD") ? isBuy ? "LONG_USD" : "SHORT_USD" : isBuy ? "SHORT_USD" : "LONG_USD";
+          };
+          const _newBias = _usdBias(sanitizedSymbol, analysis.signal);
+          if (_newBias) {
+            const _posData = global.mt5OpenPositions?.[token.userId];
+            const _positions = _posData?.lastUpdated && Date.now() - new Date(_posData.lastUpdated).getTime() < 15 * 60 * 1e3 ? _posData.positions || [] : [];
+            const _sameBias = _positions.filter((p) => _usdBias(p.symbol, p.direction) === _newBias).length;
+            const _MAX_SAME_USD = 3;
+            if (_sameBias >= _MAX_SAME_USD) {
+              tlGateBlocked = true;
+              analysis.signal = "NEUTRAL";
+              tlGateReason = `Correlation cap: ${_sameBias} ${_newBias.replace("_", " ")} positions already open (max ${_MAX_SAME_USD})`;
+              analysis.alerts = analysis.alerts || [];
+              analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: ${tlGateReason}. Avoiding over-concentration in one currency.`);
+              console.warn(`[TL Gate 5 correlation] ${tlGateReason}`);
+            }
           }
         } catch {
         }

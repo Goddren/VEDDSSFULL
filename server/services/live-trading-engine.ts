@@ -4033,9 +4033,15 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const brainMult = brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0);
     const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
+    // Balance-scaled ceiling so large accounts ($100k+) aren't choked by a small
+    // configured/default cap. Ceiling = lot risking ~5% at a 15-pip reference stop.
+    // Actual sizing stays risk-%; this is only a runaway backstop.
+    const _dynMaxLot = config.accountBalance > 0
+      ? Math.max(0.10, Math.round((config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol))) * 100) / 100)
+      : 0.10;
     const safeMaxLot = isSmallAccount
       ? Math.min(0.02, config.maxLotSize || 0.10)
-      : (config.maxLotSize || 0.10);
+      : Math.max(config.maxLotSize || 0, _dynMaxLot);
 
     // ── Drawdown Shield Lot Override ──────────────────────────────────
     if (state.drawdownShieldActive && config.accountBalance > 0) {
