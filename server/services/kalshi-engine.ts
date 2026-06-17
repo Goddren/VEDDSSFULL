@@ -64,7 +64,13 @@ export interface KalshiEngineConfig {
   cooldownMinutes: number;
   minConfidence: number;       // min signal confidence to fire (0-100)
   requireAlignedHourly: boolean; // require priceChange1h to align with signal direction
-  strategy: KalshiStrategy;    // 'momentum' | 'volume_profile' | 'markov'
+  strategy: KalshiStrategy;    // 'momentum' | 'volume_profile' | 'markov' | 'order_flow'
+  // Auto-trade the High-Value Picks (all-strategy consensus + edge model)
+  autoTradeValuePicks: boolean; // if true, the engine fires the top value pick instead of single-strategy
+  minValueScore: number;        // minimum value score to auto-trade a pick (default 8)
+  // Auto-exit (take-profit / stop-loss on the contract price, in cents; 0 = disabled)
+  takeProfitCents: number;      // close early when YES bid ≥ this (default 90)
+  stopLossCents: number;        // close early when YES bid ≤ this (default 25)
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -79,6 +85,10 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   minConfidence:        60,
   requireAlignedHourly: true,
   strategy:             'momentum',
+  autoTradeValuePicks:  false,
+  minValueScore:        8,
+  takeProfitCents:      90,
+  stopLossCents:        25,
 };
 
 const STRATEGY_LABELS: Record<KalshiStrategy, string> = {
@@ -114,6 +124,10 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   const clean: Partial<KalshiEngineConfig> = { ...patch };
   // Guard the strategy field against invalid values
   if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  // Clamp auto-trade / exit fields to sane ranges
+  if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
+  if (clean.stopLossCents   != null) clean.stopLossCents   = Math.max(0, Math.min(95, clean.stopLossCents));
   s.config = { ...s.config, ...clean };
 }
 
@@ -137,13 +151,69 @@ export async function manualKalshiScan(userId: number): Promise<{ fired: boolean
   return _runKalshiScan(userId, true);
 }
 
+// ── Shared order placement ──────────────────────────────────────────────────────
+
+async function _placeKalshiYes(
+  userId: number,
+  s: KalshiEngineState,
+  p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string },
+): Promise<{ fired: boolean; reason: string }> {
+  const stakeUsd = (p.priceInCents / 100) * s.config.contractsPerTrade;
+
+  let kalshiOrderId: string | undefined;
+  if (!s.isPaperMode) {
+    try {
+      const result: KalshiOrderResult = await placeKalshiOrder(
+        userId, p.ticker, 'yes', 'buy', s.config.contractsPerTrade, p.priceInCents,
+      );
+      kalshiOrderId = result.orderId;
+    } catch (err: any) {
+      const r = `Order failed: ${err.message}`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+
+  const trade: KalshiTradeRecord = {
+    id:                `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    ticker:            p.ticker,
+    subtitle:          p.subtitle,
+    side:              'yes',
+    action:            'buy',
+    count:             s.config.contractsPerTrade,
+    entryPriceCents:   p.priceInCents,
+    currentPriceCents: p.priceInCents,
+    stake:             stakeUsd,
+    currentValue:      stakeUsd,
+    unrealizedPnl:     0,
+    signal:            { direction: p.direction, confidence: p.confidence, btcPrice: p.btcPrice },
+    openedAt:          new Date().toISOString(),
+    status:            'open',
+    paper:             s.isPaperMode,
+    kalshiOrderId,
+  };
+
+  s.openTrades.push(trade);
+  s.lastTradeAt = new Date().toISOString();
+  _recalcUnrealized(s);
+
+  const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
+  const exitNote = (s.config.takeProfitCents > 0 || s.config.stopLossCents > 0)
+    ? ` · auto-exit TP ${s.config.takeProfitCents}¢/SL ${s.config.stopLossCents}¢`
+    : '';
+  const r = `${modeStr} ${p.label}: bought YES × ${s.config.contractsPerTrade} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${exitNote}`;
+  s.lastScanResult = r;
+  return { fired: true, reason: r };
+}
+
 // ── Core scan ─────────────────────────────────────────────────────────────────
 
 async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: boolean; reason: string }> {
   const s = getKalshiEngineState(userId);
   s.lastScanAt = new Date().toISOString();
 
-  _updateOpenTradePrices(s);
+  // Refresh live prices + run take-profit/stop-loss auto-exits first
+  await _updateOpenTradePrices(userId, s);
 
   if (s.openTrades.length >= s.config.maxOpenTrades) {
     const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
@@ -157,6 +227,38 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     if (elapsed < cooldownMs) {
       const minsLeft = Math.ceil((cooldownMs - elapsed) / 60000);
       const r = `Cooldown: ${minsLeft}m remaining`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+
+  // ── Auto-trade the top High-Value Pick (all-strategy consensus + edge model) ──
+  if (s.config.autoTradeValuePicks) {
+    try {
+      const vp = await scanKalshiValuePicks(userId, 1);
+      const top = vp.picks[0];
+      if (!top) {
+        const r = `Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      if (top.valueScore < s.config.minValueScore) {
+        const r = `Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) — "${top.subtitle}"`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      const fired = await _placeKalshiYes(userId, s, {
+        ticker: top.ticker,
+        subtitle: top.subtitle,
+        priceInCents: top.marketAskCents,
+        confidence: top.confidence,
+        btcPrice: vp.btcPrice,
+        direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
+        label: `Value pick (score ${top.valueScore}, +${top.edgePct}¢ edge)`,
+      });
+      return fired;
+    } catch (err: any) {
+      const r = `Value-pick scan error: ${err.message}`;
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
@@ -221,55 +323,16 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       return { fired: false, reason: r };
     }
 
-    const stakeUsd = (priceInCents / 100) * s.config.contractsPerTrade;
-
-    // 5. Place real order or paper-fill
-    let kalshiOrderId: string | undefined;
-    if (!s.isPaperMode) {
-      try {
-        const result: KalshiOrderResult = await placeKalshiOrder(
-          userId,
-          bracket.ticker,
-          'yes',
-          'buy',
-          s.config.contractsPerTrade,
-          priceInCents,
-        );
-        kalshiOrderId = result.orderId;
-      } catch (err: any) {
-        const r = `Order failed: ${err.message}`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
-      }
-    }
-
-    const trade: KalshiTradeRecord = {
-      id:                `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      ticker:            bracket.ticker,
-      subtitle:          bracket.subtitle,
-      side:              'yes',
-      action:            'buy',
-      count:             s.config.contractsPerTrade,
-      entryPriceCents:   priceInCents,
-      currentPriceCents: priceInCents,
-      stake:             stakeUsd,
-      currentValue:      stakeUsd,
-      unrealizedPnl:     0,
-      signal:            { direction: pred.direction, confidence: pred.confidence, btcPrice: pred.currentPrice },
-      openedAt:          new Date().toISOString(),
-      status:            'open',
-      paper:             s.isPaperMode,
-      kalshiOrderId,
-    };
-
-    s.openTrades.push(trade);
-    s.lastTradeAt = new Date().toISOString();
-    _recalcUnrealized(s);
-
-    const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
-    const r = `${modeStr} ${stratLabel}: bought YES × ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}¢ — stake $${stakeUsd.toFixed(2)}`;
-    s.lastScanResult = r;
-    return { fired: true, reason: r };
+    // 5. Place the order via shared helper
+    return await _placeKalshiYes(userId, s, {
+      ticker: bracket.ticker,
+      subtitle: bracket.subtitle,
+      priceInCents,
+      confidence: pred.confidence,
+      btcPrice: pred.currentPrice,
+      direction: pred.direction === 'SELL' ? 'SELL' : 'BUY',
+      label: stratLabel,
+    });
 
   } catch (err: any) {
     const r = `Scan error: ${err.message}`;
@@ -455,14 +518,40 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
 
 // ── P&L refresh ───────────────────────────────────────────────────────────────
 
-function _updateOpenTradePrices(s: KalshiEngineState): void {
-  // Lightweight refresh: mark expired trades from event close times
-  // (In a full impl, we'd re-fetch CLOB prices here)
-  const now = Date.now();
-  for (const t of [...s.openTrades]) {
-    // If we had a market closeTime we'd check it here; for now keep open
-    void now;
+async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Promise<void> {
+  if (!s.openTrades.length) return;
+
+  // Pull the latest event once and match each open trade by ticker to refresh
+  // its current YES price (we value a YES position at the bid — what we can sell at).
+  let brackets: KalshiBTCBracket[] = [];
+  try {
+    const event = await getKalshiBTCEvent(undefined, true);
+    brackets = event.brackets;
+  } catch {
+    return; // can't refresh prices this cycle — leave positions untouched
   }
+
+  for (const t of [...s.openTrades]) {
+    const b = brackets.find(x => x.ticker === t.ticker);
+    if (!b) continue;
+    // Sell-side value = yes bid (fallback to probability/last)
+    const liveCents = b.yesBid > 0 ? b.yesBid : (b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents);
+    t.currentPriceCents = liveCents;
+    t.currentValue      = (liveCents / 100) * t.count;
+    t.unrealizedPnl     = t.currentValue - t.stake;
+
+    // ── Auto-exit: take-profit / stop-loss on the contract price ──
+    const tp = s.config.takeProfitCents;
+    const sl = s.config.stopLossCents;
+    if (tp > 0 && liveCents >= tp) {
+      closeKalshiTrade(userId, t.id, liveCents);
+      s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (target ${tp}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    } else if (sl > 0 && liveCents <= sl) {
+      closeKalshiTrade(userId, t.id, liveCents);
+      s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (stop ${sl}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    }
+  }
+  _recalcUnrealized(s);
 }
 
 function _recalcUnrealized(s: KalshiEngineState): void {

@@ -26065,6 +26065,9 @@ function updateKalshiEngineConfig(userId, patch) {
   const s = getKalshiEngineState(userId);
   const clean = { ...patch };
   if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
+  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
   s.config = { ...s.config, ...clean };
 }
 function startKalshiEngine(userId) {
@@ -26087,10 +26090,57 @@ function stopKalshiEngine(userId) {
 async function manualKalshiScan(userId) {
   return _runKalshiScan(userId, true);
 }
+async function _placeKalshiYes(userId, s, p) {
+  const stakeUsd = p.priceInCents / 100 * s.config.contractsPerTrade;
+  let kalshiOrderId;
+  if (!s.isPaperMode) {
+    try {
+      const result = await placeKalshiOrder(
+        userId,
+        p.ticker,
+        "yes",
+        "buy",
+        s.config.contractsPerTrade,
+        p.priceInCents
+      );
+      kalshiOrderId = result.orderId;
+    } catch (err) {
+      const r2 = `Order failed: ${err.message}`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+  }
+  const trade = {
+    id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    ticker: p.ticker,
+    subtitle: p.subtitle,
+    side: "yes",
+    action: "buy",
+    count: s.config.contractsPerTrade,
+    entryPriceCents: p.priceInCents,
+    currentPriceCents: p.priceInCents,
+    stake: stakeUsd,
+    currentValue: stakeUsd,
+    unrealizedPnl: 0,
+    signal: { direction: p.direction, confidence: p.confidence, btcPrice: p.btcPrice },
+    openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    status: "open",
+    paper: s.isPaperMode,
+    kalshiOrderId
+  };
+  s.openTrades.push(trade);
+  s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+  _recalcUnrealized(s);
+  const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
+  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit TP ${s.config.takeProfitCents}\xA2/SL ${s.config.stopLossCents}\xA2` : "";
+  const r = `${modeStr} ${p.label}: bought YES \xD7 ${s.config.contractsPerTrade} on "${p.subtitle}" at ${p.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${exitNote}`;
+  s.lastScanResult = r;
+  return { fired: true, reason: r };
+}
 async function _runKalshiScan(userId, manual = false) {
   const s = getKalshiEngineState(userId);
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  _updateOpenTradePrices(s);
+  await _updateOpenTradePrices(userId, s);
   if (s.openTrades.length >= s.config.maxOpenTrades) {
     const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
     s.lastScanResult = r;
@@ -26106,94 +26156,89 @@ async function _runKalshiScan(userId, manual = false) {
       return { fired: false, reason: r };
     }
   }
+  if (s.config.autoTradeValuePicks) {
+    try {
+      const vp = await scanKalshiValuePicks(userId, 1);
+      const top = vp.picks[0];
+      if (!top) {
+        const r = `Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      if (top.valueScore < s.config.minValueScore) {
+        const r = `Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top.subtitle}"`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      const fired = await _placeKalshiYes(userId, s, {
+        ticker: top.ticker,
+        subtitle: top.subtitle,
+        priceInCents: top.marketAskCents,
+        confidence: top.confidence,
+        btcPrice: vp.btcPrice,
+        direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
+        label: `Value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge)`
+      });
+      return fired;
+    } catch (err) {
+      const r = `Value-pick scan error: ${err.message}`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
   try {
     const stratLabel = STRATEGY_LABELS[s.config.strategy] ?? s.config.strategy;
     const pred = await getKalshiSignal(s.config.strategy);
     if (!pred || pred.direction === "NEUTRAL") {
-      const r2 = `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
     if (pred.confidence < s.config.minConfidence) {
-      const r2 = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
     if (s.config.requireAlignedHourly) {
       const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
       if (!aligned) {
-        const r2 = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
+        const r = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
       }
     }
     const event = await getKalshiBTCEvent(pred.currentPrice);
     if (!event.brackets.length) {
-      const r2 = "No active KXBTC brackets available";
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = "No active KXBTC brackets available";
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
     if (event.msUntilClose < 15 * 60 * 1e3) {
-      const r2 = "Nearest KXBTC event closes in <15 min \u2014 waiting for next event";
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = "Nearest KXBTC event closes in <15 min \u2014 waiting for next event";
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
     const bracket = _selectBracket(event.brackets, pred);
     if (!bracket) {
-      const r2 = "Could not find a suitable bracket for current signal";
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = "Could not find a suitable bracket for current signal";
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
     const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
     if (priceInCents >= 97) {
-      const r2 = `Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive`;
-      s.lastScanResult = r2;
-      return { fired: false, reason: r2 };
+      const r = `Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
     }
-    const stakeUsd = priceInCents / 100 * s.config.contractsPerTrade;
-    let kalshiOrderId;
-    if (!s.isPaperMode) {
-      try {
-        const result = await placeKalshiOrder(
-          userId,
-          bracket.ticker,
-          "yes",
-          "buy",
-          s.config.contractsPerTrade,
-          priceInCents
-        );
-        kalshiOrderId = result.orderId;
-      } catch (err) {
-        const r2 = `Order failed: ${err.message}`;
-        s.lastScanResult = r2;
-        return { fired: false, reason: r2 };
-      }
-    }
-    const trade = {
-      id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    return await _placeKalshiYes(userId, s, {
       ticker: bracket.ticker,
       subtitle: bracket.subtitle,
-      side: "yes",
-      action: "buy",
-      count: s.config.contractsPerTrade,
-      entryPriceCents: priceInCents,
-      currentPriceCents: priceInCents,
-      stake: stakeUsd,
-      currentValue: stakeUsd,
-      unrealizedPnl: 0,
-      signal: { direction: pred.direction, confidence: pred.confidence, btcPrice: pred.currentPrice },
-      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      status: "open",
-      paper: s.isPaperMode,
-      kalshiOrderId
-    };
-    s.openTrades.push(trade);
-    s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
-    _recalcUnrealized(s);
-    const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
-    const r = `${modeStr} ${stratLabel}: bought YES \xD7 ${s.config.contractsPerTrade} on "${bracket.subtitle}" at ${priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}`;
-    s.lastScanResult = r;
-    return { fired: true, reason: r };
+      priceInCents,
+      confidence: pred.confidence,
+      btcPrice: pred.currentPrice,
+      direction: pred.direction === "SELL" ? "SELL" : "BUY",
+      label: stratLabel
+    });
   } catch (err) {
     const r = `Scan error: ${err.message}`;
     s.lastScanResult = r;
@@ -26313,11 +26358,33 @@ async function scanKalshiValuePicks(userId, limit = 5) {
   base.picks = picks.slice(0, limit);
   return base;
 }
-function _updateOpenTradePrices(s) {
-  const now = Date.now();
-  for (const t of [...s.openTrades]) {
-    void now;
+async function _updateOpenTradePrices(userId, s) {
+  if (!s.openTrades.length) return;
+  let brackets = [];
+  try {
+    const event = await getKalshiBTCEvent(void 0, true);
+    brackets = event.brackets;
+  } catch {
+    return;
   }
+  for (const t of [...s.openTrades]) {
+    const b = brackets.find((x) => x.ticker === t.ticker);
+    if (!b) continue;
+    const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
+    t.currentPriceCents = liveCents;
+    t.currentValue = liveCents / 100 * t.count;
+    t.unrealizedPnl = t.currentValue - t.stake;
+    const tp = s.config.takeProfitCents;
+    const sl = s.config.stopLossCents;
+    if (tp > 0 && liveCents >= tp) {
+      closeKalshiTrade(userId, t.id, liveCents);
+      s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (target ${tp}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    } else if (sl > 0 && liveCents <= sl) {
+      closeKalshiTrade(userId, t.id, liveCents);
+      s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (stop ${sl}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    }
+  }
+  _recalcUnrealized(s);
 }
 function _recalcUnrealized(s) {
   s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
@@ -26364,7 +26431,11 @@ var init_kalshi_engine = __esm({
       cooldownMinutes: 20,
       minConfidence: 60,
       requireAlignedHourly: true,
-      strategy: "momentum"
+      strategy: "momentum",
+      autoTradeValuePicks: false,
+      minValueScore: 8,
+      takeProfitCents: 90,
+      stopLossCents: 25
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",

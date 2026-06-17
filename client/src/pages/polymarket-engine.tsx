@@ -121,6 +121,10 @@ interface KalshiEngineState {
     minConfidence: number;
     requireAlignedHourly: boolean;
     strategy: "momentum" | "volume_profile" | "markov" | "order_flow";
+    autoTradeValuePicks: boolean;
+    minValueScore: number;
+    takeProfitCents: number;
+    stopLossCents: number;
   };
 }
 
@@ -248,6 +252,10 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
   const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow">("");
+  const [kalshiCfgAutoValue, setKalshiCfgAutoValue] = useState<boolean | null>(null);
+  const [kalshiCfgMinScore, setKalshiCfgMinScore]   = useState("");
+  const [kalshiCfgTakeProfit, setKalshiCfgTakeProfit] = useState("");
+  const [kalshiCfgStopLoss, setKalshiCfgStopLoss]   = useState("");
 
   // Polymarket live key state
   const [showPolyKeySetup, setShowPolyKeySetup] = useState(false);
@@ -532,6 +540,10 @@ export default function PolymarketEnginePage() {
     if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
     if (kalshiCfgConfidence) patch.minConfidence     = Number(kalshiCfgConfidence);
     if (kalshiCfgStrategy)   patch.strategy          = kalshiCfgStrategy;
+    if (kalshiCfgAutoValue !== null) patch.autoTradeValuePicks = kalshiCfgAutoValue;
+    if (kalshiCfgMinScore)   patch.minValueScore     = Number(kalshiCfgMinScore);
+    if (kalshiCfgTakeProfit) patch.takeProfitCents   = Number(kalshiCfgTakeProfit);
+    if (kalshiCfgStopLoss)   patch.stopLossCents     = Number(kalshiCfgStopLoss);
     if (!Object.keys(patch).length) return;
     saveKalshiConfigMutation.mutate(patch);
   };
@@ -1114,6 +1126,38 @@ export default function PolymarketEnginePage() {
                       </div>
                     ))}
                   </div>
+
+                  {/* ── Auto-trade value picks + auto-exit ─────────────────── */}
+                  <div className="mt-3 pt-3 border-t border-indigo-800/40">
+                    <label className="flex items-center justify-between cursor-pointer mb-2">
+                      <span className="text-[10px] font-bold text-emerald-300">Auto-trade High-Value Picks</span>
+                      <input
+                        type="checkbox"
+                        checked={kalshiCfgAutoValue ?? kalshiEngineState?.config.autoTradeValuePicks ?? false}
+                        onChange={e => setKalshiCfgAutoValue(e.target.checked)}
+                        className="accent-emerald-500 w-4 h-4"
+                      />
+                    </label>
+                    <p className="text-[8px] text-gray-500 mb-2 leading-snug">
+                      When ON, the engine auto-buys the top edge-ranked pick (all-strategy consensus) instead of the single strategy above — and manages the exit below.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        { label: "Min score",   val: kalshiCfgMinScore,   set: setKalshiCfgMinScore,   ph: String(kalshiEngineState?.config.minValueScore ?? 8) },
+                        { label: "Take-profit ¢", val: kalshiCfgTakeProfit, set: setKalshiCfgTakeProfit, ph: String(kalshiEngineState?.config.takeProfitCents ?? 90) },
+                        { label: "Stop-loss ¢",  val: kalshiCfgStopLoss,   set: setKalshiCfgStopLoss,   ph: String(kalshiEngineState?.config.stopLossCents ?? 25) },
+                      ] as const).map(f => (
+                        <div key={f.label}>
+                          <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
+                          <input type="number" value={f.val} placeholder={f.ph}
+                            onChange={e => (f.set as any)(e.target.value)}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[8px] text-gray-600 mt-1.5">Take-profit/Stop-loss close positions early at the contract price (¢). Set to 0 to disable and hold to settlement.</p>
+                  </div>
+
                   <button onClick={saveKalshiConfig} disabled={saveKalshiConfigMutation.isPending}
                     className="w-full mt-3 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-lg py-2">
                     Save Config
@@ -1138,9 +1182,10 @@ export default function PolymarketEnginePage() {
                           <X className="w-3 h-3" />
                         </button>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5 mt-2">
+                      <div className="grid grid-cols-4 gap-1.5 mt-2">
                         <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] font-bold text-white">{t.entryPriceCents}¢</p></div>
-                        <div><p className="text-[8px] text-gray-500">Contracts</p><p className="text-[10px] font-bold text-white">{t.count}</p></div>
+                        <div><p className="text-[8px] text-gray-500">Now</p><p className="text-[10px] font-bold text-white">{t.currentPriceCents}¢</p></div>
+                        <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${t.unrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{t.unrealizedPnl >= 0 ? "+" : ""}${fmt(t.unrealizedPnl)}</p></div>
                         <div><p className="text-[8px] text-gray-500">Stake</p><p className="text-[10px] font-bold text-white">${fmt(t.stake)}</p></div>
                       </div>
                       {!t.paper && <p className="text-[8px] text-emerald-400/70 mt-1.5">● LIVE ORDER</p>}
