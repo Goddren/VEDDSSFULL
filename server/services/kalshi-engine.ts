@@ -18,7 +18,8 @@ import {
   placeKalshiOrder, getKalshiBalance, loadKalshiCredentials,
   type KalshiOrderResult,
 } from './kalshi-trading';
-import { getKalshiSignal, type KalshiStrategy, type TradeSignal } from './kalshi-strategies';
+import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
+import { getBTCCandles } from './btc-5min-predictor';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -325,6 +326,131 @@ function _findNearestBetween(brackets: KalshiBTCBracket[], btcPrice: number): Ka
     const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
     return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
   })[0];
+}
+
+// ── Value-pick scanner ──────────────────────────────────────────────────────────
+// Runs ALL strategies (consensus) + a volatility model to estimate each bracket's
+// TRUE probability of resolving YES, then compares it to the market ask price.
+//   edge = modelProbability − marketAsk   (positive = underpriced = value)
+// Ranks brackets by a value score that rewards both edge and strategy agreement.
+
+export interface KalshiValuePick {
+  ticker: string;
+  subtitle: string;
+  strikeType: 'greater' | 'less' | 'between';
+  marketAskCents: number;     // what it costs to buy YES now
+  modelProbPct: number;       // our estimated probability it resolves YES
+  edgePct: number;            // modelProb − marketAsk (the value)
+  valueScore: number;         // edge × agreement × confidence weighting
+  confidence: number;         // consensus confidence
+  agreement: number;          // 0–1 strategy agreement
+  rationale: string;
+}
+
+export interface KalshiValueScanResult {
+  consensus: { direction: string; confidence: number; agreement: number; reasons: string[] };
+  btcPrice: number;
+  eventTicker: string | null;
+  minutesToClose: number | null;
+  picks: KalshiValuePick[];
+  scannedAt: string;
+}
+
+/** Standard normal CDF (Abramowitz-Stegun approximation). */
+function normalCdf(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp(-x * x / 2);
+  let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (x > 0) p = 1 - p;
+  return p;
+}
+
+/** Model probability that BTC resolves the bracket YES at close, given consensus drift + vol. */
+function _bracketModelProb(
+  b: KalshiBTCBracket,
+  btcPrice: number,
+  sigmaPrice: number,        // expected price std-dev over the remaining window (in $)
+  driftPrice: number,        // consensus-implied directional drift (in $, signed)
+): number {
+  if (sigmaPrice <= 0) sigmaPrice = btcPrice * 0.004;
+  const expected = btcPrice + driftPrice;
+  if (b.strikeType === 'greater' && b.floorStrike != null) {
+    // P(close > floor) = 1 − CDF((floor − expected)/sigma)
+    return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  if (b.strikeType === 'less' && b.capStrike != null) {
+    // P(close < cap) = CDF((cap − expected)/sigma)
+    return normalCdf((b.capStrike - expected) / sigmaPrice);
+  }
+  if (b.strikeType === 'between' && b.floorStrike != null && b.capStrike != null) {
+    return normalCdf((b.capStrike - expected) / sigmaPrice) - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  return 0;
+}
+
+export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<KalshiValueScanResult> {
+  const scannedAt = new Date().toISOString();
+  const consensus: KalshiConsensus = await getKalshiConsensus();
+  const btcPrice = consensus.currentPrice;
+
+  const base: KalshiValueScanResult = {
+    consensus: { direction: consensus.direction, confidence: consensus.confidence, agreement: consensus.agreement, reasons: consensus.reasons },
+    btcPrice, eventTicker: null, minutesToClose: null, picks: [], scannedAt,
+  };
+  if (!btcPrice) return base;
+
+  const event = await getKalshiBTCEvent(btcPrice).catch(() => null);
+  if (!event || !event.brackets.length) return base;
+  base.eventTicker = event.eventTicker;
+  base.minutesToClose = Math.round(event.msUntilClose / 60000);
+
+  // Volatility scaled to the remaining time until the event closes
+  const { candles } = await getBTCCandles(100).catch(() => ({ candles: [] as any[] }));
+  const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 0.004;
+  const hoursLeft = Math.max(0.1, event.msUntilClose / 3600000);
+  const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
+
+  // Consensus drift: push the expected close in the consensus direction, scaled by
+  // confidence & agreement, capped at ~0.6σ so the market price still dominates.
+  const dirSign = consensus.direction === 'BUY' ? 1 : consensus.direction === 'SELL' ? -1 : 0;
+  const driftFrac = dirSign * (consensus.confidence / 100) * consensus.agreement * 0.6;
+  const driftPrice = sigmaPrice * driftFrac;
+
+  const picks: KalshiValuePick[] = [];
+  for (const b of event.brackets) {
+    if (!b.hasLiquidity) continue;
+    const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+    if (ask <= 1 || ask >= 97) continue; // skip illiquid / already-decided
+
+    const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
+    const modelProbPct = Math.round(modelProb * 100);
+    const edgePct = modelProbPct - ask;
+    if (edgePct <= 0) continue; // only surface underpriced (positive-edge) picks
+
+    // Value score: edge weighted by how strongly the strategies agree & their confidence,
+    // and lightly penalized for very long-shot (low absolute probability) picks.
+    const agreementW = 0.5 + consensus.agreement * 0.5;       // 0.5–1.0
+    const confW      = 0.5 + (consensus.confidence / 100) * 0.5; // 0.5–1.0
+    const probW      = 0.6 + modelProb * 0.4;                  // favor more-likely outcomes
+    const valueScore = Math.round(edgePct * agreementW * confW * probW * 10) / 10;
+
+    picks.push({
+      ticker: b.ticker,
+      subtitle: b.subtitle,
+      strikeType: b.strikeType,
+      marketAskCents: ask,
+      modelProbPct,
+      edgePct,
+      valueScore,
+      confidence: consensus.confidence,
+      agreement: consensus.agreement,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.`,
+    });
+  }
+
+  picks.sort((a, b) => b.valueScore - a.valueScore);
+  base.picks = picks.slice(0, limit);
+  return base;
 }
 
 // ── P&L refresh ───────────────────────────────────────────────────────────────

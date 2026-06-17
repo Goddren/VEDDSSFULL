@@ -193,3 +193,86 @@ export async function getKalshiSignal(strategy: KalshiStrategy): Promise<TradeSi
   if (strategy === 'order_flow')    return orderFlowSignal(candles);
   return markovSignal(candles);
 }
+
+// ── Consensus across ALL strategies ──────────────────────────────────────────────
+// Runs every strategy on the same candle set and blends them into one view.
+// Consensus = the direction the majority (weighted by confidence) agrees on.
+// agreement = share of strategies (by confidence weight) pointing the consensus way.
+
+export interface KalshiConsensus {
+  direction: 'BUY' | 'SELL' | 'NEUTRAL';
+  confidence: number;      // 0–100 blended confidence of the agreeing side
+  agreement: number;       // 0–1 share of weight agreeing
+  currentPrice: number;
+  priceChange1h: number;
+  signals: TradeSignal[];  // each strategy's raw signal
+  reasons: string[];       // human-readable per-strategy summaries
+}
+
+/** Hourly volatility (std-dev of 5-min returns scaled to 1h) as a price fraction. */
+export function estimateHourlyVol(candles: BTC5MinCandle[]): number {
+  if (candles.length < 13) return 0.004; // ~0.4% fallback
+  const rets: number[] = [];
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1].close;
+    if (prev > 0) rets.push((candles[i].close - prev) / prev);
+  }
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
+  const perCandle = Math.sqrt(variance);
+  return perCandle * Math.sqrt(12); // 12 five-min candles per hour
+}
+
+export async function getKalshiConsensus(): Promise<KalshiConsensus> {
+  const { candles } = await getBTCCandles(100);
+  if (!candles.length) {
+    return { direction: 'NEUTRAL', confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ['No candle data'] };
+  }
+
+  const momentumPred = await getBTC5MinPrediction().catch(() => null);
+  const signals: TradeSignal[] = [];
+  if (momentumPred) {
+    signals.push({
+      direction: momentumPred.direction,
+      confidence: momentumPred.confidence,
+      currentPrice: momentumPred.currentPrice,
+      priceChange1h: momentumPred.priceChange1h,
+      reason: momentumPred.reasons?.[0] ?? 'Momentum signal',
+      strategy: 'momentum',
+    });
+  }
+  signals.push(volumeProfileSignal(candles));
+  signals.push(markovSignal(candles));
+  signals.push(orderFlowSignal(candles));
+
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+
+  // Weighted vote: each non-neutral strategy contributes its confidence to its side
+  let buyWeight = 0, sellWeight = 0;
+  for (const sig of signals) {
+    if (sig.direction === 'BUY')  buyWeight  += sig.confidence;
+    if (sig.direction === 'SELL') sellWeight += sig.confidence;
+  }
+  const totalWeight = buyWeight + sellWeight;
+  let direction: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
+  let confidence = 0;
+  let agreement = 0;
+
+  if (totalWeight > 0) {
+    if (buyWeight > sellWeight) {
+      direction = 'BUY';
+      agreement = buyWeight / totalWeight;
+      const buyers = signals.filter(s => s.direction === 'BUY');
+      confidence = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
+    } else if (sellWeight > buyWeight) {
+      direction = 'SELL';
+      agreement = sellWeight / totalWeight;
+      const sellers = signals.filter(s => s.direction === 'SELL');
+      confidence = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
+    }
+  }
+
+  const reasons = signals.map(s => `${s.strategy}: ${s.direction} ${s.confidence}%`);
+  return { direction, confidence, agreement, currentPrice: price, priceChange1h, signals, reasons };
+}

@@ -25961,6 +25961,65 @@ async function getKalshiSignal(strategy) {
   if (strategy === "order_flow") return orderFlowSignal(candles);
   return markovSignal(candles);
 }
+function estimateHourlyVol(candles) {
+  if (candles.length < 13) return 4e-3;
+  const rets = [];
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1].close;
+    if (prev > 0) rets.push((candles[i].close - prev) / prev);
+  }
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
+  const perCandle = Math.sqrt(variance);
+  return perCandle * Math.sqrt(12);
+}
+async function getKalshiConsensus() {
+  const { candles } = await getBTCCandles(100);
+  if (!candles.length) {
+    return { direction: "NEUTRAL", confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ["No candle data"] };
+  }
+  const momentumPred = await getBTC5MinPrediction().catch(() => null);
+  const signals = [];
+  if (momentumPred) {
+    signals.push({
+      direction: momentumPred.direction,
+      confidence: momentumPred.confidence,
+      currentPrice: momentumPred.currentPrice,
+      priceChange1h: momentumPred.priceChange1h,
+      reason: momentumPred.reasons?.[0] ?? "Momentum signal",
+      strategy: "momentum"
+    });
+  }
+  signals.push(volumeProfileSignal(candles));
+  signals.push(markovSignal(candles));
+  signals.push(orderFlowSignal(candles));
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  let buyWeight = 0, sellWeight = 0;
+  for (const sig of signals) {
+    if (sig.direction === "BUY") buyWeight += sig.confidence;
+    if (sig.direction === "SELL") sellWeight += sig.confidence;
+  }
+  const totalWeight = buyWeight + sellWeight;
+  let direction = "NEUTRAL";
+  let confidence2 = 0;
+  let agreement = 0;
+  if (totalWeight > 0) {
+    if (buyWeight > sellWeight) {
+      direction = "BUY";
+      agreement = buyWeight / totalWeight;
+      const buyers = signals.filter((s) => s.direction === "BUY");
+      confidence2 = Math.round(buyers.reduce((a, b) => a + b.confidence, 0) / buyers.length);
+    } else if (sellWeight > buyWeight) {
+      direction = "SELL";
+      agreement = sellWeight / totalWeight;
+      const sellers = signals.filter((s) => s.direction === "SELL");
+      confidence2 = Math.round(sellers.reduce((a, b) => a + b.confidence, 0) / sellers.length);
+    }
+  }
+  const reasons = signals.map((s) => `${s.strategy}: ${s.direction} ${s.confidence}%`);
+  return { direction, confidence: confidence2, agreement, currentPrice: price, priceChange1h, signals, reasons };
+}
 var clamp2;
 var init_kalshi_strategies = __esm({
   "server/services/kalshi-strategies.ts"() {
@@ -25978,6 +26037,7 @@ __export(kalshi_engine_exports, {
   closeKalshiTrade: () => closeKalshiTrade,
   getKalshiEngineState: () => getKalshiEngineState,
   manualKalshiScan: () => manualKalshiScan,
+  scanKalshiValuePicks: () => scanKalshiValuePicks,
   startKalshiEngine: () => startKalshiEngine,
   stopKalshiEngine: () => stopKalshiEngine,
   updateKalshiEngineConfig: () => updateKalshiEngineConfig
@@ -26178,6 +26238,81 @@ function _findNearestBetween(brackets, btcPrice) {
     return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
   })[0];
 }
+function normalCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp(-x * x / 2);
+  let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  if (x > 0) p = 1 - p;
+  return p;
+}
+function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
+  if (sigmaPrice <= 0) sigmaPrice = btcPrice * 4e-3;
+  const expected = btcPrice + driftPrice;
+  if (b.strikeType === "greater" && b.floorStrike != null) {
+    return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  if (b.strikeType === "less" && b.capStrike != null) {
+    return normalCdf((b.capStrike - expected) / sigmaPrice);
+  }
+  if (b.strikeType === "between" && b.floorStrike != null && b.capStrike != null) {
+    return normalCdf((b.capStrike - expected) / sigmaPrice) - normalCdf((b.floorStrike - expected) / sigmaPrice);
+  }
+  return 0;
+}
+async function scanKalshiValuePicks(userId, limit = 5) {
+  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const consensus = await getKalshiConsensus();
+  const btcPrice = consensus.currentPrice;
+  const base = {
+    consensus: { direction: consensus.direction, confidence: consensus.confidence, agreement: consensus.agreement, reasons: consensus.reasons },
+    btcPrice,
+    eventTicker: null,
+    minutesToClose: null,
+    picks: [],
+    scannedAt
+  };
+  if (!btcPrice) return base;
+  const event = await getKalshiBTCEvent(btcPrice).catch(() => null);
+  if (!event || !event.brackets.length) return base;
+  base.eventTicker = event.eventTicker;
+  base.minutesToClose = Math.round(event.msUntilClose / 6e4);
+  const { candles } = await getBTCCandles(100).catch(() => ({ candles: [] }));
+  const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
+  const hoursLeft = Math.max(0.1, event.msUntilClose / 36e5);
+  const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
+  const dirSign = consensus.direction === "BUY" ? 1 : consensus.direction === "SELL" ? -1 : 0;
+  const driftFrac = dirSign * (consensus.confidence / 100) * consensus.agreement * 0.6;
+  const driftPrice = sigmaPrice * driftFrac;
+  const picks = [];
+  for (const b of event.brackets) {
+    if (!b.hasLiquidity) continue;
+    const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+    if (ask <= 1 || ask >= 97) continue;
+    const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
+    const modelProbPct = Math.round(modelProb * 100);
+    const edgePct = modelProbPct - ask;
+    if (edgePct <= 0) continue;
+    const agreementW = 0.5 + consensus.agreement * 0.5;
+    const confW = 0.5 + consensus.confidence / 100 * 0.5;
+    const probW = 0.6 + modelProb * 0.4;
+    const valueScore = Math.round(edgePct * agreementW * confW * probW * 10) / 10;
+    picks.push({
+      ticker: b.ticker,
+      subtitle: b.subtitle,
+      strikeType: b.strikeType,
+      marketAskCents: ask,
+      modelProbPct,
+      edgePct,
+      valueScore,
+      confidence: consensus.confidence,
+      agreement: consensus.agreement,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge.`
+    });
+  }
+  picks.sort((a, b) => b.valueScore - a.valueScore);
+  base.picks = picks.slice(0, limit);
+  return base;
+}
 function _updateOpenTradePrices(s) {
   const now = Date.now();
   for (const t of [...s.openTrades]) {
@@ -26220,6 +26355,7 @@ var init_kalshi_engine = __esm({
     init_kalshi();
     init_kalshi_trading();
     init_kalshi_strategies();
+    init_btc_5min_predictor();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
     DEFAULT_CONFIG2 = {
@@ -49161,6 +49297,19 @@ Respond with ONLY valid JSON:
       const result = await manualKalshiScan2(userId);
       res.json({ ...result, state: getKalshiEngineState2(userId) });
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/kalshi/value-picks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { scanKalshiValuePicks: scanKalshiValuePicks2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      const limit = Math.min(10, Math.max(1, parseInt(String(req.query.limit ?? "5"), 10) || 5));
+      const result = await scanKalshiValuePicks2(userId, limit);
+      res.json(result);
+    } catch (err) {
+      console.error("[Kalshi value-picks]", err);
       res.status(500).json({ error: err.message });
     }
   });

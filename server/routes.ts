@@ -16602,6 +16602,21 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/value-picks — ranked high-value/high-accuracy bracket opportunities
+  app.get("/api/kalshi/value-picks", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { scanKalshiValuePicks } = await import('./services/kalshi-engine');
+      const limit = Math.min(10, Math.max(1, parseInt(String(req.query.limit ?? '5'), 10) || 5));
+      const result = await scanKalshiValuePicks(userId, limit);
+      res.json(result);
+    } catch (err: any) {
+      console.error('[Kalshi value-picks]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PUT /api/kalshi/engine/config
   app.put("/api/kalshi/engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
