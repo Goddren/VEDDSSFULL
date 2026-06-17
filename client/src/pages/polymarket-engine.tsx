@@ -120,7 +120,7 @@ interface KalshiEngineState {
     cooldownMinutes: number;
     minConfidence: number;
     requireAlignedHourly: boolean;
-    strategy: "momentum" | "volume_profile" | "markov" | "order_flow";
+    strategy: "momentum" | "volume_profile" | "markov" | "order_flow" | "auto";
     autoTradeValuePicks: boolean;
     minValueScore: number;
     takeProfitCents: number;
@@ -251,7 +251,7 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
-  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow">("");
+  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow" | "auto">("");
   const [kalshiCfgAutoValue, setKalshiCfgAutoValue] = useState<boolean | null>(null);
   const [kalshiCfgMinScore, setKalshiCfgMinScore]   = useState("");
   const [kalshiCfgTakeProfit, setKalshiCfgTakeProfit] = useState("");
@@ -393,6 +393,18 @@ export default function PolymarketEnginePage() {
   }>({
     queryKey: ["/api/kalshi/performance"],
     refetchInterval: 30000,
+    enabled: !!user,
+  });
+
+  // Live per-strategy scan (signal + accuracy) — drives "Auto (Best)" mode
+  const { data: kalshiStratScan, isFetching: stratScanLoading, refetch: refetchStratScan } = useQuery<{
+    rows: Array<{ strategy: string; label: string; direction: string; confidence: number; reason: string; winRate: number; decidedTrades: number; totalPnl: number; selectScore: number; selected: boolean }>;
+    selected: string | null;
+    btcPrice: number;
+    scannedAt: string;
+  }>({
+    queryKey: ["/api/kalshi/strategy-scan"],
+    refetchInterval: 60000,
     enabled: !!user,
   });
 
@@ -902,7 +914,7 @@ export default function PolymarketEnginePage() {
               )}
               {kalshiEngineState?.config.strategy && (
                 <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                  {kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
+                  {kalshiEngineState.config.strategy === "auto" ? "🤖 Auto (Best)" : kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
                 </span>
               )}
             </div>
@@ -1137,6 +1149,19 @@ export default function PolymarketEnginePage() {
                   {/* Strategy selector */}
                   <div className="mb-3">
                     <label className="text-[9px] text-gray-400 block mb-1">Auto-Trade Strategy</label>
+                    {/* Auto (Best) — full-width, picks best strategy by accuracy */}
+                    {(() => {
+                      const active = (kalshiCfgStrategy || kalshiEngineState?.config.strategy || "momentum") === "auto";
+                      return (
+                        <button
+                          onClick={() => setKalshiCfgStrategy("auto")}
+                          className={`w-full mb-1.5 rounded-lg px-2 py-2 text-center border transition-colors ${active ? "bg-emerald-600/40 border-emerald-500/60 text-emerald-100" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
+                        >
+                          <span className="block text-[10px] font-bold leading-tight">🤖 Auto (Best) — AI picks the strongest strategy</span>
+                          <span className="block text-[8px] text-gray-400 leading-tight mt-0.5">Scans all 4 each cycle · trades whichever has the best live confidence × accuracy</span>
+                        </button>
+                      );
+                    })()}
                     <div className="grid grid-cols-2 gap-1.5">
                       {([
                         { key: "momentum",       label: "Momentum",    sub: "RSI/MACD/EMA" },
@@ -1157,6 +1182,36 @@ export default function PolymarketEnginePage() {
                         );
                       })}
                     </div>
+                  </div>
+
+                  {/* Live strategy scan — the "column of scans per strategy" comparison */}
+                  <div className="mb-3 bg-black/30 border border-gray-800/60 rounded-lg p-2.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-bold text-gray-300">Live Strategy Scan</span>
+                      <button onClick={() => refetchStratScan()} disabled={stratScanLoading}
+                        className="text-[9px] text-gray-400 hover:text-white px-1.5 py-0.5 bg-gray-800/60 rounded disabled:opacity-50">
+                        {stratScanLoading ? "Scanning…" : "↻"}
+                      </button>
+                    </div>
+                    {!kalshiStratScan?.rows?.length ? (
+                      <p className="text-[9px] text-gray-500">Scanning all strategies…</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {kalshiStratScan.rows.map(r => (
+                          <div key={r.strategy} className={`flex items-center justify-between gap-2 px-2 py-1 rounded ${r.selected ? "bg-emerald-500/15 border border-emerald-500/30" : "bg-gray-900/40"}`}>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {r.selected && <span className="text-[8px] text-emerald-400 font-bold">★</span>}
+                              <span className="text-[10px] text-gray-200 font-medium w-20 truncate">{r.label}</span>
+                            </div>
+                            <span className={`text-[9px] font-bold w-12 text-center ${r.direction === "BUY" ? "text-emerald-400" : r.direction === "SELL" ? "text-red-400" : "text-gray-500"}`}>{r.direction}</span>
+                            <span className="text-[9px] text-gray-400 w-10 text-right">{r.confidence}%</span>
+                            <span className="text-[9px] text-gray-500 w-16 text-right">{r.decidedTrades > 0 ? `${r.winRate}% acc` : "no hist"}</span>
+                            <span className="text-[9px] font-bold text-indigo-300 w-8 text-right">{r.selectScore}</span>
+                          </div>
+                        ))}
+                        <p className="text-[8px] text-gray-600 pt-0.5">★ = the pick "Auto (Best)" would trade now. Score = live confidence blended with historical accuracy (needs 3+ trades to weight accuracy).</p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">

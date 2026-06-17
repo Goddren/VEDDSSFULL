@@ -26125,6 +26125,7 @@ __export(kalshi_engine_exports, {
   closeKalshiTrade: () => closeKalshiTrade,
   getKalshiEngineState: () => getKalshiEngineState,
   manualKalshiScan: () => manualKalshiScan,
+  scanAllKalshiStrategies: () => scanAllKalshiStrategies,
   scanKalshiValuePicks: () => scanKalshiValuePicks,
   startKalshiEngine: () => startKalshiEngine,
   stopKalshiEngine: () => stopKalshiEngine,
@@ -26277,8 +26278,23 @@ async function _runKalshiScan(userId, manual = false) {
     }
   }
   try {
-    const stratLabel = STRATEGY_LABELS[s.config.strategy] ?? s.config.strategy;
-    const pred = await getKalshiSignal(s.config.strategy);
+    let effectiveStrategy;
+    let stratLabel;
+    if (s.config.strategy === "auto") {
+      const scan = await scanAllKalshiStrategies(userId);
+      if (!scan.selected) {
+        const r = `Auto: all strategies NEUTRAL this cycle \u2014 no trade`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      effectiveStrategy = scan.selected;
+      const sel = scan.rows.find((row) => row.strategy === effectiveStrategy);
+      stratLabel = `Auto\u2192${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t \xB7 conf ${sel.confidence}%)`;
+    } else {
+      effectiveStrategy = s.config.strategy;
+      stratLabel = STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy;
+    }
+    const pred = await getKalshiSignal(effectiveStrategy);
     if (!pred || pred.direction === "NEUTRAL") {
       const r = `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}`;
       s.lastScanResult = r;
@@ -26328,7 +26344,7 @@ async function _runKalshiScan(userId, manual = false) {
       btcPrice: pred.currentPrice,
       direction: pred.direction === "SELL" ? "SELL" : "BUY",
       label: stratLabel,
-      strategy: s.config.strategy
+      strategy: effectiveStrategy
     });
   } catch (err) {
     const r = `Scan error: ${err.message}`;
@@ -26373,6 +26389,37 @@ function _findNearestBetween(brackets, btcPrice) {
     const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
     return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
   })[0];
+}
+async function scanAllKalshiStrategies(userId) {
+  const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
+  const consensus = await getKalshiConsensus();
+  const perf = getKalshiPerformance(userId);
+  const rows = consensus.signals.map((sig) => {
+    const stat = perf.byStrategy.find((p) => p.strategy === sig.strategy);
+    const winRate2 = stat?.winRate ?? 0;
+    const decided = stat ? stat.wins + stat.losses : 0;
+    const totalPnl = stat?.totalPnl ?? 0;
+    const hasHistory = decided >= 3;
+    const accuracyFactor = hasHistory ? winRate2 / 100 : 0.5;
+    const selectScore = sig.direction === "NEUTRAL" ? 0 : Math.round(sig.confidence * (0.4 + accuracyFactor * 0.6));
+    return {
+      strategy: sig.strategy,
+      label: STRATEGY_LABELS[sig.strategy] ?? sig.strategy,
+      direction: sig.direction,
+      confidence: sig.confidence,
+      reason: sig.reason,
+      winRate: winRate2,
+      decidedTrades: decided,
+      totalPnl,
+      selectScore,
+      selected: false
+    };
+  });
+  let best = null;
+  for (const r of rows) if (r.selectScore > 0 && (!best || r.selectScore > best.selectScore)) best = r;
+  if (best) best.selected = true;
+  rows.sort((a, b) => b.selectScore - a.selectScore);
+  return { rows, selected: best?.strategy ?? null, btcPrice: consensus.currentPrice, scannedAt };
 }
 function normalCdf(x) {
   const t = 1 / (1 + 0.2316419 * Math.abs(x));
@@ -26546,7 +26593,8 @@ var init_kalshi_engine = __esm({
       momentum: "Momentum",
       volume_profile: "Volume Profile",
       markov: "Markov",
-      order_flow: "Order Flow"
+      order_flow: "Order Flow",
+      auto: "Auto (Best)"
     };
   }
 });
@@ -49496,6 +49544,17 @@ Respond with ONLY valid JSON:
       const { getKalshiPerformance: getKalshiPerformance2 } = await Promise.resolve().then(() => (init_kalshi_performance(), kalshi_performance_exports));
       res.json(getKalshiPerformance2(userId));
     } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/kalshi/strategy-scan", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { scanAllKalshiStrategies: scanAllKalshiStrategies2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      res.json(await scanAllKalshiStrategies2(userId));
+    } catch (err) {
+      console.error("[Kalshi strategy-scan]", err);
       res.status(500).json({ error: err.message });
     }
   });

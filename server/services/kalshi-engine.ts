@@ -67,7 +67,7 @@ export interface KalshiEngineConfig {
   cooldownMinutes: number;
   minConfidence: number;       // min signal confidence to fire (0-100)
   requireAlignedHourly: boolean; // require priceChange1h to align with signal direction
-  strategy: KalshiStrategy;    // 'momentum' | 'volume_profile' | 'markov' | 'order_flow'
+  strategy: KalshiStrategy | 'auto'; // 'auto' = scan all, pick best by live confidence × historical accuracy
   // Auto-trade the High-Value Picks (all-strategy consensus + edge model)
   autoTradeValuePicks: boolean; // if true, the engine fires the top value pick instead of single-strategy
   minValueScore: number;        // minimum value score to auto-trade a pick (default 8)
@@ -94,11 +94,12 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   stopLossCents:        25,
 };
 
-const STRATEGY_LABELS: Record<KalshiStrategy, string> = {
+const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
   momentum:       'Momentum',
   volume_profile: 'Volume Profile',
   markov:         'Markov',
   order_flow:     'Order Flow',
+  auto:           'Auto (Best)',
 };
 
 export function getKalshiEngineState(userId: number): KalshiEngineState {
@@ -270,9 +271,27 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   }
 
   try {
-    // 1. Get directional signal from the selected strategy
-    const stratLabel = STRATEGY_LABELS[s.config.strategy] ?? s.config.strategy;
-    const pred = await getKalshiSignal(s.config.strategy);
+    // 0. Resolve strategy — 'auto' scans all strategies and picks the best
+    //    by live confidence × historical accuracy.
+    let effectiveStrategy: KalshiStrategy;
+    let stratLabel: string;
+    if (s.config.strategy === 'auto') {
+      const scan = await scanAllKalshiStrategies(userId);
+      if (!scan.selected) {
+        const r = `Auto: all strategies NEUTRAL this cycle — no trade`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+      effectiveStrategy = scan.selected;
+      const sel = scan.rows.find(row => row.strategy === effectiveStrategy)!;
+      stratLabel = `Auto→${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t · conf ${sel.confidence}%)`;
+    } else {
+      effectiveStrategy = s.config.strategy;
+      stratLabel = STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy;
+    }
+
+    // 1. Get directional signal from the resolved strategy
+    const pred = await getKalshiSignal(effectiveStrategy);
     if (!pred || pred.direction === 'NEUTRAL') {
       const r = `${stratLabel}: NEUTRAL — ${pred?.reason ?? 'no clear direction'}`;
       s.lastScanResult = r;
@@ -337,7 +356,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       btcPrice: pred.currentPrice,
       direction: pred.direction === 'SELL' ? 'SELL' : 'BUY',
       label: stratLabel,
-      strategy: s.config.strategy,
+      strategy: effectiveStrategy,
     });
 
   } catch (err: any) {
@@ -395,6 +414,73 @@ function _findNearestBetween(brackets: KalshiBTCBracket[], btcPrice: number): Ka
     const midB = ((b.floorStrike ?? 0) + (b.capStrike ?? 0)) / 2;
     return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
   })[0];
+}
+
+// ── Per-strategy scan & auto-selector ────────────────────────────────────────────
+// Runs every strategy, pairs each live signal with its historical accuracy, and
+// ranks them so "Auto (Best)" mode trades whichever strategy is predicting best.
+
+export interface KalshiStrategyScanRow {
+  strategy: KalshiStrategy;
+  label: string;
+  direction: 'BUY' | 'SELL' | 'NEUTRAL';
+  confidence: number;       // live signal confidence
+  reason: string;
+  winRate: number;          // historical win rate (0 if no history)
+  decidedTrades: number;    // wins + losses
+  totalPnl: number;
+  selectScore: number;      // ranking: live confidence blended with historical accuracy
+  selected: boolean;
+}
+
+export interface KalshiStrategyScanResult {
+  rows: KalshiStrategyScanRow[];
+  selected: KalshiStrategy | null;
+  btcPrice: number;
+  scannedAt: string;
+}
+
+export async function scanAllKalshiStrategies(userId: number): Promise<KalshiStrategyScanResult> {
+  const scannedAt = new Date().toISOString();
+  const consensus: KalshiConsensus = await getKalshiConsensus(); // runs all 4 strategies
+  const perf = getKalshiPerformance(userId);
+
+  const rows: KalshiStrategyScanRow[] = consensus.signals.map(sig => {
+    const stat = perf.byStrategy.find(p => p.strategy === sig.strategy);
+    const winRate = stat?.winRate ?? 0;
+    const decided = stat ? stat.wins + stat.losses : 0;
+    const totalPnl = stat?.totalPnl ?? 0;
+
+    // Blend live confidence with historical accuracy. With no track record we lean
+    // on confidence (accuracy treated as neutral 0.5); as history builds, real
+    // accuracy dominates the choice. NEUTRAL signals can't be selected (score 0).
+    const hasHistory = decided >= 3;
+    const accuracyFactor = hasHistory ? winRate / 100 : 0.5;
+    const selectScore = sig.direction === 'NEUTRAL'
+      ? 0
+      : Math.round(sig.confidence * (0.4 + accuracyFactor * 0.6));
+
+    return {
+      strategy: sig.strategy as KalshiStrategy,
+      label: STRATEGY_LABELS[sig.strategy as KalshiStrategy] ?? sig.strategy,
+      direction: sig.direction,
+      confidence: sig.confidence,
+      reason: sig.reason,
+      winRate,
+      decidedTrades: decided,
+      totalPnl,
+      selectScore,
+      selected: false,
+    };
+  });
+
+  // Best = highest selectScore among strategies with a live (non-neutral) signal
+  let best: KalshiStrategyScanRow | null = null;
+  for (const r of rows) if (r.selectScore > 0 && (!best || r.selectScore > best.selectScore)) best = r;
+  if (best) best.selected = true;
+
+  rows.sort((a, b) => b.selectScore - a.selectScore);
+  return { rows, selected: best?.strategy ?? null, btcPrice: consensus.currentPrice, scannedAt };
 }
 
 // ── Value-pick scanner ──────────────────────────────────────────────────────────

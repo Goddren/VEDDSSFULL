@@ -16629,6 +16629,19 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/strategy-scan — live signal + accuracy per strategy, with the auto-pick
+  app.get("/api/kalshi/strategy-scan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { scanAllKalshiStrategies } = await import('./services/kalshi-engine');
+      res.json(await scanAllKalshiStrategies(userId));
+    } catch (err: any) {
+      console.error('[Kalshi strategy-scan]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PUT /api/kalshi/engine/config
   app.put("/api/kalshi/engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
