@@ -57,8 +57,9 @@ import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-proce
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
-import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService } from "./tradelocker";
+import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
+import { getTLRisk } from "./services/tl-risk-settings";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED TRADELOCKER SIGNAL GUARD
@@ -10484,35 +10485,40 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   }
                 }
 
-                // Proportional sizing: each TL account gets lots scaled to its own balance
-                // relative to the MT5 reference account balance.
-                // e.g. MT5=$100, TL=$500 → TL gets 5× the lot size (same % risk both accounts)
+                // Per-account sizing: size each TL account to ITS OWN value, not the MT5 lot.
+                //   1. Risk-% (if enabled): lots = (equity × risk%) / (slPips × pipValue)
+                //   2. Proportional:        lots = mt5Lot × (TL equity / MT5 reference balance)
+                //   3. Fallback:            exact MT5 lot (only when account value unavailable)
                 let connLot = tradeVolume;
-                let _tlCachedBal = (global as any).tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
+                let _sizeLabel = 'exact MT5 copy';
+                const _tlVal = await getTLAccountValue(token.userId, tlConn);
+                const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
+                const _tlEq  = _tlVal.equity  > 0 ? _tlVal.equity  : _tlBal;
 
-                // If balance not cached yet, fetch it live so proportional sizing always works —
-                // cache is only populated when frontend polls /api/tradelocker/account-balance
-                if (_tlCachedBal === null && _eaCopyMode === 'proportional') {
-                  try {
-                    const _tlSvc = await tlGetOrCreateService(tlConn);
-                    const _tlInfo = await _tlSvc.getAccountInfo();
-                    const _freshBal = _tlInfo?.balance || 0;
-                    if (_freshBal > 0) {
-                      (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
-                      (global as any).tlAccountBalances[token.userId] = (global as any).tlAccountBalances[token.userId] || {};
-                      (global as any).tlAccountBalances[token.userId][tlConn.accountId] = _freshBal;
-                      _tlCachedBal = _freshBal;
-                      console.log(`[ProportionalSizing] Live-fetched TL balance for ${tlConn.accountId}: $${_freshBal}`);
-                    }
-                  } catch (_balFetchErr) { /* non-blocking — falls back to raw lot */ }
-                }
+                const _eaRisk = getTLRisk(tlConn.id);
+                const _eaSlDist = (_entryPrice && analysis.tradePlan?.stopLoss)
+                  ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
 
-                if (_eaCopyMode === 'proportional' && _tlCachedBal && accountBalance > 0) {
-                  connLot = Math.max(0.01, Math.round(tradeVolume * (_tlCachedBal / accountBalance) * 100) / 100);
-                  console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} × (${_tlCachedBal}/${accountBalance}) = ${connLot} lots`);
+                if (_eaRisk.useRiskPercent && _tlEq && _eaSlDist > 0) {
+                  const _pipSize  = getPipSize(sanitizedSymbol);
+                  const _pipValue = getPipValue(sanitizedSymbol);
+                  const _slPips   = _pipSize > 0 ? _eaSlDist / _pipSize : 0;
+                  const _riskUsd  = _tlEq * (_eaRisk.riskPercent / 100);
+                  if (_slPips > 0 && _pipValue > 0) {
+                    connLot = Math.max(0.01, Math.round((_riskUsd / (_slPips * _pipValue)) * 100) / 100);
+                    _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
+                  }
+                } else if (_eaCopyMode === 'proportional' && _tlEq && accountBalance > 0) {
+                  const _ratio = _tlEq / accountBalance;
+                  connLot = Math.max(0.01, Math.round(tradeVolume * _ratio * 100) / 100);
+                  _sizeLabel = `proportional ${_ratio.toFixed(2)}× ($${_tlEq.toLocaleString()}/$${accountBalance.toLocaleString()})`;
+                  console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} × (${_tlEq}/${accountBalance}) = ${connLot} lots`);
+                } else if (_eaCopyMode === 'proportional') {
+                  console.warn(`[ProportionalSizing] ${tlConn.accountId}: could not size proportionally (TL value=${_tlEq}, MT5 ref=${accountBalance}) — using exact MT5 lot ${tradeVolume}`);
                 }
                 // Re-apply volatile cap after scaling so a large TL account can't exceed risk cap
                 if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+                console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots — ${_sizeLabel}`);
 
               console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                 action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal,

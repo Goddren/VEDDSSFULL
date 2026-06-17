@@ -15202,6 +15202,7 @@ __export(tradelocker_exports, {
   encryptPassword: () => encryptPassword,
   executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
   getOrCreateService: () => getOrCreateService,
+  getTLAccountValue: () => getTLAccountValue,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
 import crypto3 from "crypto";
@@ -15306,6 +15307,42 @@ async function getOrCreateService(connection2) {
   serviceCache.set(connId, { service, createdAt: Date.now() });
   return service;
 }
+async function getTLAccountValue(userId, conn) {
+  const g = global;
+  g.tlAccountBalances = g.tlAccountBalances || {};
+  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
+  g.tlAccountEquity = g.tlAccountEquity || {};
+  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
+  g.tlAccountValueAt = g.tlAccountValueAt || {};
+  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
+  const acctId = conn.accountId;
+  const cachedBal = g.tlAccountBalances[userId][acctId];
+  const cachedEq = g.tlAccountEquity[userId][acctId];
+  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
+  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
+  if (fresh && typeof cachedBal === "number" && cachedBal > 0) {
+    return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
+  }
+  try {
+    const svc = await getOrCreateService(conn);
+    const info = await svc.getAccountInfo();
+    const bal = info.balance || 0;
+    const eq11 = info.equity || bal;
+    if (bal > 0) {
+      g.tlAccountBalances[userId][acctId] = bal;
+      g.tlAccountEquity[userId][acctId] = eq11;
+      g.tlAccountValueAt[userId][acctId] = Date.now();
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq11} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq11 };
+    }
+  } catch (e) {
+    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
+  }
+  return {
+    balance: typeof cachedBal === "number" ? cachedBal : 0,
+    equity: typeof cachedEq === "number" ? cachedEq : typeof cachedBal === "number" ? cachedBal : 0
+  };
+}
 async function persistTokens(connection2, accessToken, refreshToken, expiresIn, accNum) {
   if (!connection2.id) return;
   try {
@@ -15409,7 +15446,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerService;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -16289,6 +16326,7 @@ var init_tradelocker = __esm({
         }
       }
     };
+    TL_VALUE_TTL = 60 * 1e3;
   }
 });
 
@@ -16392,6 +16430,63 @@ function getPipValue(symbol) {
 var init_pipUtils = __esm({
   "server/utils/pipUtils.ts"() {
     "use strict";
+  }
+});
+
+// server/services/tl-risk-settings.ts
+var tl_risk_settings_exports = {};
+__export(tl_risk_settings_exports, {
+  deleteTLRisk: () => deleteTLRisk,
+  getAllTLRisk: () => getAllTLRisk,
+  getTLRisk: () => getTLRisk,
+  setTLRisk: () => setTLRisk
+});
+import * as fs3 from "fs";
+import * as path3 from "path";
+function loadAll() {
+  try {
+    if (fs3.existsSync(FILE)) return JSON.parse(fs3.readFileSync(FILE, "utf-8"));
+  } catch {
+  }
+  return {};
+}
+function saveAll(map) {
+  try {
+    const dir = path3.dirname(FILE);
+    if (!fs3.existsSync(dir)) fs3.mkdirSync(dir, { recursive: true });
+    fs3.writeFileSync(FILE, JSON.stringify(map, null, 2));
+  } catch {
+  }
+}
+function getTLRisk(connectionId) {
+  const s = loadAll()[String(connectionId)];
+  return s ? { ...DEFAULT, ...s } : { ...DEFAULT };
+}
+function getAllTLRisk() {
+  return loadAll();
+}
+function setTLRisk(connectionId, patch) {
+  const map = loadAll();
+  const cur = map[String(connectionId)] ?? { ...DEFAULT };
+  const next = {
+    useRiskPercent: patch.useRiskPercent !== void 0 ? !!patch.useRiskPercent : cur.useRiskPercent,
+    riskPercent: patch.riskPercent !== void 0 && !isNaN(patch.riskPercent) ? Math.max(0.05, Math.min(20, patch.riskPercent)) : cur.riskPercent
+  };
+  map[String(connectionId)] = next;
+  saveAll(map);
+  return next;
+}
+function deleteTLRisk(connectionId) {
+  const map = loadAll();
+  delete map[String(connectionId)];
+  saveAll(map);
+}
+var FILE, DEFAULT;
+var init_tl_risk_settings = __esm({
+  "server/services/tl-risk-settings.ts"() {
+    "use strict";
+    FILE = path3.join(process.cwd(), "data", "tl_risk_settings.json");
+    DEFAULT = { useRiskPercent: false, riskPercent: 1 };
   }
 });
 
@@ -19350,8 +19445,8 @@ __export(share_card_service_exports, {
   generateShareCard: () => generateShareCard
 });
 import { createCanvas, loadImage } from "canvas";
-import path3 from "path";
-import fs3 from "fs";
+import path4 from "path";
+import fs4 from "fs";
 async function generateShareCard(data) {
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext("2d");
@@ -19366,8 +19461,8 @@ async function generateShareCard(data) {
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, CARD_WIDTH, 180);
   try {
-    const logoPath = path3.join(process.cwd(), "attached_assets", "IMG_3645.png");
-    if (fs3.existsSync(logoPath)) {
+    const logoPath = path4.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    if (fs4.existsSync(logoPath)) {
       const logo = await loadImage(logoPath);
       const logoHeight = 80;
       const logoWidth = logo.width / logo.height * logoHeight;
@@ -19403,8 +19498,8 @@ async function generateShareCard(data) {
       if (imagePath.startsWith("/")) {
         imagePath = imagePath.substring(1);
       }
-      const fullImagePath = path3.join(process.cwd(), imagePath);
-      if (fs3.existsSync(fullImagePath)) {
+      const fullImagePath = path4.join(process.cwd(), imagePath);
+      if (fs4.existsSync(fullImagePath)) {
         const chartImage = await loadImage(fullImagePath);
         const maxWidth = CARD_WIDTH - PADDING * 2;
         const maxHeight = 350;
@@ -19517,8 +19612,8 @@ async function generateShareCard(data) {
         if (imgPath.startsWith("/")) {
           imgPath = imgPath.substring(1);
         }
-        const fullPath = path3.join(process.cwd(), imgPath);
-        if (fs3.existsSync(fullPath)) {
+        const fullPath = path4.join(process.cwd(), imgPath);
+        if (fs4.existsSync(fullPath)) {
           chartImage = await loadImage(fullPath);
           const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
           const maxChartHeight = 200;
@@ -19743,63 +19838,6 @@ var init_share_card_service = __esm({
     SUCCESS_COLOR = "#22c55e";
     DANGER_COLOR = "#ef4444";
     WARNING_COLOR = "#f59e0b";
-  }
-});
-
-// server/services/tl-risk-settings.ts
-var tl_risk_settings_exports = {};
-__export(tl_risk_settings_exports, {
-  deleteTLRisk: () => deleteTLRisk,
-  getAllTLRisk: () => getAllTLRisk,
-  getTLRisk: () => getTLRisk,
-  setTLRisk: () => setTLRisk
-});
-import * as fs4 from "fs";
-import * as path4 from "path";
-function loadAll() {
-  try {
-    if (fs4.existsSync(FILE)) return JSON.parse(fs4.readFileSync(FILE, "utf-8"));
-  } catch {
-  }
-  return {};
-}
-function saveAll(map) {
-  try {
-    const dir = path4.dirname(FILE);
-    if (!fs4.existsSync(dir)) fs4.mkdirSync(dir, { recursive: true });
-    fs4.writeFileSync(FILE, JSON.stringify(map, null, 2));
-  } catch {
-  }
-}
-function getTLRisk(connectionId) {
-  const s = loadAll()[String(connectionId)];
-  return s ? { ...DEFAULT, ...s } : { ...DEFAULT };
-}
-function getAllTLRisk() {
-  return loadAll();
-}
-function setTLRisk(connectionId, patch) {
-  const map = loadAll();
-  const cur = map[String(connectionId)] ?? { ...DEFAULT };
-  const next = {
-    useRiskPercent: patch.useRiskPercent !== void 0 ? !!patch.useRiskPercent : cur.useRiskPercent,
-    riskPercent: patch.riskPercent !== void 0 && !isNaN(patch.riskPercent) ? Math.max(0.05, Math.min(20, patch.riskPercent)) : cur.riskPercent
-  };
-  map[String(connectionId)] = next;
-  saveAll(map);
-  return next;
-}
-function deleteTLRisk(connectionId) {
-  const map = loadAll();
-  delete map[String(connectionId)];
-  saveAll(map);
-}
-var FILE, DEFAULT;
-var init_tl_risk_settings = __esm({
-  "server/services/tl-risk-settings.ts"() {
-    "use strict";
-    FILE = path4.join(process.cwd(), "data", "tl_risk_settings.json");
-    DEFAULT = { useRiskPercent: false, riskPercent: 1 };
   }
 });
 
@@ -23899,30 +23937,33 @@ async function processDecision(userId, decision, newsCtx) {
       });
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn) => {
-          const _tlBalCache = global.tlAccountBalances?.[userId] || {};
-          const _tlAcctBal = _tlBalCache[tlConn.accountId] ?? null;
+          const _tlVal = await getTLAccountValue(userId, tlConn);
+          const _tlAcctBal = _tlVal.balance > 0 ? _tlVal.balance : null;
+          const _tlAcctEq = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal;
           const _refBal = config.accountBalance || 0;
           let acctLot;
           let acctSizeLabel = "";
           const _risk = getTLRisk(tlConn.id);
           const _slDist = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
-          if (_risk.useRiskPercent && _tlAcctBal !== null && _tlAcctBal > 0 && _slDist > 0) {
+          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0 && _slDist > 0) {
             const pipSize = getPipSize(decision.symbol);
             const pipValue = getPipValue(decision.symbol);
             const slPips = pipSize > 0 ? _slDist / pipSize : 0;
-            const riskUsd = _tlAcctBal * (_risk.riskPercent / 100);
+            const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
             if (slPips > 0 && pipValue > 0) {
               acctLot = Math.max(0.01, Math.round(riskUsd / (slPips * pipValue) * 100) / 100);
-              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctBal.toLocaleString()})`;
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
             } else {
               acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
             }
-          } else if (config.copyMode === "proportional" && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
-            const ratio = _tlAcctBal / _refBal;
+          } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
+            const ratio = _tlAcctEq / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+            acctSizeLabel = ` (proportional ${ratio.toFixed(2)}\xD7 \u2014 $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+            acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 set engine Reference Balance for proportional sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
@@ -32065,6 +32106,7 @@ function isTelegramConfigured() {
 // server/routes.ts
 init_tradelocker();
 init_pipUtils();
+init_tl_risk_settings();
 
 // server/routes/vedd-token.ts
 init_vedd_token_service();
@@ -43839,27 +43881,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     }
                   }
                   let connLot = tradeVolume;
-                  let _tlCachedBal = global.tlAccountBalances?.[token.userId]?.[tlConn.accountId] ?? null;
-                  if (_tlCachedBal === null && _eaCopyMode === "proportional") {
-                    try {
-                      const _tlSvc = await getOrCreateService(tlConn);
-                      const _tlInfo = await _tlSvc.getAccountInfo();
-                      const _freshBal = _tlInfo?.balance || 0;
-                      if (_freshBal > 0) {
-                        global.tlAccountBalances = global.tlAccountBalances || {};
-                        global.tlAccountBalances[token.userId] = global.tlAccountBalances[token.userId] || {};
-                        global.tlAccountBalances[token.userId][tlConn.accountId] = _freshBal;
-                        _tlCachedBal = _freshBal;
-                        console.log(`[ProportionalSizing] Live-fetched TL balance for ${tlConn.accountId}: $${_freshBal}`);
-                      }
-                    } catch (_balFetchErr) {
+                  let _sizeLabel = "exact MT5 copy";
+                  const _tlVal = await getTLAccountValue(token.userId, tlConn);
+                  const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
+                  const _tlEq = _tlVal.equity > 0 ? _tlVal.equity : _tlBal;
+                  const _eaRisk = getTLRisk(tlConn.id);
+                  const _eaSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
+                  if (_eaRisk.useRiskPercent && _tlEq && _eaSlDist > 0) {
+                    const _pipSize = getPipSize(sanitizedSymbol);
+                    const _pipValue = getPipValue(sanitizedSymbol);
+                    const _slPips = _pipSize > 0 ? _eaSlDist / _pipSize : 0;
+                    const _riskUsd = _tlEq * (_eaRisk.riskPercent / 100);
+                    if (_slPips > 0 && _pipValue > 0) {
+                      connLot = Math.max(0.01, Math.round(_riskUsd / (_slPips * _pipValue) * 100) / 100);
+                      _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
                     }
-                  }
-                  if (_eaCopyMode === "proportional" && _tlCachedBal && accountBalance > 0) {
-                    connLot = Math.max(0.01, Math.round(tradeVolume * (_tlCachedBal / accountBalance) * 100) / 100);
-                    console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} \xD7 (${_tlCachedBal}/${accountBalance}) = ${connLot} lots`);
+                  } else if (_eaCopyMode === "proportional" && _tlEq && accountBalance > 0) {
+                    const _ratio = _tlEq / accountBalance;
+                    connLot = Math.max(0.01, Math.round(tradeVolume * _ratio * 100) / 100);
+                    _sizeLabel = `proportional ${_ratio.toFixed(2)}\xD7 ($${_tlEq.toLocaleString()}/$${accountBalance.toLocaleString()})`;
+                    console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} \xD7 (${_tlEq}/${accountBalance}) = ${connLot} lots`);
+                  } else if (_eaCopyMode === "proportional") {
+                    console.warn(`[ProportionalSizing] ${tlConn.accountId}: could not size proportionally (TL value=${_tlEq}, MT5 ref=${accountBalance}) \u2014 using exact MT5 lot ${tradeVolume}`);
                   }
                   if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
+                  console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots \u2014 ${_sizeLabel}`);
                   console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                     action: "OPEN",
                     symbol: sanitizedSymbol,

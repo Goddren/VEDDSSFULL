@@ -1198,6 +1198,56 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
   return service;
 }
 
+// ── Shared account-value resolver for proportional / risk-% lot sizing ────────
+// Returns the TL account's balance AND equity, using a short-TTL cache so trade
+// sizing always has a real value (live-fetches if the cache is empty/stale).
+// This is the single source of truth both the chart-data path (routes.ts) and
+// the live engine (live-trading-engine.ts) use to size copied trades.
+const TL_VALUE_TTL = 60 * 1000; // 60s — fresh enough for sizing, light on the API
+export async function getTLAccountValue(
+  userId: number,
+  conn: TLConnection,
+): Promise<{ balance: number; equity: number }> {
+  const g = global as any;
+  g.tlAccountBalances = g.tlAccountBalances || {};
+  g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
+  g.tlAccountEquity = g.tlAccountEquity || {};
+  g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
+  g.tlAccountValueAt = g.tlAccountValueAt || {};
+  g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
+
+  const acctId = conn.accountId;
+  const cachedBal = g.tlAccountBalances[userId][acctId];
+  const cachedEq  = g.tlAccountEquity[userId][acctId];
+  const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
+  const fresh = Date.now() - fetchedAt < TL_VALUE_TTL;
+
+  if (fresh && typeof cachedBal === 'number' && cachedBal > 0) {
+    return { balance: cachedBal, equity: (typeof cachedEq === 'number' && cachedEq > 0) ? cachedEq : cachedBal };
+  }
+
+  try {
+    const svc = await getOrCreateService(conn);
+    const info = await svc.getAccountInfo();
+    const bal = info.balance || 0;
+    const eq  = info.equity || bal;
+    if (bal > 0) {
+      g.tlAccountBalances[userId][acctId] = bal;
+      g.tlAccountEquity[userId][acctId]   = eq;
+      g.tlAccountValueAt[userId][acctId]  = Date.now();
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq };
+    }
+  } catch (e: any) {
+    console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
+  }
+  // Fall back to any stale cache we have, else zeros
+  return {
+    balance: typeof cachedBal === 'number' ? cachedBal : 0,
+    equity:  typeof cachedEq === 'number' ? cachedEq : (typeof cachedBal === 'number' ? cachedBal : 0),
+  };
+}
+
 async function persistTokens(
   connection: TLConnection,
   accessToken: string,

@@ -1,5 +1,5 @@
 import { marketDataService } from '../market-data/service';
-import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection } from '../tradelocker';
+import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue } from '../tradelocker';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
@@ -4298,11 +4298,13 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       // Execute on ALL active accounts in parallel
       const openResults = await Promise.allSettled(
         activeTLConnections.map(async (tlConn: any) => {
-          // Proportional copying: each TL account gets a lot scaled to its own balance
+          // Proportional copying: each TL account gets a lot scaled to its own value
           // relative to the reference (MT5/primary) account balance.
-          // Falls back to lotMultiplier if balance not cached yet.
-          const _tlBalCache = (global as any).tlAccountBalances?.[userId] || {};
-          const _tlAcctBal  = _tlBalCache[tlConn.accountId] ?? null;
+          // Live-fetches the TL account's balance+equity (cached 60s) so sizing
+          // ALWAYS has a real value — no more silent fallback to exact MT5 lot.
+          const _tlVal      = await getTLAccountValue(userId, tlConn);
+          const _tlAcctBal  = _tlVal.balance > 0 ? _tlVal.balance : null;
+          const _tlAcctEq   = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal; // equity preferred for sizing base
           const _refBal     = config.accountBalance || 0;
 
           let acctLot: number;
@@ -4310,28 +4312,33 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _risk = getTLRisk(tlConn.id);
           const _slDist = (entryPrice && stopLoss) ? Math.abs(entryPrice - stopLoss) : 0;
 
-          if (_risk.useRiskPercent && _tlAcctBal !== null && _tlAcctBal > 0 && _slDist > 0) {
-            // Risk-% sizing: size THIS account's lot so a stop-out loses riskPercent of its balance.
-            //   lots = (balance × risk%) / (slPips × pipValuePerLot)
+          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0 && _slDist > 0) {
+            // Risk-% sizing: size THIS account's lot so a stop-out loses riskPercent of its equity.
+            //   lots = (equity × risk%) / (slPips × pipValuePerLot)
             const pipSize  = getPipSize(decision.symbol);
             const pipValue = getPipValue(decision.symbol);
             const slPips   = pipSize > 0 ? _slDist / pipSize : 0;
-            const riskUsd  = _tlAcctBal * (_risk.riskPercent / 100);
+            const riskUsd  = _tlAcctEq * (_risk.riskPercent / 100);
             if (slPips > 0 && pipValue > 0) {
               acctLot = Math.max(0.01, Math.round((riskUsd / (slPips * pipValue)) * 100) / 100);
-              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctBal.toLocaleString()})`;
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
             } else {
               acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
             }
-          } else if (config.copyMode === 'proportional' && _tlAcctBal !== null && _tlAcctBal > 0 && _refBal > 0) {
-            // Scale lot proportionally: $50k account copying a $10k engine → 5× the lot
-            const ratio = _tlAcctBal / _refBal;
+          } else if (config.copyMode === 'proportional' && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
+            // Scale lot proportionally by the TL account's equity vs the engine reference:
+            // $50k account copying a $10k engine → 5× the lot (same % risk on both).
+            const ratio = _tlAcctEq / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+            acctSizeLabel = ` (proportional ${ratio.toFixed(2)}× — $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
           } else {
             // Fall back to manual lotMultiplier (or 1.0 if not set)
             const acctMult = typeof tlConn.lotMultiplier === 'number' && tlConn.lotMultiplier > 0
               ? tlConn.lotMultiplier : 1.0;
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+            acctSizeLabel = _refBal <= 0
+              ? ` (⚠️ multiplier ${acctMult}× — set engine Reference Balance for proportional sizing)`
+              : ` (⚠️ multiplier ${acctMult}× — TL account value unavailable, could not size proportionally)`;
           }
 
           // Still respect volatile pair hard cap per account
