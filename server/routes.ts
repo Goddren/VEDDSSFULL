@@ -16617,6 +16617,18 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/performance — per-strategy win rate / P&L history (survives restarts)
+  app.get("/api/kalshi/performance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getKalshiPerformance } = await import('./services/kalshi-performance');
+      res.json(getKalshiPerformance(userId));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PUT /api/kalshi/engine/config
   app.put("/api/kalshi/engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

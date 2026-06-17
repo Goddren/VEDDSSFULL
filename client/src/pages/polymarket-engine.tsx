@@ -9,7 +9,7 @@ import {
   ArrowLeft, Play, Square, RefreshCw, Settings, X,
   ChevronDown, ChevronUp, Wallet, ExternalLink,
   TrendingUp, TrendingDown, Activity, Zap, Clock,
-  BarChart2, Info, Shield, Eye, EyeOff,
+  BarChart2, BarChart3, Info, Shield, Eye, EyeOff,
   AlertTriangle, KeyRound,
 } from "lucide-react";
 
@@ -383,6 +383,16 @@ export default function PolymarketEnginePage() {
   }>({
     queryKey: ["/api/kalshi/value-picks"],
     refetchInterval: 60000,
+    enabled: !!user,
+  });
+
+  // Per-strategy win-rate / P&L history (learning loop)
+  const { data: kalshiPerf } = useQuery<{
+    byStrategy: Array<{ strategy: string; trades: number; wins: number; losses: number; breakeven: number; totalPnl: number; winRate: number; lastResult: string | null }>;
+    totals: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
+  }>({
+    queryKey: ["/api/kalshi/performance"],
+    refetchInterval: 30000,
     enabled: !!user,
   });
 
@@ -958,10 +968,48 @@ export default function PolymarketEnginePage() {
                     </div>
                   </div>
                 ))}
-                <p className="text-[8px] text-gray-600 pt-0.5">Score = edge × strategy agreement × confidence. Higher = better value. Not auto-traded — review before placing.</p>
+                <p className="text-[8px] text-gray-600 pt-0.5">Score = edge × agreement × confidence × learned win rate. Enable auto-trade in config to fire the top pick automatically.</p>
               </div>
             )}
           </div>
+
+          {/* ── Strategy Performance (learning loop) ─────────────────────────── */}
+          {(kalshiPerf?.byStrategy?.length ?? 0) > 0 && (
+            <div className="mb-3 bg-indigo-950/30 border border-indigo-800/40 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-[11px] font-bold text-indigo-300">Strategy Win Rate</span>
+                  <span className="text-[8px] text-gray-500">tracked over time · survives restarts</span>
+                </div>
+                {kalshiPerf && (
+                  <span className="text-[9px] text-gray-400">
+                    Overall {kalshiPerf.totals.winRate}% · {kalshiPerf.totals.wins}W/{kalshiPerf.totals.losses}L ·{" "}
+                    <span className={kalshiPerf.totals.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}>
+                      {kalshiPerf.totals.totalPnl >= 0 ? "+" : ""}${fmt(kalshiPerf.totals.totalPnl)}
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1">
+                {kalshiPerf!.byStrategy.map(st => {
+                  const label = st.strategy === "volume_profile" ? "Vol Profile" : st.strategy === "order_flow" ? "Order Flow" : st.strategy === "consensus" ? "Value (consensus)" : st.strategy.charAt(0).toUpperCase() + st.strategy.slice(1);
+                  return (
+                    <div key={st.strategy} className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="text-gray-300 font-medium w-28 truncate">{label}</span>
+                      <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${st.winRate}%`, background: st.winRate >= 55 ? "#34d399" : st.winRate >= 45 ? "#fbbf24" : "#f87171" }} />
+                      </div>
+                      <span className="text-gray-400 w-9 text-right">{st.winRate}%</span>
+                      <span className="text-gray-500 w-14 text-right">{st.wins}W/{st.losses}L</span>
+                      <span className={`w-14 text-right font-bold ${st.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{st.totalPnl >= 0 ? "+" : ""}${fmt(st.totalPnl)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[8px] text-gray-600 mt-1.5">Win rate feeds back into value-pick scoring once a strategy has 5+ decided trades — proven strategies get prioritized.</p>
+            </div>
+          )}
 
           {/* Credential setup */}
           {!kalshiAccount?.connected ? (

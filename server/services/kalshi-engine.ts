@@ -20,6 +20,7 @@ import {
 } from './kalshi-trading';
 import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
 import { getBTCCandles } from './btc-5min-predictor';
+import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,10 +37,12 @@ export interface KalshiTradeRecord {
   currentValue: number;
   unrealizedPnl: number;
   signal: { direction: 'BUY' | 'SELL'; confidence: number; btcPrice: number };
+  strategy: string;    // strategy that opened it — for per-strategy win-rate tracking
   openedAt: string;
   closedAt?: string;
   exitPriceCents?: number;
   realizedPnl?: number;
+  exitReason?: 'take_profit' | 'stop_loss' | 'manual' | 'settlement';
   status: 'open' | 'closed' | 'expired';
   paper: boolean;
   kalshiOrderId?: string;
@@ -156,7 +159,7 @@ export async function manualKalshiScan(userId: number): Promise<{ fired: boolean
 async function _placeKalshiYes(
   userId: number,
   s: KalshiEngineState,
-  p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string },
+  p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
 ): Promise<{ fired: boolean; reason: string }> {
   const stakeUsd = (p.priceInCents / 100) * s.config.contractsPerTrade;
 
@@ -187,6 +190,7 @@ async function _placeKalshiYes(
     currentValue:      stakeUsd,
     unrealizedPnl:     0,
     signal:            { direction: p.direction, confidence: p.confidence, btcPrice: p.btcPrice },
+    strategy:          p.strategy,
     openedAt:          new Date().toISOString(),
     status:            'open',
     paper:             s.isPaperMode,
@@ -255,6 +259,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
         btcPrice: vp.btcPrice,
         direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
         label: `Value pick (score ${top.valueScore}, +${top.edgePct}¢ edge)`,
+        strategy: 'consensus',
       });
       return fired;
     } catch (err: any) {
@@ -332,6 +337,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       btcPrice: pred.currentPrice,
       direction: pred.direction === 'SELL' ? 'SELL' : 'BUY',
       label: stratLabel,
+      strategy: s.config.strategy,
     });
 
   } catch (err: any) {
@@ -404,9 +410,10 @@ export interface KalshiValuePick {
   marketAskCents: number;     // what it costs to buy YES now
   modelProbPct: number;       // our estimated probability it resolves YES
   edgePct: number;            // modelProb − marketAsk (the value)
-  valueScore: number;         // edge × agreement × confidence weighting
+  valueScore: number;         // edge × agreement × confidence × learned-winrate weighting
   confidence: number;         // consensus confidence
   agreement: number;          // 0–1 strategy agreement
+  winRateWeight: number;      // learning factor applied from historical win rate (1.0 = neutral)
   rationale: string;
 }
 
@@ -479,6 +486,18 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
   const driftFrac = dirSign * (consensus.confidence / 100) * consensus.agreement * 0.6;
   const driftPrice = sigmaPrice * driftFrac;
 
+  // ── Learning feedback ──────────────────────────────────────────────────────
+  // Weight scores by the consensus strategy's historical win rate (once it has a
+  // track record). Proven approach → lean harder; been losing → pull back.
+  // Neutral (1.0) until ≥5 decided trades so early noise doesn't distort scoring.
+  const perf = getKalshiPerformance(userId);
+  const consStat = perf.byStrategy.find(st => st.strategy === 'consensus');
+  let winRateWeight = 1.0;
+  if (consStat && (consStat.wins + consStat.losses) >= 5) {
+    // winRate 0% → 0.7×, 50% → 1.0×, 100% → 1.3×
+    winRateWeight = Math.round((0.7 + (consStat.winRate / 100) * 0.6) * 100) / 100;
+  }
+
   const picks: KalshiValuePick[] = [];
   for (const b of event.brackets) {
     if (!b.hasLiquidity) continue;
@@ -491,11 +510,15 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
     if (edgePct <= 0) continue; // only surface underpriced (positive-edge) picks
 
     // Value score: edge weighted by how strongly the strategies agree & their confidence,
-    // and lightly penalized for very long-shot (low absolute probability) picks.
+    // lightly penalized for very long-shot picks, and scaled by the learned win rate.
     const agreementW = 0.5 + consensus.agreement * 0.5;       // 0.5–1.0
     const confW      = 0.5 + (consensus.confidence / 100) * 0.5; // 0.5–1.0
     const probW      = 0.6 + modelProb * 0.4;                  // favor more-likely outcomes
-    const valueScore = Math.round(edgePct * agreementW * confW * probW * 10) / 10;
+    const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * 10) / 10;
+
+    const learnNote = winRateWeight !== 1.0
+      ? ` Learned ${winRateWeight}× (consensus WR ${consStat!.winRate}% over ${consStat!.wins + consStat!.losses}).`
+      : '';
 
     picks.push({
       ticker: b.ticker,
@@ -507,7 +530,8 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
       valueScore,
       confidence: consensus.confidence,
       agreement: consensus.agreement,
-      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.`,
+      winRateWeight,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.${learnNote}`,
     });
   }
 
@@ -544,10 +568,10 @@ async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Pro
     const tp = s.config.takeProfitCents;
     const sl = s.config.stopLossCents;
     if (tp > 0 && liveCents >= tp) {
-      closeKalshiTrade(userId, t.id, liveCents);
+      closeKalshiTrade(userId, t.id, liveCents, 'take_profit');
       s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (target ${tp}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
     } else if (sl > 0 && liveCents <= sl) {
-      closeKalshiTrade(userId, t.id, liveCents);
+      closeKalshiTrade(userId, t.id, liveCents, 'stop_loss');
       s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (stop ${sl}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
     }
   }
@@ -558,7 +582,12 @@ function _recalcUnrealized(s: KalshiEngineState): void {
   s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
 }
 
-export function closeKalshiTrade(userId: number, tradeId: string, exitPriceCents?: number): boolean {
+export function closeKalshiTrade(
+  userId: number,
+  tradeId: string,
+  exitPriceCents?: number,
+  exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'settlement' = 'manual',
+): boolean {
   const s = getKalshiEngineState(userId);
   const idx = s.openTrades.findIndex(t => t.id === tradeId);
   if (idx === -1) return false;
@@ -573,6 +602,7 @@ export function closeKalshiTrade(userId: number, tradeId: string, exitPriceCents
   trade.closedAt      = new Date().toISOString();
   trade.exitPriceCents = exitCents;
   trade.realizedPnl   = realizedPnl;
+  trade.exitReason    = exitReason;
   trade.unrealizedPnl = 0;
 
   s.openTrades.splice(idx, 1);
@@ -581,6 +611,11 @@ export function closeKalshiTrade(userId: number, tradeId: string, exitPriceCents
 
   s.totalRealizedPnl += realizedPnl;
   _recalcUnrealized(s);
+
+  // Feed the outcome into the per-strategy learning loop (survives restarts)
+  try {
+    recordKalshiOutcome(userId, trade.strategy || 'unknown', realizedPnl);
+  } catch { /* non-blocking */ }
   return true;
 }
 
