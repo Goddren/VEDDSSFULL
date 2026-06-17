@@ -41529,18 +41529,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const { getLiveEngineState: _rLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
           const _rState = _rLES(token.userId);
           const relayRiskPct = _rState?.config?.riskPerTrade ?? 1;
-          const relayAcctData = global.mt5AccountData?.[token.userId];
-          const relayBalance = relayAcctData?.balance || 1e4;
+          const _relayRaw = global.mt5AccountData?.[token.userId];
+          let _relaySnap = null;
+          if (_relayRaw) {
+            if (typeof _relayRaw.balance === "number") _relaySnap = _relayRaw;
+            else for (const _k of Object.keys(_relayRaw)) {
+              const _e = _relayRaw[_k];
+              if (_e && typeof _e === "object" && typeof _e.balance === "number" && _e.lastUpdated) {
+                if (!_relaySnap || new Date(_e.lastUpdated) > new Date(_relaySnap.lastUpdated)) _relaySnap = _e;
+              }
+            }
+          }
+          const _relayFresh = _relaySnap?.lastUpdated ? Date.now() - new Date(_relaySnap.lastUpdated).getTime() < 15 * 60 * 1e3 : false;
+          const relayBalance = _relaySnap && _relayFresh && _relaySnap.balance > 0 ? _relaySnap.balance : 0;
           const relayRiskAmt = relayBalance * (relayRiskPct / 100);
           const relaySlDist = Math.abs(entryPrice - stopLoss);
           const relaySym = (symbol || "").toUpperCase().replace("/", "");
           const relayPipSz = getPipSize(relaySym);
           const relayPipVal = getPipValue(relaySym);
           const relaySlPips = relaySlDist / relayPipSz;
-          if (relaySlPips > 0 && relayPipVal > 0) {
+          if (relayBalance > 0 && relaySlPips > 0 && relayPipVal > 0) {
             const calc = relayRiskAmt / (relaySlPips * relayPipVal);
-            relayVolume = Math.max(0.01, Math.min(10, Math.round(calc * 100) / 100));
+            const _relayMaxLot = _rState?.config?.maxLotSize ?? 0.1;
+            relayVolume = Math.max(0.01, Math.min(_relayMaxLot, Math.round(calc * 100) / 100));
             console.log(`[TL Relay] Risk-based lot: balance=$${relayBalance} risk=${relayRiskPct}% SL=${relaySlPips.toFixed(1)}pips \u2192 ${relayVolume} lots`);
+          } else if (relayBalance <= 0) {
+            console.warn(`[TL Relay] Balance unknown/stale \u2014 keeping incoming volume ${relayVolume} (no phantom $10k sizing)`);
           }
         } catch (_riskErr) {
         }
@@ -43821,9 +43835,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const liveEngineRiskPct = _liveState?.config?.riskPerTrade ?? 1;
       const riskPercentSetting = matchingEA?.riskPercent != null ? matchingEA.riskPercent : liveEngineRiskPct;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
-      const accountData = global.mt5AccountData?.[token.userId];
-      const accountBalance = accountData?.balance || 1e4;
+      const _mt5Raw = global.mt5AccountData?.[token.userId];
+      let accountData = null;
+      if (_mt5Raw) {
+        if (typeof _mt5Raw.balance === "number" && _mt5Raw.lastUpdated) {
+          accountData = _mt5Raw;
+        } else {
+          for (const _k of Object.keys(_mt5Raw)) {
+            const _e = _mt5Raw[_k];
+            if (_e && typeof _e === "object" && typeof _e.balance === "number" && _e.lastUpdated) {
+              if (!accountData || new Date(_e.lastUpdated) > new Date(accountData.lastUpdated)) accountData = _e;
+            }
+          }
+        }
+      }
+      const _acctFresh = accountData?.lastUpdated ? Date.now() - new Date(accountData.lastUpdated).getTime() < 15 * 60 * 1e3 : false;
+      const _acctBalKnown = !!accountData && _acctFresh && accountData.balance > 0;
+      const accountBalance = _acctBalKnown ? accountData.balance : 0;
       const riskAmount = accountBalance * (riskPercentSetting / 100);
+      if (useRiskPercent && !_acctBalKnown) {
+        console.warn(`[RISK SAFETY] ${sanitizedSymbol}: MT5 balance unknown/stale \u2014 risk-% trade will be blocked by Gate 0 (fail-safe, no phantom $10k sizing)`);
+      }
       console.log(`[CULTURE] ${matchingEA?.name || "Default"} MATHEMATICS: Risk=${riskPercentSetting}% | Fixed=${fixedVolumeSetting} lots | Mode=${useRiskPercent ? "Risk%" : "Fixed"}`);
       let mt5Volume = fixedVolumeSetting;
       const veddLotKey = `${token.userId}_${sanitizedSymbol.toUpperCase().replace("/", "")}`;
@@ -43842,7 +43874,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
-          const engineMaxLot = _liveState?.config?.maxLotSize ?? 10;
+          const engineMaxLot = _liveState?.config?.maxLotSize ?? 0.1;
           mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
@@ -43856,18 +43888,62 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && analysis.signal !== "NEUTRAL") {
         const preMult = mt5Volume;
-        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 10;
+        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 0.1;
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
       if (goalIntelligenceActive && goalLotMultiplier !== 1 && veddLotOverride > 0) {
         const preMult = mt5Volume;
-        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 10;
+        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 0.1;
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
       let tlGateBlocked = false;
       let tlGateReason = "";
+      if (analysis.signal !== "NEUTRAL") {
+        const _positions = global.mt5OpenPositions?.[token.userId]?.positions ?? [];
+        const _floating = _positions.reduce((sum, p) => sum + (p.profit || 0), 0);
+        if (useRiskPercent && !_acctBalKnown) {
+          tlGateBlocked = true;
+          tlGateReason = "Account balance unknown/stale (>15m) \u2014 risk-% sizing unsafe";
+        }
+        if (!tlGateBlocked && _acctBalKnown) {
+          const _freeMargin = typeof accountData.freeMargin === "number" ? accountData.freeMargin : null;
+          const _marginLevel = typeof accountData.marginLevel === "number" ? accountData.marginLevel : null;
+          if (_freeMargin !== null && _freeMargin <= 0) {
+            tlGateBlocked = true;
+            tlGateReason = "No free margin available";
+          } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
+            tlGateBlocked = true;
+            tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+          }
+        }
+        if (!tlGateBlocked && _acctBalKnown && (_liveState?.config?.dailyLossLimit ?? 0) > 0) {
+          const _realizedToday = typeof accountData.dailyPnL === "number" ? accountData.dailyPnL : 0;
+          const _totalDayPnl = _realizedToday + _floating;
+          const _lossPct = _totalDayPnl / accountData.balance * 100;
+          if (_lossPct <= -_liveState.config.dailyLossLimit) {
+            tlGateBlocked = true;
+            tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% \u2264 -${_liveState.config.dailyLossLimit}% (incl. floating)`;
+          }
+        }
+        if (!tlGateBlocked && _acctBalKnown) {
+          const _openLots = _positions.reduce((sum, p) => sum + (p.lots || p.volume || p.size || 0), 0);
+          const _maxLot = _liveState?.config?.maxLotSize ?? 0.1;
+          const _maxOpen = _liveState?.config?.maxOpenTrades ?? 3;
+          const _aggCap = _maxLot * _maxOpen * 1.5;
+          if (_openLots + mt5Volume > _aggCap) {
+            tlGateBlocked = true;
+            tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+          }
+        }
+        if (tlGateBlocked) {
+          analysis.signal = "NEUTRAL";
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
+          console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
+        }
+      }
       if (analysis.signal !== "NEUTRAL") {
         try {
           const tlGatePlan = global.mt5WeeklyStrategies?.[token.userId];

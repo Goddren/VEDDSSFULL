@@ -7331,18 +7331,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const { getLiveEngineState: _rLES } = await import('./services/live-trading-engine');
           const _rState = _rLES(token.userId);
           const relayRiskPct: number = _rState?.config?.riskPerTrade ?? 1.0;
-          const relayAcctData = (global as any).mt5AccountData?.[token.userId];
-          const relayBalance: number = relayAcctData?.balance || 10000;
+          // Resolve freshest balance (keyed-by-broker or flat). No phantom $10k default.
+          const _relayRaw = (global as any).mt5AccountData?.[token.userId];
+          let _relaySnap: any = null;
+          if (_relayRaw) {
+            if (typeof _relayRaw.balance === 'number') _relaySnap = _relayRaw;
+            else for (const _k of Object.keys(_relayRaw)) {
+              const _e = _relayRaw[_k];
+              if (_e && typeof _e === 'object' && typeof _e.balance === 'number' && _e.lastUpdated) {
+                if (!_relaySnap || new Date(_e.lastUpdated) > new Date(_relaySnap.lastUpdated)) _relaySnap = _e;
+              }
+            }
+          }
+          const _relayFresh = _relaySnap?.lastUpdated
+            ? (Date.now() - new Date(_relaySnap.lastUpdated).getTime()) < 15 * 60 * 1000 : false;
+          const relayBalance: number = (_relaySnap && _relayFresh && _relaySnap.balance > 0) ? _relaySnap.balance : 0;
           const relayRiskAmt = relayBalance * (relayRiskPct / 100);
           const relaySlDist = Math.abs(entryPrice - stopLoss);
           const relaySym = (symbol || '').toUpperCase().replace('/', '');
           const relayPipSz = getPipSize(relaySym);
           const relayPipVal = getPipValue(relaySym);
           const relaySlPips = relaySlDist / relayPipSz;
-          if (relaySlPips > 0 && relayPipVal > 0) {
+          if (relayBalance > 0 && relaySlPips > 0 && relayPipVal > 0) {
             const calc = relayRiskAmt / (relaySlPips * relayPipVal);
-            relayVolume = Math.max(0.01, Math.min(10, Math.round(calc * 100) / 100));
+            const _relayMaxLot = _rState?.config?.maxLotSize ?? 0.10;
+            relayVolume = Math.max(0.01, Math.min(_relayMaxLot, Math.round(calc * 100) / 100));
             console.log(`[TL Relay] Risk-based lot: balance=$${relayBalance} risk=${relayRiskPct}% SL=${relaySlPips.toFixed(1)}pips → ${relayVolume} lots`);
+          } else if (relayBalance <= 0) {
+            console.warn(`[TL Relay] Balance unknown/stale — keeping incoming volume ${relayVolume} (no phantom $10k sizing)`);
           }
         } catch (_riskErr) { /* use incoming volume on any error */ }
       }
@@ -9957,9 +9973,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // EA-level override wins; otherwise use what the user set in the engine UI
       const riskPercentSetting = matchingEA?.riskPercent != null ? matchingEA.riskPercent : liveEngineRiskPct;
       const fixedVolumeSetting = matchingEA?.volume ?? 0.01;
-      const accountData = (global as any).mt5AccountData?.[token.userId];
-      const accountBalance = accountData?.balance || 10000;
+      // Resolve the freshest MT5 account snapshot. Data is stored keyed-by-broker
+      // (new format) OR flat (old format) — read both. NEVER default balance to a
+      // phantom number: unknown balance must block risk-% sizing (fail-safe).
+      const _mt5Raw = (global as any).mt5AccountData?.[token.userId];
+      let accountData: any = null;
+      if (_mt5Raw) {
+        if (typeof _mt5Raw.balance === 'number' && _mt5Raw.lastUpdated) {
+          accountData = _mt5Raw; // old flat format
+        } else {
+          for (const _k of Object.keys(_mt5Raw)) {
+            const _e = _mt5Raw[_k];
+            if (_e && typeof _e === 'object' && typeof _e.balance === 'number' && _e.lastUpdated) {
+              if (!accountData || new Date(_e.lastUpdated) > new Date(accountData.lastUpdated)) accountData = _e;
+            }
+          }
+        }
+      }
+      // Account data older than 15 min is treated as stale/unknown
+      const _acctFresh = accountData?.lastUpdated
+        ? (Date.now() - new Date(accountData.lastUpdated).getTime()) < 15 * 60 * 1000
+        : false;
+      const _acctBalKnown = !!accountData && _acctFresh && accountData.balance > 0;
+      const accountBalance = _acctBalKnown ? accountData.balance : 0;
       const riskAmount = accountBalance * (riskPercentSetting / 100);
+      if (useRiskPercent && !_acctBalKnown) {
+        console.warn(`[RISK SAFETY] ${sanitizedSymbol}: MT5 balance unknown/stale — risk-% trade will be blocked by Gate 0 (fail-safe, no phantom $10k sizing)`);
+      }
 
       console.log(`[CULTURE] ${matchingEA?.name || 'Default'} MATHEMATICS: Risk=${riskPercentSetting}% | Fixed=${fixedVolumeSetting} lots | Mode=${useRiskPercent ? 'Risk%' : 'Fixed'}`);
 
@@ -9982,7 +10022,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         console.log(`[LOT SIZE] ${sanitizedSymbol}: pipSize=${symPipSize}, pipValue=${symPipValue}, slDist=${slDistance}, slPips=${slPips.toFixed(1)}, risk=$${riskAmount.toFixed(2)}`);
         if (slPips > 0) {
           const calculatedLots = riskAmount / (slPips * symPipValue);
-          const engineMaxLot = _liveState?.config?.maxLotSize ?? 10;
+          const engineMaxLot = _liveState?.config?.maxLotSize ?? 0.10;
           mt5Volume = Math.max(0.01, Math.min(engineMaxLot, Math.round(calculatedLots * 100) / 100));
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
@@ -9998,14 +10038,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // ── Goal Intelligence: apply lot multiplier AFTER base lot is computed ──
       if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && analysis.signal !== 'NEUTRAL') {
         const preMult = mt5Volume;
-        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 10;
+        const _goalMaxLot = _liveState?.config?.maxLotSize ?? 0.10;
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Lot adjustment (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
       // Also override plan lot size with goal multiplier in LOCK_IN/CATCH_UP
       if (goalIntelligenceActive && goalLotMultiplier !== 1.0 && veddLotOverride > 0) {
         const preMult = mt5Volume;
-        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 10;
+        const _goalMaxLot2 = _liveState?.config?.maxLotSize ?? 0.10;
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} → ${mt5Volume} lots (×${goalLotMultiplier.toFixed(2)})`);
       }
@@ -10016,6 +10056,63 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // ═══════════════════════════════════════════════════════════════════
       let tlGateBlocked = false;
       let tlGateReason = '';
+
+      // ── Gate 0: ACCOUNT SAFETY (margin / balance / daily-loss / exposure) ──
+      // Fail-safe: when account health can't be confirmed or risk limits are hit,
+      // the signal is neutralised so NEITHER the MT5 EA nor TradeLocker opens.
+      if (analysis.signal !== 'NEUTRAL') {
+        const _positions = (global as any).mt5OpenPositions?.[token.userId]?.positions ?? [];
+        const _floating = _positions.reduce((sum: number, p: any) => sum + (p.profit || 0), 0);
+
+        // 0a. Balance unknown/stale → cannot size risk safely → block
+        if (useRiskPercent && !_acctBalKnown) {
+          tlGateBlocked = true;
+          tlGateReason = 'Account balance unknown/stale (>15m) — risk-% sizing unsafe';
+        }
+
+        // 0b. Margin health — broker-reported free margin & margin level
+        if (!tlGateBlocked && _acctBalKnown) {
+          const _freeMargin  = typeof accountData.freeMargin === 'number' ? accountData.freeMargin : null;
+          const _marginLevel = typeof accountData.marginLevel === 'number' ? accountData.marginLevel : null;
+          if (_freeMargin !== null && _freeMargin <= 0) {
+            tlGateBlocked = true;
+            tlGateReason = 'No free margin available';
+          } else if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
+            tlGateBlocked = true;
+            tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
+          }
+        }
+
+        // 0c. Daily loss limit (realized today + floating) blocks NEW opens
+        if (!tlGateBlocked && _acctBalKnown && (_liveState?.config?.dailyLossLimit ?? 0) > 0) {
+          const _realizedToday = typeof accountData.dailyPnL === 'number' ? accountData.dailyPnL : 0;
+          const _totalDayPnl = _realizedToday + _floating;
+          const _lossPct = (_totalDayPnl / accountData.balance) * 100;
+          if (_lossPct <= -_liveState.config.dailyLossLimit) {
+            tlGateBlocked = true;
+            tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% ≤ -${_liveState.config.dailyLossLimit}% (incl. floating)`;
+          }
+        }
+
+        // 0d. Aggregate exposure cap — total open lots across all positions
+        if (!tlGateBlocked && _acctBalKnown) {
+          const _openLots = _positions.reduce((sum: number, p: any) => sum + (p.lots || p.volume || p.size || 0), 0);
+          const _maxLot  = _liveState?.config?.maxLotSize ?? 0.10;
+          const _maxOpen = _liveState?.config?.maxOpenTrades ?? 3;
+          const _aggCap  = _maxLot * _maxOpen * 1.5; // 50% headroom over count×size
+          if (_openLots + mt5Volume > _aggCap) {
+            tlGateBlocked = true;
+            tlGateReason = `Aggregate exposure ${(_openLots + mt5Volume).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)}`;
+          }
+        }
+
+        if (tlGateBlocked) {
+          analysis.signal = 'NEUTRAL'; // hard kill — stops EA broadcast AND TradeLocker
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`🛡️ RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
+          console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
+        }
+      }
 
       // Gate 1: Direction enforcement from weekly plan (always, not just when live mode ON)
       if (analysis.signal !== 'NEUTRAL') {
