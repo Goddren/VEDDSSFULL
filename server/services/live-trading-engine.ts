@@ -173,6 +173,7 @@ interface LiveEngineConfig {
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
+  pairLotOverrides: Record<string, number>; // per-pair hard lot cap (0 = use engine default)
   // ORB Autonomous mode: fire 9:30 AM opening range breakout trades autonomously
   enableORBAutonomous: boolean;
   // Composite Autonomous mode: fire trades directly from Markov×Polymarket (crypto only)
@@ -767,6 +768,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxDailyTrades: 0,
     directionFilter: 'both',
     pairDirectionOverrides: {},
+    pairLotOverrides: {},
     enableORBAutonomous: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
@@ -4160,12 +4162,25 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // No XAUUSD trade can exceed 0.10 lots, no BTCUSD above 0.02, no index above 0.20.
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
     const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
-    const lotSize = Math.min(preCappedLot, volHardMax);
+    const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity(userId, {
         type: 'info',
         symbol: decision.symbol,
         message: `⚠️ LOT CAP [${decision.symbol}]: ${preCappedLot} lots capped to ${volHardMax} (volatile-pair hard limit). Dynamic sizing requested ${preCappedLot} but ${decision.symbol} max is ${volHardMax} to prevent account-damaging losses.`,
+      });
+    }
+
+    // ── Per-pair user hard block — applied last, absolute ceiling ────────────
+    // If the user set a custom lot size for this specific pair in the engine UI,
+    // the engine CANNOT exceed it regardless of dynamic sizing, Kelly, or volatility.
+    const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
+    const lotSize = (_pairHardLot && _pairHardLot > 0) ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
+      addActivity(userId, {
+        type: 'info',
+        symbol: decision.symbol,
+        message: `🔒 PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots → hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`,
       });
     }
 

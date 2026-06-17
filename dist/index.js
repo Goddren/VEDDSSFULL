@@ -20945,6 +20945,7 @@ function getDefaultConfig(userId) {
     maxDailyTrades: 0,
     directionFilter: "both",
     pairDirectionOverrides: {},
+    pairLotOverrides: {},
     enableORBAutonomous: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
@@ -23707,12 +23708,21 @@ async function processDecision(userId, decision, newsCtx) {
     }
     const volHardMax = _volCap ? _volCap.hardMaxLot : Infinity;
     const preCappedLot = Math.max(0.01, Math.min(isDynamicSizingEnabled ? dynamicLot : compoundedLot, safeMaxLot));
-    const lotSize = Math.min(preCappedLot, volHardMax);
+    const volCappedLot = Math.min(preCappedLot, volHardMax);
     if (_volCap && preCappedLot > volHardMax) {
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
         message: `\u26A0\uFE0F LOT CAP [${decision.symbol}]: ${preCappedLot} lots capped to ${volHardMax} (volatile-pair hard limit). Dynamic sizing requested ${preCappedLot} but ${decision.symbol} max is ${volHardMax} to prevent account-damaging losses.`
+      });
+    }
+    const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
+    const lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
+      addActivity2(userId, {
+        type: "info",
+        symbol: decision.symbol,
+        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`
       });
     }
     const mt5Signal = {

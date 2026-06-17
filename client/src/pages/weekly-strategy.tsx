@@ -1284,6 +1284,7 @@ export default function WeeklyStrategyPage() {
   });
 
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
+  const [pairLotOverrides, setPairLotOverrides] = useState<Record<string, string>>({});
   // ── Connected account selector ─────────────────────────────────────────────
   const [selectedEngineAccount, setSelectedEngineAccount] = useState<ConnectedAccount | null>(null);
 
@@ -1370,6 +1371,7 @@ export default function WeeklyStrategyPage() {
     if (saved.volatileCapMode != null) setEngineVolatileCapMode(saved.volatileCapMode);
     if (saved.copyMode        != null) setEngineCopyMode(saved.copyMode);
     if (saved.accountBalance != null) setEngineAccountBalance(saved.accountBalance);
+    if (saved.pairLotOverrides != null) setPairLotOverrides(saved.pairLotOverrides);
   }, [setEngineAccountBalance, setEngineExecutionSource, setEngineRiskPerTrade,
       setEngineMaxLotSize, setEngineWeeklyTarget, setEngineBaseLotSize, setEngineInterval,
       setEngineMinConf, setEngineMaxTrades, setEngineCompounding, setEngineDrawdownShield,
@@ -1391,6 +1393,7 @@ export default function WeeklyStrategyPage() {
         volatileCapMode: engineVolatileCapMode,
         copyMode: engineCopyMode,
         accountBalance: engineAccountBalance,
+        pairLotOverrides,
       });
     }, 800);
   }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
@@ -1488,6 +1491,11 @@ export default function WeeklyStrategyPage() {
         enableORBAutonomous: engineORBAutonomous,
         enableCompositeAutonomous: engineCompositeAutonomous,
         compositeMinEdgeScore: engineCompositeMinEdge,
+        pairLotOverrides: Object.fromEntries(
+          Object.entries(pairLotOverrides)
+            .map(([k, v]) => [k, parseFloat(v)])
+            .filter(([, v]) => (v as number) > 0)
+        ),
       });
       return res.json();
     },
@@ -1699,6 +1707,19 @@ export default function WeeklyStrategyPage() {
 
   const removeEnginePair = (pair: string) => {
     setEnginePairs(prev => prev.filter(p => p !== pair));
+    setPairLotOverrides(prev => { const n = { ...prev }; delete n[pair]; return n; });
+  };
+
+  const savePairLotOverride = (pair: string, val: string) => {
+    const num = parseFloat(val);
+    const clean = !val || isNaN(num) || num <= 0 ? 0 : Math.round(num * 100) / 100;
+    setPairLotOverrides(prev => ({ ...prev, [pair]: clean > 0 ? String(clean) : '' }));
+    const overrides: Record<string, number> = {};
+    enginePairs.forEach(p => {
+      const v = p === pair ? clean : parseFloat(pairLotOverrides[p] || '0');
+      if (v > 0) overrides[p] = v;
+    });
+    apiRequest('PATCH', '/api/vedd-live-engine/config', { pairLotOverrides: overrides }).catch(() => {});
   };
 
   const addCustomPair = () => {
@@ -2353,15 +2374,35 @@ export default function WeeklyStrategyPage() {
                   {/* Composite Auto-Trade moved to its own section below Composite Edge card */}
 
                   <div>
-                    <Label className="text-gray-400 text-xs">Trading Pairs</Label>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <Label className="text-gray-400 text-xs">Trading Pairs</Label>
+                      <span className="text-[9px] text-gray-600">Lot = hard block per pair (blank = engine default)</span>
+                    </div>
+                    <div className="mt-1 space-y-1">
                       {enginePairs.map(p => (
-                        <Badge key={p} className="bg-cyan-500/10 text-cyan-300 border-cyan-500/30 text-[10px] cursor-pointer hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 transition-colors"
-                          onClick={() => removeEnginePair(p)}>
-                          {p} ×
-                        </Badge>
+                        <div key={p} className="flex items-center gap-2 px-2 py-1 rounded-lg" style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.15)' }}>
+                          <span className="text-cyan-300 text-[10px] font-mono font-bold w-16 flex-shrink-0">{p}</span>
+                          <div className="flex items-center gap-1 flex-1">
+                            <span className="text-[9px] text-gray-500 flex-shrink-0">Max lot:</span>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              value={pairLotOverrides[p] ?? ''}
+                              onChange={e => setPairLotOverrides(prev => ({ ...prev, [p]: e.target.value }))}
+                              onBlur={e => savePairLotOverride(p, e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && savePairLotOverride(p, (e.target as HTMLInputElement).value)}
+                              placeholder="auto"
+                              className="h-5 w-16 bg-gray-900 border-gray-700 text-white text-[10px] px-1.5"
+                            />
+                            {pairLotOverrides[p] && parseFloat(pairLotOverrides[p]) > 0 && (
+                              <span className="text-[8px] text-amber-400 font-bold flex-shrink-0">🔒 LOCKED</span>
+                            )}
+                          </div>
+                          <button onClick={() => removeEnginePair(p)} className="text-gray-600 hover:text-red-400 text-xs flex-shrink-0 px-1">×</button>
+                        </div>
                       ))}
-                      <div className="flex gap-1 items-center">
+                      <div className="flex gap-1 items-center pt-0.5">
                         <Input value={enginePairInput} onChange={e => setEnginePairInput(e.target.value)}
                           placeholder="Add pair..." className="h-6 w-24 bg-gray-800 border-gray-700 text-white text-[10px] px-2"
                           onKeyDown={e => e.key === 'Enter' && addEnginePair()} />
