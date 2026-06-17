@@ -13515,6 +13515,28 @@ Rules:
     }
   });
 
+  // GET /api/tradelocker/:id/debug-balance — raw TradeLocker API shapes for balance debugging
+  app.get("/api/tradelocker/:id/debug-balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connectionId = parseInt(req.params.id, 10);
+    if (isNaN(connectionId)) return res.status(400).json({ error: "Invalid id" });
+    const conns = await storage.getUserTradelockerConnections(userId);
+    const conn = conns.find(c => c.id === connectionId);
+    if (!conn) return res.status(404).json({ error: "Connection not found" });
+    try {
+      const svc = await tlGetOrCreateService(conn);
+      const diag = await svc.debugAccountState();
+      // Also run the real parser so we see what getAccountInfo computes
+      let parsed: any = null;
+      try { parsed = await svc.getAccountInfo(); } catch (e: any) { parsed = { error: e?.message ?? String(e) }; }
+      res.json({ connectionId, accountId: conn.accountId, diagnostic: diag, parsedResult: parsed });
+    } catch (err: any) {
+      console.error('[TL debug-balance]', err);
+      res.status(500).json({ error: err?.message ?? 'debug failed' });
+    }
+  });
+
   // TradeLocker Connection Routes
 
   // GET all connections (plural) — used by multi-account UI

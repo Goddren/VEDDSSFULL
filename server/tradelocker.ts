@@ -331,15 +331,49 @@ export class TradeLockerService {
     return cols;
   }
 
-  /** Finds the value in a flat state-data array for a column matching any candidate id/title */
+  /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
+  private normLabel(s: any): string {
+    return (s ?? '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  /** Finds the value in a flat state-data array for a column matching any candidate id/title.
+   *  Matching is normalized (case/space/punctuation-insensitive) with exact-first then substring. */
   private pickStateValue(cols: any[], data: any[], candidates: string[]): number | null {
-    for (const cand of candidates) {
+    const normCands = candidates.map(c => this.normLabel(c));
+    // Pass 1: exact normalized match on id or title
+    for (const cand of normCands) {
       const idx = cols.findIndex((c: any) =>
-        (c?.id?.toString().toLowerCase() === cand) ||
-        (c?.title?.toString().toLowerCase() === cand)
+        this.normLabel(c?.id) === cand || this.normLabel(c?.title) === cand
       );
       if (idx >= 0 && data[idx] != null) {
         const n = parseFloat(data[idx]);
+        if (!isNaN(n)) return n;
+      }
+    }
+    // Pass 2: substring match (e.g. title "Account Balance" contains "balance")
+    for (const cand of normCands) {
+      const idx = cols.findIndex((c: any) => {
+        const id = this.normLabel(c?.id), title = this.normLabel(c?.title);
+        return (id && (id === cand || id.includes(cand))) || (title && (title === cand || title.includes(cand)));
+      });
+      if (idx >= 0 && data[idx] != null) {
+        const n = parseFloat(data[idx]);
+        if (!isNaN(n)) return n;
+      }
+    }
+    return null;
+  }
+
+  /** Finds a value in an object-form state payload by normalized key match. */
+  private pickObjValue(obj: Record<string, any>, candidates: string[]): number | null {
+    const keys = Object.keys(obj);
+    const normCands = candidates.map(c => this.normLabel(c));
+    for (const cand of normCands) {
+      // exact first, then substring
+      let k = keys.find(key => this.normLabel(key) === cand);
+      if (!k) k = keys.find(key => this.normLabel(key).includes(cand));
+      if (k && obj[k] != null) {
+        const n = parseFloat(obj[k]);
         if (!isNaN(n)) return n;
       }
     }
@@ -357,9 +391,13 @@ export class TradeLockerService {
     console.log('[TradeLocker] getAccountInfo using accNum:', accNum, 'for accountId:', this.accountId);
 
     // ── Primary: /state endpoint mapped via /config columns (live balance/equity) ──
+    // Config failure must NOT kill the state fetch — catch it independently.
     try {
       const [cols, stateRes] = await Promise.all([
-        this.loadAccountDetailsConfig(accNum),
+        this.loadAccountDetailsConfig(accNum).catch((e) => {
+          console.log('[TradeLocker] /config columns failed:', e instanceof Error ? e.message : e);
+          return [] as any[];
+        }),
         fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, {
           method: 'GET',
           headers: {
@@ -373,23 +411,37 @@ export class TradeLockerService {
 
       if (stateRes.ok) {
         const stateJson = await stateRes.json();
-        const data: any[] = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData ?? [];
-        if (Array.isArray(data) && data.length && Array.isArray(cols) && cols.length) {
-          const balance    = this.pickStateValue(cols, data, ['balance', 'accountbalance']);
-          const equity      = this.pickStateValue(cols, data, ['equity', 'projectedbalance']);
-          const usedMargin  = this.pickStateValue(cols, data, ['marginused', 'usedmargin', 'blockedbalance', 'margin']);
-          const freeMargin  = this.pickStateValue(cols, data, ['availablefunds', 'marginavailable', 'freemargin']);
-          if (balance != null) {
-            console.log('[TradeLocker] getAccountInfo via /state — balance:', balance, 'equity:', equity);
-            return {
-              accountId:  this.accountId,
-              balance,
-              equity:     equity ?? balance,
-              margin:     usedMargin ?? 0,
-              freeMargin: freeMargin ?? equity ?? balance,
-              currency:   'USD',
-            };
-          }
+        const raw = stateJson?.d?.accountDetailsData ?? stateJson?.accountDetailsData;
+
+        let balance: number | null = null, equity: number | null = null;
+        let usedMargin: number | null = null, freeMargin: number | null = null;
+
+        if (Array.isArray(raw) && raw.length && Array.isArray(cols) && cols.length) {
+          // Flat array mapped via column spec
+          balance    = this.pickStateValue(cols, raw, ['balance', 'accountbalance']);
+          equity     = this.pickStateValue(cols, raw, ['equity', 'projectedbalance']);
+          usedMargin = this.pickStateValue(cols, raw, ['marginused', 'usedmargin', 'blockedbalance', 'margin']);
+          freeMargin = this.pickStateValue(cols, raw, ['availablefunds', 'marginavailable', 'freemargin']);
+        } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          // Object keyed by column id (some TL server versions return this shape)
+          balance    = this.pickObjValue(raw, ['balance', 'accountbalance']);
+          equity     = this.pickObjValue(raw, ['equity', 'projectedbalance']);
+          usedMargin = this.pickObjValue(raw, ['marginused', 'usedmargin', 'blockedbalance', 'margin']);
+          freeMargin = this.pickObjValue(raw, ['availablefunds', 'marginavailable', 'freemargin']);
+        } else {
+          console.log('[TradeLocker] /state shape unexpected — cols:', Array.isArray(cols) ? cols.length : typeof cols, 'data:', Array.isArray(raw) ? `array[${raw.length}]` : typeof raw);
+        }
+
+        if (balance != null) {
+          console.log('[TradeLocker] getAccountInfo via /state — balance:', balance, 'equity:', equity);
+          return {
+            accountId:  this.accountId,
+            balance,
+            equity:     equity ?? balance,
+            margin:     usedMargin ?? 0,
+            freeMargin: freeMargin ?? equity ?? balance,
+            currency:   'USD',
+          };
         }
         console.log('[TradeLocker] /state returned but could not map balance; falling back to /accounts list');
       } else {
@@ -444,6 +496,53 @@ export class TradeLockerService {
       console.error('TradeLocker get account info error:', error);
       throw error;
     }
+  }
+
+  /** Diagnostic: returns the raw shapes of /config, /state and /accounts for debugging balance issues. */
+  async debugAccountState(): Promise<any> {
+    await this.ensureAuthenticated();
+    if (!this.accNumResolved || this.accNum === '0') await this.resolveAccNum();
+    const accNum = this.accNum;
+    const hdrs = {
+      'Authorization': `Bearer ${this.accessToken}`,
+      'Content-Type': 'application/json',
+      'accNum': accNum,
+    };
+    const out: any = { accountId: this.accountId, accNum, baseUrl: this.baseUrl };
+
+    try {
+      const r = await fetch(`${this.baseUrl}/trade/config`, { method: 'GET', headers: hdrs, signal: AbortSignal.timeout(8000) });
+      out.configStatus = r.status;
+      if (r.ok) {
+        const j = await r.json();
+        const cols = j?.d?.accountDetailsConfig ?? j?.accountDetailsConfig ?? [];
+        out.configColumns = Array.isArray(cols) ? cols.map((c: any) => ({ id: c?.id, title: c?.title })) : cols;
+      }
+    } catch (e: any) { out.configError = e?.message ?? String(e); }
+
+    try {
+      const r = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/state`, { method: 'GET', headers: hdrs, signal: AbortSignal.timeout(8000) });
+      out.stateStatus = r.status;
+      if (r.ok) {
+        const j = await r.json();
+        out.stateData = j?.d?.accountDetailsData ?? j?.accountDetailsData ?? null;
+        out.stateDataType = Array.isArray(out.stateData) ? `array[${out.stateData.length}]` : typeof out.stateData;
+      } else {
+        out.stateBody = (await r.text()).slice(0, 300);
+      }
+    } catch (e: any) { out.stateError = e?.message ?? String(e); }
+
+    try {
+      const r = await fetch(`${this.baseUrl}/trade/accounts`, { method: 'GET', headers: hdrs, signal: AbortSignal.timeout(8000) });
+      out.accountsStatus = r.status;
+      if (r.ok) {
+        const j = await r.json();
+        const accts = Array.isArray(j) ? j : (j.accounts || j.d?.accounts || []);
+        out.accountsSample = Array.isArray(accts) ? accts.slice(0, 3) : accts;
+      }
+    } catch (e: any) { out.accountsError = e?.message ?? String(e); }
+
+    return out;
   }
 
   async getInstruments(): Promise<any[]> {
