@@ -3596,6 +3596,46 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    // ── Account-safety gate (ports Gate 0 from the chart-data path so ORB and ALL
+    //    engine trades get identical margin-health + daily-loss protection) ──
+    {
+      const _raw = (global as any).mt5AccountData?.[userId];
+      let _snap: any = null;
+      if (_raw) {
+        if (typeof _raw.balance === 'number' && _raw.lastUpdated) _snap = _raw;
+        else for (const _k of Object.keys(_raw)) {
+          const _e = _raw[_k];
+          if (_e && typeof _e === 'object' && typeof _e.balance === 'number' && _e.lastUpdated) {
+            if (!_snap || new Date(_e.lastUpdated) > new Date(_snap.lastUpdated)) _snap = _e;
+          }
+        }
+      }
+      const _fresh = _snap?.lastUpdated && (Date.now() - new Date(_snap.lastUpdated).getTime()) < 15 * 60 * 1000;
+      if (_fresh && _snap) {
+        const _freeMargin  = typeof _snap.freeMargin === 'number' ? _snap.freeMargin : null;
+        const _marginLevel = typeof _snap.marginLevel === 'number' ? _snap.marginLevel : null;
+        if (_freeMargin !== null && _freeMargin <= 0) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: no free margin available — trade skipped` });
+          return;
+        }
+        if (_marginLevel !== null && _marginLevel > 0 && _marginLevel < 200) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: margin level ${_marginLevel.toFixed(0)}% < 200% safety floor — trade skipped` });
+          return;
+        }
+        const _bal = _snap.balance > 0 ? _snap.balance : (config.accountBalance || 0);
+        if ((config.dailyLossLimit ?? 0) > 0 && _bal > 0) {
+          const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
+          const _floating = _positions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+          const _realized = typeof _snap.dailyPnL === 'number' ? _snap.dailyPnL : 0;
+          const _lossPct = ((_realized + _floating) / _bal) * 100;
+          if (_lossPct <= -config.dailyLossLimit) {
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ -${config.dailyLossLimit}% (incl. floating) — trade skipped` });
+            return;
+          }
+        }
+      }
+    }
+
     const existingSignals = mt5AccountQueues[userId]
       ? Object.values(mt5AccountQueues[userId]).flat()
       : [];
@@ -4228,6 +4268,31 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         symbol: decision.symbol,
         message: `🔒 PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots → hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`,
       });
+    }
+
+    // ── Per-trade 5% backstop + aggregate exposure cap (ports Gate 0d/0e) ──
+    {
+      const _riskBal = config.accountBalance > 0 ? config.accountBalance : 0;
+      if (_riskBal > 0 && entryPrice && stopLoss) {
+        const _slDist = Math.abs(entryPrice - stopLoss);
+        const _pipSz = getPipSize(decision.symbol);
+        const _pipVal = getPipValue(decision.symbol);
+        if (_pipSz > 0 && _pipVal > 0 && _slDist > 0) {
+          const _slPips = _slDist / _pipSz;
+          const _potentialLoss = lotSize * _slPips * _pipVal;
+          if (_potentialLoss > _riskBal * 0.05) {
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize} lots × ${_slPips.toFixed(0)} pips) — trade skipped` });
+            return;
+          }
+        }
+      }
+      const _posAgg = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
+      const _openLots = _posAgg.reduce((s: number, p: any) => s + (p.lots || p.volume || p.size || 0), 0);
+      const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
+      if (_openLots + lotSize > _aggCap) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} — trade skipped` });
+        return;
+      }
     }
 
     const mt5Signal: PendingMT5Signal = {
