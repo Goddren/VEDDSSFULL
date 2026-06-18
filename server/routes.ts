@@ -8981,8 +8981,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Basic floor — what MT5 EA uses to decide whether to trade on its own account
       // Full-mode TL accounts apply a stricter 74% floor separately (per-connection gate check below)
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
-        mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
-        70   // MT5 EA basic floor — minimum 70% confidence for all EA signals
+        mt5MinConfidence ?? matchingEA?.minConfidence ?? 74,
+        74   // MT5 EA basic floor — raised 70→74 to match the live engine HARD_CONFIDENCE_FLOOR
       );
       const FULL_MODE_CONF_FLOOR = 74; // TL 'full' gate mode floor — matches live engine HARD_CONFIDENCE_FLOOR
       
@@ -9397,12 +9397,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutDirection: advanced.breakoutDetection?.breakoutDirection || undefined,
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || undefined,
       };
+      // Macro higher-timeframe trend, captured during HTF fetch below and enforced
+      // as a hard counter-trend gate (Gate 6) before execution.
+      let _htfMacroTrend: 'BULL' | 'BEAR' | 'NEUTRAL' = 'NEUTRAL';
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
       if (analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         try {
-          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap } = await import('./openai');
+          const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap, getAiMinConfidence: _getAiMinConf } = await import('./openai');
 
           // Hydrate AI Vision + breakout settings from DB BEFORE checking isAiVisionConfirmationEnabled
           // This ensures in-memory maps are warm after a server restart (cold-start fix)
@@ -9493,6 +9496,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       }));
                       htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] });
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
+                      // Derive macro trend from the MACRO timeframe (SMA20 slope + price location)
+                      if (roles[idx] === 'MACRO' && mapped.length >= 20) {
+                        const closes = mapped.map((c: any) => c.c);
+                        const sma = closes.slice(-20).reduce((s: number, v: number) => s + v, 0) / 20;
+                        const last = closes[closes.length - 1];
+                        const first20Ago = closes[closes.length - 20];
+                        if (last > sma && last > first20Ago) _htfMacroTrend = 'BULL';
+                        else if (last < sma && last < first20Ago) _htfMacroTrend = 'BEAR';
+                        else _htfMacroTrend = 'NEUTRAL';
+                      }
                     }
                   });
                 }
@@ -9677,8 +9690,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
             const aiVerdict: 'CONFIRM' | 'SKIP' = (() => {
               if (useBreakoutMode) return aiConfirmation.confirmed ? 'CONFIRM' : 'SKIP';
-              const { getAiMinConfidence: _getMin } = { getAiMinConfidence: (uid: number) => 65 };
-              return aiConfirmation.aiConfidence >= 65 ? 'CONFIRM' : 'SKIP';
+              // Use the user's real AI-confidence setting with a 72% floor (was a
+              // hard-coded 65% stub that ignored the setting — too close to coin-flip).
+              const _aiBar = Math.max(72, _getAiMinConf(token.userId) ?? 72);
+              return aiConfirmation.aiConfidence >= _aiBar ? 'CONFIRM' : 'SKIP';
             })();
             type SSConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
             const consensusLabel: SSConsensusLabel =
@@ -10473,6 +10488,22 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
         } catch { /* non-blocking */ }
+      }
+
+      // Gate 6: Counter-trend hard block — don't trade against the macro HTF trend
+      // unless confidence is very high (≥82%). Was previously only a soft prompt hint
+      // on this path; now an enforced gate (mirrors the live engine's HTF block).
+      if (!tlGateBlocked && analysis.signal !== 'NEUTRAL' && _htfMacroTrend !== 'NEUTRAL') {
+        const _against = (analysis.signal === 'BUY' && _htfMacroTrend === 'BEAR') ||
+                         (analysis.signal === 'SELL' && _htfMacroTrend === 'BULL');
+        if (_against && analysis.confidence < 82) {
+          tlGateBlocked = true;
+          analysis.signal = 'NEUTRAL';
+          tlGateReason = `Counter-trend: ${analysis.signal} against macro ${_htfMacroTrend} HTF trend at ${analysis.confidence}% (<82% needed)`;
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`🛡️ RISK BLOCK: counter-trend trade against the higher-timeframe ${_htfMacroTrend} trend blocked (needs 82%+ confidence).`);
+          console.warn(`[TL Gate 6 counter-trend] ${tlGateReason}`);
+        }
       }
 
       if (!tlGateBlocked && analysis.signal !== 'NEUTRAL' &&

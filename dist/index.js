@@ -21599,6 +21599,20 @@ async function scanMarkets(userId) {
     state.currentlyScanning = false;
   }
 }
+function computeStagedVolumeSL(position, config) {
+  const pipSize = getPipSize(position.symbol || "");
+  if (!position.openPrice || !position.currentPrice || pipSize <= 0) return 0;
+  const isBuy = position.direction === "BUY";
+  const pips = isBuy ? (position.currentPrice - position.openPrice) / pipSize : (position.openPrice - position.currentPrice) / pipSize;
+  const buffer = config?.breakevenBufferPips ?? 5;
+  let lockPips = null;
+  if (pips >= 60) lockPips = pips - 25;
+  else if (pips >= 40) lockPips = 20;
+  else if (pips >= 25) lockPips = 10;
+  else if (pips >= 15) lockPips = buffer;
+  else return 0;
+  return isBuy ? position.openPrice + lockPips * pipSize : position.openPrice - lockPips * pipSize;
+}
 function computeChandelierSL(position, atr, multiplier, trailState) {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
@@ -21725,7 +21739,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   const state = engineStates[userId];
   if (!state) return;
   const config = state.config;
-  if (!config.trailingStopEnabled || config.trailMethod === "staged_volume" || config.trailMethod === "none") return;
+  if (!config.trailingStopEnabled || config.trailMethod === "none") return;
   if (openPositions.length === 0) return;
   if (!state.positionTrailState) state.positionTrailState = {};
   let tlConnections = [];
@@ -21760,6 +21774,9 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     const multiplier = config.trailingStopATRMultiplier || 3;
     let newSL = 0;
     switch (config.trailMethod) {
+      case "staged_volume":
+        newSL = computeStagedVolumeSL(pos, config);
+        break;
       case "chandelier":
         newSL = computeChandelierSL(pos, atr, multiplier, ts);
         break;
@@ -22035,7 +22052,7 @@ function countIndicatorAlignment(data) {
   let bear = 0;
   const trend = data.trend ?? "NEUTRAL";
   const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
-  const trendIsStrong = adxVal > 15 && trend !== "NEUTRAL";
+  const trendIsStrong = adxVal > 20 && trend !== "NEUTRAL";
   const rsiVal = data.rsi?.value ?? 50;
   if (trendIsStrong) {
     if (trend === "BULLISH" && rsiVal > 50) bull++;
@@ -22289,11 +22306,19 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
       minConfluences: 0
     };
   }
+  if (adxVal >= 20 && diSep >= 8 && trend !== "NEUTRAL") {
+    return {
+      strategy: globalStrategyMode || "momentum",
+      reason: `Moderate trend (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}, ${trend}). Configured strategy: ${globalStrategyMode || "momentum"}.`,
+      priority: "low",
+      minConfluences: 4
+    };
+  }
   return {
-    strategy: globalStrategyMode || "momentum",
-    reason: `Mild conditions (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Defaulting to configured strategy: ${globalStrategyMode || "momentum"}.`,
-    priority: "low",
-    minConfluences: 3
+    strategy: "wait",
+    reason: `No clear edge (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Choppy/mild \u2014 waiting for a real setup rather than forcing a momentum trade.`,
+    priority: "none",
+    minConfluences: 0
   };
 }
 async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, crossAssets, triggerAlerts, htfMarketData) {
@@ -24055,12 +24080,14 @@ async function processDecision(userId, decision, newsCtx) {
         const isInLoss = (pos.profit ?? 0) < 0;
         const openTimeSec = pos.openTime ? Math.round(Date.now() / 1e3 - Number(pos.openTime)) : null;
         const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
-        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45;
-        if (isInLoss && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
+        const _reason = (decision.reason || "").toLowerCase();
+        const _structuralExit = /bos|choch|invalidat|reversal|broke|structure|opposite signal|flip/.test(_reason);
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 15;
+        if (isInLoss && !_structuralExit && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
           addActivity2(userId, {
             type: "info",
             symbol: decision.symbol,
-            message: `\u{1F6E1}\uFE0F PREMATURE CLOSE BLOCKED: ${decision.symbol} in loss but only ${ageMin}min old \u2014 minimum ${MIN_HOLD_BEFORE_FORCE_CLOSE}min required before force-close. SL provides protection. Trade left open to recover.`
+            message: `\u{1F6E1}\uFE0F EARLY CLOSE HELD: ${decision.symbol} in loss, only ${ageMin}min old & no structural invalidation \u2014 held ${MIN_HOLD_BEFORE_FORCE_CLOSE}min min. (A reversal/BOS/CHOCH reason would allow immediate cut.)`
           });
           return;
         }
@@ -42940,9 +42967,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let aiConfirmation = null;
       const mt5MinConfidence = eaSettings?.minConfidence;
       const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
-        mt5MinConfidence ?? matchingEA?.minConfidence ?? 70,
-        70
-        // MT5 EA basic floor — minimum 70% confidence for all EA signals
+        mt5MinConfidence ?? matchingEA?.minConfidence ?? 74,
+        74
+        // MT5 EA basic floor — raised 70→74 to match the live engine HARD_CONFIDENCE_FLOOR
       );
       const FULL_MODE_CONF_FLOOR = 74;
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? "MT5 EA" : matchingEA?.name || "default"} | Session=${eaSettings?.sessionName || "N/A"}`);
@@ -43272,9 +43299,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutDirection: advanced.breakoutDetection?.breakoutDirection || void 0,
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || void 0
       };
+      let _htfMacroTrend = "NEUTRAL";
       if (analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
         try {
-          const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           try {
             const _userForVision = await storage.getUser(token.userId);
             if (_userForVision) {
@@ -43376,6 +43404,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       }));
                       htfLevels.push({ timeframe: stack[idx], candles: mapped, role: roles[idx] });
                       console.log(`[HTF] Fetched ${mapped.length} ${stack[idx]} (${roles[idx]}) candles for bias injection`);
+                      if (roles[idx] === "MACRO" && mapped.length >= 20) {
+                        const closes = mapped.map((c) => c.c);
+                        const sma2 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
+                        const last = closes[closes.length - 1];
+                        const first20Ago = closes[closes.length - 20];
+                        if (last > sma2 && last > first20Ago) _htfMacroTrend = "BULL";
+                        else if (last < sma2 && last < first20Ago) _htfMacroTrend = "BEAR";
+                        else _htfMacroTrend = "NEUTRAL";
+                      }
                     }
                   });
                 }
@@ -43561,8 +43598,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
             const aiVerdict = (() => {
               if (useBreakoutMode) return aiConfirmation.confirmed ? "CONFIRM" : "SKIP";
-              const { getAiMinConfidence: _getMin } = { getAiMinConfidence: (uid2) => 65 };
-              return aiConfirmation.aiConfidence >= 65 ? "CONFIRM" : "SKIP";
+              const _aiBar = Math.max(72, _getAiMinConf(token.userId) ?? 72);
+              return aiConfirmation.aiConfidence >= _aiBar ? "CONFIRM" : "SKIP";
             })();
             const consensusLabel = quantResult.verdict === "CONFIRM" && aiVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantResult.verdict === "SKIP" && aiVerdict === "SKIP" ? "STRONG_SKIP" : quantResult.verdict === "CONFIRM" && aiVerdict === "SKIP" || quantResult.verdict === "SKIP" && aiVerdict === "CONFIRM" ? "CAUTION" : "WATCH";
             const ssConsensusEntry = {
@@ -44254,6 +44291,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
         } catch {
+        }
+      }
+      if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && _htfMacroTrend !== "NEUTRAL") {
+        const _against = analysis.signal === "BUY" && _htfMacroTrend === "BEAR" || analysis.signal === "SELL" && _htfMacroTrend === "BULL";
+        if (_against && analysis.confidence < 82) {
+          tlGateBlocked = true;
+          analysis.signal = "NEUTRAL";
+          tlGateReason = `Counter-trend: ${analysis.signal} against macro ${_htfMacroTrend} HTF trend at ${analysis.confidence}% (<82% needed)`;
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: counter-trend trade against the higher-timeframe ${_htfMacroTrend} trend blocked (needs 82%+ confidence).`);
+          console.warn(`[TL Gate 6 counter-trend] ${tlGateReason}`);
         }
       }
       if (!tlGateBlocked && analysis.signal !== "NEUTRAL" && analysis.confidence >= MIN_CONFIDENCE_FOR_AUTO_TRADE && analysis.tradePlan) {

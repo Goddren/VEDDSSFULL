@@ -1451,6 +1451,33 @@ async function scanMarkets(userId: number): Promise<void> {
 // favourable direction) is applied in applyServerSideTrails() after calling these.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Deterministic staged trailing (the DEFAULT method). Previously this was a no-op
+// and all breakeven/trailing was left to the AI — winners routinely round-tripped
+// back to the original SL. This locks profit mechanically as the trade advances:
+//   ≥15 pips → breakeven + buffer    ≥25 → lock +10    ≥40 → lock +20
+//   ≥60 → trail 25 pips behind price (lock the rest)
+// Returns the candidate SL; the caller only applies it if it's an improvement.
+function computeStagedVolumeSL(position: any, config?: { breakevenBufferPips?: number }): number {
+  const pipSize = getPipSize(position.symbol || '');
+  if (!position.openPrice || !position.currentPrice || pipSize <= 0) return 0;
+  const isBuy = position.direction === 'BUY';
+  const pips = isBuy
+    ? (position.currentPrice - position.openPrice) / pipSize
+    : (position.openPrice - position.currentPrice) / pipSize;
+  const buffer = config?.breakevenBufferPips ?? 5;
+
+  let lockPips: number | null = null; // pips of profit to lock into the SL (from entry)
+  if (pips >= 60)      lockPips = pips - 25; // trail 25 behind as it runs
+  else if (pips >= 40) lockPips = 20;
+  else if (pips >= 25) lockPips = 10;
+  else if (pips >= 15) lockPips = buffer;    // breakeven + small buffer
+  else return 0;                              // not enough profit — leave original SL
+
+  return isBuy
+    ? position.openPrice + lockPips * pipSize
+    : position.openPrice - lockPips * pipSize;
+}
+
 function computeChandelierSL(
   position: any,
   atr: number,
@@ -1634,7 +1661,7 @@ async function applyServerSideTrails(
   const state = engineStates[userId];
   if (!state) return;
   const config = state.config;
-  if (!config.trailingStopEnabled || config.trailMethod === 'staged_volume' || config.trailMethod === 'none') return;
+  if (!config.trailingStopEnabled || config.trailMethod === 'none') return;
   if (openPositions.length === 0) return;
 
   if (!state.positionTrailState) state.positionTrailState = {};
@@ -1678,6 +1705,9 @@ async function applyServerSideTrails(
 
     let newSL = 0;
     switch (config.trailMethod) {
+      case 'staged_volume':
+        newSL = computeStagedVolumeSL(pos, config);
+        break;
       case 'chandelier':
         newSL = computeChandelierSL(pos, atr, multiplier, ts);
         break;
@@ -1930,10 +1960,10 @@ function countIndicatorAlignment(data: any): { bull: number; bear: number } {
 
   const trend = data.trend ?? 'NEUTRAL';
   const adxVal = data.adx?.adx ?? data.adx?.value ?? 0;
-  // trendIsStrong: lowered threshold from 22→15 to catch mild GBP/JPY downtrends
-  // where ADX is 15–22 but direction is clear. The trend itself is now set from
-  // DI lines at ADX>12 level, so checking adxVal>15 here is consistent.
-  const trendIsStrong = adxVal > 15 && trend !== 'NEUTRAL';
+  // trendIsStrong: restored to ADX>20 (was lowered to 15, which flipped RSI/Stoch/VWAP
+  // votes into "trend-confirming" mode in barely-trending markets and manufactured
+  // false 4-vote agreement in chop — a contributor to the loss spike).
+  const trendIsStrong = adxVal > 20 && trend !== 'NEUTRAL';
 
   // Vote 1: RSI — trend-aware
   // Trending: RSI above/below 50 CONFIRMS trend direction (momentum, not reversal)
@@ -2294,12 +2324,22 @@ function selectStrategyForPair(
     };
   }
 
-  // Mild trend — default to global strategy mode with low priority
+  // Mild/unclear conditions — only fire if there's a genuine trend (ADX≥20, DI_sep≥8).
+  // Previously this defaulted to a tradeable 'momentum' at ADX as low as 12, which
+  // produced whipsaw entries in chop. If the trend isn't real, WAIT (no edge).
+  if (adxVal >= 20 && diSep >= 8 && trend !== 'NEUTRAL') {
+    return {
+      strategy: globalStrategyMode || 'momentum',
+      reason: `Moderate trend (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}, ${trend}). Configured strategy: ${globalStrategyMode || 'momentum'}.`,
+      priority: 'low',
+      minConfluences: 4,
+    };
+  }
   return {
-    strategy: globalStrategyMode || 'momentum',
-    reason: `Mild conditions (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Defaulting to configured strategy: ${globalStrategyMode || 'momentum'}.`,
-    priority: 'low',
-    minConfluences: 3,
+    strategy: 'wait',
+    reason: `No clear edge (ADX=${adxVal.toFixed(1)}, DI_sep=${diSep.toFixed(1)}). Choppy/mild — waiting for a real setup rather than forcing a momentum trade.`,
+    priority: 'none',
+    minConfluences: 0,
   };
 }
 
@@ -4459,14 +4499,20 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const isInLoss = (pos.profit ?? 0) < 0;
         const openTimeSec = pos.openTime ? Math.round(Date.now() / 1000 - Number(pos.openTime)) : null;
         const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
-        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45; // minutes
-        if (isInLoss && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
+        // Allow an EARLY cut-loss when the close reason is a genuine structural
+        // invalidation (the original thesis broke) — don't force losers to ride to
+        // the full SL on a confirmed reversal. Only block pure drawdown-panic closes,
+        // and only for a short 15-min window (was a blanket 45 min that trapped losers).
+        const _reason = (decision.reason || '').toLowerCase();
+        const _structuralExit = /bos|choch|invalidat|reversal|broke|structure|opposite signal|flip/.test(_reason);
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 15; // minutes (reduced from 45)
+        if (isInLoss && !_structuralExit && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
           addActivity(userId, {
             type: 'info',
             symbol: decision.symbol,
-            message: `🛡️ PREMATURE CLOSE BLOCKED: ${decision.symbol} in loss but only ${ageMin}min old — minimum ${MIN_HOLD_BEFORE_FORCE_CLOSE}min required before force-close. SL provides protection. Trade left open to recover.`,
+            message: `🛡️ EARLY CLOSE HELD: ${decision.symbol} in loss, only ${ageMin}min old & no structural invalidation — held ${MIN_HOLD_BEFORE_FORCE_CLOSE}min min. (A reversal/BOS/CHOCH reason would allow immediate cut.)`,
           });
-          return; // Reject this close entirely — let the SL do its job
+          return; // Reject only pure-drawdown early closes; structural exits pass through
         }
       }
     }
