@@ -81,16 +81,22 @@ export function volumeProfileSignal(candles: BTC5MinCandle[]): TradeSignal {
   let confidence = 50;
   let reason: string;
 
-  if (price > VAH) {
+  // Require volume confirmation on the breakout — VA breakouts on falling volume
+  // routinely fail back into the range (a key source of false Kalshi entries).
+  if (price > VAH && volConfirm) {
     direction = 'BUY';
     const dist = (price - VAH) / binSize; // bins above value area
-    confidence = clamp(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
-    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ', volume rising' : ''}`;
-  } else if (price < VAL) {
+    confidence = clamp(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price < VAL && volConfirm) {
     direction = 'SELL';
     const dist = (VAL - price) / binSize;
-    confidence = clamp(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
-    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ', volume rising' : ''}`;
+    confidence = clamp(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price > VAH || price < VAL) {
+    direction = 'NEUTRAL';
+    confidence = 48;
+    reason = `VP: price outside value area but volume NOT confirming — likely false breakout, skip`;
   } else {
     direction = 'NEUTRAL';
     confidence = 45;
@@ -129,15 +135,21 @@ export function markovSignal(candles: BTC5MinCandle[]): TradeSignal {
   let direction: TradeSignal['direction'] = 'NEUTRAL';
   let confidence = 50;
 
-  if (pU > pD && pU >= 0.4) {
+  // Require a REAL edge: ≥55% next-state probability AND a clear ≥12pt margin over
+  // the opposite direction, on enough samples. (Was 40% — that fired BUY when the
+  // up-probability was below a coin-flip, a direct cause of Kalshi losses.)
+  const MIN_PROB = 0.55;
+  const MIN_MARGIN = 0.12;
+  const enoughSamples = rowSum >= 8;
+  if (enoughSamples && pU >= MIN_PROB && (pU - pD) >= MIN_MARGIN) {
     direction = 'BUY';
-    confidence = clamp(Math.round(pU * 100), 50, 92);
-  } else if (pD > pU && pD >= 0.4) {
+    confidence = clamp(Math.round(pU * 100), 55, 92);
+  } else if (enoughSamples && pD >= MIN_PROB && (pD - pU) >= MIN_MARGIN) {
     direction = 'SELL';
-    confidence = clamp(Math.round(pD * 100), 50, 92);
+    confidence = clamp(Math.round(pD * 100), 55, 92);
   } else {
     direction = 'NEUTRAL';
-    confidence = clamp(Math.round(Math.max(pU, pD) * 100), 40, 60);
+    confidence = clamp(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
 
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;

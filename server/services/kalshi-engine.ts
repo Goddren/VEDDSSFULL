@@ -67,6 +67,7 @@ export interface KalshiEngineConfig {
   cooldownMinutes: number;
   minConfidence: number;       // min signal confidence to fire (0-100)
   requireAlignedHourly: boolean; // require priceChange1h to align with signal direction
+  requireConfluence: boolean;    // require ≥60% multi-strategy consensus agreement before firing
   strategy: KalshiStrategy | 'auto'; // 'auto' = scan all, pick best by live confidence × historical accuracy
   // Auto-trade the High-Value Picks (all-strategy consensus + edge model)
   autoTradeValuePicks: boolean; // if true, the engine fires the top value pick instead of single-strategy
@@ -85,8 +86,9 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   contractsPerTrade:    5,
   maxOpenTrades:        3,
   cooldownMinutes:      20,
-  minConfidence:        60,
+  minConfidence:        70,
   requireAlignedHourly: true,
+  requireConfluence:    true,
   strategy:             'momentum',
   autoTradeValuePicks:  false,
   minValueScore:        8,
@@ -316,6 +318,19 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       }
     }
 
+    // Confluence gate: require the multi-strategy consensus to AGREE with this
+    // signal (≥60% weighted agreement). Trading a single strategy that the others
+    // contradict is a major loss source — only fire when the book agrees.
+    if (s.config.requireConfluence !== false) {
+      const consensus = await getKalshiConsensus();
+      const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
+      if (!agrees) {
+        const r = `Confluence fail: ${stratLabel} says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need ≥60% agreeing)`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+    }
+
     // 2. Get KXBTC market event
     const event = await getKalshiBTCEvent(pred.currentPrice);
     if (!event.brackets.length) {
@@ -343,6 +358,15 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
     if (priceInCents >= 97) {
       const r = `Bracket ${bracket.subtitle} already at ${priceInCents}¢ — too expensive`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+
+    // Expected-value gate: our signal confidence ≈ P(win). Never pay MORE for the
+    // contract than our edge justifies — buying an 80¢ contract on a 72% signal is
+    // negative EV. Require the price to be at least 5¢ below implied probability.
+    if (priceInCents > pred.confidence - 5) {
+      const r = `No edge: ${bracket.subtitle} costs ${priceInCents}¢ but signal implies ~${pred.confidence}% win — need ≤${pred.confidence - 5}¢. Skip.`;
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
@@ -567,9 +591,13 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
 
   // Consensus drift: push the expected close in the consensus direction, scaled by
-  // confidence & agreement, capped at ~0.6σ so the market price still dominates.
+  // confidence & agreement, capped at ~0.35σ so the market price dominates (the old
+  // 0.6σ over-stated our edge and produced false "value" picks that lost). Only
+  // apply drift when the strategies genuinely agree (≥60%); otherwise trust the market.
   const dirSign = consensus.direction === 'BUY' ? 1 : consensus.direction === 'SELL' ? -1 : 0;
-  const driftFrac = dirSign * (consensus.confidence / 100) * consensus.agreement * 0.6;
+  const driftFrac = consensus.agreement >= 0.6
+    ? dirSign * (consensus.confidence / 100) * consensus.agreement * 0.35
+    : 0;
   const driftPrice = sigmaPrice * driftFrac;
 
   // ── Learning feedback ──────────────────────────────────────────────────────
@@ -593,7 +621,7 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
     const edgePct = modelProbPct - ask;
-    if (edgePct <= 0) continue; // only surface underpriced (positive-edge) picks
+    if (edgePct < 4) continue; // require a real ≥4¢ edge, not a marginal positive
 
     // Value score: edge weighted by how strongly the strategies agree & their confidence,
     // lightly penalized for very long-shot picks, and scaled by the learned win rate.

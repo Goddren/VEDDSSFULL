@@ -25903,16 +25903,20 @@ function volumeProfileSignal(candles) {
   let direction = "NEUTRAL";
   let confidence2 = 50;
   let reason;
-  if (price > VAH) {
+  if (price > VAH && volConfirm) {
     direction = "BUY";
     const dist = (price - VAH) / binSize;
-    confidence2 = clamp2(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
-    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ", volume rising" : ""}`;
-  } else if (price < VAL) {
+    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakout: price $${price.toFixed(0)} above value-area-high $${VAH.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price < VAL && volConfirm) {
     direction = "SELL";
     const dist = (VAL - price) / binSize;
-    confidence2 = clamp2(Math.round(58 + dist * 8 + (volConfirm ? 8 : 0)), 50, 90);
-    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)})${volConfirm ? ", volume rising" : ""}`;
+    confidence2 = clamp2(Math.round(60 + dist * 8), 55, 90);
+    reason = `VP breakdown: price $${price.toFixed(0)} below value-area-low $${VAL.toFixed(0)} (POC $${pocPrice.toFixed(0)}), volume confirming`;
+  } else if (price > VAH || price < VAL) {
+    direction = "NEUTRAL";
+    confidence2 = 48;
+    reason = `VP: price outside value area but volume NOT confirming \u2014 likely false breakout, skip`;
   } else {
     direction = "NEUTRAL";
     confidence2 = 45;
@@ -25939,15 +25943,18 @@ function markovSignal(candles) {
   const pD = row[1] / rowSum;
   let direction = "NEUTRAL";
   let confidence2 = 50;
-  if (pU > pD && pU >= 0.4) {
+  const MIN_PROB = 0.55;
+  const MIN_MARGIN = 0.12;
+  const enoughSamples = rowSum >= 8;
+  if (enoughSamples && pU >= MIN_PROB && pU - pD >= MIN_MARGIN) {
     direction = "BUY";
-    confidence2 = clamp2(Math.round(pU * 100), 50, 92);
-  } else if (pD > pU && pD >= 0.4) {
+    confidence2 = clamp2(Math.round(pU * 100), 55, 92);
+  } else if (enoughSamples && pD >= MIN_PROB && pD - pU >= MIN_MARGIN) {
     direction = "SELL";
-    confidence2 = clamp2(Math.round(pD * 100), 50, 92);
+    confidence2 = clamp2(Math.round(pD * 100), 55, 92);
   } else {
     direction = "NEUTRAL";
-    confidence2 = clamp2(Math.round(Math.max(pU, pD) * 100), 40, 60);
+    confidence2 = clamp2(Math.round(Math.max(pU, pD) * 100), 40, 54);
   }
   const reason = `Markov from '${cur}' state: P(up)=${(pU * 100).toFixed(0)}%, P(down)=${(pD * 100).toFixed(0)}% (${rowSum} samples)`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "markov" };
@@ -26341,6 +26348,15 @@ async function _runKalshiScan(userId, manual = false) {
         return { fired: false, reason: r };
       }
     }
+    if (s.config.requireConfluence !== false) {
+      const consensus = await getKalshiConsensus();
+      const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
+      if (!agrees) {
+        const r = `Confluence fail: ${stratLabel} says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
+    }
     const event = await getKalshiBTCEvent(pred.currentPrice);
     if (!event.brackets.length) {
       const r = "No active KXBTC brackets available";
@@ -26361,6 +26377,11 @@ async function _runKalshiScan(userId, manual = false) {
     const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
     if (priceInCents >= 97) {
       const r = `Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+    if (priceInCents > pred.confidence - 5) {
+      const r = `No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.`;
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
@@ -26492,7 +26513,7 @@ async function scanKalshiValuePicks(userId, limit = 5) {
   const hoursLeft = Math.max(0.1, event.msUntilClose / 36e5);
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
   const dirSign = consensus.direction === "BUY" ? 1 : consensus.direction === "SELL" ? -1 : 0;
-  const driftFrac = dirSign * (consensus.confidence / 100) * consensus.agreement * 0.6;
+  const driftFrac = consensus.agreement >= 0.6 ? dirSign * (consensus.confidence / 100) * consensus.agreement * 0.35 : 0;
   const driftPrice = sigmaPrice * driftFrac;
   const perf = getKalshiPerformance(userId);
   const consStat = perf.byStrategy.find((st) => st.strategy === "consensus");
@@ -26508,7 +26529,7 @@ async function scanKalshiValuePicks(userId, limit = 5) {
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
     const edgePct = modelProbPct - ask;
-    if (edgePct <= 0) continue;
+    if (edgePct < 4) continue;
     const agreementW = 0.5 + consensus.agreement * 0.5;
     const confW = 0.5 + consensus.confidence / 100 * 0.5;
     const probW = 0.6 + modelProb * 0.4;
@@ -26609,8 +26630,9 @@ var init_kalshi_engine = __esm({
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,
-      minConfidence: 60,
+      minConfidence: 70,
       requireAlignedHourly: true,
+      requireConfluence: true,
       strategy: "momentum",
       autoTradeValuePicks: false,
       minValueScore: 8,

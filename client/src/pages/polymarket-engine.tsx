@@ -120,6 +120,7 @@ interface KalshiEngineState {
     cooldownMinutes: number;
     minConfidence: number;
     requireAlignedHourly: boolean;
+    requireConfluence: boolean;
     strategy: "momentum" | "volume_profile" | "markov" | "order_flow" | "auto";
     autoTradeValuePicks: boolean;
     minValueScore: number;
@@ -253,6 +254,7 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
   const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow" | "auto">("");
   const [kalshiCfgAutoValue, setKalshiCfgAutoValue] = useState<boolean | null>(null);
+  const [kalshiCfgConfluence, setKalshiCfgConfluence] = useState<boolean | null>(null);
   const [kalshiCfgMinScore, setKalshiCfgMinScore]   = useState("");
   const [kalshiCfgTakeProfit, setKalshiCfgTakeProfit] = useState("");
   const [kalshiCfgStopLoss, setKalshiCfgStopLoss]   = useState("");
@@ -563,6 +565,7 @@ export default function PolymarketEnginePage() {
     if (kalshiCfgConfidence) patch.minConfidence     = Number(kalshiCfgConfidence);
     if (kalshiCfgStrategy)   patch.strategy          = kalshiCfgStrategy;
     if (kalshiCfgAutoValue !== null) patch.autoTradeValuePicks = kalshiCfgAutoValue;
+    if (kalshiCfgConfluence !== null) patch.requireConfluence = kalshiCfgConfluence;
     if (kalshiCfgMinScore)   patch.minValueScore     = Number(kalshiCfgMinScore);
     if (kalshiCfgTakeProfit) patch.takeProfitCents   = Number(kalshiCfgTakeProfit);
     if (kalshiCfgStopLoss)   patch.stopLossCents     = Number(kalshiCfgStopLoss);
@@ -1183,6 +1186,20 @@ export default function PolymarketEnginePage() {
                       })}
                     </div>
                   </div>
+
+                  {/* Confluence requirement */}
+                  <label className="flex items-center justify-between cursor-pointer mb-3 bg-black/20 rounded-lg px-2.5 py-2">
+                    <div>
+                      <span className="text-[10px] font-bold text-emerald-300">Require multi-strategy confluence</span>
+                      <p className="text-[8px] text-gray-500 leading-snug mt-0.5">Only trade when ≥60% of strategies agree on direction. Strongly reduces losses from single-strategy whipsaws.</p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={kalshiCfgConfluence ?? kalshiEngineState?.config.requireConfluence ?? true}
+                      onChange={e => setKalshiCfgConfluence(e.target.checked)}
+                      className="accent-emerald-500 w-4 h-4 flex-shrink-0 ml-2"
+                    />
+                  </label>
 
                   {/* Live strategy scan — the "column of scans per strategy" comparison */}
                   <div className="mb-3 bg-black/30 border border-gray-800/60 rounded-lg p-2.5">
