@@ -22,6 +22,22 @@ export function useTradePerformance(enabled = true) {
   });
 }
 
+interface TodayReview {
+  hasData: boolean;
+  message?: string;
+  summary?: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number; stoppedOut: number };
+  reasons?: string[];
+  worstPairs?: Array<{ key: string; pnl: number; w: number; l: number; n: number }>;
+}
+
+export function useTodayReview(enabled = true) {
+  return useQuery<TodayReview>({
+    queryKey: ["/api/trade-review/today"],
+    refetchInterval: 30000,
+    enabled,
+  });
+}
+
 const usd = (n: number) => `${n >= 0 ? "+" : ""}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pnlColor = (n: number) => (n > 0 ? "#4ade80" : n < 0 ? "#f87171" : "#9ca3af");
 const wrColor = (wr: number) => (wr >= 55 ? "#34d399" : wr >= 45 ? "#fbbf24" : "#f87171");
@@ -119,6 +135,52 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** Today's Review — the "why was today good/bad" breakdown. */
+export function TodayReviewPanel({ className = "" }: { className?: string }) {
+  const { data } = useTodayReview();
+  if (!data) return null;
+  if (!data.hasData) {
+    return (
+      <div className={`rounded-2xl p-3 bg-gray-900/40 border border-gray-800 ${className}`}>
+        <p className="text-[11px] text-gray-500">{data.message}</p>
+      </div>
+    );
+  }
+  const s = data.summary!;
+  const bad = s.totalPnl < 0;
+  return (
+    <div className={`rounded-2xl p-4 ${className}`} style={{ background: bad ? "rgba(239,68,68,0.06)" : "rgba(16,185,129,0.06)", border: `1.5px solid ${bad ? "rgba(239,68,68,0.25)" : "rgba(16,185,129,0.25)"}` }}>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-bold" style={{ color: bad ? "#fca5a5" : "#86efac" }}>
+          Today's Review {bad ? "— rough day" : "— solid day"}
+        </h3>
+        <span className="text-xs font-black" style={{ color: bad ? "#f87171" : "#4ade80" }}>
+          {s.totalPnl >= 0 ? "+" : ""}${Math.abs(s.totalPnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {data.reasons!.map((r, i) => (
+          <li key={i} className="text-[11px] text-gray-300 flex items-start gap-1.5">
+            <span className="text-gray-600 mt-0.5">•</span><span>{r}</span>
+          </li>
+        ))}
+      </ul>
+      {(data.worstPairs?.length ?? 0) > 0 && (
+        <div className="mt-2 pt-2 border-t border-gray-800/60">
+          <p className="text-[9px] text-gray-500 mb-1">Biggest drains today</p>
+          <div className="flex flex-wrap gap-1.5">
+            {data.worstPairs!.map((p) => (
+              <span key={p.key} className="text-[10px] px-2 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                {p.key} ${p.pnl.toFixed(2)} ({p.w}W/{p.l}L)
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

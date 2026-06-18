@@ -15071,6 +15071,91 @@ Format each recommendation as a clear, concise action item.`;
     }
   });
 
+  // ── Daily Trade Review — WHY today went the way it did (data-driven) ────────
+  app.get("/api/trade-review/today", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const all = await storage.getAiTradeResults(userId, 500);
+      const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
+      const today = all.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt && new Date(t.closedAt) >= dayStart);
+
+      if (today.length === 0) {
+        return res.json({ hasData: false, message: "No closed trades recorded today yet. (If you traded, your MT5 EA may not be posting closed trades — TradeLocker closes sync automatically.)" });
+      }
+
+      const wins = today.filter((t: any) => t.result === 'WIN');
+      const losses = today.filter((t: any) => t.result === 'LOSS');
+      const pnl = Math.round(today.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      const decided = wins.length + losses.length;
+      const winRate = decided > 0 ? Math.round((wins.length / decided) * 100) : 0;
+      const avgConf = (rows: any[]) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
+
+      // stopped-out: exit within 25% of the SL distance from the stop
+      const stoppedOut = losses.filter((t: any) => {
+        if (!t.stopLoss || !t.entryPrice || !t.exitPrice) return false;
+        const slDist = Math.abs(t.entryPrice - t.stopLoss);
+        return slDist > 0 && Math.abs(t.exitPrice - t.stopLoss) <= slDist * 0.25;
+      });
+
+      // group helper
+      const groupPnl = (key: (t: any) => string) => {
+        const m: Record<string, { pnl: number; w: number; l: number; n: number }> = {};
+        for (const t of today) {
+          const k = key(t) || '—';
+          m[k] = m[k] || { pnl: 0, w: 0, l: 0, n: 0 };
+          m[k].pnl += t.profitLoss || 0; m[k].n++;
+          if (t.result === 'WIN') m[k].w++; else if (t.result === 'LOSS') m[k].l++;
+        }
+        return Object.entries(m).map(([k, v]) => ({ key: k, ...v, pnl: Math.round(v.pnl * 100) / 100 }));
+      };
+      const sessionOf = (t: any) => { const h = new Date(t.closedAt).getUTCHours(); return h < 7 ? 'Asian' : h < 13 ? 'London' : h < 20 ? 'New York' : 'Late NY'; };
+
+      const byPair = groupPnl((t: any) => (t.symbol || '').toUpperCase()).sort((a, b) => a.pnl - b.pnl);
+      const bySource = groupPnl((t: any) => t.source === 'tradelocker' ? 'TradeLocker' : 'MT5').sort((a, b) => a.pnl - b.pnl);
+      const bySession = groupPnl(sessionOf).sort((a, b) => a.pnl - b.pnl);
+      const biggestLoss = losses.slice().sort((a: any, b: any) => (a.profitLoss || 0) - (b.profitLoss || 0))[0];
+
+      // Build plain-English reasons, most impactful first
+      const reasons: string[] = [];
+      reasons.push(`${today.length} trades closed today — ${wins.length}W / ${losses.length}L (${winRate}% win rate), net ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}.`);
+      const worstPair = byPair[0];
+      if (worstPair && worstPair.pnl < 0) reasons.push(`Most damage on ${worstPair.key}: ${worstPair.pnl >= 0 ? '+' : ''}$${worstPair.pnl.toFixed(2)} over ${worstPair.n} trade(s) (${worstPair.w}W/${worstPair.l}L).`);
+      const worstSrc = bySource[0];
+      if (bySource.length > 1 && worstSrc && worstSrc.pnl < 0) reasons.push(`${worstSrc.key} bled the most: ${worstSrc.pnl.toFixed(2)} vs ${bySource[bySource.length - 1].key} ${bySource[bySource.length - 1].pnl.toFixed(2)}.`);
+      const worstSession = bySession[0];
+      if (worstSession && worstSession.pnl < 0) reasons.push(`Worst session: ${worstSession.key} (${worstSession.pnl.toFixed(2)} over ${worstSession.n} trade(s)).`);
+      if (losses.length > 0 && stoppedOut.length / losses.length >= 0.5) reasons.push(`${stoppedOut.length}/${losses.length} losers ran to the full stop-loss — entries were caught on the wrong side of the move (consider stricter trend/confluence filters).`);
+      const lConf = avgConf(losses), wConf = avgConf(wins);
+      if (losses.length && wins.length && lConf < wConf - 4) reasons.push(`Losing trades had lower avg confidence (${lConf}% vs ${wConf}% on winners) — lower-confidence entries underperformed.`);
+      if (biggestLoss) reasons.push(`Biggest single loss: ${(biggestLoss.symbol || '').toUpperCase()} ${biggestLoss.direction} $${(biggestLoss.profitLoss || 0).toFixed(2)}${biggestLoss.aiConfidence ? ` (entered at ${biggestLoss.aiConfidence}% conf)` : ''}.`);
+
+      res.json({
+        hasData: true,
+        date: dayStart.toISOString().slice(0, 10),
+        summary: { trades: today.length, wins: wins.length, losses: losses.length, winRate, totalPnl: pnl, avgConfLosers: lConf, avgConfWinners: wConf, stoppedOut: stoppedOut.length },
+        reasons,
+        worstPairs: byPair.filter(p => p.pnl < 0).slice(0, 4),
+        bySource,
+        bySession: bySession.filter(s => s.n > 0),
+        trades: today.sort((a: any, b: any) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).map((t: any) => {
+          const slDist = (t.stopLoss && t.entryPrice) ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+          const wasStopped = t.result === 'LOSS' && slDist > 0 && t.exitPrice && Math.abs(t.exitPrice - t.stopLoss) <= slDist * 0.25;
+          return {
+            symbol: (t.symbol || '').toUpperCase(), direction: t.direction, result: t.result,
+            profitLoss: Math.round((t.profitLoss || 0) * 100) / 100, confidence: t.aiConfidence || 0,
+            source: t.source === 'tradelocker' ? 'TradeLocker' : 'MT5',
+            reason: t.result === 'WIN' ? 'Winner' : wasStopped ? 'Hit stop loss' : t.result === 'LOSS' ? 'Closed in loss (early/manual)' : 'Breakeven',
+            closedAt: t.closedAt,
+          };
+        }),
+      });
+    } catch (err: any) {
+      console.error('[trade-review]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Autonomous Signal Generator - AI generates trade signals from learned data
   app.post("/api/vedd-brain/autonomous-signals", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
