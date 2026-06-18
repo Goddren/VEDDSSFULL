@@ -2405,7 +2405,10 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
       return;
     }
 
-    // ── Economy mode: override with Groq client ──────────────────────────
+    // ── Economy mode: override with Groq client (keep primary for fallback) ──
+    const _primaryClient = openai;
+    const _primaryModel = openai.defaultModel || 'gpt-4o';
+    let _usingGroq = false;
     if (aiMode === 'economy' && process.env.GROQ_API_KEY) {
       try {
         const OpenAI = (await import('openai')).default;
@@ -2415,6 +2418,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
         });
         (groqClient as any).defaultModel = 'llama-3.3-70b-versatile';
         openai = groqClient;
+        _usingGroq = true;
         addActivity(userId, { type: 'info', message: '💚 Economy mode: routing to Groq Llama 3.3-70b (free tier) — cost reduced' });
       } catch {
         addActivity(userId, { type: 'info', message: 'Economy mode: Groq unavailable, falling back to primary AI client' });
@@ -3159,19 +3163,32 @@ Respond ONLY with valid JSON. Generate MULTIPLE decisions when opportunities exi
         decisions = cached.response;
         addActivity(userId, { type: 'info', message: `💾 Cache hit: reusing last AI response (${Math.round(cacheAge / 1000)}s old, ${pipMove.toFixed(1)}p move) — API call saved` });
       } else {
-        const modelToUse = model;
-        const supportsJson = modelToUse.startsWith('gpt') || modelToUse.startsWith('gemini') || modelToUse.startsWith('llama') || modelToUse.startsWith('mistral') || modelToUse.startsWith('claude');
-
-        const response = await openai.chat.completions.create({
-          model: modelToUse,
+        const buildReq = (m: string) => ({
+          model: m,
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt },
+            { role: 'system' as const, content: systemPrompt },
+            { role: 'user' as const, content: prompt },
           ],
-          ...(supportsJson ? { response_format: { type: 'json_object' } } : {}),
+          ...((m.startsWith('gpt') || m.startsWith('gemini') || m.startsWith('llama') || m.startsWith('mistral') || m.startsWith('claude'))
+            ? { response_format: { type: 'json_object' as const } } : {}),
           max_tokens: 4000,
           temperature: 0.3,
         });
+
+        // Call the active client; if Groq (economy) fails with a transient/bad-body
+        // error, fall back to the primary client instead of failing the whole scan.
+        let response: any;
+        try {
+          response = await openai.chat.completions.create(buildReq(model));
+        } catch (aiErr: any) {
+          const msg = aiErr?.message || String(aiErr);
+          if (_usingGroq) {
+            addActivity(userId, { type: 'info', message: `⚠️ Groq failed (${msg.slice(0, 80)}) — retrying on primary AI client` });
+            response = await _primaryClient.chat.completions.create(buildReq(_primaryModel));
+          } else {
+            throw aiErr;
+          }
+        }
 
         const content = response.choices[0]?.message?.content || '';
         try {

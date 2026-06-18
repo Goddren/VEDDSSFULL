@@ -22373,6 +22373,9 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
       addActivity2(userId, { type: "error", message: "No AI API key configured. Cannot analyze." });
       return;
     }
+    const _primaryClient = openai2;
+    const _primaryModel = openai2.defaultModel || "gpt-4o";
+    let _usingGroq = false;
     if (aiMode === "economy" && process.env.GROQ_API_KEY) {
       try {
         const OpenAI5 = (await import("openai")).default;
@@ -22382,6 +22385,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
         });
         groqClient.defaultModel = "llama-3.3-70b-versatile";
         openai2 = groqClient;
+        _usingGroq = true;
         addActivity2(userId, { type: "info", message: "\u{1F49A} Economy mode: routing to Groq Llama 3.3-70b (free tier) \u2014 cost reduced" });
       } catch {
         addActivity2(userId, { type: "info", message: "Economy mode: Groq unavailable, falling back to primary AI client" });
@@ -23059,18 +23063,28 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
         decisions = cached2.response;
         addActivity2(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
       } else {
-        const modelToUse = model;
-        const supportsJson = modelToUse.startsWith("gpt") || modelToUse.startsWith("gemini") || modelToUse.startsWith("llama") || modelToUse.startsWith("mistral") || modelToUse.startsWith("claude");
-        const response = await openai2.chat.completions.create({
-          model: modelToUse,
+        const buildReq = (m) => ({
+          model: m,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: prompt }
           ],
-          ...supportsJson ? { response_format: { type: "json_object" } } : {},
+          ...m.startsWith("gpt") || m.startsWith("gemini") || m.startsWith("llama") || m.startsWith("mistral") || m.startsWith("claude") ? { response_format: { type: "json_object" } } : {},
           max_tokens: 4e3,
           temperature: 0.3
         });
+        let response;
+        try {
+          response = await openai2.chat.completions.create(buildReq(model));
+        } catch (aiErr) {
+          const msg = aiErr?.message || String(aiErr);
+          if (_usingGroq) {
+            addActivity2(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${msg.slice(0, 80)}) \u2014 retrying on primary AI client` });
+            response = await _primaryClient.chat.completions.create(buildReq(_primaryModel));
+          } else {
+            throw aiErr;
+          }
+        }
         const content = response.choices[0]?.message?.content || "";
         try {
           decisions = JSON.parse(content);
@@ -34364,12 +34378,16 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     addActivity(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
     return;
   }
+  const _primaryClient = openai2;
+  const _primaryModel = openai2.defaultModel || "gpt-4o";
+  let _usingGroq = false;
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
       const OpenAI5 = (await import("openai")).default;
       const groq = new OpenAI5({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1" });
       groq.defaultModel = "llama-3.3-70b-versatile";
       openai2 = groq;
+      _usingGroq = true;
     } catch {
     }
   }
@@ -34480,13 +34498,24 @@ Rules for decisions array:
 - confidence is 0-100`;
   try {
     addActivity(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
-    const response = await openai2.chat.completions.create({
-      model,
+    const _mkReq = (m) => ({
+      model: m,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       max_tokens: 1200,
       temperature: 0.3
     });
+    let response;
+    try {
+      response = await openai2.chat.completions.create(_mkReq(model));
+    } catch (aiErr) {
+      if (_usingGroq) {
+        addActivity(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
+        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
+      } else {
+        throw aiErr;
+      }
+    }
     const raw = response.choices[0]?.message?.content || "{}";
     let parsed;
     try {

@@ -428,12 +428,16 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
     return;
   }
 
+  const _primaryClient = openai;
+  const _primaryModel = openai.defaultModel || 'gpt-4o';
+  let _usingGroq = false;
   if (config.aiMode === 'economy' && process.env.GROQ_API_KEY) {
     try {
       const OpenAI = (await import('openai')).default;
       const groq = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' });
       (groq as any).defaultModel = 'llama-3.3-70b-versatile';
       openai = groq;
+      _usingGroq = true;
     } catch { /* fall back to primary */ }
   }
 
@@ -561,13 +565,24 @@ Rules for decisions array:
   try {
     addActivity(userId, { type: 'info', message: `🤖 Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session}) via ${model}...` });
 
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
+    const _mkReq = (m: string) => ({
+      model: m,
+      messages: [{ role: 'user' as const, content: prompt }],
+      response_format: { type: 'json_object' as const },
       max_tokens: 1200,
       temperature: 0.3,
     });
+    let response: any;
+    try {
+      response = await openai.chat.completions.create(_mkReq(model));
+    } catch (aiErr: any) {
+      if (_usingGroq) {
+        addActivity(userId, { type: 'info', message: `⚠️ Groq failed (${(aiErr?.message || '').slice(0, 80)}) — retrying on primary AI client` });
+        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
+      } else {
+        throw aiErr;
+      }
+    }
 
     const raw = response.choices[0]?.message?.content || '{}';
     let parsed: any;
