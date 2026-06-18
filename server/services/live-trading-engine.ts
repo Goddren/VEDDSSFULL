@@ -4499,13 +4499,16 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         const isInLoss = (pos.profit ?? 0) < 0;
         const openTimeSec = pos.openTime ? Math.round(Date.now() / 1000 - Number(pos.openTime)) : null;
         const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
-        // Allow an EARLY cut-loss when the close reason is a genuine structural
-        // invalidation (the original thesis broke) — don't force losers to ride to
-        // the full SL on a confirmed reversal. Only block pure drawdown-panic closes,
-        // and only for a short 15-min window (was a blanket 45 min that trapped losers).
+        // Protect good trades from being cut early on TEMPORARY drawdown — a trade
+        // that's just briefly underwater needs time to work; the SL caps the risk.
+        // Hold for 45 min before allowing a pure-drawdown close. BUT if the setup is
+        // structurally INVALID (confirmed reversal / BOS / CHOCH against the trade),
+        // cut it immediately regardless of age — that's not a good trade needing time,
+        // it's a broken one. So: structural exits pass through; drawdown-panic closes
+        // are held the full 45 min.
         const _reason = (decision.reason || '').toLowerCase();
         const _structuralExit = /bos|choch|invalidat|reversal|broke|structure|opposite signal|flip/.test(_reason);
-        const MIN_HOLD_BEFORE_FORCE_CLOSE = 15; // minutes (reduced from 45)
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45; // minutes — protects good trades that just need time
         if (isInLoss && !_structuralExit && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
           addActivity(userId, {
             type: 'info',

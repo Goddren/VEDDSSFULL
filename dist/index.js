@@ -24082,7 +24082,7 @@ async function processDecision(userId, decision, newsCtx) {
         const ageMin = openTimeSec != null ? Math.floor(openTimeSec / 60) : null;
         const _reason = (decision.reason || "").toLowerCase();
         const _structuralExit = /bos|choch|invalidat|reversal|broke|structure|opposite signal|flip/.test(_reason);
-        const MIN_HOLD_BEFORE_FORCE_CLOSE = 15;
+        const MIN_HOLD_BEFORE_FORCE_CLOSE = 45;
         if (isInLoss && !_structuralExit && ageMin != null && ageMin < MIN_HOLD_BEFORE_FORCE_CLOSE) {
           addActivity2(userId, {
             type: "info",
