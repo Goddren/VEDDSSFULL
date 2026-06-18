@@ -48204,40 +48204,47 @@ Format each recommendation as a clear, concise action item.`;
       res.status(500).json({ error: "Brain learning failed: " + (error.message || "Unknown error") });
     }
   });
-  app2.get("/api/vedd-brain/status", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = req.user.id;
-    let brain = global.veddAIBrain?.[userId];
+  async function getOrRefreshBrain(userId) {
+    const g = global;
+    g.veddAIBrain = g.veddAIBrain || {};
+    g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
+    let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
         const p = path7.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
         if (fs7.existsSync(p)) {
           brain = JSON.parse(fs7.readFileSync(p, "utf-8"));
-          global.veddAIBrain = global.veddAIBrain || {};
-          global.veddAIBrain[userId] = brain;
+          g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
       }
     }
-    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    const built = g.veddBrainBuiltAt[userId] || 0;
+    const stale = Date.now() - built > 6e4;
+    if (!brain || stale) {
+      try {
+        const fresh = await runBrainLearning(userId);
+        if (fresh) {
+          brain = fresh;
+          g.veddBrainBuiltAt[userId] = Date.now();
+        }
+      } catch (_) {
+      }
+    }
+    return brain || null;
+  }
+  app2.get("/api/vedd-brain/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const brain = await getOrRefreshBrain(userId);
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet \u2014 no closed trades to learn from. Make sure your MT5 EA is connected and posting closed trades." });
     res.json({ learned: true, ...brain });
   });
   app2.get("/api/vedd-live-engine/brain-status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    let brain = global.veddAIBrain?.[userId];
-    if (!brain) {
-      try {
-        const p = path7.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs7.existsSync(p)) {
-          brain = JSON.parse(fs7.readFileSync(p, "utf-8"));
-          global.veddAIBrain = global.veddAIBrain || {};
-          global.veddAIBrain[userId] = brain;
-        }
-      } catch (_) {
-      }
-    }
-    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    const brain = await getOrRefreshBrain(userId);
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet \u2014 no closed trades to learn from. Make sure your MT5 EA is connected and posting closed trades." });
     res.json({ learned: true, ...brain });
   });
   app2.post("/api/vedd-brain/autonomous-signals", async (req, res) => {

@@ -81,8 +81,13 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      // Was staleTime: Infinity + no focus refetch → ANY query without an explicit
+      // refetchInterval was frozen for the whole session ("dormant" cards). Now data
+      // is considered stale after 30s and refreshes when you return to the tab, so
+      // cards update even if their query didn't set its own interval.
+      refetchOnWindowFocus: true,
+      refetchOnMount: true,
+      staleTime: 30_000,
       retry: false,
     },
     mutations: {

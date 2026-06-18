@@ -14906,22 +14906,38 @@ Format each recommendation as a clear, concise action item.`;
     }
   });
 
-  app.get("/api/vedd-brain/status", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    // Try in-memory first; fall back to disk-persisted brain so data survives server restarts
-    let brain = (global as any).veddAIBrain?.[userId];
+  // Rebuilds the brain from the DB (pure computation, no AI) when missing or stale,
+  // throttled to once/60s. Fixes the "win rate never changes" issue: the brain now
+  // recomputes from current trade data on poll and survives deploys (the in-memory
+  // brain + ephemeral disk file are wiped on every Render deploy).
+  async function getOrRefreshBrain(userId: number): Promise<any> {
+    const g = global as any;
+    g.veddAIBrain = g.veddAIBrain || {};
+    g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
+    let brain = g.veddAIBrain[userId];
+    // Cold start after deploy: try the disk file first (cheap), else rebuild from DB
     if (!brain) {
       try {
         const p = path.join(process.cwd(), 'data', 'brains', `brain_${userId}.json`);
-        if (fs.existsSync(p)) {
-          brain = JSON.parse(fs.readFileSync(p, 'utf-8'));
-          (global as any).veddAIBrain = (global as any).veddAIBrain || {};
-          (global as any).veddAIBrain[userId] = brain;
-        }
+        if (fs.existsSync(p)) { brain = JSON.parse(fs.readFileSync(p, 'utf-8')); g.veddAIBrain[userId] = brain; }
       } catch (_) {}
     }
-    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    const built = g.veddBrainBuiltAt[userId] || 0;
+    const stale = Date.now() - built > 60_000;
+    if (!brain || stale) {
+      try {
+        const fresh = await runBrainLearning(userId);
+        if (fresh) { brain = fresh; g.veddBrainBuiltAt[userId] = Date.now(); }
+      } catch (_) { /* keep whatever we had */ }
+    }
+    return brain || null;
+  }
+
+  app.get("/api/vedd-brain/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const brain = await getOrRefreshBrain(userId);
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet — no closed trades to learn from. Make sure your MT5 EA is connected and posting closed trades." });
     res.json({ learned: true, ...brain });
   });
 
@@ -14929,19 +14945,8 @@ Format each recommendation as a clear, concise action item.`;
   app.get("/api/vedd-live-engine/brain-status", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    // Try in-memory first; fall back to disk-persisted brain
-    let brain = (global as any).veddAIBrain?.[userId];
-    if (!brain) {
-      try {
-        const p = path.join(process.cwd(), 'data', 'brains', `brain_${userId}.json`);
-        if (fs.existsSync(p)) {
-          brain = JSON.parse(fs.readFileSync(p, 'utf-8'));
-          (global as any).veddAIBrain = (global as any).veddAIBrain || {};
-          (global as any).veddAIBrain[userId] = brain;
-        }
-      } catch (_) {}
-    }
-    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet. Trigger learning first." });
+    const brain = await getOrRefreshBrain(userId);
+    if (!brain) return res.json({ learned: false, message: "Brain has not learned yet — no closed trades to learn from. Make sure your MT5 EA is connected and posting closed trades." });
     res.json({ learned: true, ...brain });
   });
 
