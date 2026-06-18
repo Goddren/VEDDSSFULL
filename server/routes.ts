@@ -14906,11 +14906,58 @@ Format each recommendation as a clear, concise action item.`;
     }
   });
 
+  // Syncs CLOSED TradeLocker orders (with realized P&L) into ai_trade_results so the
+  // brain learns from TradeLocker trades too — not just MT5. Throttled to once/2min,
+  // dedup by a synthetic `tl_<orderId>` ticket. Fire-and-forget from the brain refresh.
+  async function syncTradeLockerOutcomes(userId: number): Promise<number> {
+    const g = global as any;
+    g.tlOutcomeSyncAt = g.tlOutcomeSyncAt || {};
+    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 120_000) return 0;
+    g.tlOutcomeSyncAt[userId] = Date.now();
+    let added = 0;
+    try {
+      const conns = await storage.getUserTradelockerConnections(userId);
+      const active = conns.filter((c: any) => c.isActive);
+      const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000); // last 7 days
+      for (const conn of active) {
+        try {
+          const svc = await tlGetOrCreateService(conn);
+          const orders = await svc.getFilledOrders(fromTs);
+          for (const o of orders) {
+            // Only record actual win/loss outcomes (skip entries / zero-pnl orders)
+            if (typeof o.profit !== 'number' || o.profit === 0) continue;
+            const tk = `tl_${o.id}`;
+            const existing = await storage.getAiTradeResultByTicket(userId, tk);
+            if (existing) continue;
+            await storage.createAiTradeResult({
+              userId,
+              symbol: (o.symbol || 'UNKNOWN').toUpperCase().replace('/', ''),
+              direction: /sell|short/i.test(o.side) ? 'SELL' : 'BUY',
+              entryPrice: 0,
+              aiConfidence: 0,
+              result: o.profit > 0 ? 'WIN' : 'LOSS',
+              profitLoss: o.profit,
+              source: 'tradelocker',
+              mt5Ticket: tk,
+              notes: 'TradeLocker filled order (synced)',
+              closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+            } as any);
+            added++;
+          }
+        } catch (_) { /* per-connection, non-fatal */ }
+      }
+      if (added > 0) console.log(`[TL Outcome Sync] user ${userId}: +${added} TradeLocker trades fed into the brain`);
+    } catch (_) { /* non-fatal */ }
+    return added;
+  }
+
   // Rebuilds the brain from the DB (pure computation, no AI) when missing or stale,
   // throttled to once/60s. Fixes the "win rate never changes" issue: the brain now
   // recomputes from current trade data on poll and survives deploys (the in-memory
-  // brain + ephemeral disk file are wiped on every Render deploy).
+  // brain + ephemeral disk file are wiped on every Render deploy). Also pulls in
+  // TradeLocker outcomes so the brain learns from BOTH MT5 and TradeLocker trades.
   async function getOrRefreshBrain(userId: number): Promise<any> {
+    syncTradeLockerOutcomes(userId).catch(() => {}); // fire-and-forget: lands for next rebuild
     const g = global as any;
     g.veddAIBrain = g.veddAIBrain || {};
     g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};

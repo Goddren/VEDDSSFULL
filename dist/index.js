@@ -48204,7 +48204,51 @@ Format each recommendation as a clear, concise action item.`;
       res.status(500).json({ error: "Brain learning failed: " + (error.message || "Unknown error") });
     }
   });
+  async function syncTradeLockerOutcomes(userId) {
+    const g = global;
+    g.tlOutcomeSyncAt = g.tlOutcomeSyncAt || {};
+    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 12e4) return 0;
+    g.tlOutcomeSyncAt[userId] = Date.now();
+    let added = 0;
+    try {
+      const conns = await storage.getUserTradelockerConnections(userId);
+      const active = conns.filter((c) => c.isActive);
+      const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1e3) / 1e3);
+      for (const conn of active) {
+        try {
+          const svc = await getOrCreateService(conn);
+          const orders = await svc.getFilledOrders(fromTs);
+          for (const o of orders) {
+            if (typeof o.profit !== "number" || o.profit === 0) continue;
+            const tk = `tl_${o.id}`;
+            const existing = await storage.getAiTradeResultByTicket(userId, tk);
+            if (existing) continue;
+            await storage.createAiTradeResult({
+              userId,
+              symbol: (o.symbol || "UNKNOWN").toUpperCase().replace("/", ""),
+              direction: /sell|short/i.test(o.side) ? "SELL" : "BUY",
+              entryPrice: 0,
+              aiConfidence: 0,
+              result: o.profit > 0 ? "WIN" : "LOSS",
+              profitLoss: o.profit,
+              source: "tradelocker",
+              mt5Ticket: tk,
+              notes: "TradeLocker filled order (synced)",
+              closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+            });
+            added++;
+          }
+        } catch (_) {
+        }
+      }
+      if (added > 0) console.log(`[TL Outcome Sync] user ${userId}: +${added} TradeLocker trades fed into the brain`);
+    } catch (_) {
+    }
+    return added;
+  }
   async function getOrRefreshBrain(userId) {
+    syncTradeLockerOutcomes(userId).catch(() => {
+    });
     const g = global;
     g.veddAIBrain = g.veddAIBrain || {};
     g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
