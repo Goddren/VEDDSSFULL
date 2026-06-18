@@ -48184,15 +48184,28 @@ Format each recommendation as a clear, concise action item.`;
     }
   };
   setInterval(async () => {
-    const brains = global.veddAIBrain || {};
-    for (const userId of Object.keys(brains)) {
+    const g = global;
+    const activeUserIds = /* @__PURE__ */ new Set([
+      ...Object.keys(g.veddAIBrain || {}),
+      ...Object.keys(g.mt5AccountData || {}),
+      ...Object.keys(g.mt5ClosedTrades || {})
+    ]);
+    for (const uid2 of activeUserIds) {
+      const userId = parseInt(uid2);
+      if (isNaN(userId)) continue;
       try {
-        await runBrainLearning(parseInt(userId));
-        console.log(`[Brain AutoRefresh] Re-learned for user ${userId}`);
+        await syncTradeLockerOutcomes(userId);
+        const fresh = await runBrainLearning(userId);
+        if (fresh) {
+          g.veddAIBrain = g.veddAIBrain || {};
+          g.veddAIBrain[userId] = fresh;
+          g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
+          g.veddBrainBuiltAt[userId] = Date.now();
+        }
       } catch (_) {
       }
     }
-  }, 30 * 60 * 1e3);
+  }, 2 * 60 * 1e3);
   app2.post("/api/vedd-brain/learn", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -48290,6 +48303,58 @@ Format each recommendation as a clear, concise action item.`;
     const brain = await getOrRefreshBrain(userId);
     if (!brain) return res.json({ learned: false, message: "Brain has not learned yet \u2014 no closed trades to learn from. Make sure your MT5 EA is connected and posting closed trades." });
     res.json({ learned: true, ...brain });
+  });
+  app2.get("/api/trade-performance", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    syncTradeLockerOutcomes(userId).catch(() => {
+    });
+    try {
+      const all = await storage.getAiTradeResults(userId, 500);
+      const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt).sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
+      const tally = (rows) => {
+        const wins = rows.filter((r) => r.result === "WIN").length;
+        const losses = rows.filter((r) => r.result === "LOSS").length;
+        const be = rows.filter((r) => r.result === "BREAKEVEN").length;
+        const pnl = Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100;
+        const decided = wins + losses;
+        return { trades: rows.length, wins, losses, breakeven: be, winRate: decided > 0 ? Math.round(wins / decided * 100) : 0, totalPnl: pnl };
+      };
+      const mt5Rows = closed.filter((t) => t.source !== "tradelocker");
+      const tlRows = closed.filter((t) => t.source === "tradelocker");
+      let streakType = null, streakCount = 0;
+      for (const t of closed) {
+        if (t.result === "BREAKEVEN") continue;
+        const r = t.result === "WIN" ? "win" : "loss";
+        if (streakType === null) {
+          streakType = r;
+          streakCount = 1;
+        } else if (streakType === r) streakCount++;
+        else break;
+      }
+      const dayStart = /* @__PURE__ */ new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const todayRows = closed.filter((t) => new Date(t.closedAt) >= dayStart);
+      res.json({
+        overall: tally(closed),
+        bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
+        today: tally(todayRows),
+        streak: { type: streakType, count: streakCount },
+        recentTrades: closed.slice(0, 12).map((t) => ({
+          symbol: t.symbol,
+          direction: t.direction,
+          result: t.result,
+          profitLoss: Math.round((t.profitLoss || 0) * 100) / 100,
+          source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+          closedAt: t.closedAt
+        })),
+        lastTradeAt: closed[0]?.closedAt ?? null,
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (err) {
+      console.error("[trade-performance]", err);
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.post("/api/vedd-brain/autonomous-signals", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

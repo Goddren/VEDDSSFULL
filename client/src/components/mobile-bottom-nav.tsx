@@ -12,6 +12,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/use-auth';
+import { TradePerformanceCompact } from '@/components/trade-performance-card';
 
 /* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
@@ -408,6 +409,9 @@ export function MobileBottomNav() {
               LIVE ACCOUNTS — SS AI Forex · TradeLocker · Kalshi
           ═══════════════════════════════════════════════ */}
           <SectionLabel label="Live Accounts" />
+
+          {/* Unified trade performance story (MT5 + TradeLocker) */}
+          {open && <TradePerformanceCompact />}
 
           {/* SS AI Forex Engine card */}
           <Link href="/weekly-strategy">

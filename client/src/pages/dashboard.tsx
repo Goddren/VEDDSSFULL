@@ -56,6 +56,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { apiRequest } from '@/lib/queryClient';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { MarketCalendar } from '@/components/market/market-calendar';
+import { TradePerformanceCard } from '@/components/trade-performance-card';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
@@ -1293,6 +1294,11 @@ const Dashboard: React.FC = () => {
                 })}
               </div>
             )}
+          </div>
+
+          {/* ── Unified Trade Performance (MT5 + TradeLocker, live) ───────── */}
+          <div className="mb-4">
+            <TradePerformanceCard />
           </div>
 
           {/* ── Self-Learning Brain Card ─────────────────────────────────── */}

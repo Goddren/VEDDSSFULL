@@ -32,6 +32,7 @@ import ConnectedAccountPicker, {
   saveAccountSettings,
   type ConnectedAccount,
 } from "@/components/connected-account-picker";
+import { TradePerformanceCard } from "@/components/trade-performance-card";
 
 const POPULAR_PAIRS = [
   "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD", "NZDUSD", "USDCAD",
@@ -4573,6 +4574,8 @@ export default function WeeklyStrategyPage() {
             {showBrainSection && brainStatus?.learned && (
               <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                 <CardContent className="pt-0 space-y-4">
+                  {/* Unified live performance story — MT5 + TradeLocker closed trades */}
+                  <TradePerformanceCard />
                   {brainStatus.learningInsights?.length > 0 && (
                     <div className="space-y-1">
                       <p className="text-xs text-gray-400 font-semibold">Brain Insights:</p>
