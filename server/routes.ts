@@ -22,6 +22,7 @@ import { setupTwilio, sendTradingSignal } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
+import { abbaStrategistHandler, abbaChatHandler } from "./abba-strategist";
 import { marketInsightsHandler, contextualInsightHandler } from "./market-insights";
 import { createStopOrder, checkBreakoutTriggers, cancelStopOrder, getStopOrdersForUser } from "./services/stopOrderService";
 import { insertStopOrderSchema, stopOrders } from "@shared/schema";
@@ -3785,6 +3786,9 @@ Respond ONLY in valid JSON format with these exact keys:
 
   // Trading Coach endpoints
   app.post('/api/trading-coach', tradingCoachHandler);
+  // Abba — AI strategist that reads all trade data, adapts the plan, and chats
+  app.get('/api/abba/strategist', abbaStrategistHandler);
+  app.post('/api/abba/chat', abbaChatHandler);
 
   // ── ABBA — VEDD Personal Trading Intelligence System ───────────────────
   app.post('/api/abba/chat', async (req: Request, res: Response) => {

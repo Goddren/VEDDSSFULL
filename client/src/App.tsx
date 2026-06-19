@@ -79,6 +79,7 @@ import InnovationLabPage from "@/pages/innovation-lab";
 import CompliancePage from "@/pages/compliance";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
+import AbbaBotPage from "@/pages/abba-bot";
 import PolymarketWalletPage from "@/pages/polymarket-wallet";
 import PolymarketEnginePage from "@/pages/polymarket-engine";
 import FuturesConnectPage from "@/pages/futures-connect";
@@ -245,6 +246,7 @@ function AppLayout() {
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
+            <ProtectedRoute path="/abba" component={AbbaBotPage} />
             <ProtectedRoute path="/polymarket-wallet" component={PolymarketWalletPage} />
             <ProtectedRoute path="/polymarket-engine" component={PolymarketEnginePage} />
             <ProtectedRoute path="/notification-settings" component={NotificationSettings} />

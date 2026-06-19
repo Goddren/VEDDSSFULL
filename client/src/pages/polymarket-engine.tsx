@@ -121,7 +121,7 @@ interface KalshiEngineState {
     minConfidence: number;
     requireAlignedHourly: boolean;
     requireConfluence: boolean;
-    strategy: "momentum" | "volume_profile" | "markov" | "order_flow" | "auto";
+    strategy: "momentum" | "volume_profile" | "markov" | "order_flow" | "ensemble" | "auto";
     autoTradeValuePicks: boolean;
     minValueScore: number;
     takeProfitCents: number;
@@ -252,7 +252,7 @@ export default function PolymarketEnginePage() {
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
   const [kalshiCfgConfidence, setKalshiCfgConfidence] = useState("");
-  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow" | "auto">("");
+  const [kalshiCfgStrategy, setKalshiCfgStrategy] = useState<"" | "momentum" | "volume_profile" | "markov" | "order_flow" | "ensemble" | "auto">("");
   const [kalshiCfgAutoValue, setKalshiCfgAutoValue] = useState<boolean | null>(null);
   const [kalshiCfgConfluence, setKalshiCfgConfluence] = useState<boolean | null>(null);
   const [kalshiCfgMinScore, setKalshiCfgMinScore]   = useState("");
@@ -917,7 +917,7 @@ export default function PolymarketEnginePage() {
               )}
               {kalshiEngineState?.config.strategy && (
                 <span className="text-[9px] text-purple-300 bg-purple-500/20 border border-purple-500/30 px-1.5 py-0.5 rounded">
-                  {kalshiEngineState.config.strategy === "auto" ? "🤖 Auto (Best)" : kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
+                  {kalshiEngineState.config.strategy === "auto" ? "🤖 Auto (Best)" : kalshiEngineState.config.strategy === "ensemble" ? "AI Ensemble" : kalshiEngineState.config.strategy === "volume_profile" ? "Vol Profile" : kalshiEngineState.config.strategy === "markov" ? "Markov" : kalshiEngineState.config.strategy === "order_flow" ? "Order Flow" : "Momentum"}
                 </span>
               )}
             </div>
@@ -1167,6 +1167,7 @@ export default function PolymarketEnginePage() {
                     })()}
                     <div className="grid grid-cols-2 gap-1.5">
                       {([
+                        { key: "ensemble",       label: "AI Ensemble", sub: "multi-factor + regime filter ★" },
                         { key: "momentum",       label: "Momentum",    sub: "RSI/MACD/EMA" },
                         { key: "volume_profile", label: "Vol Profile", sub: "POC / value area" },
                         { key: "markov",         label: "Markov",      sub: "state transitions" },

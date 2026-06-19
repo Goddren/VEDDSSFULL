@@ -101,6 +101,7 @@ const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
   volume_profile: 'Volume Profile',
   markov:         'Markov',
   order_flow:     'Order Flow',
+  ensemble:       'AI Ensemble',
   auto:           'Auto (Best)',
 };
 

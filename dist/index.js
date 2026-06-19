@@ -18016,11 +18016,11 @@ function calculateRSI(candles, period = 14) {
 }
 function calcEMA(values, period) {
   const k = 2 / (period + 1);
-  const ema2 = [values[0]];
+  const ema3 = [values[0]];
   for (let i = 1; i < values.length; i++) {
-    ema2.push(values[i] * k + ema2[i - 1] * (1 - k));
+    ema3.push(values[i] * k + ema3[i - 1] * (1 - k));
   }
-  return ema2;
+  return ema3;
 }
 function calculateMACD(candles, fast = 12, slow = 26, signalPeriod = 9) {
   if (candles.length < slow + signalPeriod) return void 0;
@@ -18208,9 +18208,9 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   if (candles.length < emaPeriod + 2) return void 0;
   const chronological = [...candles].reverse();
   const k = 2 / (emaPeriod + 1);
-  let ema2 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
+  let ema3 = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length; i++) {
-    ema2 = chronological[i].c * k + ema2 * (1 - k);
+    ema3 = chronological[i].c * k + ema3 * (1 - k);
   }
   const trValues = [];
   for (let i = 1; i < chronological.length; i++) {
@@ -18220,10 +18220,10 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   const atrSlice = trValues.slice(-atrPeriod);
   const atr = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
   if (atr === 0) return void 0;
-  const upper = ema2 + multiplier * atr;
-  const lower = ema2 - multiplier * atr;
+  const upper = ema3 + multiplier * atr;
+  const lower = ema3 - multiplier * atr;
   const currentPrice = chronological[chronological.length - 1].c;
-  const bandwidth = (upper - lower) / ema2 * 100;
+  const bandwidth = (upper - lower) / ema3 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
@@ -18280,7 +18280,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
   }
   return {
     upper: Math.round(upper * 1e5) / 1e5,
-    middle: Math.round(ema2 * 1e5) / 1e5,
+    middle: Math.round(ema3 * 1e5) / 1e5,
     lower: Math.round(lower * 1e5) / 1e5,
     bandwidth: Math.round(bandwidth * 100) / 100,
     position,
@@ -21393,14 +21393,14 @@ async function scanMarkets(userId) {
         } else if (adxStrength > 12 && diSeparation > 8) {
           trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
         }
-        const rsi2 = indicators.stochastic?.k || 50;
+        const rsi3 = indicators.stochastic?.k || 50;
         const atr = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
         state.marketSnapshot[symbol] = {
           price: currentPrice,
           change: Math.round(change * 100) / 100,
           trend,
-          rsi: Math.round(rsi2),
+          rsi: Math.round(rsi3),
           atr: Math.round(atr * 1e5) / 1e5,
           adx: adxStrength,
           // stored so processDecision can access it directly
@@ -21893,28 +21893,28 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const adxVal = indicators.adx?.adx ?? indicators.adx?.value ?? 0;
   const trend = indicators.trend ?? "NEUTRAL";
   const trendIsStrong = adxVal > 18 && trend !== "NEUTRAL";
-  const rsi2 = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
+  const rsi3 = indicators.rsi?.value ?? indicators.stochastic?.k ?? 50;
   if (trendIsStrong) {
-    if (trend === "BULLISH" && rsi2 > 50) {
+    if (trend === "BULLISH" && rsi3 > 50) {
       bull++;
-      votes.push(`RSI ${rsi2.toFixed(1)} above 50 (bullish trend confirmation)`);
-    } else if (trend === "BEARISH" && rsi2 < 50) {
+      votes.push(`RSI ${rsi3.toFixed(1)} above 50 (bullish trend confirmation)`);
+    } else if (trend === "BEARISH" && rsi3 < 50) {
       bear++;
-      votes.push(`RSI ${rsi2.toFixed(1)} below 50 (bearish trend confirmation)`);
-    } else if (trend === "BULLISH" && rsi2 < 30) {
+      votes.push(`RSI ${rsi3.toFixed(1)} below 50 (bearish trend confirmation)`);
+    } else if (trend === "BULLISH" && rsi3 < 30) {
       bear++;
-      votes.push(`RSI ${rsi2.toFixed(1)} extreme oversold (exhaustion warning)`);
-    } else if (trend === "BEARISH" && rsi2 > 70) {
+      votes.push(`RSI ${rsi3.toFixed(1)} extreme oversold (exhaustion warning)`);
+    } else if (trend === "BEARISH" && rsi3 > 70) {
       bull++;
-      votes.push(`RSI ${rsi2.toFixed(1)} extreme overbought (exhaustion warning)`);
+      votes.push(`RSI ${rsi3.toFixed(1)} extreme overbought (exhaustion warning)`);
     }
   } else {
-    if (rsi2 < 35) {
+    if (rsi3 < 35) {
       bull++;
-      votes.push(`RSI oversold (${rsi2.toFixed(1)})`);
-    } else if (rsi2 > 65) {
+      votes.push(`RSI oversold (${rsi3.toFixed(1)})`);
+    } else if (rsi3 > 65) {
       bear++;
-      votes.push(`RSI overbought (${rsi2.toFixed(1)})`);
+      votes.push(`RSI overbought (${rsi3.toFixed(1)})`);
     }
   }
   const stochK = indicators.stochastic?.k ?? 50;
@@ -21941,11 +21941,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
       votes.push(`Stoch K overbought (${stochK.toFixed(1)})`);
     }
   }
-  const macdHist = indicators.macd?.histogram ?? 0;
-  if (macdHist > 0) {
+  const macdHist2 = indicators.macd?.histogram ?? 0;
+  if (macdHist2 > 0) {
     bull++;
     votes.push("MACD histogram positive");
-  } else if (macdHist < 0) {
+  } else if (macdHist2 < 0) {
     bear++;
     votes.push("MACD histogram negative");
   }
@@ -22073,9 +22073,9 @@ function countIndicatorAlignment(data) {
     if (stochK < 28) bull++;
     else if (stochK > 72) bear++;
   }
-  const macdHist = data.macd?.histogram ?? 0;
-  if (macdHist > 0) bull++;
-  else if (macdHist < 0) bear++;
+  const macdHist2 = data.macd?.histogram ?? 0;
+  if (macdHist2 > 0) bull++;
+  else if (macdHist2 < 0) bear++;
   const macdLine = data.macd?.macd ?? data.macd?.value ?? null;
   if (macdLine !== null) {
     if (macdLine > 0) bull++;
@@ -22112,7 +22112,7 @@ function selectStrategyForPair(symbol, data, htfBias, asiaHigh, asiaLow, utcHour
   const sr = data.supportResistance;
   const fib = data.fibonacci?.retracementLevels;
   const patterns = data.candlePatterns ?? [];
-  const macdHist = data.macd?.histogram ?? 0;
+  const macdHist2 = data.macd?.histogram ?? 0;
   const obvTrend = data.obv?.trend ?? "";
   const isJpy = symbol.includes("JPY");
   const isXau = symbol.includes("XAU");
@@ -26050,6 +26050,129 @@ function orderFlowSignal(candles) {
     strategy: "order_flow"
   };
 }
+function ema2(values, period) {
+  if (!values.length) return 0;
+  const k = 2 / (period + 1);
+  let e = values[0];
+  for (let i = 1; i < values.length; i++) e = values[i] * k + e * (1 - k);
+  return e;
+}
+function rsi2(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gain = 0, loss = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d >= 0) gain += d;
+    else loss -= d;
+  }
+  const rs = loss === 0 ? 100 : gain / loss;
+  return 100 - 100 / (1 + rs);
+}
+function macdHist(closes) {
+  if (closes.length < 26) return 0;
+  const emaArr = (vals, p) => {
+    const k = 2 / (p + 1);
+    let e = vals[0];
+    const out = [e];
+    for (let i = 1; i < vals.length; i++) {
+      e = vals[i] * k + e * (1 - k);
+      out.push(e);
+    }
+    return out;
+  };
+  const e12 = emaArr(closes, 12), e26 = emaArr(closes, 26);
+  const macdLine = closes.map((_, i) => e12[i] - e26[i]);
+  const signal = emaArr(macdLine.slice(-9), 9);
+  return macdLine[macdLine.length - 1] - signal[signal.length - 1];
+}
+function linregSlope(values) {
+  const n = values.length;
+  if (n < 2) return 0;
+  const xs = values.map((_, i) => i);
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = values.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (xs[i] - mx) * (values[i] - my);
+    den += (xs[i] - mx) ** 2;
+  }
+  return den === 0 ? 0 : num / den;
+}
+function ensembleSignal(candles) {
+  const price = candles[candles.length - 1].close;
+  const priceChange1h = pct1h(candles);
+  if (candles.length < 30) {
+    return { direction: "NEUTRAL", confidence: 0, currentPrice: price, priceChange1h, reason: "Not enough candles for ensemble", strategy: "ensemble" };
+  }
+  const closes = candles.map((c) => c.close);
+  const recent = candles.slice(-30);
+  const ema9 = ema2(closes.slice(-40), 9);
+  const ema21 = ema2(closes.slice(-60), 21);
+  const ema50 = ema2(closes.slice(-80), 50);
+  const trendUp = ema9 > ema21 && ema21 > ema50 && price > ema50;
+  const trendDn = ema9 < ema21 && ema21 < ema50 && price < ema50;
+  const r = rsi2(closes);
+  const mh = macdHist(closes);
+  let aggr = 0, volSum = 0;
+  for (const c of recent.slice(-12)) {
+    const range = c.high - c.low;
+    if (range <= 0) continue;
+    aggr += ((c.close - c.low) / range * 2 - 1) * c.volume;
+    volSum += c.volume;
+  }
+  const aggrNorm = volSum > 0 ? aggr / volSum : 0;
+  const slope = linregSlope(closes.slice(-12)) / price;
+  const emaSpreadPct = Math.abs(ema9 - ema50) / price * 100;
+  const rets = recent.slice(-20).map((c, i, a) => i === 0 ? 0 : (c.close - a[i - 1].close) / a[i - 1].close);
+  const meanRet = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const directionalness = Math.abs(meanRet) / (Math.sqrt(rets.reduce((s, x) => s + (x - meanRet) ** 2, 0) / rets.length) || 1e-9);
+  const choppy = emaSpreadPct < 0.06 && directionalness < 0.25;
+  if (choppy) {
+    return { direction: "NEUTRAL", confidence: 40, currentPrice: price, priceChange1h, reason: `Ensemble: choppy/ranging regime (EMA spread ${emaSpreadPct.toFixed(3)}%, low directionalness) \u2014 standing aside`, strategy: "ensemble" };
+  }
+  let bull = 0, bear = 0;
+  const notes = [];
+  if (trendUp) {
+    bull++;
+    notes.push("EMA stack up");
+  } else if (trendDn) {
+    bear++;
+    notes.push("EMA stack down");
+  }
+  if (mh > 0) bull++;
+  else if (mh < 0) bear++;
+  if (r > 50 && r < 72) {
+    bull++;
+    notes.push(`RSI ${r.toFixed(0)}`);
+  } else if (r < 50 && r > 28) {
+    bear++;
+    notes.push(`RSI ${r.toFixed(0)}`);
+  }
+  if (aggrNorm > 0.1) {
+    bull++;
+    notes.push("buyer aggression");
+  } else if (aggrNorm < -0.1) {
+    bear++;
+    notes.push("seller aggression");
+  }
+  if (slope > 0) bull++;
+  else if (slope < 0) bear++;
+  const total = bull + bear;
+  let direction = "NEUTRAL";
+  let confidence2 = 50;
+  if (bull >= 4 && bull > bear) {
+    direction = "BUY";
+    confidence2 = clamp2(60 + bull * 6, 60, 92);
+  } else if (bear >= 4 && bear > bull) {
+    direction = "SELL";
+    confidence2 = clamp2(60 + bear * 6, 60, 92);
+  } else {
+    direction = "NEUTRAL";
+    confidence2 = clamp2(45 + Math.max(bull, bear) * 3, 40, 58);
+  }
+  const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
+  return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
+}
 async function getKalshiSignal(strategy) {
   if (strategy === "momentum") {
     const p = await getBTC5MinPrediction();
@@ -26068,6 +26191,7 @@ async function getKalshiSignal(strategy) {
   }
   if (strategy === "volume_profile") return volumeProfileSignal(candles);
   if (strategy === "order_flow") return orderFlowSignal(candles);
+  if (strategy === "ensemble") return ensembleSignal(candles);
   return markovSignal(candles);
 }
 function estimateHourlyVol(candles) {
@@ -26102,6 +26226,7 @@ async function getKalshiConsensus() {
   signals.push(volumeProfileSignal(candles));
   signals.push(markovSignal(candles));
   signals.push(orderFlowSignal(candles));
+  signals.push(ensembleSignal(candles));
   const price = candles[candles.length - 1].close;
   const priceChange1h = pct1h(candles);
   let buyWeight = 0, sellWeight = 0;
@@ -26718,6 +26843,7 @@ var init_kalshi_engine = __esm({
       volume_profile: "Volume Profile",
       markov: "Markov",
       order_flow: "Order Flow",
+      ensemble: "AI Ensemble",
       auto: "Auto (Best)"
     };
   }
@@ -31550,6 +31676,199 @@ async function tradingTipsHandler(req, res) {
   }
 }
 
+// server/abba-strategist.ts
+init_storage();
+var sessionOf = (d) => {
+  const h = d.getUTCHours();
+  return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+};
+async function buildAbbaContext(userId) {
+  const all = await storage.getAiTradeResults(userId, 500);
+  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
+  const dayStart = /* @__PURE__ */ new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const tally = (rows) => {
+    const wins2 = rows.filter((r) => r.result === "WIN").length;
+    const losses2 = rows.filter((r) => r.result === "LOSS").length;
+    const decided = wins2 + losses2;
+    return {
+      trades: rows.length,
+      wins: wins2,
+      losses: losses2,
+      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
+      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
+    };
+  };
+  const group = (rows, key) => {
+    const m = {};
+    for (const t of rows) {
+      const k = key(t) || "\u2014";
+      (m[k] = m[k] || []).push(t);
+    }
+    return Object.entries(m).map(([k, v]) => {
+      const tt = tally(v);
+      return { key: k, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
+    });
+  };
+  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
+  const wins = closed.filter((t) => t.result === "WIN");
+  const losses = closed.filter((t) => t.result === "LOSS");
+  const wk = global.mt5WeeklyStrategies?.[userId];
+  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
+  let currentProfit = wk?.currentProfit ?? 0;
+  try {
+    const ws = await storage.getWeeklyStrategy?.(userId);
+    if (ws) {
+      weeklyTarget = ws.profitTarget ?? weeklyTarget;
+      currentProfit = ws.currentProfit ?? currentProfit;
+    }
+  } catch {
+  }
+  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
+  return {
+    goal: {
+      weeklyTarget,
+      currentProfit,
+      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
+      tradingPairs
+    },
+    performance: {
+      overall: tally(closed),
+      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
+      bySource: {
+        MT5: (() => {
+          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })(),
+        TradeLocker: (() => {
+          const t = tally(closed.filter((x) => x.source === "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })()
+      },
+      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      avgConfWinners: avgConf(wins),
+      avgConfLosers: avgConf(losses)
+    },
+    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
+      symbol: (t.symbol || "").toUpperCase(),
+      direction: t.direction,
+      result: t.result,
+      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
+      conf: t.aiConfidence || 0,
+      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+      session: sessionOf(new Date(t.closedAt)),
+      when: t.closedAt
+    })),
+    brain: global.veddAIBrain?.[userId] ?? null
+  };
+}
+function contextSummary(ctx) {
+  const p = ctx.performance;
+  return [
+    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
+    `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
+    `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
+    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
+    `BY PAIR (worst\u2192best): ${p.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `BY SESSION: ${p.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
+    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
+    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
+  ].join("\n");
+}
+async function getClient(userId) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    return { client: client2, model: client2.defaultModel || "gpt-4o" };
+  } catch {
+    return null;
+  }
+}
+async function abbaStrategistHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  try {
+    const ctx = await buildAbbaContext(userId);
+    if (ctx.performance.overall.trades === 0) {
+      return res.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
+    }
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
+    const system = `You are Abba, the user's elite AI trading strategist and coach. You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. Your job: explain why results are what they are, and adapt the plan to improve accuracy and reach the weekly goal. Respond ONLY with strict JSON.`;
+    const prompt = `Here is the trader's live data:
+
+${contextSummary(ctx)}
+
+Return JSON with EXACTLY these keys:
+{
+  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
+  "nextDayPlan": {
+    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
+    "avoidPairs": ["pairs bleeding money to pause"],
+    "bestSessions": ["sessions with the edge"],
+    "recommendedMinConfidence": <number 70-90>,
+    "sizingNote": "concrete sizing guidance",
+    "strategyFocus": "which strategy/approach to lean on and which to drop"
+  },
+  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
+  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
+  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
+  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
+}`;
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1400,
+      temperature: 0.4
+    });
+    let plan = {};
+    try {
+      plan = JSON.parse(r.choices[0]?.message?.content || "{}");
+    } catch {
+      plan = {};
+    }
+    res.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
+  } catch (err) {
+    console.error("[Abba strategist]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+async function abbaChatHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+  try {
+    const ctx = await buildAbbaContext(userId);
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
+    const system = `You are Abba, the trader's personal AI trading mentor inside the VEDD app. You can SEE their real trading data (below) \u2014 always ground answers in it, cite their actual pairs/sessions/win-rates/P&L. Teach clearly (examples + reasons), be encouraging but honest, and tie advice to reaching their weekly goal. Keep answers focused (under ~250 words) unless asked for depth. Include risk reminders where relevant; you are not a licensed financial advisor.
+
+=== TRADER'S LIVE DATA ===
+${contextSummary(ctx)}`;
+    const msgs = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
+      }
+    }
+    msgs.push({ role: "user", content: message.slice(0, 2e3) });
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: msgs,
+      max_tokens: 700,
+      temperature: 0.6
+    });
+    res.json({ reply: r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again." });
+  } catch (err) {
+    console.error("[Abba chat]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
 // server/market-insights.ts
 init_openai();
 async function generateContextualInsight(params) {
@@ -32416,7 +32735,7 @@ var lastFetchTime = 0;
 var CACHE_DURATION = 5 * 60 * 1e3;
 var telegramClient = null;
 var isConnecting = false;
-async function getClient() {
+async function getClient2() {
   const apiId = parseInt(process.env.TELEGRAM_API_ID || "0");
   const apiHash = process.env.TELEGRAM_API_HASH || "";
   if (!apiId || !apiHash) {
@@ -32447,7 +32766,7 @@ async function getClient() {
 }
 async function fetchChannelMessages(limit = 20) {
   try {
-    const client2 = await getClient();
+    const client2 = await getClient2();
     if (!client2) {
       return [];
     }
@@ -33627,9 +33946,9 @@ function buildBuyConditions(analyses, symbol) {
   const conditions = [];
   for (const analysis of analyses.slice(0, 2)) {
     if (analysis.indicators?.rsi !== void 0) {
-      const rsi2 = analysis.indicators.rsi;
-      if (rsi2 < 50) conditions.push(`rsi14 < 55`);
-      if (rsi2 > 40) conditions.push(`rsi14 > 35`);
+      const rsi3 = analysis.indicators.rsi;
+      if (rsi3 < 50) conditions.push(`rsi14 < 55`);
+      if (rsi3 > 40) conditions.push(`rsi14 > 35`);
     }
     if (analysis.direction === "BUY" || analysis.signal === "BUY") {
       conditions.push("Close[0] > ema20");
@@ -34211,19 +34530,19 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const adx = data.adx?.adx || 0;
       const plusDI = data.adx?.plusDI || 0;
       const minusDI = data.adx?.minusDI || 0;
-      const rsi2 = data.rsi?.value || 50;
+      const rsi3 = data.rsi?.value || 50;
       const macdCross = data.macd?.histogram > 0;
       const candles = data.candles || [];
       let direction = null;
       let confluences = [];
       let confidence2 = 0;
       let strategy = "rule_based";
-      if (adx > 25 && plusDI > minusDI && rsi2 < 65 && macdCross) {
+      if (adx > 25 && plusDI > minusDI && rsi3 < 65 && macdCross) {
         direction = "BUY";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
         confidence2 = 65;
         strategy = "adx_macd";
-      } else if (adx > 25 && minusDI > plusDI && rsi2 > 35 && !macdCross) {
+      } else if (adx > 25 && minusDI > plusDI && rsi3 > 35 && !macdCross) {
         direction = "SELL";
         confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
         confidence2 = 65;
@@ -38613,6 +38932,8 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
   app2.post("/api/trading-coach", tradingCoachHandler);
+  app2.get("/api/abba/strategist", abbaStrategistHandler);
+  app2.post("/api/abba/chat", abbaChatHandler);
   app2.post("/api/abba/chat", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -42240,10 +42561,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let advanced = {};
       if (indicators && typeof indicators === "object") {
         try {
-          const rsi2 = typeof indicators.rsi === "number" ? indicators.rsi : null;
+          const rsi3 = typeof indicators.rsi === "number" ? indicators.rsi : null;
           const macdMain = indicators.macd?.main;
           const macdSignal = indicators.macd?.signal;
-          const macdHist = indicators.macd?.histogram;
+          const macdHist2 = indicators.macd?.histogram;
           const ema20 = indicators.ema20;
           const ema50 = indicators.ema50;
           const sma200 = indicators.sma200;
@@ -42273,28 +42594,28 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
           let rsiSignal = "NEUTRAL";
           let rsiStatus = "";
-          if (rsi2 !== null) {
-            if (rsi2 > 70) {
+          if (rsi3 !== null) {
+            if (rsi3 > 70) {
               rsiSignal = "SELL";
               rsiStatus = "OVERBOUGHT";
               analysis.patterns.push("RSI Overbought (>70)");
               analysis.alerts.push("RSI indicates overbought conditions");
-            } else if (rsi2 < 30) {
+            } else if (rsi3 < 30) {
               rsiSignal = "BUY";
               rsiStatus = "OVERSOLD";
               analysis.patterns.push("RSI Oversold (<30)");
               analysis.alerts.push("RSI indicates oversold conditions");
-            } else if (rsi2 > 50) {
+            } else if (rsi3 > 50) {
               rsiStatus = "BULLISH";
             } else {
               rsiStatus = "BEARISH";
             }
-            analysis.indicators.rsi = { value: rsi2, status: rsiStatus, signal: rsiSignal };
+            analysis.indicators.rsi = { value: rsi3, status: rsiStatus, signal: rsiSignal };
           }
           let macdSignalDir = "NEUTRAL";
           let macdStatus = "";
-          if (macdHist !== void 0 && macdHist !== null) {
-            if (macdHist > 0) {
+          if (macdHist2 !== void 0 && macdHist2 !== null) {
+            if (macdHist2 > 0) {
               macdSignalDir = "BUY";
               macdStatus = "BULLISH";
               if (macdMain > macdSignal) {
@@ -42310,7 +42631,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             analysis.indicators.macd = {
               main: macdMain,
               signal: macdSignal,
-              histogram: macdHist,
+              histogram: macdHist2,
               status: macdStatus,
               signalDir: macdSignalDir
             };
@@ -42834,14 +43155,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 slScore -= 8;
                 slFactors.push(`Low volume - weak level (${volumeRatio.toFixed(1)}x avg)`);
               }
-              if (rsi2 !== null) {
-                if (analysis.signal === "BUY" && rsi2 > 35 && rsi2 < 65) {
+              if (rsi3 !== null) {
+                if (analysis.signal === "BUY" && rsi3 > 35 && rsi3 < 65) {
                   slScore += 8;
                   slFactors.push("RSI neutral zone - room for movement");
-                } else if (analysis.signal === "SELL" && rsi2 > 35 && rsi2 < 65) {
+                } else if (analysis.signal === "SELL" && rsi3 > 35 && rsi3 < 65) {
                   slScore += 8;
                   slFactors.push("RSI neutral zone - room for movement");
-                } else if (analysis.signal === "BUY" && rsi2 < 25 || analysis.signal === "SELL" && rsi2 > 75) {
+                } else if (analysis.signal === "BUY" && rsi3 < 25 || analysis.signal === "SELL" && rsi3 > 75) {
                   slScore += 5;
                   slFactors.push("RSI extreme - reversal likely near SL");
                 }
@@ -42885,10 +43206,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 tpScore -= 10;
                 tpFactors.push(`Poor R:R (${rr.toFixed(1)}:1) - unfavorable`);
               }
-              if (macdHist !== void 0 && macdHist !== null) {
-                const momentumDir = macdHist > 0 ? "BUY" : "SELL";
+              if (macdHist2 !== void 0 && macdHist2 !== null) {
+                const momentumDir = macdHist2 > 0 ? "BUY" : "SELL";
                 if (momentumDir === analysis.signal) {
-                  const histStrength = Math.abs(macdHist);
+                  const histStrength = Math.abs(macdHist2);
                   if (histStrength > 0) {
                     tpScore += 12;
                     tpFactors.push("MACD momentum supports move to TP");
@@ -42980,18 +43301,18 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 trailScore += 3;
                 trailFactors.push("Moderate volatility");
               }
-              if (rsi2 !== null) {
-                if (analysis.signal === "BUY" && rsi2 >= 60 && rsi2 <= 75) {
+              if (rsi3 !== null) {
+                if (analysis.signal === "BUY" && rsi3 >= 60 && rsi3 <= 75) {
                   trailScore += 10;
                   trailFactors.push("RSI bullish momentum supports trailing");
-                } else if (analysis.signal === "SELL" && rsi2 >= 25 && rsi2 <= 40) {
+                } else if (analysis.signal === "SELL" && rsi3 >= 25 && rsi3 <= 40) {
                   trailScore += 10;
                   trailFactors.push("RSI bearish momentum supports trailing");
-                } else if (analysis.signal === "BUY" && rsi2 > 75) {
+                } else if (analysis.signal === "BUY" && rsi3 > 75) {
                   trailScore -= 5;
                   trailRecommendation = "AGGRESSIVE";
                   trailFactors.push("RSI overbought - tighten trail, exit pressure likely");
-                } else if (analysis.signal === "SELL" && rsi2 < 25) {
+                } else if (analysis.signal === "SELL" && rsi3 < 25) {
                   trailScore -= 5;
                   trailRecommendation = "AGGRESSIVE";
                   trailFactors.push("RSI oversold - tighten trail, bounce likely");
@@ -43005,11 +43326,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 trailRecommendation = "TIGHT";
                 trailFactors.push("Volume fading - tighten trail");
               }
-              if (macdHist !== void 0 && macdHist !== null) {
+              if (macdHist2 !== void 0 && macdHist2 !== null) {
                 const prevHist = indicators.macd?.prevHistogram;
                 if (prevHist !== void 0) {
-                  const histGrowing = Math.abs(macdHist) > Math.abs(prevHist);
-                  if (histGrowing && (macdHist > 0 && analysis.signal === "BUY" || macdHist < 0 && analysis.signal === "SELL")) {
+                  const histGrowing = Math.abs(macdHist2) > Math.abs(prevHist);
+                  if (histGrowing && (macdHist2 > 0 && analysis.signal === "BUY" || macdHist2 < 0 && analysis.signal === "SELL")) {
                     trailScore += 10;
                     trailFactors.push("MACD expanding - momentum growing, widen trail");
                     if (trailRecommendation === "TIGHT") trailRecommendation = "STANDARD";
@@ -43912,8 +44233,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const utcH = now.getUTCHours();
                 const confirmSession = utcH < 7 ? "Asian" : utcH < 13 ? "London" : "NY";
                 const ind = analysis.indicators || {};
-                const macdHist = ind.macd?.histogram ?? ind.macdHistogram ?? null;
-                const macdDir = macdHist === null ? "NEUTRAL" : macdHist > 0 ? "BULLISH" : "BEARISH";
+                const macdHist2 = ind.macd?.histogram ?? ind.macdHistogram ?? null;
+                const macdDir = macdHist2 === null ? "NEUTRAL" : macdHist2 > 0 ? "BULLISH" : "BEARISH";
                 const htfAlignedFlag = htfLevels.length > 0 ? htfLevels.every((tf) => {
                   if (!tf.candles || tf.candles.length < 2) return true;
                   const last = tf.candles[0].c;
@@ -48390,13 +48711,13 @@ Format each recommendation as a clear, concise action item.`;
         }
         return Object.entries(m).map(([k, v]) => ({ key: k, ...v, pnl: Math.round(v.pnl * 100) / 100 }));
       };
-      const sessionOf = (t) => {
+      const sessionOf2 = (t) => {
         const h = new Date(t.closedAt).getUTCHours();
         return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
       };
       const byPair = groupPnl((t) => (t.symbol || "").toUpperCase()).sort((a, b) => a.pnl - b.pnl);
       const bySource = groupPnl((t) => t.source === "tradelocker" ? "TradeLocker" : "MT5").sort((a, b) => a.pnl - b.pnl);
-      const bySession = groupPnl(sessionOf).sort((a, b) => a.pnl - b.pnl);
+      const bySession = groupPnl(sessionOf2).sort((a, b) => a.pnl - b.pnl);
       const biggestLoss = losses.slice().sort((a, b) => (a.profitLoss || 0) - (b.profitLoss || 0))[0];
       const reasons = [];
       reasons.push(`${today.length} trades closed today \u2014 ${wins.length}W / ${losses.length}L (${winRate2}% win rate), net ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}.`);
@@ -48487,7 +48808,7 @@ Format each recommendation as a clear, concise action item.`;
         const candles = getBestCandles(sym);
         const latest = candles[0];
         const atr = latest?.atr || null;
-        const rsi2 = latest?.rsi || null;
+        const rsi3 = latest?.rsi || null;
         const trend = latest?.trend || null;
         const close = latest?.c || latest?.close || null;
         let vpData = {};
@@ -48519,7 +48840,7 @@ Format each recommendation as a clear, concise action item.`;
           ...cleanKnowledge,
           currentPrice: pairData?.price || close || null,
           atr,
-          rsi: rsi2,
+          rsi: rsi3,
           trend,
           hasOpenPosition: hasOpenPos,
           volumeProfile: vpData.poc ? vpData : void 0,
@@ -49332,11 +49653,11 @@ Respond with ONLY valid JSON:
       }, computeEMA2 = function(closes2, i, period) {
         if (i < period - 1) return closes2[i];
         const k = 2 / (period + 1);
-        let ema2 = closes2[i - period + 1];
+        let ema3 = closes2[i - period + 1];
         for (let j = i - period + 2; j <= i; j++) {
-          ema2 = closes2[j] * k + ema2 * (1 - k);
+          ema3 = closes2[j] * k + ema3 * (1 - k);
         }
-        return ema2;
+        return ema3;
       };
       var computeRSI = computeRSI2, computeEMA = computeEMA2;
       let bars = [];
@@ -49423,16 +49744,16 @@ Respond with ONLY valid JSON:
           }
           continue;
         }
-        const rsi2 = computeRSI2(closes, i);
+        const rsi3 = computeRSI2(closes, i);
         const prevRsi = computeRSI2(closes, i - 1);
         const ema10 = computeEMA2(closes, i, 10);
         const ema20 = computeEMA2(closes, i, 20);
         let signal = null;
         const rsiThresholdLow = mode === "sniper" ? 30 : 35;
         const rsiThresholdHigh = mode === "sniper" ? 70 : 65;
-        if (rsi2 < rsiThresholdLow && ema10 > ema20 || rsi2 > 40 && prevRsi <= 40 && ema10 > ema20) {
+        if (rsi3 < rsiThresholdLow && ema10 > ema20 || rsi3 > 40 && prevRsi <= 40 && ema10 > ema20) {
           signal = "BUY";
-        } else if (rsi2 > rsiThresholdHigh && ema10 < ema20 || rsi2 < 60 && prevRsi >= 60 && ema10 < ema20) {
+        } else if (rsi3 > rsiThresholdHigh && ema10 < ema20 || rsi3 < 60 && prevRsi >= 60 && ema10 < ema20) {
           signal = "SELL";
         }
         if (!signal) {
