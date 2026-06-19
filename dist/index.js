@@ -6004,6 +6004,7 @@ __export(openai_exports, {
   getUserModelPreference: () => getUserModelPreference,
   hydrateAiVisionMap: () => hydrateAiVisionMap,
   hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
+  inferModelProvider: () => inferModelProvider,
   isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
   isBreakoutModeEnabled: () => isBreakoutModeEnabled,
   isICTStrategyEnabled: () => isICTStrategyEnabled,
@@ -6231,6 +6232,15 @@ function getUserModelPreference(userId) {
 function getModelProvider(modelId) {
   const model = AVAILABLE_VISION_MODELS.find((m) => m.id === modelId);
   return model?.provider || "openai";
+}
+function inferModelProvider(modelId) {
+  const m = (modelId || "").toLowerCase();
+  if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("chatgpt")) return "openai";
+  if (m.startsWith("claude")) return "anthropic";
+  if (m.startsWith("gemini")) return "google";
+  if (m.startsWith("mistral") || m.startsWith("mixtral") || m.startsWith("magistral")) return "mistral";
+  if (m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
+  return getModelProvider(modelId);
 }
 function resolveVisionModel(modelId) {
   const model = AVAILABLE_VISION_MODELS.find((m) => m.id === modelId);
@@ -7705,7 +7715,29 @@ async function getUniversalAIClientForUser(userId) {
     const aiCostMode = user?.aiCostMode || "full";
     if (aiCostMode === "economy") {
       const allKeys2 = await storage2.getUserApiKeys(userId);
-      const groqKey = allKeys2.find((k) => k.provider === "groq" && k.isActive && k.isValid !== false);
+      const activeEcoKeys = allKeys2.filter((k) => k.isActive && k.isValid !== false);
+      const selModel = getUserModelPreference(userId);
+      const selProvider = inferModelProvider(selModel);
+      if (selProvider && selProvider !== "groq") {
+        const k = activeEcoKeys.find((x) => x.provider === selProvider);
+        if (k?.apiKey) {
+          try {
+            await storage2.updateUserApiKeyUsage(userId, selProvider);
+            console.log(`[AI] Economy mode, but honoring user's selected ${selModel} (${selProvider})`);
+            if (selProvider === "openai") {
+              const c = new OpenAI({ apiKey: k.apiKey });
+              c.defaultModel = selModel;
+              c.provider = "openai";
+              return c;
+            }
+            if (selProvider === "anthropic") return new AnthropicAsOpenAI(k.apiKey);
+            return buildOpenAICompatClient(selProvider, k.apiKey);
+          } catch (e) {
+            console.error(`[AI] Economy honor-selected ${selProvider} failed, trying Groq:`, e);
+          }
+        }
+      }
+      const groqKey = activeEcoKeys.find((k) => k.provider === "groq");
       const client2 = await buildGroqEconomyClient(groqKey?.apiKey);
       if (client2) {
         console.log(`[AI] Economy mode active for user ${userId} \u2014 routing to Groq Llama 3.3-70b`);
@@ -7722,7 +7754,8 @@ async function getUniversalAIClientForUser(userId) {
         await storage2.updateUserApiKeyUsage(userId, provider);
         if (provider === "openai") {
           const client2 = new OpenAI({ apiKey: key.apiKey });
-          client2.defaultModel = PROVIDER_MODELS.openai;
+          const sel = getUserModelPreference(userId);
+          client2.defaultModel = inferModelProvider(sel) === "openai" ? sel : PROVIDER_MODELS.openai;
           client2.provider = "openai";
           return client2;
         }

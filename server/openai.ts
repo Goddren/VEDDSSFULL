@@ -284,6 +284,18 @@ function getModelProvider(modelId: string): string {
   return model?.provider || 'openai';
 }
 
+// Infer the provider from a model id by prefix (robust for any model, not just the
+// vision registry). Used so a user's selected model routes to the right provider.
+export function inferModelProvider(modelId: string): string {
+  const m = (modelId || '').toLowerCase();
+  if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4') || m.startsWith('chatgpt')) return 'openai';
+  if (m.startsWith('claude')) return 'anthropic';
+  if (m.startsWith('gemini')) return 'google';
+  if (m.startsWith('mistral') || m.startsWith('mixtral') || m.startsWith('magistral')) return 'mistral';
+  if (m.includes('llama') || m.includes('groq') || m.includes('gemma') || m.includes('qwen') || m.includes('deepseek')) return 'groq';
+  return getModelProvider(modelId);
+}
+
 // Text-only models cannot process chart images — auto-swap to a vision-capable model
 const VISION_FALLBACK: Record<string, string> = {
   'groq': 'meta-llama/llama-4-scout-17b-16e-instruct',
@@ -2241,9 +2253,36 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     const aiCostMode = user?.aiCostMode || 'full';
 
     if (aiCostMode === 'economy') {
-      // Economy mode: route to Groq Llama 3.3-70b (free, text tasks)
       const allKeys = await storage.getUserApiKeys(userId);
-      const groqKey = allKeys.find(k => k.provider === 'groq' && k.isActive && k.isValid !== false);
+      const activeEcoKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
+
+      // Honor an explicitly-selected non-Groq model. If the user picked GPT / Claude /
+      // Gemini and has that provider's key, USE it — selecting a model should actually
+      // use it, even in economy mode. (Was: always forced Groq, so picking GPT still
+      // hit Groq and surfaced Groq errors.) Falls back to Groq only when appropriate.
+      const selModel = getUserModelPreference(userId);
+      const selProvider = inferModelProvider(selModel);
+      if (selProvider && selProvider !== 'groq') {
+        const k = activeEcoKeys.find(x => x.provider === selProvider);
+        if (k?.apiKey) {
+          try {
+            await storage.updateUserApiKeyUsage(userId, selProvider);
+            console.log(`[AI] Economy mode, but honoring user's selected ${selModel} (${selProvider})`);
+            if (selProvider === 'openai') {
+              const c = new OpenAI({ apiKey: k.apiKey }) as any;
+              c.defaultModel = selModel; c.provider = 'openai';
+              return c as UniversalAIClient;
+            }
+            if (selProvider === 'anthropic') return new AnthropicAsOpenAI(k.apiKey);
+            return buildOpenAICompatClient(selProvider, k.apiKey);
+          } catch (e) {
+            console.error(`[AI] Economy honor-selected ${selProvider} failed, trying Groq:`, e);
+          }
+        }
+      }
+
+      // Otherwise route to free Groq Llama (cost-saving default)
+      const groqKey = activeEcoKeys.find(k => k.provider === 'groq');
       const client = await buildGroqEconomyClient(groqKey?.apiKey);
       if (client) {
         console.log(`[AI] Economy mode active for user ${userId} — routing to Groq Llama 3.3-70b`);
@@ -2265,7 +2304,9 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
         await storage.updateUserApiKeyUsage(userId, provider);
         if (provider === 'openai') {
           const client = new OpenAI({ apiKey: key.apiKey }) as any;
-          client.defaultModel = PROVIDER_MODELS.openai;
+          // Use the user's actually-selected GPT model when they picked one
+          const sel = getUserModelPreference(userId);
+          client.defaultModel = inferModelProvider(sel) === 'openai' ? sel : PROVIDER_MODELS.openai;
           client.provider = 'openai';
           return client as UniversalAIClient;
         }
