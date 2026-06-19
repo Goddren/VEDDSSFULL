@@ -227,7 +227,7 @@ let _openaiInstance: OpenAI | null = null;
 export function getDefaultOpenAIClient(): OpenAI {
   if (!_openaiInstance) {
     const apiKey = process.env.OPENAI_API_KEY || 'not-configured';
-    const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey };
+    const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey, maxRetries: 4, timeout: 90000 };
     _openaiInstance = new OpenAI(opts);
   }
   return _openaiInstance;
@@ -2105,7 +2105,7 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
 // Function to get an OpenAI instance - optionally using a user's own API key
 function getOpenAIInstance(userApiKey?: string) {
   if (userApiKey) {
-    return new OpenAI({ apiKey: userApiKey });
+    return new OpenAI({ apiKey: userApiKey, maxRetries: 4, timeout: 90000 });
   }
   return openai;
 }
@@ -2205,7 +2205,9 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
     google: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     mistral: 'https://api.mistral.ai/v1',
   };
-  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider] });
+  // maxRetries handles transient "invalid response body while trying to fetch" /
+  // connection drops (the SDK retries APIConnectionError); timeout caps hangs.
+  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 90000 });
   const wrapper = client as any;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
@@ -2329,7 +2331,7 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
         const apiKey = keyFor(provider);
         if (!apiKey) continue;
         if (provider === 'openai') {
-          const c = new OpenAI({ apiKey }) as any;
+          const c = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 }) as any;
           c.defaultModel = inferModelProvider(selModel) === 'openai' ? selModel : PROVIDER_MODELS.openai;
           c.provider = 'openai';
           clients.push(c as UniversalAIClient);
@@ -2347,7 +2349,7 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     // so even if every user key errors, the request still gets served.
     try {
       if (process.env.OPENAI_API_KEY) {
-        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) as any;
+        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 }) as any;
         plat.defaultModel = 'gpt-4o'; plat.provider = 'openai-platform';
         clients.push(plat as UniversalAIClient);
       }
@@ -2400,7 +2402,7 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
           return new AnthropicAsOpenAI(key.apiKey);
         }
         if (provider === 'openai') {
-          const client = new OpenAI({ apiKey: key.apiKey }) as any;
+          const client = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 90000 }) as any;
           client.defaultModel = 'gpt-4o';
           client.provider = 'openai';
           console.log(`[AI Vision] Using OpenAI GPT-4o for chart analysis (user ${userId})`);
@@ -3527,7 +3529,7 @@ export async function generateSocialOutreachKit(
   if (!resolvedApiKey) {
     throw new Error('No OpenAI API key available. Please add your OpenAI key in Settings → API Keys.');
   }
-  const openai = new OpenAI({ apiKey: resolvedApiKey });
+  const openai = new OpenAI({ apiKey: resolvedApiKey, maxRetries: 4, timeout: 90000 });
 
   const encodedKeywords = encodeURIComponent(keywords);
   const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace('#', '') || 'trading';
@@ -3592,7 +3594,7 @@ export async function enrichLeadWithAI(lead: {
   suggestedOpener: string;
   summary: string;
 }> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
 
   const answersText = lead.answers && lead.answers.length > 0
     ? `Quiz answers: ${lead.answers.map(a => `Q${a.questionId}: ${a.answer}`).join(', ')}`
@@ -3685,7 +3687,7 @@ export async function generateVeddBlogPost(topic?: string, userId?: number): Pro
     } catch { /* fall through to env key */ }
   }
   if (!apiKey) throw new Error("No OpenAI API key configured. Please add your OpenAI key in AI Settings.");
-  const openai = new OpenAI({ apiKey });
+  const openai = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 });
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -3816,7 +3818,7 @@ export async function generateDailyDevotional(date: string): Promise<{
   tradingTieIn: string;
 }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 });
 
   const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
 
@@ -3932,7 +3934,7 @@ Return a JSON object with exactly this structure:
 Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
 
   try {
-    const aiClient = client || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const aiClient = client || new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
     const response = await (aiClient as any).chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -4080,7 +4082,7 @@ Respond with this exact JSON structure:
 }`;
 
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [

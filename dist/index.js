@@ -6211,7 +6211,7 @@ function getAssetSpecificPrompt(symbol) {
 function getDefaultOpenAIClient() {
   if (!_openaiInstance) {
     const apiKey = process.env.OPENAI_API_KEY || "not-configured";
-    const opts = { apiKey };
+    const opts = { apiKey, maxRetries: 4, timeout: 9e4 };
     _openaiInstance = new OpenAI(opts);
   }
   return _openaiInstance;
@@ -7666,7 +7666,7 @@ ${breakoutResult.summary}`,
 }
 function getOpenAIInstance(userApiKey) {
   if (userApiKey) {
-    return new OpenAI({ apiKey: userApiKey });
+    return new OpenAI({ apiKey: userApiKey, maxRetries: 4, timeout: 9e4 });
   }
   return openai;
 }
@@ -7676,7 +7676,7 @@ function buildOpenAICompatClient(provider, apiKey) {
     google: "https://generativelanguage.googleapis.com/v1beta/openai/",
     mistral: "https://api.mistral.ai/v1"
   };
-  const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider] });
+  const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4 });
   const wrapper = client2;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
@@ -7768,7 +7768,7 @@ async function getUniversalAIClientForUser(userId) {
         const apiKey = keyFor(provider);
         if (!apiKey) continue;
         if (provider === "openai") {
-          const c = new OpenAI({ apiKey });
+          const c = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
           c.defaultModel = inferModelProvider(selModel) === "openai" ? selModel : PROVIDER_MODELS.openai;
           c.provider = "openai";
           clients.push(c);
@@ -7783,7 +7783,7 @@ async function getUniversalAIClientForUser(userId) {
     }
     try {
       if (process.env.OPENAI_API_KEY) {
-        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
         plat.defaultModel = "gpt-4o";
         plat.provider = "openai-platform";
         clients.push(plat);
@@ -7830,7 +7830,7 @@ async function getUniversalVisionClientForUser(userId) {
           return new AnthropicAsOpenAI(key.apiKey);
         }
         if (provider === "openai") {
-          const client2 = new OpenAI({ apiKey: key.apiKey });
+          const client2 = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 9e4 });
           client2.defaultModel = "gpt-4o";
           client2.provider = "openai";
           console.log(`[AI Vision] Using OpenAI GPT-4o for chart analysis (user ${userId})`);
@@ -8719,7 +8719,7 @@ async function generateSocialOutreachKit(platform, keywords, ambassadorName, use
   if (!resolvedApiKey) {
     throw new Error("No OpenAI API key available. Please add your OpenAI key in Settings \u2192 API Keys.");
   }
-  const openai2 = new OpenAI({ apiKey: resolvedApiKey });
+  const openai2 = new OpenAI({ apiKey: resolvedApiKey, maxRetries: 4, timeout: 9e4 });
   const encodedKeywords = encodeURIComponent(keywords);
   const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace("#", "") || "trading";
   const systemPrompt = `You are a social media lead generation expert for VEDD Trading AI \u2014 a fintech/forex/crypto trading education platform with AI signal tools, an ambassador program, and Solana token investments. You help ambassadors find and convert prospects into VEDD subscribers.`;
@@ -8767,7 +8767,7 @@ Pre-generate the URLs using encoded versions of: "${encodedKeywords}" and hashta
   }
 }
 async function enrichLeadWithAI(lead) {
-  const openai2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
   const answersText = lead.answers && lead.answers.length > 0 ? `Quiz answers: ${lead.answers.map((a) => `Q${a.questionId}: ${a.answer}`).join(", ")}` : "No quiz answers provided.";
   const bioText = lead.bioSnippet ? `Bio/Profile snippet: "${lead.bioSnippet}"` : "No bio provided.";
   const platformText = lead.platform ? `Found on: ${lead.platform}` : "";
@@ -8832,7 +8832,7 @@ async function generateVeddBlogPost(topic, userId) {
     }
   }
   if (!apiKey) throw new Error("No OpenAI API key configured. Please add your OpenAI key in AI Settings.");
-  const openai2 = new OpenAI({ apiKey });
+  const openai2 = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
   const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   let chosenTopic;
   let currentEventsContext;
@@ -8937,7 +8937,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
 }
 async function generateDailyDevotional(date) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const client2 = new OpenAI({ apiKey });
+  const client2 = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
   const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
 
 Generate a daily devotional for ambassadors and users that:
@@ -9026,7 +9026,7 @@ Return a JSON object with exactly this structure:
 
 Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
   try {
-    const aiClient = client2 || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const aiClient = client2 || new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
     const response = await aiClient.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -9142,7 +9142,7 @@ Respond with this exact JSON structure:
   "note": "<2-3 sentence SS AI Bot summary \u2014 specific to this exact setup, mention the symbol, key level, and what to watch for on the retest>"
 }`;
   try {
-    const client2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
     const completion = await client2.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -22444,7 +22444,9 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
         const OpenAI5 = (await import("openai")).default;
         const groqClient = new OpenAI5({
           apiKey: process.env.GROQ_API_KEY,
-          baseURL: "https://api.groq.com/openai/v1"
+          baseURL: "https://api.groq.com/openai/v1",
+          maxRetries: 4,
+          timeout: 9e4
         });
         groqClient.defaultModel = "llama-3.3-70b-versatile";
         openai2 = groqClient;
@@ -27750,7 +27752,7 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
         const OpenAI5 = (await import("openai")).default;
-        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
+        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         openai2.defaultModel = "llama-3.3-70b-versatile";
         modelLabel = "Groq Llama";
         addActivity3(state, {
@@ -34766,7 +34768,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
       const OpenAI5 = (await import("openai")).default;
-      const groq = new OpenAI5({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1" });
+      const groq = new OpenAI5({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
       groq.defaultModel = "llama-3.3-70b-versatile";
       openai2 = groq;
       _usingGroq = true;

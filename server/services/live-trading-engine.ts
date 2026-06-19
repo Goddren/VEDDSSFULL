@@ -2415,6 +2415,8 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
         const groqClient = new OpenAI({
           apiKey: process.env.GROQ_API_KEY,
           baseURL: 'https://api.groq.com/openai/v1',
+          maxRetries: 4,
+          timeout: 90000,
         });
         (groqClient as any).defaultModel = 'llama-3.3-70b-versatile';
         openai = groqClient;

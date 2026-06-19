@@ -1120,7 +1120,7 @@ async function runSolAIReview(
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
         const OpenAI = (await import('openai')).default;
-        openai = new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1' });
+        openai = new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 });
         (openai as any).defaultModel = 'llama-3.3-70b-versatile';
         modelLabel = 'Groq Llama';
         addActivity(state, {
