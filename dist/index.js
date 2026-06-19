@@ -7682,6 +7682,43 @@ function buildOpenAICompatClient(provider, apiKey) {
   wrapper.provider = provider;
   return wrapper;
 }
+function isFailoverError(e) {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || status >= 500 && status < 600) return true;
+  const msg = (e?.message || "").toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
+}
+function makeFailoverClient(clients) {
+  const primary = clients[0];
+  if (clients.length === 1) return primary;
+  return {
+    defaultModel: primary.defaultModel,
+    provider: primary.provider,
+    chat: {
+      completions: {
+        create: async (params) => {
+          let lastErr;
+          for (let i = 0; i < clients.length; i++) {
+            const c = clients[i];
+            const p = { ...params };
+            if (i > 0 && c.defaultModel) p.model = c.defaultModel;
+            try {
+              return await c.chat.completions.create(p);
+            } catch (e) {
+              lastErr = e;
+              if (isFailoverError(e) && i < clients.length - 1) {
+                console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
+                continue;
+              }
+              throw e;
+            }
+          }
+          throw lastErr;
+        }
+      }
+    }
+  };
+}
 async function buildGroqEconomyClient(userGroqKey) {
   const apiKey = userGroqKey || process.env.GROQ_API_KEY;
   if (!apiKey) return null;
@@ -7713,59 +7750,48 @@ async function getUniversalAIClientForUser(userId) {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
     const user = await storage2.getUser(userId);
     const aiCostMode = user?.aiCostMode || "full";
-    if (aiCostMode === "economy") {
-      const allKeys2 = await storage2.getUserApiKeys(userId);
-      const activeEcoKeys = allKeys2.filter((k) => k.isActive && k.isValid !== false);
-      const selModel = getUserModelPreference(userId);
-      const selProvider = inferModelProvider(selModel);
-      if (selProvider && selProvider !== "groq") {
-        const k = activeEcoKeys.find((x) => x.provider === selProvider);
-        if (k?.apiKey) {
-          try {
-            await storage2.updateUserApiKeyUsage(userId, selProvider);
-            console.log(`[AI] Economy mode, but honoring user's selected ${selModel} (${selProvider})`);
-            if (selProvider === "openai") {
-              const c = new OpenAI({ apiKey: k.apiKey });
-              c.defaultModel = selModel;
-              c.provider = "openai";
-              return c;
-            }
-            if (selProvider === "anthropic") return new AnthropicAsOpenAI(k.apiKey);
-            return buildOpenAICompatClient(selProvider, k.apiKey);
-          } catch (e) {
-            console.error(`[AI] Economy honor-selected ${selProvider} failed, trying Groq:`, e);
-          }
-        }
-      }
-      const groqKey = activeEcoKeys.find((k) => k.provider === "groq");
-      const client2 = await buildGroqEconomyClient(groqKey?.apiKey);
-      if (client2) {
-        console.log(`[AI] Economy mode active for user ${userId} \u2014 routing to Groq Llama 3.3-70b`);
-        return client2;
-      }
-      console.log(`[AI] Economy mode requested but no Groq key found for user ${userId} \u2014 falling through to normal priority`);
-    }
     const allKeys = await storage2.getUserApiKeys(userId);
     const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
-    for (const provider of PROVIDER_PRIORITY) {
-      const key = activeKeys.find((k) => k.provider === provider);
-      if (!key?.apiKey) continue;
+    const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+    const order = [];
+    if (aiCostMode === "economy") {
+      if (selProvider !== "groq" && keyFor(selProvider)) order.push(selProvider);
+      order.push("groq");
+    } else if (keyFor(selProvider)) {
+      order.push(selProvider);
+    }
+    for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
+    const clients = [];
+    for (const provider of order) {
       try {
-        await storage2.updateUserApiKeyUsage(userId, provider);
+        if (provider === "groq") {
+          const c = await buildGroqEconomyClient(keyFor("groq"));
+          if (c) clients.push(c);
+          continue;
+        }
+        const apiKey = keyFor(provider);
+        if (!apiKey) continue;
         if (provider === "openai") {
-          const client2 = new OpenAI({ apiKey: key.apiKey });
-          const sel = getUserModelPreference(userId);
-          client2.defaultModel = inferModelProvider(sel) === "openai" ? sel : PROVIDER_MODELS.openai;
-          client2.provider = "openai";
-          return client2;
+          const c = new OpenAI({ apiKey });
+          c.defaultModel = inferModelProvider(selModel) === "openai" ? selModel : PROVIDER_MODELS.openai;
+          c.provider = "openai";
+          clients.push(c);
+        } else if (provider === "anthropic") {
+          clients.push(new AnthropicAsOpenAI(apiKey));
+        } else {
+          clients.push(buildOpenAICompatClient(provider, apiKey));
         }
-        if (provider === "anthropic") {
-          return new AnthropicAsOpenAI(key.apiKey);
-        }
-        return buildOpenAICompatClient(provider, key.apiKey);
       } catch (e) {
-        console.error(`[AI] Failed to build ${provider} client, trying next provider:`, e);
+        console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
       }
+    }
+    if (clients.length) {
+      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
+      });
+      console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
+      return makeFailoverClient(clients);
     }
   } catch (e) {
     console.error("Error fetching user API keys, falling back to platform key:", e);

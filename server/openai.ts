@@ -2214,6 +2214,49 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
 // Provider selection priority
 const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral'];
 
+// Is an AI error worth failing over to another provider? (429 rate-limit/quota, 5xx, transient)
+function isFailoverError(e: any): boolean {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || (status >= 500 && status < 600)) return true;
+  const msg = (e?.message || '').toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
+}
+
+// Wrap an ordered list of provider clients so chat.completions.create automatically
+// fails over to the next provider on a 429 / rate-limit / 5xx / transient error.
+// Each fallback uses its own provider's default model. Non-retryable errors bubble.
+function makeFailoverClient(clients: UniversalAIClient[]): UniversalAIClient {
+  const primary: any = clients[0];
+  if (clients.length === 1) return primary;
+  return {
+    defaultModel: primary.defaultModel,
+    provider: primary.provider,
+    chat: {
+      completions: {
+        create: async (params: any) => {
+          let lastErr: any;
+          for (let i = 0; i < clients.length; i++) {
+            const c: any = clients[i];
+            const p = { ...params };
+            if (i > 0 && c.defaultModel) p.model = c.defaultModel; // fallback provider needs its own model
+            try {
+              return await c.chat.completions.create(p);
+            } catch (e: any) {
+              lastErr = e;
+              if (isFailoverError(e) && i < clients.length - 1) {
+                console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${(clients[i + 1] as any).provider}`);
+                continue;
+              }
+              throw e;
+            }
+          }
+          throw lastErr;
+        },
+      },
+    },
+  } as any as UniversalAIClient;
+}
+
 // Build a Groq client for economy mode (text tasks)
 async function buildGroqEconomyClient(userGroqKey?: string): Promise<UniversalAIClient | null> {
   const apiKey = userGroqKey || process.env.GROQ_API_KEY;
@@ -2252,71 +2295,54 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     const user = await storage.getUser(userId);
     const aiCostMode = user?.aiCostMode || 'full';
 
+    const allKeys = await storage.getUserApiKeys(userId);
+    const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
+    const keyFor = (p: string) => activeKeys.find(k => k.provider === p)?.apiKey;
+
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+
+    // Build an ORDERED provider list: the chosen provider first, then the rest as
+    // automatic failover. If the primary 429s / rate-limits / errors, the wrapper
+    // transparently retries the next provider so features keep working.
+    const order: string[] = [];
     if (aiCostMode === 'economy') {
-      const allKeys = await storage.getUserApiKeys(userId);
-      const activeEcoKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
+      if (selProvider !== 'groq' && keyFor(selProvider)) order.push(selProvider);
+      order.push('groq'); // free tier as the economy default / failover
+    } else if (keyFor(selProvider)) {
+      order.push(selProvider);
+    }
+    for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
 
-      // Honor an explicitly-selected non-Groq model. If the user picked GPT / Claude /
-      // Gemini and has that provider's key, USE it — selecting a model should actually
-      // use it, even in economy mode. (Was: always forced Groq, so picking GPT still
-      // hit Groq and surfaced Groq errors.) Falls back to Groq only when appropriate.
-      const selModel = getUserModelPreference(userId);
-      const selProvider = inferModelProvider(selModel);
-      if (selProvider && selProvider !== 'groq') {
-        const k = activeEcoKeys.find(x => x.provider === selProvider);
-        if (k?.apiKey) {
-          try {
-            await storage.updateUserApiKeyUsage(userId, selProvider);
-            console.log(`[AI] Economy mode, but honoring user's selected ${selModel} (${selProvider})`);
-            if (selProvider === 'openai') {
-              const c = new OpenAI({ apiKey: k.apiKey }) as any;
-              c.defaultModel = selModel; c.provider = 'openai';
-              return c as UniversalAIClient;
-            }
-            if (selProvider === 'anthropic') return new AnthropicAsOpenAI(k.apiKey);
-            return buildOpenAICompatClient(selProvider, k.apiKey);
-          } catch (e) {
-            console.error(`[AI] Economy honor-selected ${selProvider} failed, trying Groq:`, e);
-          }
+    const clients: UniversalAIClient[] = [];
+    for (const provider of order) {
+      try {
+        if (provider === 'groq') {
+          const c = await buildGroqEconomyClient(keyFor('groq')); // uses platform key if user has none
+          if (c) clients.push(c);
+          continue;
         }
+        const apiKey = keyFor(provider);
+        if (!apiKey) continue;
+        if (provider === 'openai') {
+          const c = new OpenAI({ apiKey }) as any;
+          c.defaultModel = inferModelProvider(selModel) === 'openai' ? selModel : PROVIDER_MODELS.openai;
+          c.provider = 'openai';
+          clients.push(c as UniversalAIClient);
+        } else if (provider === 'anthropic') {
+          clients.push(new AnthropicAsOpenAI(apiKey));
+        } else {
+          clients.push(buildOpenAICompatClient(provider, apiKey));
+        }
+      } catch (e) {
+        console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
       }
-
-      // Otherwise route to free Groq Llama (cost-saving default)
-      const groqKey = activeEcoKeys.find(k => k.provider === 'groq');
-      const client = await buildGroqEconomyClient(groqKey?.apiKey);
-      if (client) {
-        console.log(`[AI] Economy mode active for user ${userId} — routing to Groq Llama 3.3-70b`);
-        return client;
-      }
-      console.log(`[AI] Economy mode requested but no Groq key found for user ${userId} — falling through to normal priority`);
     }
 
-    const allKeys = await storage.getUserApiKeys(userId);
-    // Include active keys, but skip ones that have been validated and confirmed invalid.
-    // Keys that have never been validated (lastValidated is null) still get a try.
-    // Skip keys explicitly marked invalid (false). null = never validated → still try it.
-    const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
-
-    for (const provider of PROVIDER_PRIORITY) {
-      const key = activeKeys.find(k => k.provider === provider);
-      if (!key?.apiKey) continue;
-      try {
-        await storage.updateUserApiKeyUsage(userId, provider);
-        if (provider === 'openai') {
-          const client = new OpenAI({ apiKey: key.apiKey }) as any;
-          // Use the user's actually-selected GPT model when they picked one
-          const sel = getUserModelPreference(userId);
-          client.defaultModel = inferModelProvider(sel) === 'openai' ? sel : PROVIDER_MODELS.openai;
-          client.provider = 'openai';
-          return client as UniversalAIClient;
-        }
-        if (provider === 'anthropic') {
-          return new AnthropicAsOpenAI(key.apiKey);
-        }
-        return buildOpenAICompatClient(provider, key.apiKey);
-      } catch (e) {
-        console.error(`[AI] Failed to build ${provider} client, trying next provider:`, e);
-      }
+    if (clients.length) {
+      storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
+      console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')}`);
+      return makeFailoverClient(clients);
     }
   } catch (e) {
     console.error('Error fetching user API keys, falling back to platform key:', e);
