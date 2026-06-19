@@ -52,9 +52,9 @@ export const AVAILABLE_TRADING_MODELS: AIModelProvider[] = [
   },
   {
     id: 'groq-llama',
-    name: 'LLaMA 3.3 70B (Groq)',
+    name: 'GPT-OSS 120B (Groq)',
     provider: 'groq',
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     strengths: ['Extremely fast inference', 'Good for rapid decisions'],
     bestFor: ['scalping', 'compound', 'ict_fvg'],
   },
