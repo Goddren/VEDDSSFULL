@@ -2124,7 +2124,7 @@ export interface UniversalAIClient {
 
 const PROVIDER_MODELS: Record<string, string> = {
   openai: 'gpt-4o',
-  groq: 'openai/gpt-oss-120b',
+  groq: 'llama-3.3-70b-versatile',
   anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
   google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
@@ -2267,7 +2267,7 @@ async function buildGroqEconomyClient(userGroqKey?: string): Promise<UniversalAI
   if (!apiKey) return null;
   try {
     const client = buildOpenAICompatClient('groq', apiKey) as any;
-    client.defaultModel = 'openai/gpt-oss-120b';
+    client.defaultModel = 'llama-3.3-70b-versatile';
     client.provider = 'groq';
     return client as UniversalAIClient;
   } catch (e) {

@@ -1121,7 +1121,7 @@ async function runSolAIReview(
       if (groqKey) {
         const OpenAI = (await import('openai')).default;
         openai = new OpenAI({ apiKey: groqKey, baseURL: 'https://api.groq.com/openai/v1' });
-        (openai as any).defaultModel = 'openai/gpt-oss-120b';
+        (openai as any).defaultModel = 'llama-3.3-70b-versatile';
         modelLabel = 'Groq Llama';
         addActivity(state, {
           type: 'info',
