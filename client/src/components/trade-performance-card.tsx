@@ -140,6 +140,32 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
   );
 }
 
+/** AI provider health strip — shows which provider served the last AI call. */
+export function AiHealthStrip({ className = "" }: { className?: string }) {
+  const { data } = useQuery<{ ok: boolean | null; provider?: string; model?: string; failedOver?: boolean; attempts?: string[]; lastError?: string | null; lastCallAt?: string; message?: string }>({
+    queryKey: ["/api/ai-health"],
+    refetchInterval: 15000,
+  });
+  if (!data) return null;
+  const label = (p?: string) => (p === "openai" || p === "openai-platform") ? "OpenAI" : p === "anthropic" ? "Claude" : p === "groq" ? "Groq" : p === "google" ? "Gemini" : p === "mistral" ? "Mistral" : (p || "—");
+  const idle = data.ok === null;
+  const color = idle ? "#9ca3af" : data.ok ? (data.failedOver ? "#fbbf24" : "#34d399") : "#f87171";
+  const text = idle
+    ? "AI idle — no calls yet"
+    : data.ok
+      ? (data.failedOver ? `AI: failed over → ${label(data.provider)} (${data.model || ""})` : `AI: ${label(data.provider)} (${data.model || ""})`)
+      : `AI error: ${(data.lastError || "").slice(0, 70)}`;
+  return (
+    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] ${className}`} style={{ background: "rgba(255,255,255,0.03)", border: `1px solid ${color}44` }}>
+      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+      <span className="text-gray-300 truncate">{text}</span>
+      {data.attempts && data.attempts.length > 1 && (
+        <span className="text-gray-600 ml-auto flex-shrink-0">tried: {data.attempts.map(label).join(" → ")}</span>
+      )}
+    </div>
+  );
+}
+
 /** Today's Review — the "why was today good/bad" breakdown. */
 export function TodayReviewPanel({ className = "" }: { className?: string }) {
   const { data } = useTodayReview();

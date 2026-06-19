@@ -2225,12 +2225,21 @@ function isFailoverError(e: any): boolean {
   return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
 }
 
+// Per-user AI provider health telemetry (last call: who served it, did it fail over, errors)
+function recordAiHealth(userId: number | undefined, data: Record<string, any>): void {
+  if (!userId) return;
+  const g = global as any;
+  g.aiHealth = g.aiHealth || {};
+  g.aiHealth[userId] = { ...data, lastCallAt: new Date().toISOString() };
+}
+export function getAiHealth(userId: number): any {
+  return (global as any).aiHealth?.[userId] || null;
+}
+
 // Wrap an ordered list of provider clients so chat.completions.create automatically
-// fails over to the next provider on a 429 / rate-limit / 5xx / transient error.
-// Each fallback uses its own provider's default model. Non-retryable errors bubble.
-function makeFailoverClient(clients: UniversalAIClient[]): UniversalAIClient {
+// fails over to the next provider on any error. Records health telemetry per user.
+function makeFailoverClient(clients: UniversalAIClient[], userId?: number): UniversalAIClient {
   const primary: any = clients[0];
-  if (clients.length === 1) return primary;
   return {
     defaultModel: primary.defaultModel,
     provider: primary.provider,
@@ -2238,21 +2247,24 @@ function makeFailoverClient(clients: UniversalAIClient[]): UniversalAIClient {
       completions: {
         create: async (params: any) => {
           let lastErr: any;
+          const attempts: string[] = [];
           for (let i = 0; i < clients.length; i++) {
             const c: any = clients[i];
             const p = { ...params };
             if (i > 0 && c.defaultModel) p.model = c.defaultModel; // fallback provider needs its own model
+            attempts.push(c.provider);
             try {
-              return await c.chat.completions.create(p);
+              const result = await c.chat.completions.create(p);
+              recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? (lastErr?.message || null) : null });
+              return result;
             } catch (e: any) {
               lastErr = e;
-              // Roll over to the next provider on ANY error while more remain — a bad
-              // model / rate-limit / transient failure on one provider should never
-              // 500 the whole feature if another provider can serve the request.
+              // Roll over to the next provider on ANY error while more remain.
               if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${(clients[i + 1] as any).provider}`);
                 continue;
               }
+              recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
               throw e;
             }
           }
@@ -2358,7 +2370,7 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     if (clients.length) {
       storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
       console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')}`);
-      return makeFailoverClient(clients);
+      return makeFailoverClient(clients, userId);
     }
   } catch (e) {
     console.error('Error fetching user API keys, falling back to platform key:', e);

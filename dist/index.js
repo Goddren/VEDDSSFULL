@@ -5990,6 +5990,7 @@ __export(openai_exports, {
   generateVeddBlogPost: () => generateVeddBlogPost,
   generateWorkforceCurriculum: () => generateWorkforceCurriculum,
   getAiConfirmationLogs: () => getAiConfirmationLogs,
+  getAiHealth: () => getAiHealth,
   getAiMinConfidence: () => getAiMinConfidence,
   getAiVisionConfirmation: () => getAiVisionConfirmation,
   getAllStrategiesForPairs: () => getAllStrategiesForPairs,
@@ -7682,9 +7683,17 @@ function buildOpenAICompatClient(provider, apiKey) {
   wrapper.provider = provider;
   return wrapper;
 }
-function makeFailoverClient(clients) {
+function recordAiHealth(userId, data) {
+  if (!userId) return;
+  const g = global;
+  g.aiHealth = g.aiHealth || {};
+  g.aiHealth[userId] = { ...data, lastCallAt: (/* @__PURE__ */ new Date()).toISOString() };
+}
+function getAiHealth(userId) {
+  return global.aiHealth?.[userId] || null;
+}
+function makeFailoverClient(clients, userId) {
   const primary = clients[0];
-  if (clients.length === 1) return primary;
   return {
     defaultModel: primary.defaultModel,
     provider: primary.provider,
@@ -7692,18 +7701,23 @@ function makeFailoverClient(clients) {
       completions: {
         create: async (params) => {
           let lastErr;
+          const attempts = [];
           for (let i = 0; i < clients.length; i++) {
             const c = clients[i];
             const p = { ...params };
             if (i > 0 && c.defaultModel) p.model = c.defaultModel;
+            attempts.push(c.provider);
             try {
-              return await c.chat.completions.create(p);
+              const result = await c.chat.completions.create(p);
+              recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? lastErr?.message || null : null });
+              return result;
             } catch (e) {
               lastErr = e;
               if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
                 continue;
               }
+              recordAiHealth(userId, { ok: false, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: e?.message || String(e) });
               throw e;
             }
           }
@@ -7794,7 +7808,7 @@ async function getUniversalAIClientForUser(userId) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
       console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
-      return makeFailoverClient(clients);
+      return makeFailoverClient(clients, userId);
     }
   } catch (e) {
     console.error("Error fetching user API keys, falling back to platform key:", e);
@@ -50415,6 +50429,16 @@ Respond with ONLY valid JSON:
       res.json(result);
     } catch (err) {
       console.error("[Kalshi value-picks]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/ai-health", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { getAiHealth: getAiHealth2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      res.json(getAiHealth2(userId) || { ok: null, message: "No AI calls yet this session." });
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Brain, Send, RefreshCw, TrendingUp, TrendingDown, Target, Lightbulb, Sparkles, Wand2, Download, Save, Check, Cpu } from "lucide-react";
-import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
+import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
 interface GeneratedEA {
   name: string; description: string; pair: string; timeframe: string;
@@ -153,6 +153,7 @@ export default function AbbaBotPage() {
 
         {/* Live performance + today review */}
         <div className="space-y-3 mb-4">
+          <AiHealthStrip />
           <TradePerformanceCard />
           <TodayReviewPanel />
         </div>

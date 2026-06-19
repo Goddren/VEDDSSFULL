@@ -17039,6 +17039,18 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/ai-health — last AI call: which provider served it + failover/error status
+  app.get("/api/ai-health", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getAiHealth } = await import('./openai');
+      res.json(getAiHealth(userId) || { ok: null, message: 'No AI calls yet this session.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/kalshi/performance — per-strategy win rate / P&L history (survives restarts)
   app.get("/api/kalshi/performance", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
