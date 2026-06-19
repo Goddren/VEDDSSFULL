@@ -27,6 +27,7 @@ const tradingItems = [
 ];
 
 const aiToolItems = [
+  { name: 'Abba AI',     path: '/abba',                       icon: Brain,        color: '#a855f7' },
   { name: 'SOL Scanner', path: '/solana-scanner',             icon: Scan,         color: '#06b6d4' },
   { name: 'Kalshi P&L',  path: '/polymarket-engine#kalshi', icon: DollarSign, color: '#6366f1' },
   { name: 'Tokenomics',  path: '/vedd-tokenomics',            icon: Coins,        color: '#f59e0b' },

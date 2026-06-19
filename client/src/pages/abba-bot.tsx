@@ -1,8 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Brain, Send, RefreshCw, TrendingUp, TrendingDown, Target, Lightbulb, Sparkles } from "lucide-react";
+import { Brain, Send, RefreshCw, TrendingUp, TrendingDown, Target, Lightbulb, Sparkles, Wand2, Download, Save, Check, Cpu } from "lucide-react";
 import { TradePerformanceCard, TodayReviewPanel } from "@/components/trade-performance-card";
+
+interface GeneratedEA {
+  name: string; description: string; pair: string; timeframe: string;
+  mql5Code: string; filename: string; parsedStrategy?: any;
+}
 
 interface AbbaPlan {
   ready: boolean;
@@ -52,6 +57,76 @@ export default function AbbaBotPage() {
       setMessages(m => [...m, { role: "assistant", content: "Connection issue — try again in a moment." }]);
     } finally {
       setSending(false);
+    }
+  };
+
+  // ── EA / strategy builder from natural language ──────────────────────────
+  const [eaInput, setEaInput] = useState("");
+  const [eaBuilding, setEaBuilding] = useState(false);
+  const [generatedEA, setGeneratedEA] = useState<GeneratedEA | null>(null);
+  const [eaSaved, setEaSaved] = useState(false);
+  const [eaError, setEaError] = useState("");
+
+  const buildEA = async (descOverride?: string) => {
+    const desc = (descOverride ?? eaInput).trim();
+    if (!desc || eaBuilding) return;
+    setEaBuilding(true); setEaError(""); setEaSaved(false); setGeneratedEA(null);
+    try {
+      const res = await apiRequest("POST", "/api/abba/generate-ea", { message: desc });
+      const data = await res.json();
+      if (data.error) { setEaError(data.error); }
+      else { setGeneratedEA(data); setEaInput(desc); }
+    } catch (e: any) {
+      setEaError("Couldn't generate the EA — try again or add more detail.");
+    } finally {
+      setEaBuilding(false);
+    }
+  };
+
+  const downloadEA = () => {
+    if (!generatedEA) return;
+    const blob = new Blob([generatedEA.mql5Code], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = generatedEA.filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const saveEA = async () => {
+    if (!generatedEA) return;
+    try {
+      await apiRequest("POST", "/api/save-ea", {
+        name: generatedEA.name,
+        description: generatedEA.description,
+        platformType: "MT5",
+        eaCode: generatedEA.mql5Code,
+        symbol: generatedEA.pair,
+        strategyType: "abba_custom",
+      });
+      setEaSaved(true);
+    } catch { setEaError("Saved failed — try again."); }
+  };
+
+  // ── Apply Abba's plan to the live engine config ──────────────────────────
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState("");
+  const applyPlan = async () => {
+    const np2 = plan?.nextDayPlan;
+    if (!np2 || applying) return;
+    setApplying(true); setApplied("");
+    try {
+      const patch: any = {};
+      if (np2.favorPairs?.length) patch.pairs = np2.favorPairs;
+      if (np2.recommendedMinConfidence) patch.minConfidence = np2.recommendedMinConfidence;
+      // Pause the bleeding pairs via per-pair direction override = both off isn't a thing,
+      // so we simply exclude them from the active pairs set (favorPairs already does this).
+      const res = await apiRequest("PATCH", "/api/vedd-live-engine/config", patch);
+      const data = await res.json();
+      setApplied(data?.success ? "Applied to your live engine ✓" : (data?.error || "Start the engine first, then apply."));
+    } catch {
+      setApplied("Start the engine first, then apply.");
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -118,6 +193,11 @@ export default function AbbaBotPage() {
                 </div>
                 {np.strategyFocus && <p className="text-[11px] text-gray-300 mt-2"><span className="text-gray-500">Strategy: </span>{np.strategyFocus}</p>}
                 {np.sizingNote && <p className="text-[11px] text-gray-300 mt-1"><span className="text-gray-500">Sizing: </span>{np.sizingNote}</p>}
+                <button onClick={applyPlan} disabled={applying}
+                  className="mt-3 w-full flex items-center justify-center gap-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-xs font-bold rounded-lg py-2 disabled:opacity-50">
+                  <Check className="w-3.5 h-3.5" />{applying ? "Applying…" : "Apply to Live Engine (pairs + confidence)"}
+                </button>
+                {applied && <p className="text-[10px] text-center mt-1.5 text-gray-400">{applied}</p>}
               </div>
             )}
 
@@ -152,6 +232,50 @@ export default function AbbaBotPage() {
           </div>
         )}
 
+        {/* ── Strategy / EA Builder (natural language → MT5 EA) ──────────── */}
+        <div className="rounded-2xl border border-amber-800/40 bg-amber-950/20 overflow-hidden mb-4">
+          <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
+            <Wand2 className="w-4 h-4 text-amber-300" />
+            <span className="text-sm font-bold text-amber-200">Build a Strategy / EA from words</span>
+          </div>
+          <div className="p-3">
+            <p className="text-[10px] text-gray-500 mb-2">
+              Describe a strategy in plain English and Abba writes a ready-to-run MT5 Expert Advisor. e.g. "Buy XAUUSD when RSI drops below 30 and price is above the 200 EMA, 1% risk, 2:1 reward, trade London session only."
+            </p>
+            <textarea
+              value={eaInput}
+              onChange={e => setEaInput(e.target.value)}
+              placeholder="Describe your trading strategy…"
+              rows={3}
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-amber-500 resize-none"
+            />
+            <button onClick={() => buildEA()} disabled={eaBuilding || !eaInput.trim()}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 text-amber-100 text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
+              <Cpu className={`w-4 h-4 ${eaBuilding ? "animate-pulse" : ""}`} />{eaBuilding ? "Abba is coding your EA…" : "Generate EA"}
+            </button>
+            {eaError && <p className="text-[10px] text-red-400 mt-2">{eaError}</p>}
+
+            {generatedEA && (
+              <div className="mt-3 rounded-xl bg-black/30 border border-amber-700/40 p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[12px] font-bold text-amber-200">{generatedEA.name}</span>
+                  <span className="text-[9px] text-gray-500">{generatedEA.pair} · {generatedEA.timeframe}</span>
+                </div>
+                <p className="text-[11px] text-gray-300 mb-2">{generatedEA.description}</p>
+                <pre className="text-[9px] text-gray-400 bg-black/40 rounded-lg p-2 max-h-40 overflow-auto whitespace-pre">{generatedEA.mql5Code.slice(0, 1200)}{generatedEA.mql5Code.length > 1200 ? "\n… (download for full code)" : ""}</pre>
+                <div className="flex gap-2 mt-2">
+                  <button onClick={downloadEA} className="flex-1 flex items-center justify-center gap-1.5 bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-200 text-xs font-bold rounded-lg py-2">
+                    <Download className="w-3.5 h-3.5" />Download .mq5
+                  </button>
+                  <button onClick={saveEA} disabled={eaSaved} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-xs font-bold rounded-lg py-2 disabled:opacity-60">
+                    {eaSaved ? <><Check className="w-3.5 h-3.5" />Saved to My EAs</> : <><Save className="w-3.5 h-3.5" />Save to My EAs</>}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Chat */}
         <div className="rounded-2xl border border-purple-800/40 bg-gray-900/40 overflow-hidden">
           <div className="px-4 py-2 border-b border-gray-800 flex items-center gap-2">
@@ -180,6 +304,18 @@ export default function AbbaBotPage() {
               <Send className="w-4 h-4 text-purple-200" />
             </button>
           </div>
+          {/* Turn the conversation into an EA */}
+          {messages.some(m => m.role === "user") && (
+            <button
+              onClick={() => {
+                const lastUser = [...messages].reverse().find(m => m.role === "user");
+                if (lastUser) { setEaInput(lastUser.content); buildEA(lastUser.content); }
+              }}
+              disabled={eaBuilding}
+              className="w-full flex items-center justify-center gap-1.5 bg-amber-600/20 hover:bg-amber-600/40 border-t border-amber-700/40 text-amber-200 text-[11px] font-semibold py-2 disabled:opacity-50">
+              <Wand2 className="w-3.5 h-3.5" />Build an EA from my last message
+            </button>
+          )}
         </div>
         <p className="text-[9px] text-gray-600 mt-2 text-center">Abba analyzes your real trade data for education and planning. Not licensed financial advice. Trading involves risk.</p>
       </div>
