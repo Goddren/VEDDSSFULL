@@ -2244,7 +2244,10 @@ function makeFailoverClient(clients: UniversalAIClient[]): UniversalAIClient {
               return await c.chat.completions.create(p);
             } catch (e: any) {
               lastErr = e;
-              if (isFailoverError(e) && i < clients.length - 1) {
+              // Roll over to the next provider on ANY error while more remain — a bad
+              // model / rate-limit / transient failure on one provider should never
+              // 500 the whole feature if another provider can serve the request.
+              if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${(clients[i + 1] as any).provider}`);
                 continue;
               }
@@ -2339,6 +2342,16 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
         console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
       }
     }
+
+    // Final backstop: append the platform's own OpenAI key as the last failover link
+    // so even if every user key errors, the request still gets served.
+    try {
+      if (process.env.OPENAI_API_KEY) {
+        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) as any;
+        plat.defaultModel = 'gpt-4o'; plat.provider = 'openai-platform';
+        clients.push(plat as UniversalAIClient);
+      }
+    } catch { /* ignore */ }
 
     if (clients.length) {
       storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});

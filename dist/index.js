@@ -7682,12 +7682,6 @@ function buildOpenAICompatClient(provider, apiKey) {
   wrapper.provider = provider;
   return wrapper;
 }
-function isFailoverError(e) {
-  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
-  if (status === 429 || status >= 500 && status < 600) return true;
-  const msg = (e?.message || "").toLowerCase();
-  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
-}
 function makeFailoverClient(clients) {
   const primary = clients[0];
   if (clients.length === 1) return primary;
@@ -7706,7 +7700,7 @@ function makeFailoverClient(clients) {
               return await c.chat.completions.create(p);
             } catch (e) {
               lastErr = e;
-              if (isFailoverError(e) && i < clients.length - 1) {
+              if (i < clients.length - 1) {
                 console.warn(`[AI failover] ${c.provider} failed (${e?.status ?? e?.message}); switching to ${clients[i + 1].provider}`);
                 continue;
               }
@@ -7786,6 +7780,15 @@ async function getUniversalAIClientForUser(userId) {
       } catch (e) {
         console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
       }
+    }
+    try {
+      if (process.env.OPENAI_API_KEY) {
+        const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        plat.defaultModel = "gpt-4o";
+        plat.provider = "openai-platform";
+        clients.push(plat);
+      }
+    } catch {
     }
     if (clients.length) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
