@@ -150,6 +150,7 @@
   },
   "overrides": {
     "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6",
-    "tar": "7.5.7"
+    "tar": "7.5.7",
+    "rpc-websockets": { "uuid": "8.3.2" }
   }
 }
