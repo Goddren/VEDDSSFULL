@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { backupDurableFile } from './cred-store';
 
 const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 const KALSHI_PATH_PREFIX = '/trade-api/v2';
@@ -64,7 +65,9 @@ function saveAllCreds(map: Record<string, KalshiCredentials>): void {
   try {
     const dir = path.dirname(CREDS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
+    const content = JSON.stringify(map, null, 2);
+    fs.writeFileSync(CREDS_FILE, content);
+    backupDurableFile('kalshi_credentials.json', content); // durable DB mirror (survives deploys)
   } catch { /* ignore */ }
 }
 

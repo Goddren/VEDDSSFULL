@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { encryptPassword, decryptPassword } from '../tradelocker';
+import { backupDurableFile } from './cred-store';
 
 const BASE_URL = 'https://api.polymarket.us';        // authenticated (orders/portfolio)
 const GATEWAY_URL = 'https://gateway.polymarket.us'; // public (markets/events/search)
@@ -38,7 +39,9 @@ function saveAll(map: Record<string, PmUsCredentials>): void {
   try {
     const dir = path.dirname(FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(map, null, 2));
+    const content = JSON.stringify(map, null, 2);
+    fs.writeFileSync(FILE, content);
+    backupDurableFile('polymarket_us.json', content); // durable DB mirror (survives deploys)
   } catch { /* ignore */ }
 }
 export function savePmUsCredentials(userId: number, keyId: string, secretKey: string): void {

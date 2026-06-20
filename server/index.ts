@@ -131,6 +131,16 @@ async function withRetry<T>(
   console.log(`[startup] PORT=${process.env.PORT}`);
   console.log(`[startup] Registering routes...`);
 
+  // Restore credential files from the durable DB mirror BEFORE routes/engines
+  // read them (Render's disk is ephemeral and wipes data/*.json on each deploy).
+  try {
+    const { restoreDurableFiles } = await import("./services/cred-store");
+    await restoreDurableFiles();
+    console.log(`[startup] Durable credential files restored`);
+  } catch (err: any) {
+    console.error(`[startup] restoreDurableFiles error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

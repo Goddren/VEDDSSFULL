@@ -25785,6 +25785,69 @@ var init_polymarket_autonomous_engine = __esm({
   }
 });
 
+// server/services/cred-store.ts
+var cred_store_exports = {};
+__export(cred_store_exports, {
+  backupDurableFile: () => backupDurableFile,
+  restoreDurableFiles: () => restoreDurableFiles
+});
+import * as fs5 from "fs";
+import * as path5 from "path";
+function ensureTable() {
+  if (!tableReady) {
+    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
+        name        text PRIMARY KEY,
+        content     text NOT NULL,
+        updated_at  timestamptz NOT NULL DEFAULT now()
+      )`).then(() => void 0).catch((e) => {
+      console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
+      tableReady = null;
+    });
+  }
+  return tableReady;
+}
+async function restoreDurableFiles() {
+  try {
+    await ensureTable();
+    if (!fs5.existsSync(DATA_DIR)) fs5.mkdirSync(DATA_DIR, { recursive: true });
+    const { rows } = await pool.query("SELECT name, content FROM durable_files");
+    for (const r of rows) {
+      if (!DURABLE_FILES.includes(r.name)) continue;
+      const fp = path5.join(DATA_DIR, r.name);
+      const existing = fs5.existsSync(fp) ? fs5.readFileSync(fp, "utf-8").trim() : "";
+      if (!existing || existing === "{}") {
+        fs5.writeFileSync(fp, r.content);
+        console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
+      }
+    }
+  } catch (e) {
+    console.error("[cred-store] restore failed (non-fatal):", e?.message);
+  }
+}
+function backupDurableFile(name, content) {
+  ensureTable().then(
+    () => pool.query(
+      `INSERT INTO durable_files (name, content, updated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
+      [name, content]
+    )
+  ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
+}
+var DATA_DIR, DURABLE_FILES, tableReady;
+var init_cred_store = __esm({
+  "server/services/cred-store.ts"() {
+    "use strict";
+    init_db();
+    DATA_DIR = path5.join(process.cwd(), "data");
+    DURABLE_FILES = [
+      "kalshi_credentials.json",
+      "polymarket_us.json"
+    ];
+    tableReady = null;
+  }
+});
+
 // server/services/polymarket-us.ts
 var polymarket_us_exports = {};
 __export(polymarket_us_exports, {
@@ -25800,21 +25863,23 @@ __export(polymarket_us_exports, {
   savePmUsCredentials: () => savePmUsCredentials,
   testPmUsConnection: () => testPmUsConnection
 });
-import * as fs5 from "fs";
-import * as path5 from "path";
+import * as fs6 from "fs";
+import * as path6 from "path";
 import * as crypto4 from "crypto";
 function loadAll2() {
   try {
-    if (fs5.existsSync(FILE2)) return JSON.parse(fs5.readFileSync(FILE2, "utf-8"));
+    if (fs6.existsSync(FILE2)) return JSON.parse(fs6.readFileSync(FILE2, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAll2(map) {
   try {
-    const dir = path5.dirname(FILE2);
-    if (!fs5.existsSync(dir)) fs5.mkdirSync(dir, { recursive: true });
-    fs5.writeFileSync(FILE2, JSON.stringify(map, null, 2));
+    const dir = path6.dirname(FILE2);
+    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(map, null, 2);
+    fs6.writeFileSync(FILE2, content);
+    backupDurableFile("polymarket_us.json", content);
   } catch {
   }
 }
@@ -25926,9 +25991,10 @@ var init_polymarket_us = __esm({
   "server/services/polymarket-us.ts"() {
     "use strict";
     init_tradelocker();
+    init_cred_store();
     BASE_URL = "https://api.polymarket.us";
     GATEWAY_URL = "https://gateway.polymarket.us";
-    FILE2 = path5.join(process.cwd(), "data", "polymarket_us.json");
+    FILE2 = path6.join(process.cwd(), "data", "polymarket_us.json");
     PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
     _toNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
   }
@@ -26282,21 +26348,23 @@ __export(kalshi_trading_exports, {
   saveKalshiCredentials: () => saveKalshiCredentials,
   testKalshiCredentials: () => testKalshiCredentials
 });
-import * as fs6 from "fs";
-import * as path6 from "path";
+import * as fs7 from "fs";
+import * as path7 from "path";
 import * as crypto5 from "crypto";
 function loadAllCreds() {
   try {
-    if (fs6.existsSync(CREDS_FILE)) return JSON.parse(fs6.readFileSync(CREDS_FILE, "utf-8"));
+    if (fs7.existsSync(CREDS_FILE)) return JSON.parse(fs7.readFileSync(CREDS_FILE, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAllCreds(map) {
   try {
-    const dir = path6.dirname(CREDS_FILE);
-    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
-    fs6.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
+    const dir = path7.dirname(CREDS_FILE);
+    if (!fs7.existsSync(dir)) fs7.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(map, null, 2);
+    fs7.writeFileSync(CREDS_FILE, content);
+    backupDurableFile("kalshi_credentials.json", content);
   } catch {
   }
 }
@@ -26491,9 +26559,10 @@ var KALSHI_BASE2, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
 var init_kalshi_trading = __esm({
   "server/services/kalshi-trading.ts"() {
     "use strict";
+    init_cred_store();
     KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path6.join(process.cwd(), "data", "kalshi_credentials.json");
+    CREDS_FILE = path7.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
   }
 });
@@ -26504,8 +26573,8 @@ __export(kalshi_performance_exports, {
   getKalshiPerformance: () => getKalshiPerformance,
   recordKalshiOutcome: () => recordKalshiOutcome
 });
-import * as fs7 from "fs";
-import * as path7 from "path";
+import * as fs8 from "fs";
+import * as path8 from "path";
 function emptyStat(strategy) {
   return {
     strategy,
@@ -26522,16 +26591,16 @@ function emptyStat(strategy) {
 }
 function loadAll3() {
   try {
-    if (fs7.existsSync(FILE3)) return JSON.parse(fs7.readFileSync(FILE3, "utf-8"));
+    if (fs8.existsSync(FILE3)) return JSON.parse(fs8.readFileSync(FILE3, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAll3(store) {
   try {
-    const dir = path7.dirname(FILE3);
-    if (!fs7.existsSync(dir)) fs7.mkdirSync(dir, { recursive: true });
-    fs7.writeFileSync(FILE3, JSON.stringify(store, null, 2));
+    const dir = path8.dirname(FILE3);
+    if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
+    fs8.writeFileSync(FILE3, JSON.stringify(store, null, 2));
   } catch {
   }
 }
@@ -26582,7 +26651,7 @@ var FILE3;
 var init_kalshi_performance = __esm({
   "server/services/kalshi-performance.ts"() {
     "use strict";
-    FILE3 = path7.join(process.cwd(), "data", "kalshi_performance.json");
+    FILE3 = path8.join(process.cwd(), "data", "kalshi_performance.json");
   }
 });
 
@@ -31824,8 +31893,8 @@ import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs8 from "fs";
-import * as path8 from "path";
+import * as fs9 from "fs";
+import * as path9 from "path";
 
 // server/twilio.ts
 import twilio from "twilio";
@@ -33923,20 +33992,20 @@ var TradovateService = class {
     }
     return data;
   }
-  async get(path12) {
+  async get(path13) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path12}`, {
+    const response = await fetch(`${this.baseUrl}${path13}`, {
       headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path12} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate GET ${path13} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
-  async post(path12, body) {
+  async post(path13, body) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path12}`, {
+    const response = await fetch(`${this.baseUrl}${path13}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.accessToken}`,
@@ -33947,7 +34016,7 @@ var TradovateService = class {
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path12} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate POST ${path13} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
@@ -37058,9 +37127,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path8.join(process.cwd(), "uploads");
-if (!fs8.existsSync(uploadsDir2)) {
-  fs8.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path9.join(process.cwd(), "uploads");
+if (!fs9.existsSync(uploadsDir2)) {
+  fs9.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -37408,11 +37477,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path8.join(uploadsDir2, fileName);
+      const filePath = path9.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs8.promises.writeFile(filePath, req.file.buffer);
+        await fs9.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -37438,14 +37507,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path8.join(process.cwd(), "uploads", "avatars");
-      if (!fs8.existsSync(avatarsDir)) {
-        fs8.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path9.join(process.cwd(), "uploads", "avatars");
+      if (!fs9.existsSync(avatarsDir)) {
+        fs9.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path8.join(avatarsDir, fileName);
-      await fs8.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path9.join(avatarsDir, fileName);
+      await fs9.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -37540,11 +37609,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path8.join(uploadsDir2, generatedFilename);
+      const filePath = path9.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs8.promises.writeFile(filePath, imageBuffer);
+        await fs9.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -37661,9 +37730,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path8.join(uploadsDir2, frameFileName);
+          const framePath = path9.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs8.promises.writeFile(framePath, frameBuffer);
+          await fs9.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -38061,12 +38130,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path8.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path9.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs8.existsSync(filePath)) {
-        const alternativePath = path8.join(uploadsDir2, path8.basename(imageUrl));
+      if (!fs9.existsSync(filePath)) {
+        const alternativePath = path9.join(uploadsDir2, path9.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs8.existsSync(alternativePath)) {
+        if (!fs9.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -38075,7 +38144,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs8.promises.readFile(filePath);
+      const imageBuffer = await fs9.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -38250,11 +38319,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path8.basename(imagePath);
+        const basename2 = path9.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path8.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path9.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs8.existsSync(originalImagePath)) {
+        if (!fs9.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -38351,13 +38420,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path8.basename(filename);
-      const sharedPath = path8.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs8.existsSync(sharedPath)) {
+      const sanitizedFilename = path9.basename(filename);
+      const sharedPath = path9.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs9.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path8.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs8.existsSync(regularPath)) {
+      const regularPath = path9.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs9.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -38369,9 +38438,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path8.basename(filename);
-      const annotatedPath = path8.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs8.existsSync(annotatedPath)) {
+      const sanitizedFilename = path9.basename(filename);
+      const annotatedPath = path9.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs9.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -41606,12 +41675,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path8.join(process.cwd(), "uploads", "share-cards");
-      if (!fs8.existsSync(shareCardPath)) {
-        fs8.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path9.join(process.cwd(), "uploads", "share-cards");
+      if (!fs9.existsSync(shareCardPath)) {
+        fs9.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path8.join(shareCardPath, shareCardFileName);
-      fs8.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path9.join(shareCardPath, shareCardFileName);
+      fs9.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -47473,8 +47542,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas: createCanvas3, loadImage: loadImage3 } = await import("canvas");
-      const path12 = await import("path");
-      const fs10 = await import("fs");
+      const path13 = await import("path");
+      const fs11 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -47560,8 +47629,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path12.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs10.default.existsSync(logoPath)) {
+        const logoPath = path13.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs11.default.existsSync(logoPath)) {
           const logo = await loadImage3(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -47822,10 +47891,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path12.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs10.default.existsSync(outDir)) fs10.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path12.default.join(outDir, fileName);
-      fs10.default.writeFileSync(filePath, buffer);
+      const outDir = path13.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs11.default.existsSync(outDir)) fs11.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path13.default.join(outDir, fileName);
+      fs11.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -48974,9 +49043,9 @@ Format each recommendation as a clear, concise action item.`;
     brain.optimalMinConfidence = optimalMinConfidence;
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path8.join(process.cwd(), "data", "brains");
-      if (!fs8.existsSync(brainDir)) fs8.mkdirSync(brainDir, { recursive: true });
-      fs8.writeFileSync(path8.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path9.join(process.cwd(), "data", "brains");
+      if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
+      fs9.writeFileSync(path9.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -48985,9 +49054,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path8.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs8.existsSync(p)) return null;
-      const brain = JSON.parse(fs8.readFileSync(p, "utf-8"));
+      const p = path9.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs9.existsSync(p)) return null;
+      const brain = JSON.parse(fs9.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -49080,9 +49149,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path8.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs8.existsSync(p)) {
-          brain = JSON.parse(fs8.readFileSync(p, "utf-8"));
+        const p = path9.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs9.existsSync(p)) {
+          brain = JSON.parse(fs9.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -49978,9 +50047,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path8.join(process.cwd(), "data", "brains");
-          if (!fs8.existsSync(brainDir)) fs8.mkdirSync(brainDir, { recursive: true });
-          fs8.writeFileSync(path8.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path9.join(process.cwd(), "data", "brains");
+          if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
+          fs9.writeFileSync(path9.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -50601,19 +50670,19 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path8.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path9.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs8.existsSync(_polyWalletsFile)) return JSON.parse(fs8.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs9.existsSync(_polyWalletsFile)) return JSON.parse(fs9.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path8.join(process.cwd(), "data");
-      if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
-      fs8.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path9.join(process.cwd(), "data");
+      if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
+      fs9.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -51051,19 +51120,19 @@ Respond with ONLY valid JSON:
     const closed = closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path8.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path9.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs8.existsSync(_polyKeysFile)) return JSON.parse(fs8.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs9.existsSync(_polyKeysFile)) return JSON.parse(fs9.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path8.join(process.cwd(), "data");
-      if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
-      fs8.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const dir = path9.join(process.cwd(), "data");
+      if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
+      fs9.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -52016,11 +52085,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs10 = await import("fs/promises");
-        const path12 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path12.extname(req.file.originalname)}`;
-        const uploadPath = path12.join(process.cwd(), "uploads", filename);
-        await fs10.writeFile(uploadPath, req.file.buffer);
+        const fs11 = await import("fs/promises");
+        const path13 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path13.extname(req.file.originalname)}`;
+        const uploadPath = path13.join(process.cwd(), "uploads", filename);
+        await fs11.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -52823,8 +52892,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path8.join(uploadsDir2, filename);
-      fs8.writeFileSync(filePath, file.buffer);
+      const filePath = path9.join(uploadsDir2, filename);
+      fs9.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -57180,10 +57249,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path8.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path9.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs8.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -57193,8 +57262,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         ...req.body
       };
       curricula.push(entry);
-      fs8.mkdirSync(path8.join(process.cwd(), "data"), { recursive: true });
-      fs8.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs9.mkdirSync(path9.join(process.cwd(), "data"), { recursive: true });
+      fs9.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -57203,10 +57272,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path8.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path9.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs8.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -57217,10 +57286,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path8.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs8.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = {
@@ -57231,8 +57300,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       };
       if (!certs.find((c) => c.certId === cert.certId)) {
         certs.push(cert);
-        fs8.mkdirSync(path8.join(process.cwd(), "data"), { recursive: true });
-        fs8.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+        fs9.mkdirSync(path9.join(process.cwd(), "data"), { recursive: true });
+        fs9.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
       }
       res.json({ success: true });
     } catch (err) {
@@ -57242,10 +57311,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path8.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs8.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const mine = certs.filter((c) => c.userId === req.user.id);
@@ -57256,10 +57325,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path8.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs8.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -57731,14 +57800,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
 // server/vite.ts
 import express from "express";
-import fs9 from "fs";
-import path10 from "path";
+import fs10 from "fs";
+import path11 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path9 from "path";
+import path10 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -57757,14 +57826,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path9.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path9.resolve(import.meta.dirname, "shared"),
-      "@assets": path9.resolve(import.meta.dirname, "attached_assets")
+      "@": path10.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path10.resolve(import.meta.dirname, "shared"),
+      "@assets": path10.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path9.resolve(import.meta.dirname, "client"),
+  root: path10.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path9.resolve(import.meta.dirname, "dist/public"),
+    outDir: path10.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -57820,13 +57889,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path10.resolve(
+      const clientTemplate = path11.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs9.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs10.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -57845,8 +57914,8 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path10.resolve(import.meta.dirname, "..", "dist", "public");
-  if (!fs9.existsSync(distPath)) {
+  const distPath = path11.resolve(import.meta.dirname, "..", "dist", "public");
+  if (!fs10.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -57867,7 +57936,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path10.resolve(distPath, "index.html");
+  const indexPath = path11.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -57900,7 +57969,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs9.promises.readFile(indexPath, "utf-8");
+      let html = await fs10.promises.readFile(indexPath, "utf-8");
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
     } catch {
@@ -57910,7 +57979,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path11 from "path";
+import path12 from "path";
 
 // server/auth.ts
 init_storage();
@@ -58738,19 +58807,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path11.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path11.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path11.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path12.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path12.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path12.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path11.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path12.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path12 = req.path;
+  const path13 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -58759,8 +58828,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path12.startsWith("/api")) {
-      let logLine = `${req.method} ${path12} ${res.statusCode} in ${duration}ms`;
+    if (path13.startsWith("/api")) {
+      let logLine = `${req.method} ${path13} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -58798,6 +58867,13 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   console.log(`[startup] DATABASE_URL: ${maskedDb}`);
   console.log(`[startup] PORT=${process.env.PORT}`);
   console.log(`[startup] Registering routes...`);
+  try {
+    const { restoreDurableFiles: restoreDurableFiles2 } = await Promise.resolve().then(() => (init_cred_store(), cred_store_exports));
+    await restoreDurableFiles2();
+    console.log(`[startup] Durable credential files restored`);
+  } catch (err) {
+    console.error(`[startup] restoreDurableFiles error (non-fatal):`, err?.message ?? err);
+  }
   try {
     await registerRoutes(app, httpServer);
     console.log(`[startup] Routes registered OK`);
