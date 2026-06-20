@@ -16833,6 +16833,56 @@ Respond with ONLY valid JSON:
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
 
+  // ── Polymarket US (CFTC-regulated, no VPN) ──────────────────────────────────
+  // Save key id + secret (encrypted) and verify the Ed25519 auth against api.polymarket.us
+  app.post("/api/polymarket-us/credentials", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { keyId, secretKey } = req.body || {};
+    if (!keyId?.trim() || !secretKey?.trim()) return res.status(400).json({ error: "keyId and secretKey are required" });
+    try {
+      const pm = await import('./services/polymarket-us');
+      pm.savePmUsCredentials(userId, keyId, secretKey);
+      const test = await pm.testPmUsConnection(userId);
+      res.json({
+        saved: true,
+        connected: test.connected,
+        status: test.status,
+        message: test.connected
+          ? "✅ Connected to Polymarket US — no VPN needed."
+          : `Saved, but the test request failed (HTTP ${test.status}). Check the key id/secret. Detail: ${typeof test.detail === 'object' ? JSON.stringify(test.detail).slice(0, 200) : test.detail}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Connection status / re-test
+  app.get("/api/polymarket-us/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const pm = await import('./services/polymarket-us');
+      if (!pm.hasPmUsCredentials(userId)) return res.json({ configured: false });
+      const test = await pm.testPmUsConnection(userId);
+      res.json({ configured: true, connected: test.connected, status: test.status, detail: test.detail });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/polymarket-us/credentials", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const pm = await import('./services/polymarket-us');
+      pm.deletePmUsCredentials(userId);
+      res.json({ deleted: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/polymarket-engine/start
   app.post("/api/polymarket-engine/start", (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

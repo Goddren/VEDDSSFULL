@@ -618,6 +618,25 @@ export default function PolymarketEnginePage() {
     dir === "SELL" ? <TrendingDown className="w-5 h-5 text-red-400" />    :
     <Activity className="w-5 h-5 text-gray-400" />;
 
+  // ── Polymarket US (no-VPN) connection ──────────────────────────────────────
+  const [pmUsKeyId, setPmUsKeyId] = useState("");
+  const [pmUsSecret, setPmUsSecret] = useState("");
+  const [pmUsShowForm, setPmUsShowForm] = useState(false);
+  const { data: pmUsStatus, refetch: refetchPmUs } = useQuery<{ configured: boolean; connected?: boolean; status?: number; detail?: any }>({
+    queryKey: ["/api/polymarket-us/status"],
+    refetchInterval: 60000,
+    enabled: !!user,
+  });
+  const savePmUsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/polymarket-us/credentials", { keyId: pmUsKeyId, secretKey: pmUsSecret }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      toast({ title: data.connected ? "Polymarket US connected ✅" : "Saved — connection check", description: data.message });
+      setPmUsSecret(""); setPmUsKeyId(""); setPmUsShowForm(false);
+      refetchPmUs();
+    },
+    onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-24">
 
@@ -653,6 +672,40 @@ export default function PolymarketEnginePage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 pt-4 space-y-4">
+
+        {/* ── Polymarket US (CFTC-regulated, NO VPN) connection ──────────────── */}
+        <div className="rounded-xl p-4" style={{ background: "rgba(16,185,129,0.07)", border: "1.5px solid rgba(16,185,129,0.3)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🇺🇸</span>
+              <h2 className="text-sm font-bold text-emerald-300">Polymarket US — No VPN</h2>
+              {pmUsStatus?.configured && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded ${pmUsStatus.connected ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+                  {pmUsStatus.connected ? "CONNECTED" : `CHECK (HTTP ${pmUsStatus.status ?? "?"})`}
+                </span>
+              )}
+            </div>
+            <button onClick={() => setPmUsShowForm(v => !v)} className="text-[10px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 rounded px-2 py-1">
+              {pmUsStatus?.configured ? "Update key" : "Connect"}
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-400 mb-2">
+            Connect the regulated <span className="text-emerald-300">api.polymarket.us</span> exchange with your API key — works from the US with no VPN. Read-only is safe; trading runs through your own key.
+          </p>
+          {pmUsShowForm && (
+            <div className="space-y-2 bg-black/25 rounded-lg p-2.5">
+              <p className="text-[9px] text-gray-500">Get these in the Polymarket US app/site → Settings → API. Your secret is encrypted on the server.</p>
+              <input value={pmUsKeyId} onChange={e => setPmUsKeyId(e.target.value)} placeholder="Key ID"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
+              <input value={pmUsSecret} onChange={e => setPmUsSecret(e.target.value)} placeholder="Secret Key" type="password" autoComplete="off"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
+              <button onClick={() => savePmUsMutation.mutate()} disabled={savePmUsMutation.isPending || !pmUsKeyId.trim() || !pmUsSecret.trim()}
+                className="w-full bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-xs font-bold rounded-lg py-2 disabled:opacity-50">
+                {savePmUsMutation.isPending ? "Connecting…" : "Save & Test Connection"}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* ── US-legal notice ──────────────────────────────────────────────── */}
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-2.5 flex items-center gap-3">
