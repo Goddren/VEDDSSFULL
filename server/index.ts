@@ -1,25 +1,27 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { createServer } from "http";
-// ── Fix outbound "Premature close" on AI/API fetches ──────────────────────────
-// On the host, reused keep-alive sockets were being closed server-side and then
-// reused, producing "Invalid response body... Premature close" on EVERY outbound
-// HTTPS call (OpenAI, Groq, Anthropic alike). A global undici dispatcher with a
-// short idle keep-alive (so dead sockets aren't reused) + generous connect/body
-// timeouts resolves it. Must run before any fetch happens.
+// ── Fix outbound "Premature close" on AI/API fetches (must run before any fetch) ──
+// Node's built-in fetch was reusing keep-alive sockets that the remote had already
+// closed, producing "Invalid response body... Premature close" on EVERY outbound
+// HTTPS call (OpenAI, Groq, Anthropic alike) while pg/DB worked fine. Installing a
+// global undici dispatcher with keep-alive effectively OFF forces a fresh socket per
+// request, eliminating stale-socket resets. The npm-undici global dispatcher binds to
+// the built-in fetch via the shared Symbol.for('undici.globalDispatcher.1') slot.
+import { setGlobalDispatcher as _setAiDispatcher, Agent as _AiAgent } from "undici";
 try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { setGlobalDispatcher, Agent } = require("undici");
-  setGlobalDispatcher(new Agent({
-    keepAliveTimeout: 4000,        // drop idle sockets after 4s — avoid reusing closed ones
-    keepAliveMaxTimeout: 10000,
+  _setAiDispatcher(new _AiAgent({
+    keepAliveTimeout: 1,           // ~no idle keep-alive — fresh connection each call
+    keepAliveMaxTimeout: 1,
+    connections: 128,
     connect: { timeout: 20000 },   // 20s to establish TLS
     headersTimeout: 120000,        // allow slow AI responses
     bodyTimeout: 120000,
   }));
-  console.log("[net] undici global dispatcher configured (premature-close fix)");
+  console.log("[net] undici global dispatcher configured (premature-close fix, keep-alive off)");
 } catch (e: any) {
   console.warn("[net] could not configure undici dispatcher:", e?.message ?? e);
 }
+
+import express, { type Request, Response, NextFunction } from "express";
+import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
