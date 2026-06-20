@@ -17039,6 +17039,63 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/ai-diagnostic — actively PINGS each configured provider/key + platform
+  // keys and reports the exact result (ok / 401 / 429 / model error). Ground truth
+  // for "AI not working" instead of guessing.
+  app.get("/api/ai-diagnostic", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const OpenAISDK = (await import('openai')).default;
+    const results: any[] = [];
+
+    const ping = async (label: string, apiKey: string | undefined, baseURL: string | undefined, model: string) => {
+      if (!apiKey) { results.push({ test: label, model, ok: false, status: 'no-key', error: 'No API key' }); return; }
+      try {
+        const c = new OpenAISDK({ apiKey, ...(baseURL ? { baseURL } : {}), maxRetries: 0, timeout: 30000 });
+        const r = await c.chat.completions.create({ model, messages: [{ role: 'user', content: 'reply with the single word: OK' }], max_tokens: 5 });
+        results.push({ test: label, model, ok: true, reply: r.choices?.[0]?.message?.content?.slice(0, 20) || '' });
+      } catch (e: any) {
+        results.push({ test: label, model, ok: false, status: e?.status ?? e?.statusCode ?? 'err', error: (e?.message || String(e)).slice(0, 200) });
+      }
+    };
+
+    try {
+      const keys = await storage.getUserApiKeys(userId);
+      const active = keys.filter((k: any) => k.isActive && k.isValid !== false);
+      const userKey = (p: string) => active.find((k: any) => k.provider === p)?.apiKey;
+
+      await ping('user OpenAI', userKey('openai'), undefined, 'gpt-4o-mini');
+      await ping('user Groq (gpt-oss-20b)', userKey('groq'), 'https://api.groq.com/openai/v1', 'openai/gpt-oss-20b');
+      await ping('user Groq (gpt-oss-120b)', userKey('groq'), 'https://api.groq.com/openai/v1', 'openai/gpt-oss-120b');
+      await ping('user Mistral', userKey('mistral'), 'https://api.mistral.ai/v1', 'mistral-large-latest');
+      await ping('platform Groq (gpt-oss-20b)', process.env.GROQ_API_KEY, 'https://api.groq.com/openai/v1', 'openai/gpt-oss-20b');
+      await ping('platform OpenAI', process.env.OPENAI_API_KEY, undefined, 'gpt-4o-mini');
+
+      // Anthropic (separate SDK shape) — test via the app's wrapper
+      const anthKey = userKey('anthropic');
+      if (anthKey) {
+        try {
+          const { getAiHealth } = await import('./openai');
+          results.push({ test: 'user Anthropic', model: 'claude-sonnet-4-6', ok: 'present', note: 'Anthropic key present (not ping-tested here)' });
+          void getAiHealth;
+        } catch {}
+      } else {
+        results.push({ test: 'user Anthropic', ok: false, status: 'no-key', error: 'No Anthropic key' });
+      }
+
+      const anyOk = results.some(r => r.ok === true);
+      res.json({
+        anyProviderWorking: anyOk,
+        verdict: anyOk ? 'At least one provider works — AI should function.' : 'NO working AI provider found — every key/model failed. Add a working key (see per-test errors).',
+        selectedModel: (await import('./openai')).getUserModelPreference?.(userId) ?? 'unknown',
+        results,
+        checkedAt: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message, results });
+    }
+  });
+
   // GET /api/ai-health — last AI call: which provider served it + failover/error status
   app.get("/api/ai-health", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

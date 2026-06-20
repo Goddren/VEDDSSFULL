@@ -50438,6 +50438,57 @@ Respond with ONLY valid JSON:
       res.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/ai-diagnostic", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const OpenAISDK = (await import("openai")).default;
+    const results = [];
+    const ping = async (label, apiKey, baseURL, model) => {
+      if (!apiKey) {
+        results.push({ test: label, model, ok: false, status: "no-key", error: "No API key" });
+        return;
+      }
+      try {
+        const c = new OpenAISDK({ apiKey, ...baseURL ? { baseURL } : {}, maxRetries: 0, timeout: 3e4 });
+        const r = await c.chat.completions.create({ model, messages: [{ role: "user", content: "reply with the single word: OK" }], max_tokens: 5 });
+        results.push({ test: label, model, ok: true, reply: r.choices?.[0]?.message?.content?.slice(0, 20) || "" });
+      } catch (e) {
+        results.push({ test: label, model, ok: false, status: e?.status ?? e?.statusCode ?? "err", error: (e?.message || String(e)).slice(0, 200) });
+      }
+    };
+    try {
+      const keys = await storage.getUserApiKeys(userId);
+      const active = keys.filter((k) => k.isActive && k.isValid !== false);
+      const userKey = (p) => active.find((k) => k.provider === p)?.apiKey;
+      await ping("user OpenAI", userKey("openai"), void 0, "gpt-4o-mini");
+      await ping("user Groq (gpt-oss-20b)", userKey("groq"), "https://api.groq.com/openai/v1", "openai/gpt-oss-20b");
+      await ping("user Groq (gpt-oss-120b)", userKey("groq"), "https://api.groq.com/openai/v1", "openai/gpt-oss-120b");
+      await ping("user Mistral", userKey("mistral"), "https://api.mistral.ai/v1", "mistral-large-latest");
+      await ping("platform Groq (gpt-oss-20b)", process.env.GROQ_API_KEY, "https://api.groq.com/openai/v1", "openai/gpt-oss-20b");
+      await ping("platform OpenAI", process.env.OPENAI_API_KEY, void 0, "gpt-4o-mini");
+      const anthKey = userKey("anthropic");
+      if (anthKey) {
+        try {
+          const { getAiHealth: getAiHealth2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+          results.push({ test: "user Anthropic", model: "claude-sonnet-4-6", ok: "present", note: "Anthropic key present (not ping-tested here)" });
+          void getAiHealth2;
+        } catch {
+        }
+      } else {
+        results.push({ test: "user Anthropic", ok: false, status: "no-key", error: "No Anthropic key" });
+      }
+      const anyOk = results.some((r) => r.ok === true);
+      res.json({
+        anyProviderWorking: anyOk,
+        verdict: anyOk ? "At least one provider works \u2014 AI should function." : "NO working AI provider found \u2014 every key/model failed. Add a working key (see per-test errors).",
+        selectedModel: (await Promise.resolve().then(() => (init_openai(), openai_exports))).getUserModelPreference?.(userId) ?? "unknown",
+        results,
+        checkedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message, results });
+    }
+  });
   app2.get("/api/ai-health", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
