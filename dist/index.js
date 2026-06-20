@@ -33,6 +33,7 @@ __export(schema_exports, {
   aiConfirmationOutcomes: () => aiConfirmationOutcomes,
   aiModelConfigs: () => aiModelConfigs,
   aiTradeResults: () => aiTradeResults,
+  allTimeRecords: () => allTimeRecords,
   ambassadorActionRewards: () => ambassadorActionRewards,
   ambassadorCertifications: () => ambassadorCertifications,
   ambassadorChallengeParticipants: () => ambassadorChallengeParticipants,
@@ -214,7 +215,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -903,6 +904,8 @@ var init_schema = __esm({
       // Per-account lot size multiplier (0.1–5.0)
       gateMode: text("gate_mode").notNull().default("basic"),
       // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
+      brokerName: text("broker_name"),
+      // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -2512,6 +2515,16 @@ var init_schema = __esm({
       breakoutLevel: z.number().optional(),
       notes: z.string().max(500).optional()
     }).omit({ id: true, status: true, triggeredAt: true, cancelledAt: true, createdAt: true, updatedAt: true });
+    allTimeRecords = pgTable("all_time_records", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      recordType: text("record_type").notNull().default("best_daily_pnl"),
+      value: real("value").notNull().default(0),
+      achievedAt: timestamp("achieved_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    }, (t) => ({
+      unq: unique().on(t.userId, t.recordType)
+    }));
   }
 });
 
@@ -25126,6 +25139,50 @@ var init_breakout_monitor = __esm({
     init_indicators();
     monitorStates = {};
     pollInterval = null;
+  }
+});
+
+// server/services/broker-lookup.ts
+var broker_lookup_exports = {};
+__export(broker_lookup_exports, {
+  brokerNameFromServerId: () => brokerNameFromServerId
+});
+function brokerNameFromServerId(serverId) {
+  if (!serverId) return "TradeLocker";
+  const key = serverId.toUpperCase().trim();
+  return SERVER_BROKER_MAP[key] ?? serverId;
+}
+var SERVER_BROKER_MAP;
+var init_broker_lookup = __esm({
+  "server/services/broker-lookup.ts"() {
+    "use strict";
+    SERVER_BROKER_MAP = {
+      // Atlas
+      "FE2024": "Atlas",
+      "FE2025": "Atlas",
+      "ATLAS": "Atlas",
+      "ATLAS2024": "Atlas",
+      "ATLAS2025": "Atlas",
+      // FTUK
+      "FTUK": "FTUK",
+      "FTUK2024": "FTUK",
+      "FTUK2025": "FTUK",
+      // Funded Peaks
+      "FP2024": "Funded Peaks",
+      "FP2025": "Funded Peaks",
+      // The Funded Trader
+      "TFT": "The Funded Trader",
+      "TFT2024": "The Funded Trader",
+      // E8 Funding
+      "E8": "E8 Funding",
+      "E8FUNDING": "E8 Funding",
+      // Blue Guardian
+      "BG": "Blue Guardian",
+      "BLUEGUARD": "Blue Guardian",
+      // TradeLocker demo/live generic
+      "DEMO": "Demo Account",
+      "LIVE": "Live Account"
+    };
   }
 });
 
@@ -48230,6 +48287,7 @@ Rules:
       return res.status(400).json({ error: `TradeLocker login failed: ${msg}` });
     }
     const encryptedPw = encryptPassword(password);
+    const { brokerNameFromServerId: brokerNameFromServerId2 } = await Promise.resolve().then(() => (init_broker_lookup(), broker_lookup_exports));
     const connection2 = await storage.createTradelockerConnection({
       userId,
       email,
@@ -48239,6 +48297,7 @@ Rules:
       accountType: accountType || "live",
       isActive: true,
       autoExecute: autoExecute || false,
+      brokerName: brokerNameFromServerId2(serverId),
       ...resolvedAccNum ? { accNum: resolvedAccNum } : {}
     });
     if (resolvedAccNum) {
@@ -51449,6 +51508,46 @@ Respond with ONLY valid JSON:
       res.status(500).json({ error: "Failed to execute flip trade: " + error.message });
     }
   });
+  app2.get("/api/all-time-record", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const recordType = req.query.type || "best_daily_pnl";
+    try {
+      const rows = await db.execute(
+        sql6`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+      );
+      const row = rows[0]?.[0] ?? rows.rows?.[0];
+      if (!row) return res.json({ value: null, achievedAt: null });
+      res.json({ value: parseFloat(row.value ?? 0), achievedAt: row.achieved_at });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/all-time-record", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const { value, recordType = "best_daily_pnl" } = req.body;
+    if (typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
+    try {
+      const rows = await db.execute(
+        sql6`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+      );
+      const existing = rows[0]?.[0] ?? rows.rows?.[0];
+      const currentVal = existing ? parseFloat(existing.value) : null;
+      if (currentVal === null || value > currentVal) {
+        await db.execute(sql6`
+          INSERT INTO all_time_records (user_id, record_type, value, achieved_at, updated_at)
+          VALUES (${userId}, ${recordType}, ${value}, now(), now())
+          ON CONFLICT (user_id, record_type)
+          DO UPDATE SET value=${value}, achieved_at=now(), updated_at=now()
+        `);
+        return res.json({ updated: true, value, previousValue: currentVal });
+      }
+      res.json({ updated: false, value: currentVal });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/platform-monitors", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -51506,6 +51605,7 @@ Respond with ONLY valid JSON:
             accountId: conn.accountId,
             accountType: conn.accountType,
             accountName: conn.accountName,
+            brokerName: conn.brokerName || conn.serverId || "TradeLocker",
             balance,
             equity,
             unrealizedPnl: unrealized,
@@ -51520,6 +51620,7 @@ Respond with ONLY valid JSON:
             accountId: conn.accountId,
             accountType: conn.accountType,
             error: e.message,
+            brokerName: conn.brokerName || conn.serverId || "TradeLocker",
             balance: 0,
             equity: 0,
             unrealizedPnl: 0,
@@ -58930,7 +59031,19 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         // Per-account lot multiplier — allows different lot sizes per TradeLocker account
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS lot_multiplier double precision NOT NULL DEFAULT 1.0`,
         // Gate mode — 'basic' (original EA permissive) or 'full' (strict live-engine gates)
-        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`,
+        // Broker name — human-readable label derived from serverId (e.g. "Atlas", "FTUK")
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS broker_name text`,
+        // All-time record tracker for the dashboard
+        `CREATE TABLE IF NOT EXISTS all_time_records (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          record_type text NOT NULL DEFAULT 'best_daily_pnl',
+          value real NOT NULL DEFAULT 0,
+          achieved_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(user_id, record_type)
+        )`
       ];
       for (const m of migrations) {
         await db.execute(sql8.raw(m));

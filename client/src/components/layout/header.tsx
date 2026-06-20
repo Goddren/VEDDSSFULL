@@ -40,7 +40,7 @@ import {
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
   DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw,
-  PowerOff,
+  PowerOff, LayoutDashboard,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -229,19 +229,23 @@ const Header: React.FC = () => {
     },
   });
 
-  // Primary nav items shown directly in header
+  // Primary nav items shown directly in header — the major trading sections
   const primaryNavItems = [
-    { name: 'Activity Hub', path: '/activity', active: location === '/activity', icon: <Flame className="h-4 w-4 mr-2" /> },
-    { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <Settings className="h-4 w-4 mr-2" /> },
+    { name: 'Dashboard', path: '/dashboard', active: location === '/dashboard', icon: <LayoutDashboard className="h-4 w-4 mr-2" /> },
+    { name: 'AI SS Engine (FX)', path: '/weekly-strategy', active: location === '/weekly-strategy', icon: <Rocket className="h-4 w-4 mr-2" /> },
+    { name: 'ORB Breakout', path: '/orb-breakout', active: location === '/orb-breakout', icon: <Target className="h-4 w-4 mr-2" /> },
+    { name: 'ABBA', path: '/abba', active: location === '/abba', icon: <Brain className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
-    { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
-    { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },
-    { name: 'VEDD SS AI', path: '/weekly-strategy', active: location === '/weekly-strategy', icon: <Rocket className="h-4 w-4 mr-2" /> },
-    { name: 'Marketplace', path: '/ea-marketplace', active: location === '/ea-marketplace', icon: <Zap className="h-4 w-4 mr-2" /> },
+    { name: 'Predictions', path: '/polymarket-engine', active: location === '/polymarket-engine', icon: <DollarSign className="h-4 w-4 mr-2" /> },
+    { name: 'TradeLocker', path: '/webhooks', active: location === '/webhooks', icon: <LinkIcon className="h-4 w-4 mr-2" /> },
   ];
 
   // Secondary nav items shown in "More" dropdown
   const moreNavItems = [
+    { name: 'Activity Hub', path: '/activity', active: location === '/activity', icon: <Flame className="h-4 w-4 mr-2" /> },
+    { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
+    { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },
+    { name: 'Marketplace', path: '/ea-marketplace', active: location === '/ea-marketplace', icon: <Zap className="h-4 w-4 mr-2" /> },
     { name: 'Live Monitor', path: '/live-monitor', active: location === '/live-monitor', icon: <Radio className="h-4 w-4 mr-2" /> },
     { name: 'Futures Connect', path: '/futures-connect', active: location === '/futures-connect', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Futures Live Feed', path: '/futures-live-feed', active: location === '/futures-live-feed', icon: <Activity className="h-4 w-4 mr-2" /> },
@@ -258,6 +262,7 @@ const Header: React.FC = () => {
     { name: 'Achievements', path: '/achievements', active: location === '/achievements', icon: <Award className="h-4 w-4 mr-2" /> },
     { name: 'Pricing', path: '/subscription', active: location === '/subscription', icon: <CreditCard className="h-4 w-4 mr-2" /> },
     { name: 'Support', path: '/support', active: location === '/support', icon: <HelpCircle className="h-4 w-4 mr-2" /> },
+    { name: 'Settings', path: '/profile', active: location === '/profile', icon: <Settings className="h-4 w-4 mr-2" /> },
   ];
 
   const navItems = [...primaryNavItems, ...moreNavItems];
@@ -666,6 +671,22 @@ const Header: React.FC = () => {
               </SheetTrigger>
               <SheetContent side="right">
                 <div className="flex flex-col gap-6 mt-10">
+
+                  {/* ── Open in Phantom — deep-link into Phantom's in-app browser (hidden when already inside Phantom) ── */}
+                  {typeof navigator !== 'undefined' && !/Phantom/i.test(navigator.userAgent) && !(window as any).__phantom__ && (
+                    <a
+                      href={`https://phantom.app/ul/browse/${encodeURIComponent(window.location.href)}?ref=${encodeURIComponent(window.location.origin)}`}
+                      className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl bg-red-600 hover:bg-red-600/90 border border-red-500 text-white transition-all active:scale-95"
+                    >
+                      <span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-red-500/30">
+                        <ExternalLink className="h-4 w-4" />
+                      </span>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-bold">Open in Phantom</p>
+                        <p className="text-[10px] text-white/70 mt-0.5">Launch this site in Phantom's browser</p>
+                      </div>
+                    </a>
+                  )}
 
                   {/* ── EA Kill Switch (mobile sheet) ── */}
                   {!killConfirm ? (

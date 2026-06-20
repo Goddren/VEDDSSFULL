@@ -48,6 +48,8 @@ import {
   X,
   Award,
   GraduationCap,
+  RefreshCw,
+  Building2,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Input } from '@/components/ui/input';
@@ -112,6 +114,22 @@ function ChartThumb({ src }: { src: string }) {
       onError={() => setBroken(true)}
     />
   );
+}
+
+// ── Silent record-submission helper — fires once when today's PnL beats stored record ──
+function _SubmitRecord({ value, currentRecord }: { value: number; currentRecord: number | null }) {
+  useEffect(() => {
+    if (currentRecord !== null && value <= currentRecord) return;
+    fetch('/api/all-time-record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ value, recordType: 'best_daily_pnl' }),
+    }).catch(() => {});
+  // Only re-fire when the value changes meaningfully
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Math.floor(value * 100)]);
+  return null;
 }
 
 function SectionHeader({
@@ -299,9 +317,20 @@ const Dashboard: React.FC = () => {
     localStorage.setItem('faithBasedContent', String(showFaithContent));
   }, [showFaithContent]);
   
+  const [quickStatsUpdatedAt, setQuickStatsUpdatedAt] = useState<Date>(new Date());
+
   const { data: analyses = [], isLoading, isError } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
-    refetchInterval: 120000,   // refresh analyses every 2 min
+    refetchInterval: 90000,   // refresh quick stats every 90s
+    onSuccess: () => setQuickStatsUpdatedAt(new Date()),
+  });
+
+  // All-time record (best daily PnL) — only updates when new value exceeds stored
+  const { data: allTimeRecord } = useQuery<{ value: number | null; achievedAt: string | null }>({
+    queryKey: ['/api/all-time-record', 'best_daily_pnl'],
+    queryFn: () => fetch('/api/all-time-record?type=best_daily_pnl', { credentials: 'include' }).then(r => r.json()),
+    enabled: !!user,
+    refetchInterval: 90000,
   });
 
   // Get user achievements
@@ -322,7 +351,7 @@ const Dashboard: React.FC = () => {
   const { data: userProfile } = useQuery<{ winRate?: number; tradeGrade?: number }>({
     queryKey: ['/api/profile', user?.id],
     enabled: !!user?.id,
-    refetchInterval: 120000,   // refresh win rate / grade every 2 min
+    refetchInterval: 90000,   // refresh every 90s with quick stats
   });
 
   // Get user's registered events
@@ -755,16 +784,18 @@ const Dashboard: React.FC = () => {
                   <Link key={c.id} href="/webhooks">
                     <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-cyan-500/30 transition-colors min-w-[140px]">
                       <div className="icon-box-sm icon-box-purple">
-                        <Wallet className="h-3.5 w-3.5" />
+                        <Building2 className="h-3.5 w-3.5" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <p className="text-[10px] text-gray-500 font-medium truncate max-w-[90px]">{c.email}</p>
+                          <p className="text-cyan-400 font-bold text-xs leading-tight">
+                            {c.brokerName || c.serverId || 'TradeLocker'}
+                          </p>
                           <span className={`text-[9px] font-bold px-1 rounded ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                             {c.accountType?.toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-cyan-400 font-bold text-xs leading-tight mt-0.5">TradeLocker</p>
+                        <p className="text-[10px] text-gray-500 truncate max-w-[100px] mt-0.5">{c.email}</p>
                         {c.lotMultiplier && c.lotMultiplier !== 1 && (
                           <p className="text-[9px] text-amber-400">×{c.lotMultiplier} lots</p>
                         )}
@@ -816,7 +847,7 @@ const Dashboard: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-purple-400 flex-shrink-0" />
-                          <span className="text-xs font-bold text-white truncate max-w-[120px]">TL: {acc.accountName || acc.email.split('@')[0]}</span>
+                          <span className="text-xs font-bold text-white truncate max-w-[120px]">{(acc as any).brokerName || acc.accountName || 'TradeLocker'}</span>
                           <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${acc.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                             {acc.accountType?.toUpperCase()}
                           </span>
@@ -952,55 +983,50 @@ const Dashboard: React.FC = () => {
               </div>
             )}
 
-            {/* ── TradeLocker Recent Trade Results ────────────────────── */}
-            {tlTrades && tlTrades.length > 0 && (
-              <div className="smart-card px-3 pt-3 pb-2">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5">
-                    <Wallet className="h-3.5 w-3.5 text-red-400" />
-                    <span className="text-xs font-semibold text-white">TradeLocker Results</span>
-                    <span className="text-[10px] text-gray-500">({tlTrades.length} recent)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px]">
-                    <span className="text-emerald-400 font-semibold">
-                      {tlTrades.filter(t => t.status === 'executed').length} executed
-                    </span>
-                    {tlTrades.filter(t => t.status === 'failed' || t.status === 'rejected').length > 0 && (
-                      <span className="text-red-400 font-semibold">
-                        {tlTrades.filter(t => t.status === 'failed' || t.status === 'rejected').length} failed
-                      </span>
-                    )}
-                  </div>
+            {/* ── All-Time Record ─────────────────────────────────────── */}
+            <div className="smart-card px-3 pt-3 pb-3">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-1.5">
+                  <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-xs font-semibold text-white">All-Time Record</span>
+                  <span className="text-[10px] text-gray-500">best single day</span>
                 </div>
-                <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
-                  {tlTrades.map((trade: any) => {
-                    const isOk = trade.status === 'executed';
-                    const isFail = trade.status === 'failed' || trade.status === 'rejected';
-                    const statusColor = isOk ? 'text-emerald-400' : isFail ? 'text-red-400' : 'text-yellow-400';
-                    const dirColor = trade.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400';
-                    return (
-                      <div key={trade.id} className={`flex items-center justify-between px-2 py-1.5 rounded-lg text-[10px] ${isOk ? 'bg-emerald-500/5 border border-emerald-500/15' : isFail ? 'bg-red-500/5 border border-red-500/15' : 'bg-gray-800/40 border border-gray-700/30'}`}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`font-bold shrink-0 ${dirColor}`}>{trade.direction}</span>
-                          <span className="font-semibold text-white truncate">{trade.symbol}</span>
-                          <span className="text-gray-500 shrink-0">{Number(trade.volume || 0).toFixed(2)} lot</span>
-                          {trade.entryPrice && (
-                            <span className="text-gray-400 shrink-0">@ {Number(trade.entryPrice).toFixed(trade.entryPrice < 10 ? 5 : 2)}</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0 ml-2">
-                          <span className={`font-semibold capitalize ${statusColor}`}>{trade.status}</span>
-                          {trade.errorMessage && (
-                            <span className="text-red-300 truncate max-w-[80px]" title={trade.errorMessage}>⚠ {trade.errorMessage.slice(0, 20)}</span>
-                          )}
-                          <span className="text-gray-600">{new Date(trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {allTimeRecord?.achievedAt && (
+                  <span className="text-[10px] text-gray-600">
+                    set {new Date(allTimeRecord.achievedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' })}
+                  </span>
+                )}
               </div>
-            )}
+              <div className="flex items-end gap-3">
+                <div>
+                  <p className={`text-2xl font-black leading-none ${allTimeRecord?.value != null && allTimeRecord.value > 0 ? 'text-amber-400' : 'text-gray-600'}`}>
+                    {allTimeRecord?.value != null
+                      ? `$${allTimeRecord.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : '—'}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    {allTimeRecord?.value != null && allTimeRecord.value > 0
+                      ? 'Record is set — beat it to update'
+                      : 'No record yet — trade to set one'}
+                  </p>
+                </div>
+                {allTimeRecord?.value != null && allTimeRecord.value > 0 && (
+                  <div className="ml-auto">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center">
+                      <Trophy className="h-4 w-4 text-amber-400" />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Auto-submit today's closed PnL to check if it breaks the record */}
+              {(platformMonitors?.mt5?.dailyPnl ?? 0) > 0 && (() => {
+                const todayPnl = (platformMonitors?.mt5?.dailyPnl ?? 0) +
+                  (platformMonitors?.tradelocker?.reduce((s: number, a: any) => s + (a.dailyPnl || 0), 0) ?? 0);
+                return todayPnl > 0 ? (
+                  <_SubmitRecord value={todayPnl} currentRecord={allTimeRecord?.value ?? null} />
+                ) : null;
+              })()}
+            </div>
 
             {/* Weekly goal progress bar */}
             {weeklyTarget > 0 ? (
@@ -1550,6 +1576,14 @@ const Dashboard: React.FC = () => {
 
         {/* ── Quick Stats Row ───────────────────────────────────────────── */}
         <SectionHeader title="Quick Stats" open={showStats} onToggle={toggleStats} icon={BarChart2} iconClass="icon-box-red" />
+        {showStats && (
+        <div className="flex items-center gap-1 px-0.5 mb-1.5">
+          <RefreshCw className="h-2.5 w-2.5 text-gray-600" />
+          <span className="text-[10px] text-gray-600">
+            Updated {quickStatsUpdatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} · refreshes every 90s
+          </span>
+        </div>
+        )}
         {showStats && <div className="h-scroll mb-5">
           {/* Win Rate */}
           <div className="smart-card p-4 min-w-[130px] text-center">

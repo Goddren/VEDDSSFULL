@@ -277,11 +277,11 @@ export function MobileBottomNav() {
   const close = () => setOpen(false);
 
   const tabs = [
-    { name: 'Home',    path: '/dashboard',            Icon: Home       },
-    { name: 'Trading', path: '/weekly-strategy',       Icon: TrendingUp },
-    { name: 'Wear',    path: '/vedd-clothing',         Icon: Shirt      },
-    { name: 'MT5',     path: '/mt5-chart-data',        Icon: BarChart3  },
-    { name: 'Grow',    path: '/ambassador/recruitment', Icon: Users      },
+    { name: 'Analysis', path: '/analysis',          Icon: LineChart  },
+    { name: 'Trade',    path: '/webhooks',          Icon: Webhook    },
+    { name: 'Predict',  path: '/polymarket-engine', Icon: DollarSign },
+    { name: 'Engine',   path: '/weekly-strategy',   Icon: Rocket     },
+    { name: 'ORB',      path: '/orb-breakout',      Icon: Radio      },
   ];
 
   return (

@@ -13910,6 +13910,7 @@ Rules:
     // Encrypt password after successful auth
     const encryptedPw = encryptPassword(password);
     
+    const { brokerNameFromServerId } = await import('./services/broker-lookup');
     const connection = await storage.createTradelockerConnection({
       userId,
       email,
@@ -13919,6 +13920,7 @@ Rules:
       accountType: accountType || 'live',
       isActive: true,
       autoExecute: autoExecute || false,
+      brokerName: brokerNameFromServerId(serverId),
       ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
     });
     
@@ -17664,6 +17666,55 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── All-Time Records ──────────────────────────────────────────────────────
+  // GET  /api/all-time-record        — fetch user's record for a type
+  // POST /api/all-time-record        — submit a new value; only updates if > stored
+
+  app.get("/api/all-time-record", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const recordType = (req.query.type as string) || "best_daily_pnl";
+    try {
+      const rows = await db.execute(
+        sql`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+      );
+      const row = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      if (!row) return res.json({ value: null, achievedAt: null });
+      res.json({ value: parseFloat(row.value ?? 0), achievedAt: row.achieved_at });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/all-time-record", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const { value, recordType = "best_daily_pnl" } = req.body;
+    if (typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
+    try {
+      // Fetch current record
+      const rows = await db.execute(
+        sql`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+      );
+      const existing = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      const currentVal = existing ? parseFloat(existing.value) : null;
+
+      if (currentVal === null || value > currentVal) {
+        // Upsert — only update when new value beats stored record
+        await db.execute(sql`
+          INSERT INTO all_time_records (user_id, record_type, value, achieved_at, updated_at)
+          VALUES (${userId}, ${recordType}, ${value}, now(), now())
+          ON CONFLICT (user_id, record_type)
+          DO UPDATE SET value=${value}, achieved_at=now(), updated_at=now()
+        `);
+        return res.json({ updated: true, value, previousValue: currentVal });
+      }
+      res.json({ updated: false, value: currentVal });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── GET /api/platform-monitors ─────────────────────────────────────────────
   // Single endpoint returning per-platform balance + daily + weekly P&L for
   // the dashboard "Platform Monitors" section. Each platform is fully separate.
@@ -17725,6 +17776,7 @@ Respond with ONLY valid JSON:
           tlAccounts.push({
             id: conn.id, email: conn.email, accountId: conn.accountId,
             accountType: conn.accountType, accountName: conn.accountName,
+            brokerName: conn.brokerName || conn.serverId || 'TradeLocker',
             balance, equity, unrealizedPnl: unrealized,
             dailyPnl, weeklyPnl, openTrades: positions.length,
           });
@@ -17732,6 +17784,7 @@ Respond with ONLY valid JSON:
           tlAccounts.push({
             id: conn.id, email: conn.email, accountId: conn.accountId,
             accountType: conn.accountType, error: e.message,
+            brokerName: conn.brokerName || conn.serverId || 'TradeLocker',
             balance: 0, equity: 0, unrealizedPnl: 0, dailyPnl: 0, weeklyPnl: 0, openTrades: 0,
           });
         }

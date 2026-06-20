@@ -710,6 +710,7 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   tradeCount: integer("trade_count").notNull().default(0),
   lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1.0), // Per-account lot size multiplier (0.1–5.0)
   gateMode: text("gate_mode").notNull().default('basic'), // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
+  brokerName: text("broker_name"), // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -2430,4 +2431,21 @@ export const insertStopOrderSchema = createInsertSchema(stopOrders, {
 
 export type StopOrder       = typeof stopOrders.$inferSelect;
 export type InsertStopOrder = z.infer<typeof insertStopOrderSchema>;
+
+// ─── All-Time Records ────────────────────────────────────────────────────────
+// Per-user high-water marks (best_daily_pnl, etc.) — only updated when
+// a new value exceeds the stored record.
+export const allTimeRecords = pgTable("all_time_records", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  recordType: text("record_type").notNull().default("best_daily_pnl"),
+  value: real("value").notNull().default(0),
+  achievedAt: timestamp("achieved_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.userId, t.recordType),
+}));
+
+export type AllTimeRecord       = typeof allTimeRecords.$inferSelect;
+export type InsertAllTimeRecord = typeof allTimeRecords.$inferInsert;
 

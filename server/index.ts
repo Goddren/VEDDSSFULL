@@ -208,6 +208,18 @@ async function withRetry<T>(
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS lot_multiplier double precision NOT NULL DEFAULT 1.0`,
         // Gate mode — 'basic' (original EA permissive) or 'full' (strict live-engine gates)
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`,
+        // Broker name — human-readable label derived from serverId (e.g. "Atlas", "FTUK")
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS broker_name text`,
+        // All-time record tracker for the dashboard
+        `CREATE TABLE IF NOT EXISTS all_time_records (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          record_type text NOT NULL DEFAULT 'best_daily_pnl',
+          value real NOT NULL DEFAULT 0,
+          achieved_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(user_id, record_type)
+        )`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));
