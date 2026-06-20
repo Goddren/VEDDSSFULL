@@ -12367,7 +12367,7 @@ Respond with ONLY valid JSON:
 }`;
 
       // Weekly strategy: build candidate clients in order of rate-limit friendliness
-      // Groq llama-3.1-8b-instant has 20K TPM free — much better than OpenAI Tier 1
+      // Groq gpt-oss-20b is fast + cheap (replaces decommissioned llama-3.1-8b-instant)
       const { storage: _stratStorage } = await import('./storage');
       const _allKeys = await _stratStorage.getUserApiKeys(userId);
       const _activeKeys = _allKeys.filter((k: any) => k.isActive && k.isValid !== false);
@@ -12378,8 +12378,8 @@ Respond with ONLY valid JSON:
       const _groqKey = _activeKeys.find((k: any) => k.provider === 'groq');
       if (_groqKey?.apiKey) {
         const OpenAISDK = (await import('openai')).default;
-        const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: 'https://api.groq.com/openai/v1' }) as any;
-        candidates.push({ client: gc, model: 'llama-3.1-8b-instant', provider: 'groq' });
+        const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 }) as any;
+        candidates.push({ client: gc, model: 'openai/gpt-oss-20b', provider: 'groq' });
       }
       const _openaiKey = _activeKeys.find((k: any) => k.provider === 'openai');
       if (_openaiKey?.apiKey) {

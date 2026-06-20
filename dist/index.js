@@ -6240,7 +6240,7 @@ function inferModelProvider(modelId) {
   if (m.startsWith("claude")) return "anthropic";
   if (m.startsWith("gemini")) return "google";
   if (m.startsWith("mistral") || m.startsWith("mixtral") || m.startsWith("magistral")) return "mistral";
-  if (m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
+  if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
   return getModelProvider(modelId);
 }
 function resolveVisionModel(modelId) {
@@ -7732,7 +7732,7 @@ async function buildGroqEconomyClient(userGroqKey) {
   if (!apiKey) return null;
   try {
     const client2 = buildOpenAICompatClient("groq", apiKey);
-    client2.defaultModel = "llama-3.3-70b-versatile";
+    client2.defaultModel = "openai/gpt-oss-120b";
     client2.provider = "groq";
     return client2;
   } catch (e) {
@@ -7745,7 +7745,7 @@ async function buildGroqVisionClient(userGroqKey) {
   if (!apiKey) return null;
   try {
     const client2 = buildOpenAICompatClient("groq", apiKey);
-    client2.defaultModel = "meta-llama/llama-4-scout-17b-16e-instruct";
+    client2.defaultModel = "qwen/qwen3-vl-32b-instruct";
     client2.provider = "groq";
     return client2;
   } catch (e) {
@@ -9222,10 +9222,10 @@ var init_openai = __esm({
       { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5", description: "Fast and affordable", tier: "budget", provider: "anthropic" },
       { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", description: "Fast multimodal analysis", tier: "budget", provider: "google" },
       { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro", description: "Advanced reasoning", tier: "premium", provider: "google" },
-      { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Groq)", description: "High-quality OpenAI open model on Groq \u2014 fast & reliable (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B", description: "Ultra-fast inference (text/confirmation only)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "meta-llama/llama-4-scout-17b-16e-instruct", name: "Llama 4 Scout (Vision)", description: "Fast vision model for chart analysis", tier: "budget", provider: "groq" },
-      { id: "mixtral-8x7b-32768", name: "Mixtral 8x7B", description: "Fast mixture of experts (text/confirmation only)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Groq)", description: "Groq flagship open model \u2014 fast & reliable (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "qwen/qwen3.6-27b", name: "Qwen 3.6 27B (Groq)", description: "Strong reasoning, fast on Groq (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Groq)", description: "Fastest Groq model \u2014 ultra-low latency (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
+      { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision-language model for chart analysis", tier: "budget", provider: "groq" },
       { id: "mistral-large-latest", name: "Mistral Large", description: "Top-tier reasoning", tier: "premium", provider: "mistral" },
       { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" }
     ];
@@ -9233,10 +9233,16 @@ var init_openai = __esm({
     DEPRECATED_MODEL_MAP = {
       "claude-3-5-haiku-20241022": "claude-haiku-4-5-20251001",
       "claude-sonnet-4-20250514": "claude-sonnet-4-6",
-      "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+      "claude-3-5-sonnet-20241022": "claude-sonnet-4-6",
+      // Groq models decommissioned 2026-06-17 → migrate to current Groq models
+      "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+      "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+      "meta-llama/llama-4-scout-17b-16e-instruct": "qwen/qwen3-vl-32b-instruct",
+      "mixtral-8x7b-32768": "openai/gpt-oss-120b",
+      "qwen/qwen3-32b": "qwen/qwen3.6-27b"
     };
     VISION_FALLBACK = {
-      "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
+      "groq": "qwen/qwen3-vl-32b-instruct",
       "openai": "gpt-4o-mini",
       "anthropic": "claude-sonnet-4-6"
     };
@@ -9253,7 +9259,7 @@ var init_openai = __esm({
     logIdCounter = 1;
     PROVIDER_MODELS = {
       openai: "gpt-4o",
-      groq: "llama-3.3-70b-versatile",
+      groq: "openai/gpt-oss-120b",
       anthropic: "claude-sonnet-4-6",
       // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
       google: "gemini-2.0-flash",
@@ -20266,9 +20272,9 @@ var init_ai_model_service = __esm({
       },
       {
         id: "groq-llama",
-        name: "LLaMA 3.3 70B (Groq)",
+        name: "GPT-OSS 120B (Groq)",
         provider: "groq",
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         strengths: ["Extremely fast inference", "Good for rapid decisions"],
         bestFor: ["scalping", "compound", "ict_fvg"]
       },
@@ -22462,7 +22468,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
           maxRetries: 4,
           timeout: 9e4
         });
-        groqClient.defaultModel = "llama-3.3-70b-versatile";
+        groqClient.defaultModel = "openai/gpt-oss-120b";
         openai2 = groqClient;
         _usingGroq = true;
         addActivity2(userId, { type: "info", message: "\u{1F49A} Economy mode: routing to Groq Llama 3.3-70b (free tier) \u2014 cost reduced" });
@@ -27767,7 +27773,7 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
       if (groqKey) {
         const OpenAI5 = (await import("openai")).default;
         openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-        openai2.defaultModel = "llama-3.3-70b-versatile";
+        openai2.defaultModel = "openai/gpt-oss-120b";
         modelLabel = "Groq Llama";
         addActivity3(state, {
           type: "info",
@@ -34783,7 +34789,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     try {
       const OpenAI5 = (await import("openai")).default;
       const groq = new OpenAI5({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-      groq.defaultModel = "llama-3.3-70b-versatile";
+      groq.defaultModel = "openai/gpt-oss-120b";
       openai2 = groq;
       _usingGroq = true;
     } catch {
@@ -46344,8 +46350,8 @@ Respond with ONLY valid JSON:
       const _groqKey = _activeKeys.find((k) => k.provider === "groq");
       if (_groqKey?.apiKey) {
         const OpenAISDK = (await import("openai")).default;
-        const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: "https://api.groq.com/openai/v1" });
-        candidates.push({ client: gc, model: "llama-3.1-8b-instant", provider: "groq" });
+        const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        candidates.push({ client: gc, model: "openai/gpt-oss-20b", provider: "groq" });
       }
       const _openaiKey = _activeKeys.find((k) => k.provider === "openai");
       if (_openaiKey?.apiKey) {

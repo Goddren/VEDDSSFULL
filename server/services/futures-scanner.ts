@@ -435,7 +435,7 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
     try {
       const OpenAI = (await import('openai')).default;
       const groq = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 });
-      (groq as any).defaultModel = 'llama-3.3-70b-versatile';
+      (groq as any).defaultModel = 'openai/gpt-oss-120b';
       openai = groq;
       _usingGroq = true;
     } catch { /* fall back to primary */ }

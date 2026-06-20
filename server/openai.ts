@@ -247,10 +247,10 @@ export const AVAILABLE_VISION_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', description: 'Fast and affordable', tier: 'budget', provider: 'anthropic' },
   { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Fast multimodal analysis', tier: 'budget', provider: 'google' },
   { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Advanced reasoning', tier: 'premium', provider: 'google' },
-  { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (Groq)', description: 'High-quality OpenAI open model on Groq — fast & reliable (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
-  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Ultra-fast inference (text/confirmation only)', tier: 'budget', provider: 'groq', textOnly: true },
-  { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout (Vision)', description: 'Fast vision model for chart analysis', tier: 'budget', provider: 'groq' },
-  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Fast mixture of experts (text/confirmation only)', tier: 'budget', provider: 'groq', textOnly: true },
+  { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (Groq)', description: 'Groq flagship open model — fast & reliable (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
+  { id: 'qwen/qwen3.6-27b', name: 'Qwen 3.6 27B (Groq)', description: 'Strong reasoning, fast on Groq (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
+  { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Groq)', description: 'Fastest Groq model — ultra-low latency (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
+  { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen 3 VL (Vision, Groq)', description: 'Groq vision-language model for chart analysis', tier: 'budget', provider: 'groq' },
   { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
 ];
@@ -267,6 +267,12 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
   'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
   'claude-sonnet-4-20250514': 'claude-sonnet-4-6',
   'claude-3-5-sonnet-20241022': 'claude-sonnet-4-6',
+  // Groq models decommissioned 2026-06-17 → migrate to current Groq models
+  'llama-3.3-70b-versatile': 'openai/gpt-oss-120b',
+  'llama-3.1-8b-instant': 'openai/gpt-oss-20b',
+  'meta-llama/llama-4-scout-17b-16e-instruct': 'qwen/qwen3-vl-32b-instruct',
+  'mixtral-8x7b-32768': 'openai/gpt-oss-120b',
+  'qwen/qwen3-32b': 'qwen/qwen3.6-27b',
 };
 
 export function getUserModelPreference(userId: number): string {
@@ -293,13 +299,13 @@ export function inferModelProvider(modelId: string): string {
   if (m.startsWith('claude')) return 'anthropic';
   if (m.startsWith('gemini')) return 'google';
   if (m.startsWith('mistral') || m.startsWith('mixtral') || m.startsWith('magistral')) return 'mistral';
-  if (m.includes('llama') || m.includes('groq') || m.includes('gemma') || m.includes('qwen') || m.includes('deepseek')) return 'groq';
+  if (m.includes('gpt-oss') || m.includes('llama') || m.includes('groq') || m.includes('gemma') || m.includes('qwen') || m.includes('deepseek')) return 'groq';
   return getModelProvider(modelId);
 }
 
 // Text-only models cannot process chart images — auto-swap to a vision-capable model
 const VISION_FALLBACK: Record<string, string> = {
-  'groq': 'meta-llama/llama-4-scout-17b-16e-instruct',
+  'groq': 'qwen/qwen3-vl-32b-instruct',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
 };
@@ -2124,7 +2130,7 @@ export interface UniversalAIClient {
 
 const PROVIDER_MODELS: Record<string, string> = {
   openai: 'gpt-4o',
-  groq: 'llama-3.3-70b-versatile',
+  groq: 'openai/gpt-oss-120b',
   anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
   google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
@@ -2281,7 +2287,7 @@ async function buildGroqEconomyClient(userGroqKey?: string): Promise<UniversalAI
   if (!apiKey) return null;
   try {
     const client = buildOpenAICompatClient('groq', apiKey) as any;
-    client.defaultModel = 'llama-3.3-70b-versatile';
+    client.defaultModel = 'openai/gpt-oss-120b';
     client.provider = 'groq';
     return client as UniversalAIClient;
   } catch (e) {
@@ -2296,7 +2302,7 @@ async function buildGroqVisionClient(userGroqKey?: string): Promise<UniversalAIC
   if (!apiKey) return null;
   try {
     const client = buildOpenAICompatClient('groq', apiKey) as any;
-    client.defaultModel = 'meta-llama/llama-4-scout-17b-16e-instruct';
+    client.defaultModel = 'qwen/qwen3-vl-32b-instruct';
     client.provider = 'groq';
     return client as UniversalAIClient;
   } catch (e) {

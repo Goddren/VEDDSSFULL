@@ -2418,7 +2418,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
           maxRetries: 4,
           timeout: 90000,
         });
-        (groqClient as any).defaultModel = 'llama-3.3-70b-versatile';
+        (groqClient as any).defaultModel = 'openai/gpt-oss-120b';
         openai = groqClient;
         _usingGroq = true;
         addActivity(userId, { type: 'info', message: '💚 Economy mode: routing to Groq Llama 3.3-70b (free tier) — cost reduced' });
