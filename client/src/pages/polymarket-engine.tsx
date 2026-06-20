@@ -637,6 +637,18 @@ export default function PolymarketEnginePage() {
     onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
+  // ── Polymarket US ENGINE (same strategies as Kalshi) ───────────────────────
+  const { data: pmUsEngine } = useQuery<any>({
+    queryKey: ["/api/polymarket-us-engine/status"], refetchInterval: 8000, enabled: !!user,
+  });
+  const [pmUsEngStrat, setPmUsEngStrat] = useState<string>("");
+  const pmUsEngAct = (action: "start" | "stop" | "scan") =>
+    apiRequest("POST", `/api/polymarket-us-engine/${action}`).then(() => queryClient.invalidateQueries({ queryKey: ["/api/polymarket-us-engine/status"] }));
+  const pmUsEngSaveStrat = (strategy: string) => {
+    setPmUsEngStrat(strategy);
+    apiRequest("PUT", "/api/polymarket-us-engine/config", { strategy }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/polymarket-us-engine/status"] }));
+  };
+
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-24">
 
@@ -705,6 +717,71 @@ export default function PolymarketEnginePage() {
               </button>
             </div>
           )}
+        </div>
+
+        {/* ── Polymarket US Auto-Trade Engine (same strategies as Kalshi) ────── */}
+        <div className={`rounded-xl p-4 ${pmUsEngine?.isRunning ? "border-emerald-600/60" : "border-emerald-800/40"}`} style={{ background: "rgba(16,185,129,0.05)", border: "1.5px solid rgba(16,185,129,0.25)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <h2 className="text-sm font-bold text-white">Polymarket US Engine</h2>
+              <span className="text-[9px] text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded">No VPN</span>
+              {pmUsEngine && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded ${pmUsEngine.isPaperMode ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"}`}>
+                  {pmUsEngine.isPaperMode ? "PAPER" : "LIVE"}
+                </span>
+              )}
+              {pmUsEngine?.isRunning && <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">● RUNNING</span>}
+            </div>
+          </div>
+
+          {/* Strategy selector — same options as Kalshi */}
+          <label className="text-[9px] text-gray-400 block mb-1">Strategy (shared with Kalshi)</label>
+          <div className="grid grid-cols-3 gap-1.5 mb-3">
+            {(["auto", "ensemble", "momentum", "volume_profile", "markov", "order_flow"] as const).map(k => {
+              const active = (pmUsEngStrat || pmUsEngine?.config?.strategy || "ensemble") === k;
+              const lbl = k === "auto" ? "🤖 Auto" : k === "volume_profile" ? "Vol Profile" : k === "order_flow" ? "Order Flow" : k === "ensemble" ? "AI Ensemble ★" : k.charAt(0).toUpperCase() + k.slice(1);
+              return (
+                <button key={k} onClick={() => pmUsEngSaveStrat(k)}
+                  className={`rounded-lg px-1.5 py-1.5 text-[10px] font-bold border ${active ? "bg-emerald-600/40 border-emerald-500/50 text-emerald-100" : "bg-gray-800/60 border-gray-700/60 text-gray-400"}`}>
+                  {lbl}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Controls */}
+          <div className="flex gap-2 mb-2">
+            {pmUsEngine?.isRunning ? (
+              <button onClick={() => pmUsEngAct("stop")} className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5">
+                <Square className="w-3.5 h-3.5" />Stop
+              </button>
+            ) : (
+              <button onClick={() => pmUsEngAct("start")} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold rounded-lg py-2.5">
+                <Play className="w-3.5 h-3.5" />Start Engine
+              </button>
+            )}
+            <button onClick={() => pmUsEngAct("scan")} className="flex items-center gap-1.5 bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5">
+              <RefreshCw className="w-3.5 h-3.5" />Scan
+            </button>
+          </div>
+
+          {pmUsEngine?.lastScanResult && (
+            <p className="text-[10px] text-gray-400 bg-black/20 rounded-lg px-2 py-1.5">{pmUsEngine.lastScanResult}</p>
+          )}
+
+          {(pmUsEngine?.openTrades?.length ?? 0) > 0 && (
+            <div className="mt-2 space-y-1">
+              {pmUsEngine.openTrades.map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between text-[10px] bg-black/25 rounded px-2 py-1">
+                  <span className="text-gray-200 truncate max-w-[55%]">{t.title}</span>
+                  <span className={`font-bold ${t.side === "yes" ? "text-emerald-400" : "text-red-400"}`}>{t.side.toUpperCase()} {t.entryPriceCents}¢</span>
+                  <span className={`font-bold ${t.unrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>{t.unrealizedPnl >= 0 ? "+" : ""}${t.unrealizedPnl?.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[8px] text-gray-600 mt-2">Runs the exact Kalshi strategies on the regulated Polymarket US exchange. Auto-trades crypto markets when available; idle (live) if none are listed yet. {pmUsEngine?.isPaperMode && "PAPER until your API key connects above."}</p>
         </div>
 
         {/* ── US-legal notice ──────────────────────────────────────────────── */}

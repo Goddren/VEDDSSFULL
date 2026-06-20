@@ -25789,6 +25789,9 @@ var init_polymarket_autonomous_engine = __esm({
 var polymarket_us_exports = {};
 __export(polymarket_us_exports, {
   deletePmUsCredentials: () => deletePmUsCredentials,
+  findPmUsCryptoMarket: () => findPmUsCryptoMarket,
+  getPmUsBbo: () => getPmUsBbo,
+  getPmUsMarkets: () => getPmUsMarkets,
   getPmUsPositions: () => getPmUsPositions,
   hasPmUsCredentials: () => hasPmUsCredentials,
   loadPmUsCredentials: () => loadPmUsCredentials,
@@ -25885,244 +25888,49 @@ async function getPmUsPositions(userId) {
 async function placePmUsOrder(userId, order) {
   return pmUsRequest(userId, "POST", "/v1/orders", order);
 }
-var BASE_URL, FILE2, PKCS8_ED25519_PREFIX;
+async function getPmUsMarkets(params = {}) {
+  const qs = new URLSearchParams({ active: "true", closed: "false", limit: "200", ...params }).toString();
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15e3) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.markets || [];
+  } catch {
+    return [];
+  }
+}
+async function findPmUsCryptoMarket(asset = "bitcoin") {
+  const terms = asset === "bitcoin" ? ["bitcoin", "btc"] : asset === "ethereum" ? ["ethereum", "eth"] : [asset.toLowerCase()];
+  const markets = await getPmUsMarkets({ limit: 500 });
+  const candidates = markets.filter((m) => {
+    if (!m.active || m.closed) return false;
+    const hay = `${m.title || ""} ${m.question || ""} ${m.slug || ""} ${m.category || ""}`.toLowerCase();
+    return terms.some((t) => hay.includes(t));
+  });
+  candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
+  return candidates[0] || null;
+}
+async function getPmUsBbo(slug) {
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12e3) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const md = d.marketData || d;
+    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
+  } catch {
+    return null;
+  }
+}
+var BASE_URL, GATEWAY_URL, FILE2, PKCS8_ED25519_PREFIX, _toNum;
 var init_polymarket_us = __esm({
   "server/services/polymarket-us.ts"() {
     "use strict";
     init_tradelocker();
     BASE_URL = "https://api.polymarket.us";
+    GATEWAY_URL = "https://gateway.polymarket.us";
     FILE2 = path5.join(process.cwd(), "data", "polymarket_us.json");
     PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
-  }
-});
-
-// server/services/kalshi-trading.ts
-var kalshi_trading_exports = {};
-__export(kalshi_trading_exports, {
-  cancelKalshiOrder: () => cancelKalshiOrder,
-  deleteKalshiCredentials: () => deleteKalshiCredentials,
-  getKalshiBalance: () => getKalshiBalance,
-  getKalshiOrders: () => getKalshiOrders,
-  getKalshiPositions: () => getKalshiPositions,
-  loadKalshiCredentials: () => loadKalshiCredentials,
-  placeKalshiOrder: () => placeKalshiOrder,
-  saveKalshiApiKey: () => saveKalshiApiKey,
-  saveKalshiCredentials: () => saveKalshiCredentials,
-  testKalshiCredentials: () => testKalshiCredentials
-});
-import * as fs6 from "fs";
-import * as path6 from "path";
-import * as crypto5 from "crypto";
-function loadAllCreds() {
-  try {
-    if (fs6.existsSync(CREDS_FILE)) return JSON.parse(fs6.readFileSync(CREDS_FILE, "utf-8"));
-  } catch {
-  }
-  return {};
-}
-function saveAllCreds(map) {
-  try {
-    const dir = path6.dirname(CREDS_FILE);
-    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
-    fs6.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
-  } catch {
-  }
-}
-function saveKalshiCredentials(userId, creds) {
-  const map = loadAllCreds();
-  map[String(userId)] = creds;
-  saveAllCreds(map);
-}
-function normalizePrivateKey(raw) {
-  let pem = (raw ?? "").trim();
-  if (pem.startsWith('"') && pem.endsWith('"') || pem.startsWith("'") && pem.endsWith("'")) {
-    pem = pem.slice(1, -1).trim();
-  }
-  if (pem.includes("\\n")) pem = pem.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
-  pem = pem.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
-  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
-  if (headerMatch && footerMatch && !pem.includes("\n")) {
-    const label = headerMatch[1];
-    const body = pem.replace(/-----BEGIN [A-Z ]+?-----/, "").replace(/-----END [A-Z ]+?-----/, "").replace(/\s+/g, "");
-    const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
-    pem = `-----BEGIN ${label}-----
-${wrapped}
------END ${label}-----`;
-  }
-  pem = pem.trim();
-  try {
-    crypto5.createPrivateKey(pem);
-  } catch {
-    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
-  }
-  return pem;
-}
-function saveKalshiApiKey(userId, keyId, privateKeyPem) {
-  const normalized = normalizePrivateKey(privateKeyPem);
-  const map = loadAllCreds();
-  map[String(userId)] = { authMethod: "apikey", keyId: keyId.trim(), privateKeyPem: normalized };
-  saveAllCreds(map);
-  _sessions.delete(userId);
-}
-function loadKalshiCredentials(userId) {
-  return loadAllCreds()[String(userId)] ?? null;
-}
-function deleteKalshiCredentials(userId) {
-  const map = loadAllCreds();
-  delete map[String(userId)];
-  saveAllCreds(map);
-  _sessions.delete(userId);
-}
-async function getOrRefreshToken(userId, creds) {
-  const existing = _sessions.get(userId);
-  if (existing && Date.now() < existing.expiresAt) return existing.token;
-  const res = await fetch(`${KALSHI_BASE2}/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
-    body: JSON.stringify({ email: creds.email, password: creds.password }),
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (res.status === 404) {
-      throw new Error("Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi \u2192 Settings \u2192 API Keys \u2192 kalshi.com/account/api).");
-    }
-    throw new Error(`Kalshi login failed (${res.status}): ${body.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const token = data.token ?? data.access_token;
-  const memberId = data.member_id ?? "";
-  if (!token) throw new Error("Kalshi login response missing token field");
-  const session3 = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1e3 };
-  _sessions.set(userId, session3);
-  return token;
-}
-function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
-  const pathOnly = endpoint.split("?")[0];
-  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign2 = crypto5.createSign("sha256");
-  sign2.update(message);
-  sign2.end();
-  return sign2.sign(
-    {
-      key: privateKeyPem,
-      padding: crypto5.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto5.constants.RSA_PSS_SALTLEN_DIGEST
-    },
-    "base64"
-  );
-}
-async function getAuthHeaders(userId, method, endpoint) {
-  const creds = loadKalshiCredentials(userId);
-  if (!creds) throw new Error("No Kalshi credentials saved for this account");
-  const base = { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" };
-  if (creds.authMethod === "apikey" && creds.keyId && creds.privateKeyPem) {
-    const ts = Date.now();
-    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
-    return {
-      ...base,
-      "KALSHI-ACCESS-KEY": creds.keyId,
-      "KALSHI-ACCESS-TIMESTAMP": String(ts),
-      "KALSHI-ACCESS-SIGNATURE": sig
-    };
-  }
-  const token = await getOrRefreshToken(userId, creds);
-  return { ...base, "Authorization": `Bearer ${token}` };
-}
-async function kalshiGet(userId, endpoint) {
-  const headers = await getAuthHeaders(userId, "GET", endpoint);
-  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Kalshi GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
-  }
-  return res.json();
-}
-async function kalshiPost(userId, endpoint, body) {
-  const headers = await getAuthHeaders(userId, "POST", endpoint);
-  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(1e4)
-  });
-  if (!res.ok) {
-    const text2 = await res.text();
-    throw new Error(`Kalshi POST ${endpoint} failed (${res.status}): ${text2.slice(0, 300)}`);
-  }
-  return res.json();
-}
-async function testKalshiCredentials(userId) {
-  try {
-    const data = await kalshiGet(userId, "/portfolio/balance");
-    const balance = data.balance ?? 0;
-    const session3 = _sessions.get(userId);
-    const creds = loadKalshiCredentials(userId);
-    const memberId = session3?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}\u2026` : void 0);
-    return { valid: true, memberId, balance };
-  } catch (err) {
-    return { valid: false, error: err.message };
-  }
-}
-async function getKalshiBalance(userId) {
-  const data = await kalshiGet(userId, "/portfolio/balance");
-  return {
-    balance: data.balance ?? 0,
-    availableBalance: data.available_balance ?? data.balance ?? 0
-  };
-}
-async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
-  const payload2 = {
-    ticker,
-    action,
-    side,
-    count,
-    type: "limit",
-    ...side === "yes" ? { yes_price: priceInCents } : { no_price: priceInCents }
-  };
-  const data = await kalshiPost(userId, "/portfolio/orders", payload2);
-  const order = data.order ?? data;
-  return {
-    orderId: order.order_id ?? order.id ?? "unknown",
-    ticker: order.ticker ?? ticker,
-    side: order.side ?? side,
-    action: order.action ?? action,
-    count: order.count ?? count,
-    priceInCents,
-    status: order.status ?? "resting",
-    createdAt: order.created_time ?? (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-async function getKalshiPositions(userId) {
-  const data = await kalshiGet(userId, "/portfolio/positions?limit=100");
-  return data.positions ?? data.market_positions ?? [];
-}
-async function getKalshiOrders(userId, status = "resting") {
-  const data = await kalshiGet(userId, `/portfolio/orders?status=${status}&limit=50`);
-  return data.orders ?? [];
-}
-async function cancelKalshiOrder(userId, orderId) {
-  try {
-    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/orders/${orderId}`);
-    await fetch(`${KALSHI_BASE2}/portfolio/orders/${orderId}`, {
-      method: "DELETE",
-      headers,
-      signal: AbortSignal.timeout(8e3)
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-var KALSHI_BASE2, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
-var init_kalshi_trading = __esm({
-  "server/services/kalshi-trading.ts"() {
-    "use strict";
-    KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
-    KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path6.join(process.cwd(), "data", "kalshi_credentials.json");
-    _sessions = /* @__PURE__ */ new Map();
+    _toNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
   }
 });
 
@@ -26457,6 +26265,236 @@ var init_kalshi_strategies = __esm({
     init_btc_5min_predictor();
     init_orderflow_strategy();
     clamp2 = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  }
+});
+
+// server/services/kalshi-trading.ts
+var kalshi_trading_exports = {};
+__export(kalshi_trading_exports, {
+  cancelKalshiOrder: () => cancelKalshiOrder,
+  deleteKalshiCredentials: () => deleteKalshiCredentials,
+  getKalshiBalance: () => getKalshiBalance,
+  getKalshiOrders: () => getKalshiOrders,
+  getKalshiPositions: () => getKalshiPositions,
+  loadKalshiCredentials: () => loadKalshiCredentials,
+  placeKalshiOrder: () => placeKalshiOrder,
+  saveKalshiApiKey: () => saveKalshiApiKey,
+  saveKalshiCredentials: () => saveKalshiCredentials,
+  testKalshiCredentials: () => testKalshiCredentials
+});
+import * as fs6 from "fs";
+import * as path6 from "path";
+import * as crypto5 from "crypto";
+function loadAllCreds() {
+  try {
+    if (fs6.existsSync(CREDS_FILE)) return JSON.parse(fs6.readFileSync(CREDS_FILE, "utf-8"));
+  } catch {
+  }
+  return {};
+}
+function saveAllCreds(map) {
+  try {
+    const dir = path6.dirname(CREDS_FILE);
+    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+    fs6.writeFileSync(CREDS_FILE, JSON.stringify(map, null, 2));
+  } catch {
+  }
+}
+function saveKalshiCredentials(userId, creds) {
+  const map = loadAllCreds();
+  map[String(userId)] = creds;
+  saveAllCreds(map);
+}
+function normalizePrivateKey(raw) {
+  let pem = (raw ?? "").trim();
+  if (pem.startsWith('"') && pem.endsWith('"') || pem.startsWith("'") && pem.endsWith("'")) {
+    pem = pem.slice(1, -1).trim();
+  }
+  if (pem.includes("\\n")) pem = pem.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  pem = pem.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const headerMatch = pem.match(/-----BEGIN ([A-Z ]+?)-----/);
+  const footerMatch = pem.match(/-----END ([A-Z ]+?)-----/);
+  if (headerMatch && footerMatch && !pem.includes("\n")) {
+    const label = headerMatch[1];
+    const body = pem.replace(/-----BEGIN [A-Z ]+?-----/, "").replace(/-----END [A-Z ]+?-----/, "").replace(/\s+/g, "");
+    const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
+    pem = `-----BEGIN ${label}-----
+${wrapped}
+-----END ${label}-----`;
+  }
+  pem = pem.trim();
+  try {
+    crypto5.createPrivateKey(pem);
+  } catch {
+    throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
+  }
+  return pem;
+}
+function saveKalshiApiKey(userId, keyId, privateKeyPem) {
+  const normalized = normalizePrivateKey(privateKeyPem);
+  const map = loadAllCreds();
+  map[String(userId)] = { authMethod: "apikey", keyId: keyId.trim(), privateKeyPem: normalized };
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
+function loadKalshiCredentials(userId) {
+  return loadAllCreds()[String(userId)] ?? null;
+}
+function deleteKalshiCredentials(userId) {
+  const map = loadAllCreds();
+  delete map[String(userId)];
+  saveAllCreds(map);
+  _sessions.delete(userId);
+}
+async function getOrRefreshToken(userId, creds) {
+  const existing = _sessions.get(userId);
+  if (existing && Date.now() < existing.expiresAt) return existing.token;
+  const res = await fetch(`${KALSHI_BASE2}/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    body: JSON.stringify({ email: creds.email, password: creds.password }),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 404) {
+      throw new Error("Kalshi no longer supports email/password API login. Please connect using an API Key instead (Kalshi \u2192 Settings \u2192 API Keys \u2192 kalshi.com/account/api).");
+    }
+    throw new Error(`Kalshi login failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const token = data.token ?? data.access_token;
+  const memberId = data.member_id ?? "";
+  if (!token) throw new Error("Kalshi login response missing token field");
+  const session3 = { token, memberId, expiresAt: Date.now() + 20 * 60 * 60 * 1e3 };
+  _sessions.set(userId, session3);
+  return token;
+}
+function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
+  const pathOnly = endpoint.split("?")[0];
+  const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
+  const sign2 = crypto5.createSign("sha256");
+  sign2.update(message);
+  sign2.end();
+  return sign2.sign(
+    {
+      key: privateKeyPem,
+      padding: crypto5.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto5.constants.RSA_PSS_SALTLEN_DIGEST
+    },
+    "base64"
+  );
+}
+async function getAuthHeaders(userId, method, endpoint) {
+  const creds = loadKalshiCredentials(userId);
+  if (!creds) throw new Error("No Kalshi credentials saved for this account");
+  const base = { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" };
+  if (creds.authMethod === "apikey" && creds.keyId && creds.privateKeyPem) {
+    const ts = Date.now();
+    const sig = signKalshiRequest(creds.privateKeyPem, ts, method, endpoint);
+    return {
+      ...base,
+      "KALSHI-ACCESS-KEY": creds.keyId,
+      "KALSHI-ACCESS-TIMESTAMP": String(ts),
+      "KALSHI-ACCESS-SIGNATURE": sig
+    };
+  }
+  const token = await getOrRefreshToken(userId, creds);
+  return { ...base, "Authorization": `Bearer ${token}` };
+}
+async function kalshiGet(userId, endpoint) {
+  const headers = await getAuthHeaders(userId, "GET", endpoint);
+  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, { headers, signal: AbortSignal.timeout(1e4) });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Kalshi GET ${endpoint} failed (${res.status}): ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+async function kalshiPost(userId, endpoint, body) {
+  const headers = await getAuthHeaders(userId, "POST", endpoint);
+  const res = await fetch(`${KALSHI_BASE2}${endpoint}`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) {
+    const text2 = await res.text();
+    throw new Error(`Kalshi POST ${endpoint} failed (${res.status}): ${text2.slice(0, 300)}`);
+  }
+  return res.json();
+}
+async function testKalshiCredentials(userId) {
+  try {
+    const data = await kalshiGet(userId, "/portfolio/balance");
+    const balance = data.balance ?? 0;
+    const session3 = _sessions.get(userId);
+    const creds = loadKalshiCredentials(userId);
+    const memberId = session3?.memberId ?? (creds?.keyId ? `API Key: ${creds.keyId.slice(0, 8)}\u2026` : void 0);
+    return { valid: true, memberId, balance };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
+async function getKalshiBalance(userId) {
+  const data = await kalshiGet(userId, "/portfolio/balance");
+  return {
+    balance: data.balance ?? 0,
+    availableBalance: data.available_balance ?? data.balance ?? 0
+  };
+}
+async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
+  const payload2 = {
+    ticker,
+    action,
+    side,
+    count,
+    type: "limit",
+    ...side === "yes" ? { yes_price: priceInCents } : { no_price: priceInCents }
+  };
+  const data = await kalshiPost(userId, "/portfolio/orders", payload2);
+  const order = data.order ?? data;
+  return {
+    orderId: order.order_id ?? order.id ?? "unknown",
+    ticker: order.ticker ?? ticker,
+    side: order.side ?? side,
+    action: order.action ?? action,
+    count: order.count ?? count,
+    priceInCents,
+    status: order.status ?? "resting",
+    createdAt: order.created_time ?? (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function getKalshiPositions(userId) {
+  const data = await kalshiGet(userId, "/portfolio/positions?limit=100");
+  return data.positions ?? data.market_positions ?? [];
+}
+async function getKalshiOrders(userId, status = "resting") {
+  const data = await kalshiGet(userId, `/portfolio/orders?status=${status}&limit=50`);
+  return data.orders ?? [];
+}
+async function cancelKalshiOrder(userId, orderId) {
+  try {
+    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/orders/${orderId}`);
+    await fetch(`${KALSHI_BASE2}/portfolio/orders/${orderId}`, {
+      method: "DELETE",
+      headers,
+      signal: AbortSignal.timeout(8e3)
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+var KALSHI_BASE2, KALSHI_PATH_PREFIX, CREDS_FILE, _sessions;
+var init_kalshi_trading = __esm({
+  "server/services/kalshi-trading.ts"() {
+    "use strict";
+    KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
+    KALSHI_PATH_PREFIX = "/trade-api/v2";
+    CREDS_FILE = path6.join(process.cwd(), "data", "kalshi_credentials.json");
+    _sessions = /* @__PURE__ */ new Map();
   }
 });
 
@@ -27042,6 +27080,263 @@ var init_kalshi_engine = __esm({
       ensemble: "AI Ensemble",
       auto: "Auto (Best)"
     };
+  }
+});
+
+// server/services/polymarket-us-engine.ts
+var polymarket_us_engine_exports = {};
+__export(polymarket_us_engine_exports, {
+  closePmUsTrade: () => closePmUsTrade,
+  getPmUsEngineState: () => getPmUsEngineState,
+  manualPmUsScan: () => manualPmUsScan,
+  startPmUsEngine: () => startPmUsEngine,
+  stopPmUsEngine: () => stopPmUsEngine,
+  updatePmUsEngineConfig: () => updatePmUsEngineConfig
+});
+function getPmUsEngineState(userId) {
+  if (!_states3.has(userId)) {
+    _states3.set(userId, {
+      isRunning: false,
+      isPaperMode: !hasPmUsCredentials(userId),
+      lastScanAt: null,
+      lastScanResult: null,
+      lastTradeAt: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: { ...DEFAULT_CONFIG3 }
+    });
+  }
+  const s = _states3.get(userId);
+  s.isPaperMode = !hasPmUsCredentials(userId);
+  return s;
+}
+function updatePmUsEngineConfig(userId, patch) {
+  const s = getPmUsEngineState(userId);
+  const clean = { ...patch };
+  if (clean.strategy && !STRATEGY_LABELS2[clean.strategy]) delete clean.strategy;
+  if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
+  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
+  s.config = { ...s.config, ...clean };
+}
+function startPmUsEngine(userId) {
+  const s = getPmUsEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _runScan2(userId).catch(console.error);
+  _timers2.set(userId, setInterval(() => _runScan2(userId).catch(console.error), 5 * 60 * 1e3));
+}
+function stopPmUsEngine(userId) {
+  const s = getPmUsEngineState(userId);
+  s.isRunning = false;
+  const iv = _timers2.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers2.delete(userId);
+  }
+}
+async function manualPmUsScan(userId) {
+  return _runScan2(userId, true);
+}
+function _recalc(s) {
+  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
+}
+async function _updateOpenTrades(userId, s) {
+  for (const t of [...s.openTrades]) {
+    const bbo = await getPmUsBbo(t.marketSlug);
+    if (!bbo) continue;
+    const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+    if (!liveCents) continue;
+    t.currentPriceCents = liveCents;
+    t.unrealizedPnl = Math.round((liveCents / 100 * t.count - t.stake) * 100) / 100;
+    const tp = s.config.takeProfitCents, sl = s.config.stopLossCents;
+    if (tp > 0 && liveCents >= tp) _closeTrade(userId, t.id, liveCents, "take_profit");
+    else if (sl > 0 && liveCents <= sl) _closeTrade(userId, t.id, liveCents, "stop_loss");
+  }
+  _recalc(s);
+}
+function _closeTrade(userId, id, exitCents, reason) {
+  const s = getPmUsEngineState(userId);
+  const idx = s.openTrades.findIndex((t2) => t2.id === id);
+  if (idx === -1) return false;
+  const t = s.openTrades[idx];
+  const realized = Math.round((exitCents / 100 * t.count - t.stake) * 100) / 100;
+  t.status = "closed";
+  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  t.realizedPnl = realized;
+  t.exitReason = reason;
+  t.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(t);
+  if (s.closedTrades.length > 50) s.closedTrades.length = 50;
+  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
+  try {
+    const { recordKalshiOutcome: recordKalshiOutcome2 } = (init_kalshi_performance(), __toCommonJS(kalshi_performance_exports));
+    recordKalshiOutcome2(userId, `pmus:${t.signal.strategy}`, realized);
+  } catch {
+  }
+  _recalc(s);
+  return true;
+}
+function closePmUsTrade(userId, id) {
+  const s = getPmUsEngineState(userId);
+  const t = s.openTrades.find((x) => x.id === id);
+  return t ? _closeTrade(userId, id, t.currentPriceCents, "manual") : false;
+}
+async function _runScan2(userId, manual = false) {
+  const s = getPmUsEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _updateOpenTrades(userId, s);
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+  if (!manual && s.lastTradeAt) {
+    const elapsed = Date.now() - new Date(s.lastTradeAt).getTime();
+    if (elapsed < s.config.cooldownMinutes * 6e4) {
+      const r = `Cooldown: ${Math.ceil((s.config.cooldownMinutes * 6e4 - elapsed) / 6e4)}m left`;
+      s.lastScanResult = r;
+      return { fired: false, reason: r };
+    }
+  }
+  try {
+    let strat;
+    let label;
+    if (s.config.strategy === "auto") {
+      const scan = await scanAllKalshiStrategies(userId);
+      if (!scan.selected) {
+        const r2 = "Auto: all strategies NEUTRAL";
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
+      strat = scan.selected;
+      label = `Auto\u2192${STRATEGY_LABELS2[strat]}`;
+    } else {
+      strat = s.config.strategy;
+      label = STRATEGY_LABELS2[strat] ?? strat;
+    }
+    const pred = await getKalshiSignal(strat);
+    if (!pred || pred.direction === "NEUTRAL") {
+      const r2 = `${label}: NEUTRAL`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (pred.confidence < s.config.minConfidence) {
+      const r2 = `${label}: ${pred.confidence}% < ${s.config.minConfidence}%`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (s.config.requireAlignedHourly) {
+      const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
+      if (!aligned) {
+        const r2 = `1h trend conflicts with ${pred.direction}`;
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
+    }
+    if (s.config.requireConfluence) {
+      const c = await getKalshiConsensus();
+      if (!(c.direction === pred.direction && c.agreement >= 0.6)) {
+        const r2 = `Confluence fail (consensus ${c.direction} ${Math.round(c.agreement * 100)}%)`;
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
+    }
+    const market = await findPmUsCryptoMarket(s.config.asset);
+    if (!market) {
+      const r2 = `\u{1F7E2} Engine live \u2014 no ${s.config.asset.toUpperCase()} market on Polymarket US yet (waiting). Signal was ${label} ${pred.direction} ${pred.confidence}%.`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    const bbo = await getPmUsBbo(market.slug);
+    const askCents = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : market.bestAsk ? Math.round(market.bestAsk * 100) : 0;
+    if (!askCents || askCents >= 97) {
+      const r2 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    if (askCents > pred.confidence - 5) {
+      const r2 = `No edge: ${askCents}\xA2 vs ~${pred.confidence}% \u2014 skip`;
+      s.lastScanResult = r2;
+      return { fired: false, reason: r2 };
+    }
+    const side = pred.direction === "BUY" ? "yes" : "no";
+    const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
+    const stake = askCents / 100 * s.config.contractsPerTrade;
+    if (!s.isPaperMode) {
+      const r2 = await placePmUsOrder(userId, {
+        marketSlug: market.slug,
+        intent,
+        type: "ORDER_TYPE_MARKET",
+        quantity: s.config.contractsPerTrade
+      });
+      if (!r2.ok) {
+        const msg = `Order failed (HTTP ${r2.status}): ${JSON.stringify(r2.data).slice(0, 160)}`;
+        s.lastScanResult = msg;
+        return { fired: false, reason: msg };
+      }
+    }
+    const trade = {
+      id: `pmus-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      marketSlug: market.slug,
+      title: market.title || market.question || market.slug,
+      side,
+      count: s.config.contractsPerTrade,
+      entryPriceCents: askCents,
+      currentPriceCents: askCents,
+      stake,
+      unrealizedPnl: 0,
+      signal: { direction: pred.direction, confidence: pred.confidence, strategy: strat },
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      paper: s.isPaperMode
+    };
+    s.openTrades.push(trade);
+    s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+    _recalc(s);
+    const r = `${s.isPaperMode ? "[PAPER]" : "[LIVE]"} ${label}: ${side.toUpperCase()} \xD7 ${s.config.contractsPerTrade} on "${trade.title}" @ ${askCents}\xA2 (stake $${stake.toFixed(2)})`;
+    s.lastScanResult = r;
+    return { fired: true, reason: r };
+  } catch (err) {
+    const r = `Scan error: ${err.message}`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
+  }
+}
+var DEFAULT_CONFIG3, STRATEGY_LABELS2, _states3, _timers2;
+var init_polymarket_us_engine = __esm({
+  "server/services/polymarket-us-engine.ts"() {
+    "use strict";
+    init_kalshi_strategies();
+    init_kalshi_engine();
+    init_polymarket_us();
+    DEFAULT_CONFIG3 = {
+      contractsPerTrade: 5,
+      maxOpenTrades: 3,
+      cooldownMinutes: 20,
+      minConfidence: 70,
+      requireAlignedHourly: true,
+      requireConfluence: true,
+      strategy: "ensemble",
+      autoTradeValuePicks: false,
+      minValueScore: 8,
+      takeProfitCents: 90,
+      stopLossCents: 25,
+      asset: "bitcoin"
+    };
+    STRATEGY_LABELS2 = {
+      momentum: "Momentum",
+      volume_profile: "Volume Profile",
+      markov: "Markov",
+      order_flow: "Order Flow",
+      ensemble: "AI Ensemble",
+      auto: "Auto (Best)"
+    };
+    _states3 = /* @__PURE__ */ new Map();
+    _timers2 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -28535,7 +28830,7 @@ async function runScan(userId, state, triggerToken) {
 async function startSolEngine(userId, config = {}) {
   const existing = engineStates2.get(userId);
   if (existing?.isRunning) stopSolEngine(userId);
-  const fullConfig = { ...DEFAULT_CONFIG3, ...config };
+  const fullConfig = { ...DEFAULT_CONFIG4, ...config };
   const state = createInitialState(fullConfig);
   if (existing) {
     state.weeklyGoal = existing.weeklyGoal;
@@ -28665,7 +28960,7 @@ function setSolStrategies(userId, strategyIds) {
   if (valid.length === 0) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG3 });
+    state = createInitialState({ ...DEFAULT_CONFIG4 });
     engineStates2.set(userId, state);
   }
   state.activeStrategies = valid;
@@ -28684,7 +28979,7 @@ function setSolStrategy(userId, strategyId) {
   if (!strategy) return { success: false };
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG3 });
+    state = createInitialState({ ...DEFAULT_CONFIG4 });
     engineStates2.set(userId, state);
   }
   state.activeStrategy = strategyId;
@@ -28698,7 +28993,7 @@ function setSolStrategy(userId, strategyId) {
 function setSolWeeklyGoal(userId, params) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG3 });
+    state = createInitialState({ ...DEFAULT_CONFIG4 });
     engineStates2.set(userId, state);
   }
   const portfolio = state.currentPortfolioValue;
@@ -28797,7 +29092,7 @@ function recordSolSignalResult(userId, params) {
 function setAutoTrade(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG3 });
+    state = createInitialState({ ...DEFAULT_CONFIG4 });
     engineStates2.set(userId, state);
   }
   if (opts.paperEnabled !== void 0) {
@@ -28857,7 +29152,7 @@ function setAutoTrade(userId, opts) {
 function setCompoundSettings(userId, opts) {
   let state = engineStates2.get(userId);
   if (!state) {
-    state = createInitialState({ ...DEFAULT_CONFIG3 });
+    state = createInitialState({ ...DEFAULT_CONFIG4 });
     engineStates2.set(userId, state);
   }
   if (opts.compoundMode !== void 0) {
@@ -29111,7 +29406,7 @@ async function getServerWalletStatus(userId) {
     return { hasServerWallet: false };
   }
 }
-var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG3, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
+var DEX_NAMES, SOL_STRATEGIES, DEFAULT_CONFIG4, DEFAULT_WEEKLY_GOAL, engineStates2, PAPER_DEFAULT_PORTFOLIO_SOL;
 var init_sol_engine = __esm({
   "server/services/sol-engine.ts"() {
     "use strict";
@@ -29232,7 +29527,7 @@ var init_sol_engine = __esm({
         holdTarget: "varies"
       }
     ];
-    DEFAULT_CONFIG3 = {
+    DEFAULT_CONFIG4 = {
       dexFilter: "all",
       minConfidence: 65,
       maxTokens: 10,
@@ -50417,6 +50712,45 @@ Respond with ONLY valid JSON:
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+  app2.get("/api/polymarket-us-engine/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+    res.json(getPmUsEngineState2(req.user.id));
+  });
+  app2.post("/api/polymarket-us-engine/start", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { startPmUsEngine: startPmUsEngine2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+    startPmUsEngine2(req.user.id);
+    res.json({ success: true, state: getPmUsEngineState2(req.user.id) });
+  });
+  app2.post("/api/polymarket-us-engine/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { stopPmUsEngine: stopPmUsEngine2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+    stopPmUsEngine2(req.user.id);
+    res.json({ success: true, state: getPmUsEngineState2(req.user.id) });
+  });
+  app2.post("/api/polymarket-us-engine/scan", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { manualPmUsScan: manualPmUsScan2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+      const result = await manualPmUsScan2(req.user.id);
+      res.json({ ...result, state: getPmUsEngineState2(req.user.id) });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.put("/api/polymarket-us-engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { updatePmUsEngineConfig: updatePmUsEngineConfig2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+    updatePmUsEngineConfig2(req.user.id, req.body || {});
+    res.json({ success: true, state: getPmUsEngineState2(req.user.id) });
+  });
+  app2.post("/api/polymarket-us-engine/trades/:id/close", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { closePmUsTrade: closePmUsTrade2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+    const ok = closePmUsTrade2(req.user.id, req.params.id);
+    res.json({ success: ok, state: getPmUsEngineState2(req.user.id) });
   });
   app2.post("/api/polymarket-engine/start", (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

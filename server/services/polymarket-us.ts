@@ -17,7 +17,8 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { encryptPassword, decryptPassword } from '../tradelocker';
 
-const BASE_URL = 'https://api.polymarket.us';
+const BASE_URL = 'https://api.polymarket.us';        // authenticated (orders/portfolio)
+const GATEWAY_URL = 'https://gateway.polymarket.us'; // public (markets/events/search)
 const FILE = path.join(process.cwd(), 'data', 'polymarket_us.json');
 
 export interface PmUsCredentials {
@@ -133,4 +134,41 @@ export async function placePmUsOrder(userId: number, order: {
   tif?: string;
 }) {
   return pmUsRequest(userId, 'POST', '/v1/orders', order);
+}
+
+// ── Public market data (gateway.polymarket.us — no auth) ─────────────────────
+const _toNum = (x: any): number => (x && typeof x === 'object' ? parseFloat(x.value) : parseFloat(x)) || 0;
+
+export async function getPmUsMarkets(params: Record<string, string | number> = {}): Promise<any[]> {
+  const qs = new URLSearchParams({ active: 'true', closed: 'false', limit: '200', ...(params as any) }).toString();
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data.markets || []);
+  } catch { return []; }
+}
+
+/** Find an active crypto market on Polymarket US matching the asset (bitcoin/ethereum). */
+export async function findPmUsCryptoMarket(asset = 'bitcoin'): Promise<any | null> {
+  const terms = asset === 'bitcoin' ? ['bitcoin', 'btc'] : asset === 'ethereum' ? ['ethereum', 'eth'] : [asset.toLowerCase()];
+  const markets = await getPmUsMarkets({ limit: 500 });
+  const candidates = markets.filter((m: any) => {
+    if (!m.active || m.closed) return false;
+    const hay = `${m.title || ''} ${m.question || ''} ${m.slug || ''} ${m.category || ''}`.toLowerCase();
+    return terms.some(t => hay.includes(t));
+  });
+  // Prefer the soonest-resolving so the directional signal has a near-term payoff
+  candidates.sort((a: any, b: any) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
+  return candidates[0] || null;
+}
+
+export async function getPmUsBbo(slug: string): Promise<{ bestBid: number; bestAsk: number; currentPx: number } | null> {
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const md = d.marketData || d;
+    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
+  } catch { return null; }
 }

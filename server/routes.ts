@@ -16883,6 +16883,45 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Polymarket US auto-trade engine (same strategies as Kalshi) ─────────────
+  app.get("/api/polymarket-us-engine/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { getPmUsEngineState } = await import('./services/polymarket-us-engine');
+    res.json(getPmUsEngineState((req.user as User).id));
+  });
+  app.post("/api/polymarket-us-engine/start", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { startPmUsEngine, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+    startPmUsEngine((req.user as User).id);
+    res.json({ success: true, state: getPmUsEngineState((req.user as User).id) });
+  });
+  app.post("/api/polymarket-us-engine/stop", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { stopPmUsEngine, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+    stopPmUsEngine((req.user as User).id);
+    res.json({ success: true, state: getPmUsEngineState((req.user as User).id) });
+  });
+  app.post("/api/polymarket-us-engine/scan", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    try {
+      const { manualPmUsScan, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+      const result = await manualPmUsScan((req.user as User).id);
+      res.json({ ...result, state: getPmUsEngineState((req.user as User).id) });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+  app.put("/api/polymarket-us-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { updatePmUsEngineConfig, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+    updatePmUsEngineConfig((req.user as User).id, req.body || {});
+    res.json({ success: true, state: getPmUsEngineState((req.user as User).id) });
+  });
+  app.post("/api/polymarket-us-engine/trades/:id/close", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { closePmUsTrade, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+    const ok = closePmUsTrade((req.user as User).id, req.params.id);
+    res.json({ success: ok, state: getPmUsEngineState((req.user as User).id) });
+  });
+
   // POST /api/polymarket-engine/start
   app.post("/api/polymarket-engine/start", (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
