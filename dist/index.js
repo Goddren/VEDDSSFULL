@@ -50478,12 +50478,34 @@ Respond with ONLY valid JSON:
       } else {
         results.push({ test: "user Anthropic", ok: false, status: "no-key", error: "No Anthropic key" });
       }
+      const probes = [];
+      const rawProbe = async (label, url, init) => {
+        try {
+          const r = await fetch(url, { ...init || {}, signal: AbortSignal.timeout(2e4) });
+          const txt = await r.text().catch(() => "");
+          probes.push({ probe: label, ok: true, status: r.status, bytes: txt.length });
+        } catch (e) {
+          probes.push({ probe: label, ok: false, error: (e?.message || String(e)).slice(0, 160) });
+        }
+      };
+      await rawProbe("GET github.com/zen", "https://api.github.com/zen");
+      const gKey = (await storage.getUserApiKeys(userId)).find((k) => k.provider === "groq" && k.isActive)?.apiKey || process.env.GROQ_API_KEY;
+      if (gKey) await rawProbe("GET groq /models", "https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${gKey}` } });
+      if (process.env.OPENAI_API_KEY) await rawProbe("GET openai /models", "https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } });
+      const mem = process.memoryUsage();
       const anyOk = results.some((r) => r.ok === true);
       res.json({
         anyProviderWorking: anyOk,
         verdict: anyOk ? "At least one provider works \u2014 AI should function." : "NO working AI provider found \u2014 every key/model failed. Add a working key (see per-test errors).",
         selectedModel: (await Promise.resolve().then(() => (init_openai(), openai_exports))).getUserModelPreference?.(userId) ?? "unknown",
         results,
+        probes,
+        env: {
+          nodeVersion: process.version,
+          rssMB: Math.round(mem.rss / 1048576),
+          heapUsedMB: Math.round(mem.heapUsed / 1048576),
+          hasHttpsProxy: !!(process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY)
+        },
         checkedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
     } catch (err) {
