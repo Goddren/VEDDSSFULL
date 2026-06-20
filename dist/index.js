@@ -31405,7 +31405,6 @@ var init_strategic_community_data = __esm({
 });
 
 // server/index.ts
-import { setGlobalDispatcher as _setAiDispatcher, Agent as _AiAgent } from "undici";
 import express2 from "express";
 import { createServer as createServer2 } from "http";
 
@@ -58236,22 +58235,6 @@ init_market_data();
 init_db();
 import { execSync } from "child_process";
 import { sql as sql8 } from "drizzle-orm";
-try {
-  _setAiDispatcher(new _AiAgent({
-    keepAliveTimeout: 1,
-    // ~no idle keep-alive — fresh connection each call
-    keepAliveMaxTimeout: 1,
-    connections: 128,
-    connect: { timeout: 2e4 },
-    // 20s to establish TLS
-    headersTimeout: 12e4,
-    // allow slow AI responses
-    bodyTimeout: 12e4
-  }));
-  console.log("[net] undici global dispatcher configured (premature-close fix, keep-alive off)");
-} catch (e) {
-  console.warn("[net] could not configure undici dispatcher:", e?.message ?? e);
-}
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });

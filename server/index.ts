@@ -1,25 +1,7 @@
-// ── Fix outbound "Premature close" on AI/API fetches (must run before any fetch) ──
-// Node's built-in fetch was reusing keep-alive sockets that the remote had already
-// closed, producing "Invalid response body... Premature close" on EVERY outbound
-// HTTPS call (OpenAI, Groq, Anthropic alike) while pg/DB worked fine. Installing a
-// global undici dispatcher with keep-alive effectively OFF forces a fresh socket per
-// request, eliminating stale-socket resets. The npm-undici global dispatcher binds to
-// the built-in fetch via the shared Symbol.for('undici.globalDispatcher.1') slot.
-import { setGlobalDispatcher as _setAiDispatcher, Agent as _AiAgent } from "undici";
-try {
-  _setAiDispatcher(new _AiAgent({
-    keepAliveTimeout: 1,           // ~no idle keep-alive — fresh connection each call
-    keepAliveMaxTimeout: 1,
-    connections: 128,
-    connect: { timeout: 20000 },   // 20s to establish TLS
-    headersTimeout: 120000,        // allow slow AI responses
-    bodyTimeout: 120000,
-  }));
-  console.log("[net] undici global dispatcher configured (premature-close fix, keep-alive off)");
-} catch (e: any) {
-  console.warn("[net] could not configure undici dispatcher:", e?.message ?? e);
-}
-
+// NOTE: the app-wide outbound "Premature close" on AI POST calls was caused by
+// Render auto-upgrading to Node v26 (broken built-in fetch for POST bodies). The
+// fix is pinning Node 22 LTS (.node-version / engines), NOT a custom dispatcher —
+// so no undici dependency is needed here.
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
