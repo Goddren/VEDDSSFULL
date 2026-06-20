@@ -1449,6 +1449,8 @@ export default function PolymarketEnginePage() {
           )}
         </div>
 
+        {/* ── RETIRED: international Polymarket (Polygon/VPN) — superseded by Polymarket US engine above ── */}
+        {false && (<>
         {/* ── Polymarket Live Mode (VPN) ────────────────────────────────────── */}
         <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -1702,6 +1704,8 @@ export default function PolymarketEnginePage() {
             </div>
           </div>
         )}
+        </>)}
+        {/* ── end retired Polygon block ── */}
 
         {/* ── Polymarket near-term markets (supplemental, collapsible) ──────── */}
         <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl overflow-hidden">
