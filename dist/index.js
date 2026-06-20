@@ -58213,6 +58213,22 @@ init_market_data();
 init_db();
 import { execSync } from "child_process";
 import { sql as sql8 } from "drizzle-orm";
+try {
+  const { setGlobalDispatcher, Agent } = __require("undici");
+  setGlobalDispatcher(new Agent({
+    keepAliveTimeout: 4e3,
+    // drop idle sockets after 4s — avoid reusing closed ones
+    keepAliveMaxTimeout: 1e4,
+    connect: { timeout: 2e4 },
+    // 20s to establish TLS
+    headersTimeout: 12e4,
+    // allow slow AI responses
+    bodyTimeout: 12e4
+  }));
+  console.log("[net] undici global dispatcher configured (premature-close fix)");
+} catch (e) {
+  console.warn("[net] could not configure undici dispatcher:", e?.message ?? e);
+}
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });

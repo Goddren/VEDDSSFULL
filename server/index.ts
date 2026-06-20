@@ -1,5 +1,25 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
+// ── Fix outbound "Premature close" on AI/API fetches ──────────────────────────
+// On the host, reused keep-alive sockets were being closed server-side and then
+// reused, producing "Invalid response body... Premature close" on EVERY outbound
+// HTTPS call (OpenAI, Groq, Anthropic alike). A global undici dispatcher with a
+// short idle keep-alive (so dead sockets aren't reused) + generous connect/body
+// timeouts resolves it. Must run before any fetch happens.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { setGlobalDispatcher, Agent } = require("undici");
+  setGlobalDispatcher(new Agent({
+    keepAliveTimeout: 4000,        // drop idle sockets after 4s — avoid reusing closed ones
+    keepAliveMaxTimeout: 10000,
+    connect: { timeout: 20000 },   // 20s to establish TLS
+    headersTimeout: 120000,        // allow slow AI responses
+    bodyTimeout: 120000,
+  }));
+  console.log("[net] undici global dispatcher configured (premature-close fix)");
+} catch (e: any) {
+  console.warn("[net] could not configure undici dispatcher:", e?.message ?? e);
+}
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import path from "path";
