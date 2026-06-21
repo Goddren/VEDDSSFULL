@@ -2483,8 +2483,14 @@ export async function analyzeChartImage(base64Image: string, knownSymbol?: strin
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';
     const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
     
-    console.log(`[AI Analysis] Using model: ${selectedModel} for user ${userId || 'platform'}`);
-    
+    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${(aiClient as any).provider || 'unknown'} for user ${userId || 'platform'}`);
+
+    // Only OpenAI and OpenAI-platform support response_format JSON mode natively.
+    // Groq vision models, Google, and Mistral reject the parameter with a 400.
+    // Anthropic is handled by the AnthropicAsOpenAI wrapper (strips it + injects JSON prompt).
+    const providerName: string = (aiClient as any).provider || 'openai';
+    const supportsJsonMode = providerName === 'openai' || providerName === 'openai-platform';
+
     const visionResponse = await openai.chat.completions.create({
       model: selectedModel,
       messages: [
@@ -2654,7 +2660,7 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         },
       ],
       max_tokens: 4000,
-      response_format: { type: "json_object" }
+      ...(supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
     });
 
     // Log the raw response for debugging

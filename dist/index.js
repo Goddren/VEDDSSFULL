@@ -7976,7 +7976,9 @@ async function analyzeChartImage(base64Image, knownSymbol, userId) {
     const openai2 = aiClient;
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : "";
     const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
-    console.log(`[AI Analysis] Using model: ${selectedModel} for user ${userId || "platform"}`);
+    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${aiClient.provider || "unknown"} for user ${userId || "platform"}`);
+    const providerName = aiClient.provider || "openai";
+    const supportsJsonMode = providerName === "openai" || providerName === "openai-platform";
     const visionResponse = await openai2.chat.completions.create({
       model: selectedModel,
       messages: [
@@ -8146,7 +8148,7 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         }
       ],
       max_tokens: 4e3,
-      response_format: { type: "json_object" }
+      ...supportsJsonMode ? { response_format: { type: "json_object" } } : {}
     });
     console.log("OpenAI JSON Response:", visionResponse.choices[0].message.content);
     const contentStr = visionResponse.choices[0].message.content;
