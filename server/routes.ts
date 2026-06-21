@@ -22328,29 +22328,39 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ai-trading-models", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-    const { AVAILABLE_TRADING_MODELS } = await import('./services/ai-model-service');
-    const userId = (req.user as User).id;
-    const config = await storage.getAiModelConfig(userId);
-    const userKeys = await storage.getUserApiKeys(userId);
-    const availableProviders = ['openai', ...userKeys.filter(k => k.isActive).map(k => k.provider)];
-    const models = AVAILABLE_TRADING_MODELS.map(m => ({
-      ...m,
-      available: availableProviders.includes(m.provider),
-      hasApiKey: m.provider === 'openai' || userKeys.some(k => k.provider === m.provider && k.isActive),
-    }));
-    res.json({
-      models,
-      config: config || null,
-      availableProviders,
-    });
+    try {
+      const { AVAILABLE_TRADING_MODELS } = await import('./services/ai-model-service');
+      const userId = (req.user as User).id;
+      const config = await storage.getAiModelConfig(userId).catch(() => undefined);
+      const userKeys = await storage.getUserApiKeys(userId).catch(() => []);
+      const availableProviders = ['openai', ...userKeys.filter(k => k.isActive).map(k => k.provider)];
+      const models = AVAILABLE_TRADING_MODELS.map(m => ({
+        ...m,
+        available: availableProviders.includes(m.provider),
+        hasApiKey: m.provider === 'openai' || userKeys.some(k => k.provider === m.provider && k.isActive),
+      }));
+      res.json({
+        models,
+        config: config || null,
+        availableProviders,
+      });
+    } catch (err: any) {
+      console.error('[ai-trading-models GET]', err?.message);
+      res.status(500).json({ error: err?.message || 'Failed to load AI models' });
+    }
   });
 
   app.get("/api/ai-trading-models/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-    const userId = (req.user as User).id;
-    const config = await storage.getAiModelConfig(userId);
-    const { DEFAULT_ROUTING_CONFIG } = await import('./services/ai-model-service');
-    res.json(config || { ...DEFAULT_ROUTING_CONFIG, userId });
+    try {
+      const userId = (req.user as User).id;
+      const config = await storage.getAiModelConfig(userId).catch(() => undefined);
+      const { DEFAULT_ROUTING_CONFIG } = await import('./services/ai-model-service');
+      res.json(config || { ...DEFAULT_ROUTING_CONFIG, userId });
+    } catch (err: any) {
+      console.error('[ai-trading-models/config GET]', err?.message);
+      res.status(500).json({ error: err?.message || 'Failed to load model config' });
+    }
   });
 
   app.post("/api/ai-trading-models/config", async (req: Request, res: Response) => {

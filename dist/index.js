@@ -55317,28 +55317,38 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   app2.get("/api/ai-trading-models", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-    const { AVAILABLE_TRADING_MODELS: AVAILABLE_TRADING_MODELS2 } = await Promise.resolve().then(() => (init_ai_model_service(), ai_model_service_exports));
-    const userId = req.user.id;
-    const config = await storage.getAiModelConfig(userId);
-    const userKeys = await storage.getUserApiKeys(userId);
-    const availableProviders = ["openai", ...userKeys.filter((k) => k.isActive).map((k) => k.provider)];
-    const models = AVAILABLE_TRADING_MODELS2.map((m) => ({
-      ...m,
-      available: availableProviders.includes(m.provider),
-      hasApiKey: m.provider === "openai" || userKeys.some((k) => k.provider === m.provider && k.isActive)
-    }));
-    res.json({
-      models,
-      config: config || null,
-      availableProviders
-    });
+    try {
+      const { AVAILABLE_TRADING_MODELS: AVAILABLE_TRADING_MODELS2 } = await Promise.resolve().then(() => (init_ai_model_service(), ai_model_service_exports));
+      const userId = req.user.id;
+      const config = await storage.getAiModelConfig(userId).catch(() => void 0);
+      const userKeys = await storage.getUserApiKeys(userId).catch(() => []);
+      const availableProviders = ["openai", ...userKeys.filter((k) => k.isActive).map((k) => k.provider)];
+      const models = AVAILABLE_TRADING_MODELS2.map((m) => ({
+        ...m,
+        available: availableProviders.includes(m.provider),
+        hasApiKey: m.provider === "openai" || userKeys.some((k) => k.provider === m.provider && k.isActive)
+      }));
+      res.json({
+        models,
+        config: config || null,
+        availableProviders
+      });
+    } catch (err) {
+      console.error("[ai-trading-models GET]", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load AI models" });
+    }
   });
   app2.get("/api/ai-trading-models/config", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
-    const userId = req.user.id;
-    const config = await storage.getAiModelConfig(userId);
-    const { DEFAULT_ROUTING_CONFIG: DEFAULT_ROUTING_CONFIG2 } = await Promise.resolve().then(() => (init_ai_model_service(), ai_model_service_exports));
-    res.json(config || { ...DEFAULT_ROUTING_CONFIG2, userId });
+    try {
+      const userId = req.user.id;
+      const config = await storage.getAiModelConfig(userId).catch(() => void 0);
+      const { DEFAULT_ROUTING_CONFIG: DEFAULT_ROUTING_CONFIG2 } = await Promise.resolve().then(() => (init_ai_model_service(), ai_model_service_exports));
+      res.json(config || { ...DEFAULT_ROUTING_CONFIG2, userId });
+    } catch (err) {
+      console.error("[ai-trading-models/config GET]", err?.message);
+      res.status(500).json({ error: err?.message || "Failed to load model config" });
+    }
   });
   app2.post("/api/ai-trading-models/config", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
@@ -59422,6 +59432,20 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           status text NOT NULL DEFAULT 'open',
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
+        )`,
+        // AI Trading Models routing config — lets users pick model per strategy
+        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          routing_mode text NOT NULL DEFAULT 'single',
+          primary_model_id text NOT NULL DEFAULT 'openai-gpt4o',
+          ensemble_model_ids jsonb DEFAULT '[]',
+          strategy_assignments jsonb DEFAULT '{}',
+          fallback_order jsonb DEFAULT '[]',
+          ensemble_min_agreement integer NOT NULL DEFAULT 60,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
         )`
       ];
       for (const m of migrations) {

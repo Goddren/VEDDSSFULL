@@ -277,6 +277,20 @@ async function withRetry<T>(
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
         )`,
+        // AI Trading Models routing config — lets users pick model per strategy
+        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          routing_mode text NOT NULL DEFAULT 'single',
+          primary_model_id text NOT NULL DEFAULT 'openai-gpt4o',
+          ensemble_model_ids jsonb DEFAULT '[]',
+          strategy_assignments jsonb DEFAULT '{}',
+          fallback_order jsonb DEFAULT '[]',
+          ensemble_min_agreement integer NOT NULL DEFAULT 60,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));
