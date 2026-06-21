@@ -7911,48 +7911,57 @@ async function getUniversalVisionClientForUser(userId) {
     const aiCostMode = user?.aiCostMode || "full";
     const allKeys = await storage2.getUserApiKeys(userId);
     const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
+    const clients = [];
     if (aiCostMode === "economy") {
-      const groqKey2 = activeKeys.find((k) => k.provider === "groq");
-      const client2 = await buildGroqVisionClient(groqKey2?.apiKey);
-      if (client2) {
-        console.log(`[AI] Economy vision mode for user ${userId} \u2014 routing to Groq Llama 4 Scout Vision`);
-        return client2;
-      }
+      const groqKey = activeKeys.find((k) => k.provider === "groq");
+      const groqClient = await buildGroqVisionClient(groqKey?.apiKey);
+      if (groqClient) clients.push(groqClient);
     }
-    const VISION_PROVIDER_PRIORITY = ["anthropic", "openai", "google", "mistral"];
-    for (const provider of VISION_PROVIDER_PRIORITY) {
+    for (const provider of ["anthropic", "openai", "google", "mistral"]) {
       const key = activeKeys.find((k) => k.provider === provider);
       if (!key?.apiKey) continue;
       try {
         await storage2.updateUserApiKeyUsage(userId, provider);
         if (provider === "anthropic") {
-          console.log(`[AI Vision] Using Anthropic Claude for chart analysis (user ${userId})`);
-          return new AnthropicAsOpenAI(key.apiKey);
+          clients.push(new AnthropicAsOpenAI(key.apiKey));
+        } else if (provider === "openai") {
+          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 9e4 });
+          c.defaultModel = "gpt-4o";
+          c.provider = "openai";
+          clients.push(c);
+        } else {
+          clients.push(buildOpenAICompatClient(provider, key.apiKey));
         }
-        if (provider === "openai") {
-          const client2 = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 9e4 });
-          client2.defaultModel = "gpt-4o";
-          client2.provider = "openai";
-          console.log(`[AI Vision] Using OpenAI GPT-4o for chart analysis (user ${userId})`);
-          return client2;
-        }
-        return buildOpenAICompatClient(provider, key.apiKey);
       } catch (e) {
         console.error(`[AI Vision] Failed to build ${provider} client:`, e);
       }
     }
-    const groqKey = activeKeys.find((k) => k.provider === "groq");
-    if (groqKey?.apiKey) {
-      const client2 = await buildGroqVisionClient(groqKey.apiKey);
-      if (client2) {
-        console.log(`[AI Vision] Falling back to Groq Llama 4 Scout Vision (user ${userId})`);
-        return client2;
+    if (aiCostMode !== "economy") {
+      const groqKey = activeKeys.find((k) => k.provider === "groq");
+      if (groqKey?.apiKey) {
+        const groqClient = await buildGroqVisionClient(groqKey.apiKey);
+        if (groqClient) clients.push(groqClient);
       }
     }
+    if (process.env.OPENAI_API_KEY) {
+      const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+      plat.defaultModel = "gpt-4o";
+      plat.provider = "openai-platform";
+      clients.push(plat);
+    }
+    if (clients.length) {
+      storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
+      });
+      console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
+      return makeFailoverClient(clients, userId);
+    }
   } catch (e) {
-    console.error("Error building vision client, falling back to universal client:", e);
+    console.error("Error building vision client, falling back to platform key:", e);
   }
-  return getUniversalAIClientForUser(userId);
+  const platformClient = getDefaultOpenAIClient();
+  platformClient.defaultModel = "gpt-4o";
+  platformClient.provider = "openai";
+  return platformClient;
 }
 async function getOpenAIInstanceForUser(userId) {
   return getUniversalAIClientForUser(userId);
@@ -7969,6 +7978,15 @@ async function testOpenAIApiKey() {
 }
 async function analyzeChartImage(base64Image, knownSymbol, userId) {
   try {
+    let extractJsonContent2 = function(text2) {
+      const fenced = text2.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (fenced) return fenced[1];
+      const first = text2.indexOf("{");
+      const last = text2.lastIndexOf("}");
+      if (first !== -1 && last > first) return text2.slice(first, last + 1);
+      return text2;
+    };
+    var extractJsonContent = extractJsonContent2;
     const aiClient = userId ? await getUniversalVisionClientForUser(userId) : getOpenAIInstance();
     const rawModel = aiClient.defaultModel || (userId ? getUserModelPreference(userId) : "gpt-4o");
     const selectedModel = resolveVisionModel(rawModel);
@@ -7976,9 +7994,8 @@ async function analyzeChartImage(base64Image, knownSymbol, userId) {
     const openai2 = aiClient;
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : "";
     const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
-    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${aiClient.provider || "unknown"} for user ${userId || "platform"}`);
-    const providerName = aiClient.provider || "openai";
-    const supportsJsonMode = providerName === "openai" || providerName === "openai-platform";
+    const providerName = aiClient.provider || "unknown";
+    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${providerName} for user ${userId || "platform"}`);
     const visionResponse = await openai2.chat.completions.create({
       model: selectedModel,
       messages: [
@@ -8027,10 +8044,13 @@ async function analyzeChartImage(base64Image, knownSymbol, userId) {
              - Consider pattern clusters and confluences
              - Provide actionable insights for each significant pattern
           
-          VERY IMPORTANT: Return the analysis in valid JSON format with all required properties.
-          Even if you cannot determine some information, include placeholder values rather than omitting properties.
-          For numeric fields where you cannot determine a value, use a string representation (e.g., "Unknown").
-          All properties in the response schema are required.`
+          CRITICAL OUTPUT FORMAT: Your entire response must be a single valid JSON object.
+          - Start your response with '{' and end with '}'
+          - Do NOT use markdown code blocks (no backticks, no \`\`\`json)
+          - Do NOT include any text before or after the JSON
+          - Include placeholder values rather than omitting properties
+          - For numeric fields you cannot determine, use a string (e.g., "Unknown")
+          - All properties in the response schema are required`
         },
         {
           role: "user",
@@ -8147,18 +8167,18 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
           ]
         }
       ],
-      max_tokens: 4e3,
-      ...supportsJsonMode ? { response_format: { type: "json_object" } } : {}
+      max_tokens: 4e3
     });
     console.log("OpenAI JSON Response:", visionResponse.choices[0].message.content);
-    const contentStr = visionResponse.choices[0].message.content;
+    const rawContent = visionResponse.choices[0].message.content;
+    const contentStr = extractJsonContent2(rawContent);
     let response;
     try {
       response = JSON.parse(contentStr);
       console.log("Parsed response successfully");
     } catch (parseError) {
       console.error("Failed to parse JSON response:", parseError);
-      console.log("Response content:", contentStr);
+      console.log("Response content:", rawContent.slice(0, 500));
       response = {};
     }
     const symbol = typeof response.symbol === "string" ? response.symbol : "Unknown";

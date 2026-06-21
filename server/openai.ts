@@ -2398,54 +2398,66 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     const allKeys = await storage.getUserApiKeys(userId);
     const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
 
+    const clients: UniversalAIClient[] = [];
+
+    // Economy mode: try Groq vision first (cheapest), then fall through to other providers
     if (aiCostMode === 'economy') {
       const groqKey = activeKeys.find(k => k.provider === 'groq');
-      const client = await buildGroqVisionClient(groqKey?.apiKey);
-      if (client) {
-        console.log(`[AI] Economy vision mode for user ${userId} — routing to Groq Llama 4 Scout Vision`);
-        return client;
-      }
+      const groqClient = await buildGroqVisionClient(groqKey?.apiKey);
+      if (groqClient) clients.push(groqClient);
     }
 
-    // Vision priority order: anthropic (Claude — best vision) → openai (GPT-4o) → groq-vision
-    // Explicitly skip text-only Groq models for image analysis
-    const VISION_PROVIDER_PRIORITY = ['anthropic', 'openai', 'google', 'mistral'];
-    for (const provider of VISION_PROVIDER_PRIORITY) {
+    // Vision provider priority: Anthropic → OpenAI → Google → Mistral
+    for (const provider of ['anthropic', 'openai', 'google', 'mistral'] as const) {
       const key = activeKeys.find(k => k.provider === provider);
       if (!key?.apiKey) continue;
       try {
         await storage.updateUserApiKeyUsage(userId, provider);
         if (provider === 'anthropic') {
-          console.log(`[AI Vision] Using Anthropic Claude for chart analysis (user ${userId})`);
-          return new AnthropicAsOpenAI(key.apiKey);
+          clients.push(new AnthropicAsOpenAI(key.apiKey));
+        } else if (provider === 'openai') {
+          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 90000 }) as any;
+          c.defaultModel = 'gpt-4o';
+          c.provider = 'openai';
+          clients.push(c as UniversalAIClient);
+        } else {
+          clients.push(buildOpenAICompatClient(provider, key.apiKey));
         }
-        if (provider === 'openai') {
-          const client = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 90000 }) as any;
-          client.defaultModel = 'gpt-4o';
-          client.provider = 'openai';
-          console.log(`[AI Vision] Using OpenAI GPT-4o for chart analysis (user ${userId})`);
-          return client as UniversalAIClient;
-        }
-        return buildOpenAICompatClient(provider, key.apiKey);
       } catch (e) {
         console.error(`[AI Vision] Failed to build ${provider} client:`, e);
       }
     }
 
-    // Groq vision fallback (llama-4-scout supports images)
-    const groqKey = activeKeys.find(k => k.provider === 'groq');
-    if (groqKey?.apiKey) {
-      const client = await buildGroqVisionClient(groqKey.apiKey);
-      if (client) {
-        console.log(`[AI Vision] Falling back to Groq Llama 4 Scout Vision (user ${userId})`);
-        return client;
+    // Non-economy Groq vision as penultimate fallback
+    if (aiCostMode !== 'economy') {
+      const groqKey = activeKeys.find(k => k.provider === 'groq');
+      if (groqKey?.apiKey) {
+        const groqClient = await buildGroqVisionClient(groqKey.apiKey);
+        if (groqClient) clients.push(groqClient);
       }
     }
+
+    // Platform OpenAI key is the guaranteed backstop — always appended last
+    if (process.env.OPENAI_API_KEY) {
+      const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 }) as any;
+      plat.defaultModel = 'gpt-4o';
+      plat.provider = 'openai-platform';
+      clients.push(plat as UniversalAIClient);
+    }
+
+    if (clients.length) {
+      storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
+      console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c: any) => c.provider).join(' → ')}`);
+      return makeFailoverClient(clients, userId);
+    }
   } catch (e) {
-    console.error('Error building vision client, falling back to universal client:', e);
+    console.error('Error building vision client, falling back to platform key:', e);
   }
-  // Last resort: platform OpenAI key
-  return getUniversalAIClientForUser(userId);
+  // Last resort: platform OpenAI key directly
+  const platformClient = getDefaultOpenAIClient() as any;
+  platformClient.defaultModel = 'gpt-4o';
+  platformClient.provider = 'openai';
+  return platformClient as UniversalAIClient;
 }
 
 // Get OpenAI instance for a specific user, checking for their own API key first
@@ -2483,13 +2495,8 @@ export async function analyzeChartImage(base64Image: string, knownSymbol?: strin
     const assetSpecificAddition = knownSymbol ? getAssetSpecificPrompt(knownSymbol) : '';
     const assetConfig = knownSymbol ? getAssetSpecificConfig(knownSymbol) : null;
     
-    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${(aiClient as any).provider || 'unknown'} for user ${userId || 'platform'}`);
-
-    // Only OpenAI and OpenAI-platform support response_format JSON mode natively.
-    // Groq vision models, Google, and Mistral reject the parameter with a 400.
-    // Anthropic is handled by the AnthropicAsOpenAI wrapper (strips it + injects JSON prompt).
-    const providerName: string = (aiClient as any).provider || 'openai';
-    const supportsJsonMode = providerName === 'openai' || providerName === 'openai-platform';
+    const providerName: string = (aiClient as any).provider || 'unknown';
+    console.log(`[AI Analysis] Using model: ${selectedModel} provider: ${providerName} for user ${userId || 'platform'}`);
 
     const visionResponse = await openai.chat.completions.create({
       model: selectedModel,
@@ -2539,10 +2546,13 @@ export async function analyzeChartImage(base64Image: string, knownSymbol?: strin
              - Consider pattern clusters and confluences
              - Provide actionable insights for each significant pattern
           
-          VERY IMPORTANT: Return the analysis in valid JSON format with all required properties.
-          Even if you cannot determine some information, include placeholder values rather than omitting properties.
-          For numeric fields where you cannot determine a value, use a string representation (e.g., "Unknown").
-          All properties in the response schema are required.`
+          CRITICAL OUTPUT FORMAT: Your entire response must be a single valid JSON object.
+          - Start your response with '{' and end with '}'
+          - Do NOT use markdown code blocks (no backticks, no \`\`\`json)
+          - Do NOT include any text before or after the JSON
+          - Include placeholder values rather than omitting properties
+          - For numeric fields you cannot determine, use a string (e.g., "Unknown")
+          - All properties in the response schema are required`
         },
         {
           role: "user",
@@ -2660,22 +2670,32 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         },
       ],
       max_tokens: 4000,
-      ...(supportsJsonMode ? { response_format: { type: "json_object" } } : {}),
     });
 
     // Log the raw response for debugging
     console.log("OpenAI JSON Response:", visionResponse.choices[0].message.content);
-    
-    // Parse the response
-    const contentStr = visionResponse.choices[0].message.content as string;
+
+    // Extract and parse the response — strip markdown code blocks if the model wrapped output
+    const rawContent = visionResponse.choices[0].message.content as string;
+    function extractJsonContent(text: string): string {
+      // Strip ```json ... ``` or ``` ... ``` wrappers
+      const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (fenced) return fenced[1];
+      // Find first '{' to last '}' in case of leading/trailing prose
+      const first = text.indexOf('{');
+      const last = text.lastIndexOf('}');
+      if (first !== -1 && last > first) return text.slice(first, last + 1);
+      return text;
+    }
+    const contentStr = extractJsonContent(rawContent);
     let response;
-    
+
     try {
       response = JSON.parse(contentStr);
       console.log("Parsed response successfully");
     } catch (parseError) {
       console.error("Failed to parse JSON response:", parseError);
-      console.log("Response content:", contentStr);
+      console.log("Response content:", rawContent.slice(0, 500));
       // If parsing failed, create a default response structure
       response = {};
     }
