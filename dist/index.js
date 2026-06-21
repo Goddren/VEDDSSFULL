@@ -7826,19 +7826,6 @@ async function buildGroqEconomyClient(userGroqKey) {
     return null;
   }
 }
-async function buildGroqVisionClient(userGroqKey) {
-  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const client2 = buildOpenAICompatClient("groq", apiKey);
-    client2.defaultModel = "qwen/qwen3-vl-32b-instruct";
-    client2.provider = "groq";
-    return client2;
-  } catch (e) {
-    console.error("[AI] Failed to build Groq vision client:", e);
-    return null;
-  }
-}
 async function getUniversalAIClientForUser(userId) {
   try {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
@@ -7912,11 +7899,6 @@ async function getUniversalVisionClientForUser(userId) {
     const allKeys = await storage2.getUserApiKeys(userId);
     const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
     const clients = [];
-    if (aiCostMode === "economy") {
-      const groqKey = activeKeys.find((k) => k.provider === "groq");
-      const groqClient = await buildGroqVisionClient(groqKey?.apiKey);
-      if (groqClient) clients.push(groqClient);
-    }
     for (const provider of ["anthropic", "openai", "google", "mistral"]) {
       const key = activeKeys.find((k) => k.provider === provider);
       if (!key?.apiKey) continue;
@@ -7925,7 +7907,7 @@ async function getUniversalVisionClientForUser(userId) {
         if (provider === "anthropic") {
           clients.push(new AnthropicAsOpenAI(key.apiKey));
         } else if (provider === "openai") {
-          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 4, timeout: 9e4 });
+          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 1, timeout: 9e4 });
           c.defaultModel = "gpt-4o";
           c.provider = "openai";
           clients.push(c);
@@ -7936,15 +7918,8 @@ async function getUniversalVisionClientForUser(userId) {
         console.error(`[AI Vision] Failed to build ${provider} client:`, e);
       }
     }
-    if (aiCostMode !== "economy") {
-      const groqKey = activeKeys.find((k) => k.provider === "groq");
-      if (groqKey?.apiKey) {
-        const groqClient = await buildGroqVisionClient(groqKey.apiKey);
-        if (groqClient) clients.push(groqClient);
-      }
-    }
     if (process.env.OPENAI_API_KEY) {
-      const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+      const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 9e4 });
       plat.defaultModel = "gpt-4o";
       plat.provider = "openai-platform";
       clients.push(plat);
@@ -37830,11 +37805,27 @@ async function registerRoutes(app2, existingServer) {
       });
     } catch (error) {
       console.error("Analysis error:", error);
-      if (error && error.code === "billing_not_active" || error && error.error && error.error.code === "billing_not_active") {
+      const errStatus = error?.status ?? error?.statusCode ?? error?.response?.status;
+      const errMsg = (error?.message || "").toLowerCase();
+      if (errStatus === 403 || error?.code === "billing_not_active" || error?.error?.code === "billing_not_active") {
         return res.status(403).json({
-          message: "OpenAI API key billing issue",
-          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+          message: "AI API billing issue",
+          error: "Your AI account is not active. Please check your billing details.",
           code: "BILLING_INACTIVE"
+        });
+      }
+      if (errStatus === 429 || errMsg.includes("rate") || errMsg.includes("429") || errMsg.includes("quota")) {
+        return res.status(429).json({
+          message: "AI rate limit reached",
+          error: "All AI providers are currently rate-limited. Please wait 30\u201360 seconds and try again.",
+          code: "RATE_LIMIT_EXCEEDED"
+        });
+      }
+      if (errStatus === 401) {
+        return res.status(401).json({
+          message: "Invalid AI API key",
+          error: "The AI API key is invalid or expired. Please check your key in AI Settings.",
+          code: "INVALID_API_KEY"
         });
       }
       res.status(500).json({

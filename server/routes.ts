@@ -1471,19 +1471,34 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
       });
     } catch (error: any) {
       console.error("Analysis error:", error);
-      
-      // Handle specific OpenAI errors
-      if (error && error.code === 'billing_not_active' || 
-          (error && error.error && error.error.code === 'billing_not_active')) {
-        return res.status(403).json({ 
-          message: "OpenAI API key billing issue", 
-          error: "Your OpenAI account is not active. Please check your billing details on the OpenAI website.",
+      const errStatus = error?.status ?? error?.statusCode ?? error?.response?.status;
+      const errMsg = (error?.message || '').toLowerCase();
+
+      if (errStatus === 403 || error?.code === 'billing_not_active' ||
+          error?.error?.code === 'billing_not_active') {
+        return res.status(403).json({
+          message: "AI API billing issue",
+          error: "Your AI account is not active. Please check your billing details.",
           code: "BILLING_INACTIVE"
         });
       }
-      
-      res.status(500).json({ 
-        message: "Error analyzing chart", 
+      if (errStatus === 429 || errMsg.includes('rate') || errMsg.includes('429') || errMsg.includes('quota')) {
+        return res.status(429).json({
+          message: "AI rate limit reached",
+          error: "All AI providers are currently rate-limited. Please wait 30–60 seconds and try again.",
+          code: "RATE_LIMIT_EXCEEDED"
+        });
+      }
+      if (errStatus === 401) {
+        return res.status(401).json({
+          message: "Invalid AI API key",
+          error: "The AI API key is invalid or expired. Please check your key in AI Settings.",
+          code: "INVALID_API_KEY"
+        });
+      }
+
+      res.status(500).json({
+        message: "Error analyzing chart",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
