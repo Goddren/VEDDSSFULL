@@ -1281,6 +1281,88 @@ function DailyLog({ trades }: { trades: DailyTrade[] }) {
   );
 }
 
+// ─── ORB Live Status Panel ────────────────────────────────────────────────────
+
+function ORBLiveStatusPanel({ setups }: { setups: ORBSetup[] }) {
+  if (setups.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border overflow-hidden"
+      style={{ background: "rgba(13,17,23,0.9)", borderColor: "rgba(255,255,255,0.08)" }}>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5"
+        style={{ background: "rgba(255,255,255,0.02)" }}>
+        <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+        <span className="text-xs font-bold text-white uppercase tracking-wider">Live Status</span>
+        <span className="text-[9px] text-gray-600 ml-1">· 30s auto-refresh</span>
+        <span className="ml-auto text-[9px] text-gray-600">{setups.length} instrument{setups.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      {/* Status rows */}
+      <div className="divide-y divide-white/[0.04]">
+        {setups.map(s => {
+          const cfg = PHASE_CONFIG[s.phase];
+          const isBreakoutLong = s.phase === "BREAKOUT_LONG" || s.phase === "RETEST_LONG";
+          const isBreakoutShort = s.phase === "BREAKOUT_SHORT" || s.phase === "RETEST_SHORT";
+          const dirColor = isBreakoutLong ? "#22c55e" : isBreakoutShort ? "#ef4444" : "#6b7280";
+          const dirLabel = isBreakoutLong ? "▲ LONG" : isBreakoutShort ? "▼ SHORT" : "—";
+
+          return (
+            <div key={s.id} className="grid items-center px-4 py-2.5 gap-2 text-[11px]"
+              style={{ gridTemplateColumns: "80px 1fr 72px 72px 72px 80px 96px" }}>
+              {/* Symbol */}
+              <span className="font-black text-white truncate">{s.symbol}</span>
+
+              {/* Phase badge */}
+              <span className="px-2 py-0.5 rounded-full font-bold text-[10px] text-center w-fit"
+                style={{ background: cfg.bg, color: cfg.color }}>
+                {cfg.label}
+              </span>
+
+              {/* ORB High */}
+              <div className="text-right">
+                <p className="text-[8px] text-amber-500 uppercase tracking-wider">ORB H</p>
+                <p className="font-semibold text-white">{s.orbHigh > 0 ? formatPrice(s.orbHigh, s.symbol) : "—"}</p>
+              </div>
+
+              {/* ORB Low */}
+              <div className="text-right">
+                <p className="text-[8px] text-amber-500 uppercase tracking-wider">ORB L</p>
+                <p className="font-semibold text-white">{s.orbLow > 0 ? formatPrice(s.orbLow, s.symbol) : "—"}</p>
+              </div>
+
+              {/* Current price */}
+              <div className="text-right">
+                <p className="text-[8px] text-gray-500 uppercase tracking-wider">Price</p>
+                <p className="font-semibold text-white">{s.currentPrice > 0 ? formatPrice(s.currentPrice, s.symbol) : "—"}</p>
+              </div>
+
+              {/* Breakout direction */}
+              <div className="text-center">
+                <p className="text-[8px] text-gray-500 uppercase tracking-wider mb-0.5">Direction</p>
+                <span className="font-black text-[11px]" style={{ color: dirColor }}>{dirLabel}</span>
+              </div>
+
+              {/* AI score + last update */}
+              <div className="text-right">
+                {s.aiScore !== undefined && (
+                  <p className="font-bold text-[10px]"
+                    style={{ color: s.aiScore >= 70 ? "#22c55e" : s.aiScore >= 60 ? "#f59e0b" : "#ef4444" }}>
+                    AI: {s.aiScore}/100
+                  </p>
+                )}
+                {s.lastUpdated && (
+                  <p className="text-[9px] text-gray-600 truncate">{s.lastUpdated.split(" (")[0]}</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ORBBreakoutPage() {
@@ -1873,6 +1955,9 @@ export default function ORBBreakoutPage() {
 
             {/* Quick Start Guide — always shown, collapsible */}
             <ORBQuickGuide />
+
+            {/* Live status panel — per-pair phase, ORB levels, direction */}
+            <ORBLiveStatusPanel setups={setups} />
 
             {setups.length === 0 ? (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}

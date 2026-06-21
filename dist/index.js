@@ -59,6 +59,8 @@ __export(schema_exports, {
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
   connectedSocialAccounts: () => connectedSocialAccounts,
+  copyRelationships: () => copyRelationships,
+  copyTradeLogs: () => copyTradeLogs,
   devotionalGroups: () => devotionalGroups,
   devotionalSessions: () => devotionalSessions,
   devotionals: () => devotionals,
@@ -66,6 +68,8 @@ __export(schema_exports, {
   eaShareAssets: () => eaShareAssets,
   eaSubscriptions: () => eaSubscriptions,
   follows: () => follows,
+  fxPaperAccounts: () => fxPaperAccounts,
+  fxPaperTrades: () => fxPaperTrades,
   governanceProposals: () => governanceProposals,
   governanceVotes: () => governanceVotes,
   grantApplications: () => grantApplications,
@@ -108,6 +112,7 @@ __export(schema_exports, {
   insertEAShareAssetSchema: () => insertEAShareAssetSchema,
   insertEASubscriptionSchema: () => insertEASubscriptionSchema,
   insertFollowSchema: () => insertFollowSchema,
+  insertFxPaperTradeSchema: () => insertFxPaperTradeSchema,
   insertGovernanceProposalSchema: () => insertGovernanceProposalSchema,
   insertGovernanceVoteSchema: () => insertGovernanceVoteSchema,
   insertGrantApplicationSchema: () => insertGrantApplicationSchema,
@@ -215,7 +220,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2525,6 +2530,74 @@ var init_schema = __esm({
     }, (t) => ({
       unq: unique().on(t.userId, t.recordType)
     }));
+    fxPaperAccounts = pgTable("fx_paper_accounts", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull().unique(),
+      balance: real("balance").notNull().default(1e4),
+      initialBalance: real("initial_balance").notNull().default(1e4),
+      isEnabled: boolean("is_enabled").notNull().default(false),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    fxPaperTrades = pgTable("fx_paper_trades", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      pair: text("pair").notNull(),
+      direction: text("direction").notNull(),
+      // 'BUY' | 'SELL'
+      entryPrice: real("entry_price").notNull(),
+      exitPrice: real("exit_price"),
+      stopLoss: real("stop_loss"),
+      takeProfit: real("take_profit"),
+      lotSize: real("lot_size").notNull().default(0.01),
+      pnl: real("pnl"),
+      pnlPips: real("pnl_pips"),
+      status: text("status").notNull().default("open"),
+      // 'open' | 'closed'
+      confidence: real("confidence"),
+      source: text("source").default("fx_paper_engine"),
+      openedAt: timestamp("opened_at").defaultNow().notNull(),
+      closedAt: timestamp("closed_at")
+    });
+    insertFxPaperTradeSchema = createInsertSchema(fxPaperTrades).omit({
+      id: true,
+      openedAt: true,
+      closedAt: true,
+      exitPrice: true,
+      pnl: true,
+      pnlPips: true,
+      status: true
+    });
+    copyRelationships = pgTable("copy_relationships", {
+      id: serial("id").primaryKey(),
+      copierId: integer("copier_id").references(() => users.id).notNull(),
+      sourceUserId: integer("source_user_id").references(() => users.id).notNull(),
+      accountType: text("account_type").notNull().default("paper"),
+      // 'paper' | 'real'
+      maxLotSize: real("max_lot_size").notNull().default(0.01),
+      isActive: boolean("is_active").notNull().default(true),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    }, (t) => ({
+      unq: unique().on(t.copierId, t.sourceUserId)
+    }));
+    copyTradeLogs = pgTable("copy_trade_logs", {
+      id: serial("id").primaryKey(),
+      relationshipId: integer("relationship_id").references(() => copyRelationships.id).notNull(),
+      copierId: integer("copier_id").references(() => users.id).notNull(),
+      sourceUserId: integer("source_user_id").references(() => users.id).notNull(),
+      originalTradeId: integer("original_trade_id"),
+      pair: text("pair").notNull(),
+      direction: text("direction").notNull(),
+      entryPrice: real("entry_price").notNull(),
+      exitPrice: real("exit_price"),
+      stopLoss: real("stop_loss"),
+      takeProfit: real("take_profit"),
+      lotSize: real("lot_size").notNull().default(0.01),
+      pnl: real("pnl"),
+      pnlPips: real("pnl_pips"),
+      status: text("status").notNull().default("open"),
+      openedAt: timestamp("opened_at").defaultNow().notNull(),
+      closedAt: timestamp("closed_at")
+    });
   }
 });
 
@@ -57894,6 +57967,255 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(503).json({ message: "MT5 signal dispatcher not available \u2014 ensure live engine is running" });
     }
   });
+  app2.get("/api/fx-paper/account", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const rows = await db.execute(sql6`
+        SELECT id, balance, initial_balance, is_enabled, updated_at
+        FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
+      `);
+      const row = rows[0]?.[0] ?? rows.rows?.[0];
+      if (!row) {
+        return res.json({ balance: 1e4, initialBalance: 1e4, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
+      }
+      const statsRows = await db.execute(sql6`
+        SELECT
+          COUNT(*) FILTER (WHERE status='open') AS open_trades,
+          COUNT(*) FILTER (WHERE status='closed') AS closed_trades,
+          COALESCE(SUM(pnl) FILTER (WHERE status='closed'), 0) AS total_pnl
+        FROM fx_paper_trades WHERE user_id=${userId}
+      `);
+      const stats = statsRows[0]?.[0] ?? statsRows.rows?.[0] ?? {};
+      res.json({
+        balance: parseFloat(row.balance ?? 1e4),
+        initialBalance: parseFloat(row.initial_balance ?? 1e4),
+        isEnabled: !!row.is_enabled,
+        openTrades: parseInt(stats.open_trades ?? 0),
+        closedTrades: parseInt(stats.closed_trades ?? 0),
+        totalPnl: parseFloat(stats.total_pnl ?? 0)
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/fx-paper/account", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const { balance, isEnabled } = req.body;
+    try {
+      const existing = await db.execute(sql6`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const row = existing[0]?.[0] ?? existing.rows?.[0];
+      if (!row) {
+        const initBalance = typeof balance === "number" ? balance : 1e4;
+        await db.execute(sql6`
+          INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at)
+          VALUES (${userId}, ${initBalance}, ${initBalance}, ${!!isEnabled}, now())
+        `);
+      } else {
+        if (typeof balance === "number") {
+          await db.execute(sql6`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
+        }
+        if (typeof isEnabled === "boolean") {
+          await db.execute(sql6`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
+        }
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/fx-paper/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const status = req.query.status;
+    try {
+      let rows;
+      if (status === "open") {
+        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
+      } else if (status === "closed") {
+        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
+      } else {
+        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
+      }
+      const trades = rows[0] ?? rows.rows ?? [];
+      res.json(trades);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/fx-paper/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
+    if (!pair || !direction || typeof entryPrice !== "number") {
+      return res.status(400).json({ error: "pair, direction, and entryPrice are required" });
+    }
+    try {
+      const acctRows = await db.execute(sql6`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
+      if (!acct) {
+        await db.execute(sql6`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
+      }
+      await db.execute(sql6`
+        INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
+        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
+      `);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.patch("/api/fx-paper/trades/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const tradeId = parseInt(req.params.id);
+    const { exitPrice, pnl, pnlPips } = req.body;
+    if (isNaN(tradeId) || typeof exitPrice !== "number") {
+      return res.status(400).json({ error: "tradeId and exitPrice required" });
+    }
+    try {
+      await db.execute(sql6`
+        UPDATE fx_paper_trades
+        SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
+        WHERE id=${tradeId} AND user_id=${userId}
+      `);
+      if (typeof pnl === "number") {
+        await db.execute(sql6`
+          UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
+        `);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.delete("/api/fx-paper/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      await db.execute(sql6`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/copy/leaderboard", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const rows = await db.execute(sql6`
+        SELECT
+          u.id AS user_id,
+          u.username,
+          COUNT(t.id) FILTER (WHERE t.status = 'closed') AS total_trades,
+          COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.pnl > 0) AS wins,
+          ROUND(
+            CASE WHEN COUNT(t.id) FILTER (WHERE t.status='closed') > 0
+              THEN (COUNT(t.id) FILTER (WHERE t.status='closed' AND t.pnl > 0)::numeric /
+                   COUNT(t.id) FILTER (WHERE t.status='closed') * 100)
+              ELSE 0
+            END, 1
+          ) AS win_rate,
+          COALESCE(SUM(t.pnl) FILTER (WHERE t.status='closed'), 0) AS total_pnl,
+          CASE WHEN pa.is_enabled THEN 'paper' ELSE 'inactive' END AS account_type
+        FROM users u
+        LEFT JOIN fx_paper_trades t ON t.user_id = u.id
+        LEFT JOIN fx_paper_accounts pa ON pa.user_id = u.id
+        WHERE pa.is_enabled = true
+        GROUP BY u.id, u.username, pa.is_enabled
+        HAVING COUNT(t.id) FILTER (WHERE t.status='closed') >= 1
+        ORDER BY win_rate DESC, total_trades DESC
+        LIMIT 50
+      `);
+      const traders = rows[0] ?? rows.rows ?? [];
+      res.json(traders);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/copy/relationships", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const rows = await db.execute(sql6`
+        SELECT cr.id, cr.source_user_id, cr.account_type, cr.max_lot_size, cr.is_active, cr.created_at,
+               u.username AS source_username
+        FROM copy_relationships cr
+        JOIN users u ON u.id = cr.source_user_id
+        WHERE cr.copier_id = ${userId}
+        ORDER BY cr.created_at DESC
+      `);
+      const rels = rows[0] ?? rows.rows ?? [];
+      res.json(rels);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/copy/relationships", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01 } = req.body;
+    if (!sourceUserId || sourceUserId === userId) {
+      return res.status(400).json({ error: "Invalid sourceUserId" });
+    }
+    try {
+      await db.execute(sql6`
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, true, now())
+        ON CONFLICT (copier_id, source_user_id)
+        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}
+      `);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.patch("/api/copy/relationships/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const relId = parseInt(req.params.id);
+    const { maxLotSize, accountType } = req.body;
+    try {
+      if (typeof maxLotSize === "number") {
+        await db.execute(sql6`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      if (accountType) {
+        await db.execute(sql6`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.delete("/api/copy/relationships/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const relId = parseInt(req.params.id);
+    try {
+      await db.execute(sql6`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/copy/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const rows = await db.execute(sql6`
+        SELECT ctl.*, u.username AS source_username
+        FROM copy_trade_logs ctl
+        JOIN users u ON u.id = ctl.source_user_id
+        WHERE ctl.copier_id = ${userId}
+        ORDER BY ctl.opened_at DESC
+        LIMIT 200
+      `);
+      const trades = rows[0] ?? rows.rows ?? [];
+      res.json(trades);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   const httpServer2 = existingServer || createServer(app2);
   streamingService.initialize(httpServer2);
   return httpServer2;
@@ -59043,6 +59365,63 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           achieved_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now(),
           UNIQUE(user_id, record_type)
+        )`,
+        // FX Paper Trading — simulated account + trade log for AI SS Engine
+        `CREATE TABLE IF NOT EXISTS fx_paper_accounts (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id) UNIQUE,
+          balance real NOT NULL DEFAULT 10000,
+          initial_balance real NOT NULL DEFAULT 10000,
+          is_enabled boolean NOT NULL DEFAULT false,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`,
+        `CREATE TABLE IF NOT EXISTS fx_paper_trades (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          pair text NOT NULL,
+          direction text NOT NULL,
+          entry_price real NOT NULL,
+          exit_price real,
+          stop_loss real,
+          take_profit real,
+          lot_size real NOT NULL DEFAULT 0.01,
+          pnl real,
+          pnl_pips real,
+          status text NOT NULL DEFAULT 'open',
+          confidence real,
+          source text DEFAULT 'fx_paper_engine',
+          opened_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz
+        )`,
+        // Copy Trading — relationships and mirrored trade log
+        `CREATE TABLE IF NOT EXISTS copy_relationships (
+          id serial PRIMARY KEY,
+          copier_id integer NOT NULL REFERENCES users(id),
+          source_user_id integer NOT NULL REFERENCES users(id),
+          account_type text NOT NULL DEFAULT 'paper',
+          max_lot_size real NOT NULL DEFAULT 0.01,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(copier_id, source_user_id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS copy_trade_logs (
+          id serial PRIMARY KEY,
+          relationship_id integer NOT NULL REFERENCES copy_relationships(id),
+          copier_id integer NOT NULL REFERENCES users(id),
+          source_user_id integer NOT NULL REFERENCES users(id),
+          original_trade_id integer,
+          pair text NOT NULL,
+          direction text NOT NULL,
+          entry_price real NOT NULL,
+          exit_price real,
+          stop_loss real,
+          take_profit real,
+          lot_size real NOT NULL DEFAULT 0.01,
+          pnl real,
+          pnl_pips real,
+          status text NOT NULL DEFAULT 'open',
+          opened_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz
         )`
       ];
       for (const m of migrations) {
