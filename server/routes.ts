@@ -22085,8 +22085,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/user/ai-cost-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const user = await storage.getUser((req.user as User).id);
-    res.json({ mode: user?.aiCostMode || 'full' });
+    try {
+      const user = await storage.getUser((req.user as User).id);
+      res.json({ mode: user?.aiCostMode || 'full' });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || 'Failed to get AI cost mode' });
+    }
   });
 
   app.patch("/api/user/ai-cost-mode", async (req: Request, res: Response) => {
@@ -22095,28 +22099,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!['full', 'economy'].includes(mode)) {
       return res.status(400).json({ message: "Invalid mode. Must be 'full' or 'economy'" });
     }
-    await storage.updateUser((req.user as User).id, { aiCostMode: mode });
-    res.json({ mode });
+    try {
+      await storage.updateUser((req.user as User).id, { aiCostMode: mode });
+      res.json({ mode });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || 'Failed to update AI cost mode' });
+    }
   });
 
   app.get("/api/ai-model-preference", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
-    const currentModel = getUserModelPreference(req.user!.id);
-    res.json({ model: currentModel, availableModels: AVAILABLE_VISION_MODELS });
+    try {
+      const { getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+      const currentModel = getUserModelPreference(req.user!.id);
+      res.json({ model: currentModel, availableModels: AVAILABLE_VISION_MODELS });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || 'Failed to get model preference' });
+    }
   });
 
   app.post("/api/ai-model-preference", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { model } = req.body;
-    const { setUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
-    const validIds = AVAILABLE_VISION_MODELS.map(m => m.id);
-    if (!validIds.includes(model)) {
-      return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(', ')}` });
+    try {
+      const { model } = req.body;
+      const { setUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
+      const validIds = AVAILABLE_VISION_MODELS.map(m => m.id);
+      if (!validIds.includes(model)) {
+        return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(', ')}` });
+      }
+      setUserModelPreference(req.user!.id, model);
+      const modelInfo = AVAILABLE_VISION_MODELS.find(m => m.id === model);
+      res.json({ success: true, model, modelName: modelInfo?.name || model });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || 'Failed to set model preference' });
     }
-    setUserModelPreference(req.user!.id, model);
-    const modelInfo = AVAILABLE_VISION_MODELS.find(m => m.id === model);
-    res.json({ success: true, model, modelName: modelInfo?.name || model });
   });
 
   app.get("/api/ai-vision-confirmation", async (req: Request, res: Response) => {

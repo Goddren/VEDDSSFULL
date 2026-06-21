@@ -277,8 +277,19 @@ async function withRetry<T>(
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
         )`,
-        // AI Trading Models routing config — lets users pick model per strategy
-        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+      ];
+      for (const m of migrations) {
+        await db.execute(sql.raw(m));
+      }
+      console.log('[startup] Schema check complete.');
+    } catch (err) {
+      console.error('[startup] Schema migration check failed (non-fatal):', (err as Error).message);
+    }
+
+    // ── AI Model Configs table — own block so a failed earlier migration can't skip it ──
+    try {
+      await db.execute(sql.raw(`
+        CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
           routing_mode text NOT NULL DEFAULT 'single',
@@ -290,14 +301,11 @@ async function withRetry<T>(
           is_active boolean NOT NULL DEFAULT true,
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
-        )`,
-      ];
-      for (const m of migrations) {
-        await db.execute(sql.raw(m));
-      }
-      console.log('[startup] Schema check complete.');
+        )
+      `));
+      console.log('[startup] ai_model_configs table ready.');
     } catch (err) {
-      console.error('[startup] Schema migration check failed (non-fatal):', (err as Error).message);
+      console.error('[startup] ai_model_configs table creation failed (non-fatal):', (err as Error).message);
     }
 
     // ── Stop Orders table ──────────────────────────────────────────────────

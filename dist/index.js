@@ -55099,8 +55099,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   app2.get("/api/user/ai-cost-mode", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const user = await storage.getUser(req.user.id);
-    res.json({ mode: user?.aiCostMode || "full" });
+    try {
+      const user = await storage.getUser(req.user.id);
+      res.json({ mode: user?.aiCostMode || "full" });
+    } catch (err) {
+      res.status(500).json({ message: err?.message || "Failed to get AI cost mode" });
+    }
   });
   app2.patch("/api/user/ai-cost-mode", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
@@ -55108,26 +55112,38 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!["full", "economy"].includes(mode)) {
       return res.status(400).json({ message: "Invalid mode. Must be 'full' or 'economy'" });
     }
-    await storage.updateUser(req.user.id, { aiCostMode: mode });
-    res.json({ mode });
+    try {
+      await storage.updateUser(req.user.id, { aiCostMode: mode });
+      res.json({ mode });
+    } catch (err) {
+      res.status(500).json({ message: err?.message || "Failed to update AI cost mode" });
+    }
   });
   app2.get("/api/ai-model-preference", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const currentModel = getUserModelPreference2(req.user.id);
-    res.json({ model: currentModel, availableModels: AVAILABLE_VISION_MODELS2 });
+    try {
+      const { getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const currentModel = getUserModelPreference2(req.user.id);
+      res.json({ model: currentModel, availableModels: AVAILABLE_VISION_MODELS2 });
+    } catch (err) {
+      res.status(500).json({ message: err?.message || "Failed to get model preference" });
+    }
   });
   app2.post("/api/ai-model-preference", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
-    const { model } = req.body;
-    const { setUserModelPreference: setUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const validIds = AVAILABLE_VISION_MODELS2.map((m) => m.id);
-    if (!validIds.includes(model)) {
-      return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(", ")}` });
+    try {
+      const { model } = req.body;
+      const { setUserModelPreference: setUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const validIds = AVAILABLE_VISION_MODELS2.map((m) => m.id);
+      if (!validIds.includes(model)) {
+        return res.status(400).json({ message: `Invalid model. Choose from: ${validIds.join(", ")}` });
+      }
+      setUserModelPreference2(req.user.id, model);
+      const modelInfo = AVAILABLE_VISION_MODELS2.find((m) => m.id === model);
+      res.json({ success: true, model, modelName: modelInfo?.name || model });
+    } catch (err) {
+      res.status(500).json({ message: err?.message || "Failed to set model preference" });
     }
-    setUserModelPreference2(req.user.id, model);
-    const modelInfo = AVAILABLE_VISION_MODELS2.find((m) => m.id === model);
-    res.json({ success: true, model, modelName: modelInfo?.name || model });
   });
   app2.get("/api/ai-vision-confirmation", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
@@ -59432,9 +59448,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           status text NOT NULL DEFAULT 'open',
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
-        )`,
-        // AI Trading Models routing config — lets users pick model per strategy
-        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+        )`
+      ];
+      for (const m of migrations) {
+        await db.execute(sql8.raw(m));
+      }
+      console.log("[startup] Schema check complete.");
+    } catch (err) {
+      console.error("[startup] Schema migration check failed (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql8.raw(`
+        CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
           routing_mode text NOT NULL DEFAULT 'single',
@@ -59446,14 +59471,11 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           is_active boolean NOT NULL DEFAULT true,
           created_at timestamptz NOT NULL DEFAULT now(),
           updated_at timestamptz NOT NULL DEFAULT now()
-        )`
-      ];
-      for (const m of migrations) {
-        await db.execute(sql8.raw(m));
-      }
-      console.log("[startup] Schema check complete.");
+        )
+      `));
+      console.log("[startup] ai_model_configs table ready.");
     } catch (err) {
-      console.error("[startup] Schema migration check failed (non-fatal):", err.message);
+      console.error("[startup] ai_model_configs table creation failed (non-fatal):", err.message);
     }
     try {
       await db.execute(sql8.raw(`
