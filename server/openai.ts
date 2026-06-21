@@ -2400,33 +2400,57 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
 
     const clients: UniversalAIClient[] = [];
 
-    // Vision priority: Anthropic → OpenAI → Google → Mistral → Groq (user key)
-    for (const provider of ['anthropic', 'openai', 'google', 'mistral'] as const) {
-      const key = activeKeys.find(k => k.provider === provider);
-      if (!key?.apiKey) continue;
+    // Respect the user's UI model selection — put their chosen provider first so
+    // they actually get what they picked, then fall through to others as backup.
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+    const selIsVision = !AVAILABLE_VISION_MODELS.find(m => m.id === selModel)?.textOnly;
+    console.log(`[AI Vision] user ${userId} selected model: ${selModel} (provider: ${selProvider}, vision: ${selIsVision})`);
+
+    function buildProviderClient(provider: string, apiKey: string, preferredModel?: string): UniversalAIClient | null {
       try {
-        await storage.updateUserApiKeyUsage(userId, provider);
         if (provider === 'anthropic') {
-          clients.push(new AnthropicAsOpenAI(key.apiKey));
-        } else if (provider === 'openai') {
-          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 1, timeout: 90000 }) as any;
-          c.defaultModel = 'gpt-4o';
-          c.provider = 'openai';
-          clients.push(c as UniversalAIClient);
-        } else {
-          clients.push(buildOpenAICompatClient(provider, key.apiKey));
+          const c = new AnthropicAsOpenAI(apiKey) as any;
+          if (preferredModel && !AVAILABLE_VISION_MODELS.find(m => m.id === preferredModel)?.textOnly) {
+            c.defaultModel = preferredModel;
+          }
+          return c;
         }
+        if (provider === 'openai') {
+          const c = new OpenAI({ apiKey, maxRetries: 1, timeout: 90000 }) as any;
+          c.defaultModel = (preferredModel && selIsVision) ? preferredModel : 'gpt-4o';
+          c.provider = 'openai';
+          return c as UniversalAIClient;
+        }
+        if (provider === 'groq') {
+          const c = buildOpenAICompatClient('groq', apiKey) as any;
+          c.defaultModel = (preferredModel && selIsVision) ? preferredModel : 'qwen/qwen3-vl-32b-instruct';
+          c.provider = 'groq';
+          return c as UniversalAIClient;
+        }
+        return buildOpenAICompatClient(provider, apiKey);
       } catch (e) {
         console.error(`[AI Vision] Failed to build ${provider} client:`, e);
+        return null;
       }
     }
 
-    // Groq vision — user's own key only (not platform key); sits after premium providers
-    // so it's used only when the user explicitly has a Groq key but no Anthropic/OpenAI key
-    const groqKey = activeKeys.find(k => k.provider === 'groq');
-    if (groqKey?.apiKey) {
-      const groqClient = await buildGroqVisionClient(groqKey.apiKey);
-      if (groqClient) clients.push(groqClient);
+    // 1. Preferred provider first (the one the user actually selected)
+    const preferredKey = activeKeys.find(k => k.provider === selProvider);
+    if (preferredKey?.apiKey) {
+      await storage.updateUserApiKeyUsage(userId, selProvider).catch(() => {});
+      const c = buildProviderClient(selProvider, preferredKey.apiKey, selModel);
+      if (c) clients.push(c);
+    }
+
+    // 2. Remaining vision-capable providers as failover (skip the one already added)
+    const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral', 'groq'];
+    for (const provider of VISION_PROVIDERS) {
+      if (provider === selProvider) continue; // already added above
+      const key = activeKeys.find(k => k.provider === provider);
+      if (!key?.apiKey) continue;
+      const c = buildProviderClient(provider, key.apiKey);
+      if (c) clients.push(c);
     }
 
     // Platform OpenAI backstop — gpt-4o-mini has 10× higher rate limits than gpt-4o

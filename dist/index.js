@@ -7826,19 +7826,6 @@ async function buildGroqEconomyClient(userGroqKey) {
     return null;
   }
 }
-async function buildGroqVisionClient(userGroqKey) {
-  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const client2 = buildOpenAICompatClient("groq", apiKey);
-    client2.defaultModel = "qwen/qwen3-vl-32b-instruct";
-    client2.provider = "groq";
-    return client2;
-  } catch (e) {
-    console.error("[AI] Failed to build Groq vision client:", e);
-    return null;
-  }
-}
 async function getUniversalAIClientForUser(userId) {
   try {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
@@ -7906,35 +7893,58 @@ async function getUniversalAIClientForUser(userId) {
 }
 async function getUniversalVisionClientForUser(userId) {
   try {
+    let buildProviderClient2 = function(provider, apiKey, preferredModel) {
+      try {
+        if (provider === "anthropic") {
+          const c = new AnthropicAsOpenAI(apiKey);
+          if (preferredModel && !AVAILABLE_VISION_MODELS.find((m) => m.id === preferredModel)?.textOnly) {
+            c.defaultModel = preferredModel;
+          }
+          return c;
+        }
+        if (provider === "openai") {
+          const c = new OpenAI({ apiKey, maxRetries: 1, timeout: 9e4 });
+          c.defaultModel = preferredModel && selIsVision ? preferredModel : "gpt-4o";
+          c.provider = "openai";
+          return c;
+        }
+        if (provider === "groq") {
+          const c = buildOpenAICompatClient("groq", apiKey);
+          c.defaultModel = preferredModel && selIsVision ? preferredModel : "qwen/qwen3-vl-32b-instruct";
+          c.provider = "groq";
+          return c;
+        }
+        return buildOpenAICompatClient(provider, apiKey);
+      } catch (e) {
+        console.error(`[AI Vision] Failed to build ${provider} client:`, e);
+        return null;
+      }
+    };
+    var buildProviderClient = buildProviderClient2;
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
     const user = await storage2.getUser(userId);
     const aiCostMode = user?.aiCostMode || "full";
     const allKeys = await storage2.getUserApiKeys(userId);
     const activeKeys = allKeys.filter((k) => k.isActive && k.isValid !== false);
     const clients = [];
-    for (const provider of ["anthropic", "openai", "google", "mistral"]) {
+    const selModel = getUserModelPreference(userId);
+    const selProvider = inferModelProvider(selModel);
+    const selIsVision = !AVAILABLE_VISION_MODELS.find((m) => m.id === selModel)?.textOnly;
+    console.log(`[AI Vision] user ${userId} selected model: ${selModel} (provider: ${selProvider}, vision: ${selIsVision})`);
+    const preferredKey = activeKeys.find((k) => k.provider === selProvider);
+    if (preferredKey?.apiKey) {
+      await storage2.updateUserApiKeyUsage(userId, selProvider).catch(() => {
+      });
+      const c = buildProviderClient2(selProvider, preferredKey.apiKey, selModel);
+      if (c) clients.push(c);
+    }
+    const VISION_PROVIDERS = ["anthropic", "openai", "google", "mistral", "groq"];
+    for (const provider of VISION_PROVIDERS) {
+      if (provider === selProvider) continue;
       const key = activeKeys.find((k) => k.provider === provider);
       if (!key?.apiKey) continue;
-      try {
-        await storage2.updateUserApiKeyUsage(userId, provider);
-        if (provider === "anthropic") {
-          clients.push(new AnthropicAsOpenAI(key.apiKey));
-        } else if (provider === "openai") {
-          const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 1, timeout: 9e4 });
-          c.defaultModel = "gpt-4o";
-          c.provider = "openai";
-          clients.push(c);
-        } else {
-          clients.push(buildOpenAICompatClient(provider, key.apiKey));
-        }
-      } catch (e) {
-        console.error(`[AI Vision] Failed to build ${provider} client:`, e);
-      }
-    }
-    const groqKey = activeKeys.find((k) => k.provider === "groq");
-    if (groqKey?.apiKey) {
-      const groqClient = await buildGroqVisionClient(groqKey.apiKey);
-      if (groqClient) clients.push(groqClient);
+      const c = buildProviderClient2(provider, key.apiKey);
+      if (c) clients.push(c);
     }
     if (process.env.OPENAI_API_KEY) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 9e4 });
