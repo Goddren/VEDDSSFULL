@@ -32994,7 +32994,7 @@ async function createSubscription(userId, planId, successUrl, cancelUrl) {
         checkoutUrl: null
       };
     }
-    const baseUrl = process.env.REPLIT_DOMAINS ? `https://${process.env.REPLIT_DOMAINS.split(",")[0]}` : "http://localhost:5000";
+    const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
     const session3 = await stripeClient.checkout.sessions.create({
       customer: user.stripeCustomerId,
       payment_method_types: ["card"],
@@ -39396,29 +39396,84 @@ Respond ONLY in valid JSON format with these exact keys:
     }
   });
   app2.post("/api/subscription/webhook", async (req, res) => {
-    const signature = req.headers["stripe-signature"];
-    const event = req.body;
+    const sig = req.headers["stripe-signature"];
+    const rawBody = req.rawBody;
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+    let event;
+    if (secret && rawBody && sig && stripe) {
+      try {
+        event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+      } catch (err) {
+        console.error("[Stripe webhook] Signature verification failed:", err instanceof Error ? err.message : err);
+        return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : "Unknown"}`);
+      }
+    } else {
+      if (!secret) console.warn("[Stripe webhook] STRIPE_WEBHOOK_SECRET not set \u2014 skipping signature check");
+      event = req.body;
+    }
     try {
       switch (event.type) {
+        case "checkout.session.completed": {
+          const session3 = event.data.object;
+          const userId = session3.metadata?.userId ? parseInt(session3.metadata.userId) : null;
+          const planId = session3.metadata?.planId ? parseInt(session3.metadata.planId) : null;
+          if (userId && planId && session3.subscription) {
+            await db.update(users).set({
+              subscriptionPlanId: planId,
+              subscriptionStatus: "active",
+              stripeSubscriptionId: session3.subscription
+            }).where(eq9(users.id, userId));
+            console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
+          }
+          break;
+        }
         case "customer.subscription.created":
-        case "customer.subscription.updated":
-          console.log("Subscription created or updated:", event.data.object);
+        case "customer.subscription.updated": {
+          const sub = event.data.object;
+          const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
+          const planId = sub.metadata?.planId ? parseInt(sub.metadata.planId) : null;
+          if (userId) {
+            await db.update(users).set({
+              subscriptionStatus: sub.status,
+              stripeSubscriptionId: sub.id,
+              subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
+              ...planId ? { subscriptionPlanId: planId } : {}
+            }).where(eq9(users.id, userId));
+            console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
+          }
           break;
-        case "customer.subscription.deleted":
-          console.log("Subscription cancelled:", event.data.object);
+        }
+        case "customer.subscription.deleted": {
+          const sub = event.data.object;
+          const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
+          if (userId) {
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq9(users.id, userId));
+            console.log(`[Stripe] Subscription canceled for user ${userId}`);
+          }
           break;
-        case "invoice.payment_succeeded":
-          console.log("Payment succeeded:", event.data.object);
+        }
+        case "invoice.payment_succeeded": {
+          const invoice = event.data.object;
+          if (invoice.subscription) {
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq9(users.stripeSubscriptionId, invoice.subscription));
+            console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
+          }
           break;
-        case "invoice.payment_failed":
-          console.log("Payment failed:", event.data.object);
+        }
+        case "invoice.payment_failed": {
+          const invoice = event.data.object;
+          if (invoice.subscription) {
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq9(users.stripeSubscriptionId, invoice.subscription));
+            console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
+          }
           break;
+        }
         default:
-          console.log(`Unhandled event type: ${event.type}`);
+          console.log(`[Stripe] Unhandled event type: ${event.type}`);
       }
       res.json({ received: true });
     } catch (error) {
-      console.error("Error handling webhook:", error);
+      console.error("[Stripe webhook] Handler error:", error);
       res.status(500).json({ message: "Error handling webhook" });
     }
   });
@@ -59325,7 +59380,9 @@ process.on("uncaughtException", (err) => {
   console.error("[process] Uncaught exception (non-fatal):", err?.message ?? err);
 });
 var app = express2();
-app.use(express2.json({ limit: "50mb" }));
+app.use(express2.json({ limit: "50mb", verify: (req, _res, buf) => {
+  req.rawBody = buf;
+} }));
 app.use(express2.urlencoded({ extended: false, limit: "50mb" }));
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 var PORT = parseInt(process.env.PORT || "5000", 10);
@@ -59526,6 +59583,20 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           status text NOT NULL DEFAULT 'open',
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
+        )`,
+        // AI Trading Models routing config — lets users pick model per strategy
+        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          routing_mode text NOT NULL DEFAULT 'single',
+          primary_model_id text NOT NULL DEFAULT 'openai-gpt4o',
+          ensemble_model_ids jsonb DEFAULT '[]',
+          strategy_assignments jsonb DEFAULT '{}',
+          fallback_order jsonb DEFAULT '[]',
+          ensemble_min_agreement integer NOT NULL DEFAULT 60,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
         )`
       ];
       for (const m of migrations) {

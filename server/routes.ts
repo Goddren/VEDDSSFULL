@@ -1,7 +1,7 @@
 ﻿import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { User, userApiKeys } from "@shared/schema";
+import { User, userApiKeys, users } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
@@ -31,7 +31,8 @@ import {
   getUserSubscription,
   createSubscription,
   cancelSubscription,
-  checkUserSubscriptionLimits
+  checkUserSubscriptionLimits,
+  stripe,
 } from "./stripe";
 import {
   lsCreateCheckout,
@@ -3415,49 +3416,90 @@ Respond ONLY in valid JSON format with these exact keys:
 
   // Stripe webhook endpoint (for handling subscription events)
   app.post('/api/subscription/webhook', async (req: Request, res: Response) => {
-    const signature = req.headers['stripe-signature'] as string;
-    
-    // In a production environment, we would verify the webhook signature
-    // let event;
-    // try {
-    //   event = stripe.webhooks.constructEvent(
-    //     req.body,
-    //     signature,
-    //     process.env.STRIPE_WEBHOOK_SECRET
-    //   );
-    // } catch (err) {
-    //   return res.status(400).send(`Webhook Error: ${err.message}`);
-    // }
+    const sig = req.headers['stripe-signature'] as string;
+    const rawBody = (req as any).rawBody as Buffer | undefined;
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
-    const event = req.body;
+    let event: any;
 
-    // Handle specific events
+    if (secret && rawBody && sig && stripe) {
+      try {
+        event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+      } catch (err) {
+        console.error('[Stripe webhook] Signature verification failed:', err instanceof Error ? err.message : err);
+        return res.status(400).send(`Webhook Error: ${err instanceof Error ? err.message : 'Unknown'}`);
+      }
+    } else {
+      if (!secret) console.warn('[Stripe webhook] STRIPE_WEBHOOK_SECRET not set — skipping signature check');
+      event = req.body;
+    }
+
     try {
       switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object;
+          const userId = session.metadata?.userId ? parseInt(session.metadata.userId) : null;
+          const planId = session.metadata?.planId ? parseInt(session.metadata.planId) : null;
+          if (userId && planId && session.subscription) {
+            await db.update(users).set({
+              subscriptionPlanId: planId,
+              subscriptionStatus: 'active',
+              stripeSubscriptionId: session.subscription,
+            }).where(eq(users.id, userId));
+            console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
+          }
+          break;
+        }
         case 'customer.subscription.created':
-        case 'customer.subscription.updated':
-          // Update subscription in database
-          console.log('Subscription created or updated:', event.data.object);
+        case 'customer.subscription.updated': {
+          const sub = event.data.object;
+          const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
+          const planId = sub.metadata?.planId ? parseInt(sub.metadata.planId) : null;
+          if (userId) {
+            await db.update(users).set({
+              subscriptionStatus: sub.status,
+              stripeSubscriptionId: sub.id,
+              subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1000),
+              ...(planId ? { subscriptionPlanId: planId } : {}),
+            }).where(eq(users.id, userId));
+            console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
+          }
           break;
-        case 'customer.subscription.deleted':
-          // Cancel subscription in database
-          console.log('Subscription cancelled:', event.data.object);
+        }
+        case 'customer.subscription.deleted': {
+          const sub = event.data.object;
+          const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
+          if (userId) {
+            await db.update(users).set({ subscriptionStatus: 'canceled' })
+              .where(eq(users.id, userId));
+            console.log(`[Stripe] Subscription canceled for user ${userId}`);
+          }
           break;
-        case 'invoice.payment_succeeded':
-          // Update payment status
-          console.log('Payment succeeded:', event.data.object);
+        }
+        case 'invoice.payment_succeeded': {
+          const invoice = event.data.object;
+          if (invoice.subscription) {
+            await db.update(users).set({ subscriptionStatus: 'active' })
+              .where(eq(users.stripeSubscriptionId, invoice.subscription));
+            console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
+          }
           break;
-        case 'invoice.payment_failed':
-          // Handle failed payment
-          console.log('Payment failed:', event.data.object);
+        }
+        case 'invoice.payment_failed': {
+          const invoice = event.data.object;
+          if (invoice.subscription) {
+            await db.update(users).set({ subscriptionStatus: 'past_due' })
+              .where(eq(users.stripeSubscriptionId, invoice.subscription));
+            console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
+          }
           break;
+        }
         default:
-          console.log(`Unhandled event type: ${event.type}`);
+          console.log(`[Stripe] Unhandled event type: ${event.type}`);
       }
-
       res.json({ received: true });
     } catch (error) {
-      console.error('Error handling webhook:', error);
+      console.error('[Stripe webhook] Handler error:', error);
       res.status(500).json({ message: 'Error handling webhook' });
     }
   });

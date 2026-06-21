@@ -176,9 +176,7 @@ export async function createSubscription(userId: number, planId: number, success
     }
 
     // Create a Stripe Checkout Session for paid plans
-    const baseUrl = process.env.REPLIT_DOMAINS 
-      ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}`
-      : 'http://localhost:5000';
+    const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
     
     const session = await stripeClient.checkout.sessions.create({
       customer: user.stripeCustomerId,

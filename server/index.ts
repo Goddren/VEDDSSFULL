@@ -25,7 +25,8 @@ process.on('uncaughtException', (err: any) => {
 
 const app = express();
 // Increase the JSON payload limit to handle bulk chart uploads (multiple base64 images)
-app.use(express.json({ limit: '50mb' }));
+// rawBody is stored for Stripe/LS webhook signature verification (must run before route handlers)
+app.use(express.json({ limit: '50mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
 // Health check endpoint — must respond before Vite compiles (Railway health check)
@@ -276,6 +277,20 @@ async function withRetry<T>(
           status text NOT NULL DEFAULT 'open',
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
+        )`,
+        // AI Trading Models routing config — lets users pick model per strategy
+        `CREATE TABLE IF NOT EXISTS ai_model_configs (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          routing_mode text NOT NULL DEFAULT 'single',
+          primary_model_id text NOT NULL DEFAULT 'openai-gpt4o',
+          ensemble_model_ids jsonb DEFAULT '[]',
+          strategy_assignments jsonb DEFAULT '{}',
+          fallback_order jsonb DEFAULT '[]',
+          ensemble_min_agreement integer NOT NULL DEFAULT 60,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
         )`,
       ];
       for (const m of migrations) {
