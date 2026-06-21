@@ -2492,3 +2492,39 @@ export type FxPaperAccount = typeof fxPaperAccounts.$inferSelect;
 export type FxPaperTrade = typeof fxPaperTrades.$inferSelect;
 export type InsertFxPaperTrade = z.infer<typeof insertFxPaperTradeSchema>;
 
+// ─── Copy Trading ─────────────────────────────────────────────────────────────
+export const copyRelationships = pgTable("copy_relationships", {
+  id: serial("id").primaryKey(),
+  copierId: integer("copier_id").references(() => users.id).notNull(),
+  sourceUserId: integer("source_user_id").references(() => users.id).notNull(),
+  accountType: text("account_type").notNull().default("paper"), // 'paper' | 'real'
+  maxLotSize: real("max_lot_size").notNull().default(0.01),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.copierId, t.sourceUserId),
+}));
+
+export const copyTradeLogs = pgTable("copy_trade_logs", {
+  id: serial("id").primaryKey(),
+  relationshipId: integer("relationship_id").references(() => copyRelationships.id).notNull(),
+  copierId: integer("copier_id").references(() => users.id).notNull(),
+  sourceUserId: integer("source_user_id").references(() => users.id).notNull(),
+  originalTradeId: integer("original_trade_id"),
+  pair: text("pair").notNull(),
+  direction: text("direction").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  exitPrice: real("exit_price"),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  lotSize: real("lot_size").notNull().default(0.01),
+  pnl: real("pnl"),
+  pnlPips: real("pnl_pips"),
+  status: text("status").notNull().default("open"),
+  openedAt: timestamp("opened_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+});
+
+export type CopyRelationship = typeof copyRelationships.$inferSelect;
+export type CopyTradeLog = typeof copyTradeLogs.$inferSelect;
+

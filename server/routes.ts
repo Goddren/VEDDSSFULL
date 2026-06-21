@@ -25564,6 +25564,137 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Copy Trading ───────────────────────────────────────────────────────────
+  // GET  /api/copy/leaderboard          — traders ranked by win rate
+  // GET  /api/copy/relationships        — current user's copy subscriptions
+  // POST /api/copy/relationships        — start copying a trader
+  // PATCH /api/copy/relationships/:id   — update risk settings
+  // DELETE /api/copy/relationships/:id  — stop copying
+  // GET  /api/copy/trades               — current user's mirrored trade log
+
+  app.get("/api/copy/leaderboard", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      // Rank users by win rate from fx_paper_trades (closed trades only)
+      const rows = await db.execute(sql`
+        SELECT
+          u.id AS user_id,
+          u.username,
+          COUNT(t.id) FILTER (WHERE t.status = 'closed') AS total_trades,
+          COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.pnl > 0) AS wins,
+          ROUND(
+            CASE WHEN COUNT(t.id) FILTER (WHERE t.status='closed') > 0
+              THEN (COUNT(t.id) FILTER (WHERE t.status='closed' AND t.pnl > 0)::numeric /
+                   COUNT(t.id) FILTER (WHERE t.status='closed') * 100)
+              ELSE 0
+            END, 1
+          ) AS win_rate,
+          COALESCE(SUM(t.pnl) FILTER (WHERE t.status='closed'), 0) AS total_pnl,
+          CASE WHEN pa.is_enabled THEN 'paper' ELSE 'inactive' END AS account_type
+        FROM users u
+        LEFT JOIN fx_paper_trades t ON t.user_id = u.id
+        LEFT JOIN fx_paper_accounts pa ON pa.user_id = u.id
+        WHERE pa.is_enabled = true
+        GROUP BY u.id, u.username, pa.is_enabled
+        HAVING COUNT(t.id) FILTER (WHERE t.status='closed') >= 1
+        ORDER BY win_rate DESC, total_trades DESC
+        LIMIT 50
+      `);
+      const traders = (rows as any)[0] ?? (rows as any).rows ?? [];
+      res.json(traders);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/copy/relationships", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const rows = await db.execute(sql`
+        SELECT cr.id, cr.source_user_id, cr.account_type, cr.max_lot_size, cr.is_active, cr.created_at,
+               u.username AS source_username
+        FROM copy_relationships cr
+        JOIN users u ON u.id = cr.source_user_id
+        WHERE cr.copier_id = ${userId}
+        ORDER BY cr.created_at DESC
+      `);
+      const rels = (rows as any)[0] ?? (rows as any).rows ?? [];
+      res.json(rels);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/copy/relationships", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01 } = req.body;
+    if (!sourceUserId || sourceUserId === userId) {
+      return res.status(400).json({ error: "Invalid sourceUserId" });
+    }
+    try {
+      await db.execute(sql`
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, true, now())
+        ON CONFLICT (copier_id, source_user_id)
+        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}
+      `);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/copy/relationships/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const relId = parseInt(req.params.id);
+    const { maxLotSize, accountType } = req.body;
+    try {
+      if (typeof maxLotSize === "number") {
+        await db.execute(sql`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      if (accountType) {
+        await db.execute(sql`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/copy/relationships/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const relId = parseInt(req.params.id);
+    try {
+      await db.execute(sql`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/copy/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const rows = await db.execute(sql`
+        SELECT ctl.*, u.username AS source_username
+        FROM copy_trade_logs ctl
+        JOIN users u ON u.id = ctl.source_user_id
+        WHERE ctl.copier_id = ${userId}
+        ORDER BY ctl.opened_at DESC
+        LIMIT 200
+      `);
+      const trades = (rows as any)[0] ?? (rows as any).rows ?? [];
+      res.json(trades);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

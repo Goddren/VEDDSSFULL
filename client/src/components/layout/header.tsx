@@ -40,7 +40,7 @@ import {
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
   DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw,
-  PowerOff, LayoutDashboard,
+  PowerOff, LayoutDashboard, Copy,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -242,6 +242,7 @@ const Header: React.FC = () => {
 
   // Secondary nav items shown in "More" dropdown
   const moreNavItems = [
+    { name: 'Copy Trading', path: '/copy-trading', active: location === '/copy-trading', icon: <Copy className="h-4 w-4 mr-2" /> },
     { name: 'Activity Hub', path: '/activity', active: location === '/activity', icon: <Flame className="h-4 w-4 mr-2" /> },
     { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
     { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },

@@ -247,6 +247,36 @@ async function withRetry<T>(
           opened_at timestamptz NOT NULL DEFAULT now(),
           closed_at timestamptz
         )`,
+        // Copy Trading — relationships and mirrored trade log
+        `CREATE TABLE IF NOT EXISTS copy_relationships (
+          id serial PRIMARY KEY,
+          copier_id integer NOT NULL REFERENCES users(id),
+          source_user_id integer NOT NULL REFERENCES users(id),
+          account_type text NOT NULL DEFAULT 'paper',
+          max_lot_size real NOT NULL DEFAULT 0.01,
+          is_active boolean NOT NULL DEFAULT true,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          UNIQUE(copier_id, source_user_id)
+        )`,
+        `CREATE TABLE IF NOT EXISTS copy_trade_logs (
+          id serial PRIMARY KEY,
+          relationship_id integer NOT NULL REFERENCES copy_relationships(id),
+          copier_id integer NOT NULL REFERENCES users(id),
+          source_user_id integer NOT NULL REFERENCES users(id),
+          original_trade_id integer,
+          pair text NOT NULL,
+          direction text NOT NULL,
+          entry_price real NOT NULL,
+          exit_price real,
+          stop_loss real,
+          take_profit real,
+          lot_size real NOT NULL DEFAULT 0.01,
+          pnl real,
+          pnl_pips real,
+          status text NOT NULL DEFAULT 'open',
+          opened_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz
+        )`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));
