@@ -2692,7 +2692,15 @@ export async function analyzeChartImage(base64Image: string, knownSymbol?: strin
     "tradingImplication": string      // What this means for trading decisions
   },
   "recommendation": string,   // Overall trading recommendation considering volume and momentum
-  "steps": string[]           // Array of actionable steps to take
+  "steps": string[],          // Array of actionable steps to take
+  "orgStrategyInsight": {     // VEDD platform strategy framework assessment (REQUIRED)
+    "strategyName": string,      // Which top strategy best matches this setup: "ICT AMD Kill Zone", "SMC Order Block Raid", "Wyckoff Accumulation/Distribution", "Fibonacci OTE Reversal", "Session Breakout Momentum", "Trend Continuation Pullback", or similar
+    "alignment": string,         // How well price action aligns: "Strong", "Moderate", "Weak", or "None"
+    "institutionalBias": string, // Smart money directional lean: "Bullish", "Bearish", or "Neutral"
+    "keyFactor": string,         // The single most important factor confirming or negating the strategy (e.g. "Price swept Asian low and reclaimed OB" or "Volume absent on breakout")
+    "insight": string,           // 1-2 sentence expert institutional analysis of this specific setup
+    "actionNote": string         // One concrete thing the trader should watch for or do right now based on this strategy framework
+  }
 }
 
 IMPORTANT: All fields marked as REQUIRED must be included in your response with actual data, not "Unknown".`
@@ -2837,7 +2845,15 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         return defaultVolume;
       })(),
       recommendation: typeof response.recommendation === 'string' ? response.recommendation : "No recommendation available",
-      steps: Array.isArray(response.steps) ? response.steps : []
+      steps: Array.isArray(response.steps) ? response.steps : [],
+      orgStrategyInsight: (response.orgStrategyInsight && typeof response.orgStrategyInsight === 'object') ? {
+        strategyName: typeof response.orgStrategyInsight.strategyName === 'string' ? response.orgStrategyInsight.strategyName : 'Unknown',
+        alignment: typeof response.orgStrategyInsight.alignment === 'string' ? response.orgStrategyInsight.alignment : 'Weak',
+        institutionalBias: typeof response.orgStrategyInsight.institutionalBias === 'string' ? response.orgStrategyInsight.institutionalBias : 'Neutral',
+        keyFactor: typeof response.orgStrategyInsight.keyFactor === 'string' ? response.orgStrategyInsight.keyFactor : '',
+        insight: typeof response.orgStrategyInsight.insight === 'string' ? response.orgStrategyInsight.insight : '',
+        actionNote: typeof response.orgStrategyInsight.actionNote === 'string' ? response.orgStrategyInsight.actionNote : '',
+      } : undefined,
     };
     
     return analysisResponse;

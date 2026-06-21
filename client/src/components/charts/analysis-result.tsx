@@ -753,6 +753,67 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
         <VolumeAnalysisChart volumeData={analysis.volumeAnalysis} symbol={analysis.symbol} />
       </div>
       
+      {/* Org Strategy Insight */}
+      {analysis.orgStrategyInsight && (
+        <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg border border-purple-500/20">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-700 rounded-lg flex items-center justify-center shrink-0">
+              <Lightbulb className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold">Org Strategy Insight</h2>
+              <p className="text-sm text-gray-400">Institutional framework assessment by VEDD AI</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div className="bg-[#0A0A0A] rounded-lg p-3 border border-purple-500/20">
+              <p className="text-xs text-gray-400 mb-1">Strategy Framework</p>
+              <p className="text-sm font-semibold text-purple-300">{analysis.orgStrategyInsight.strategyName}</p>
+            </div>
+            <div className="bg-[#0A0A0A] rounded-lg p-3 border border-purple-500/20">
+              <p className="text-xs text-gray-400 mb-1">Alignment</p>
+              <p className={`text-sm font-semibold ${
+                analysis.orgStrategyInsight.alignment === 'Strong' ? 'text-green-400' :
+                analysis.orgStrategyInsight.alignment === 'Moderate' ? 'text-yellow-400' :
+                analysis.orgStrategyInsight.alignment === 'Weak' ? 'text-orange-400' : 'text-gray-400'
+              }`}>{analysis.orgStrategyInsight.alignment}</p>
+            </div>
+            <div className="bg-[#0A0A0A] rounded-lg p-3 border border-purple-500/20">
+              <p className="text-xs text-gray-400 mb-1">Institutional Bias</p>
+              <p className={`text-sm font-semibold ${
+                analysis.orgStrategyInsight.institutionalBias === 'Bullish' ? 'text-green-400' :
+                analysis.orgStrategyInsight.institutionalBias === 'Bearish' ? 'text-red-400' : 'text-gray-400'
+              }`}>{analysis.orgStrategyInsight.institutionalBias}</p>
+            </div>
+          </div>
+
+          {analysis.orgStrategyInsight.keyFactor && (
+            <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3 mb-3">
+              <p className="text-xs text-purple-300 font-medium mb-1">Key Factor</p>
+              <p className="text-sm text-gray-200">{analysis.orgStrategyInsight.keyFactor}</p>
+            </div>
+          )}
+
+          {analysis.orgStrategyInsight.insight && (
+            <div className="bg-[#0A0A0A] rounded-lg p-3 mb-3">
+              <p className="text-xs text-gray-400 font-medium mb-1">Strategic Insight</p>
+              <p className="text-sm text-gray-200 leading-relaxed">{analysis.orgStrategyInsight.insight}</p>
+            </div>
+          )}
+
+          {analysis.orgStrategyInsight.actionNote && (
+            <div className="flex items-start gap-2 bg-indigo-900/20 border border-indigo-500/30 rounded-lg p-3">
+              <span className="text-indigo-400 text-lg shrink-0">→</span>
+              <div>
+                <p className="text-xs text-indigo-300 font-medium mb-0.5">Action Note</p>
+                <p className="text-sm text-gray-200">{analysis.orgStrategyInsight.actionNote}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Trading Recommendation */}
       <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
         <h2 className="text-xl font-semibold mb-4">Trading Recommendation</h2>

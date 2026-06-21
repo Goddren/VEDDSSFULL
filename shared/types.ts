@@ -117,6 +117,14 @@ export interface ChartAnalysisResponse {
   annotatedImageUrl?: string;  // URL to the trade setup annotated chart image
   preferredVolumeThreshold?: string;  // Preferred volume level (e.g., "150% above average")
   preferredTradingTime?: string;  // Optimal time to trade (e.g., "London Session")
+  orgStrategyInsight?: {
+    strategyName: string;       // Which top strategy best matches (ICT AMD Kill Zone, SMC Order Block Raid, etc.)
+    alignment: string;          // "Strong" | "Moderate" | "Weak" | "None"
+    institutionalBias: string;  // "Bullish" | "Bearish" | "Neutral"
+    keyFactor: string;          // Single most important factor driving the match
+    insight: string;            // 1-2 sentence expert strategic insight for this setup
+    actionNote: string;         // Specific thing to watch for or do based on this strategy
+  };
 }
 
 export interface ImageUploadResponse {
