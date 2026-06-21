@@ -65,6 +65,7 @@ const ecosystemItems = [
   { name: 'AI Governance',   path: '/ai-governance',     icon: Shield,       color: '#ef4444' },
   { name: 'Innovation Lab',  path: '/innovation-lab',    icon: FlaskConical, color: '#a855f7' },
   { name: 'Compliance',      path: '/compliance',        icon: Lock,         color: '#06b6d4' },
+  { name: 'Admin Portal',    path: 'https://veddbuild-portal.onrender.com/admin', icon: Settings, color: '#7C6FE0' },
 ];
 
 const financeItems = [
@@ -122,9 +123,9 @@ function NavTile({
     </button>
   );
 
-  // Use native <a> for hash links so the browser scrolls to the anchor
-  if (path.includes('#')) {
-    return <a href={path}>{inner}</a>;
+  // Use native <a> for hash links and external URLs
+  if (path.includes('#') || path.startsWith('http')) {
+    return <a href={path} target={path.startsWith('http') ? '_blank' : undefined} rel="noopener noreferrer">{inner}</a>;
   }
 
   return <Link href={path}>{inner}</Link>;
