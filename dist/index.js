@@ -7952,6 +7952,15 @@ async function getUniversalVisionClientForUser(userId) {
       plat.provider = "openai-platform";
       clients.push(plat);
     }
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const groqPlat = buildOpenAICompatClient("groq", process.env.GROQ_API_KEY);
+        groqPlat.defaultModel = "qwen/qwen3-vl-32b-instruct";
+        groqPlat.provider = "groq-platform";
+        clients.push(groqPlat);
+      } catch {
+      }
+    }
     if (clients.length) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
@@ -7960,6 +7969,18 @@ async function getUniversalVisionClientForUser(userId) {
     }
   } catch (e) {
     console.error("Error building vision client, falling back to platform key:", e);
+  }
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const groqPlat = buildOpenAICompatClient("groq", process.env.GROQ_API_KEY);
+      groqPlat.defaultModel = "qwen/qwen3-vl-32b-instruct";
+      groqPlat.provider = "groq-platform";
+      const openaiPlat = getDefaultOpenAIClient();
+      openaiPlat.defaultModel = "gpt-4o-mini";
+      openaiPlat.provider = "openai";
+      return makeFailoverClient([groqPlat, openaiPlat], userId);
+    } catch {
+    }
   }
   const platformClient = getDefaultOpenAIClient();
   platformClient.defaultModel = "gpt-4o-mini";

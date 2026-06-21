@@ -2453,13 +2453,22 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
       if (c) clients.push(c);
     }
 
-    // Platform OpenAI backstop — gpt-4o-mini has 10× higher rate limits than gpt-4o
-    // and is vision-capable; used only when the user has no working personal keys
+    // Platform backstop #1 — OpenAI gpt-4o-mini (vision-capable, high rate limits)
     if (process.env.OPENAI_API_KEY) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 90000 }) as any;
       plat.defaultModel = 'gpt-4o-mini';
       plat.provider = 'openai-platform';
       clients.push(plat as UniversalAIClient);
+    }
+
+    // Platform backstop #2 — Groq Qwen 3 VL (separate rate-limit pool; fires when OpenAI platform key is rate-limited)
+    if (process.env.GROQ_API_KEY) {
+      try {
+        const groqPlat = buildOpenAICompatClient('groq', process.env.GROQ_API_KEY) as any;
+        groqPlat.defaultModel = 'qwen/qwen3-vl-32b-instruct';
+        groqPlat.provider = 'groq-platform';
+        clients.push(groqPlat as UniversalAIClient);
+      } catch { /* ignore */ }
     }
 
     if (clients.length) {
@@ -2470,7 +2479,18 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
   } catch (e) {
     console.error('Error building vision client, falling back to platform key:', e);
   }
-  // Last resort: platform OpenAI key directly (gpt-4o-mini for rate-limit headroom)
+  // Last resort: try Groq platform key first (separate pool from OpenAI), then OpenAI
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const groqPlat = buildOpenAICompatClient('groq', process.env.GROQ_API_KEY) as any;
+      groqPlat.defaultModel = 'qwen/qwen3-vl-32b-instruct';
+      groqPlat.provider = 'groq-platform';
+      const openaiPlat = getDefaultOpenAIClient() as any;
+      openaiPlat.defaultModel = 'gpt-4o-mini';
+      openaiPlat.provider = 'openai';
+      return makeFailoverClient([groqPlat as UniversalAIClient, openaiPlat as UniversalAIClient], userId);
+    } catch { /* fall through */ }
+  }
   const platformClient = getDefaultOpenAIClient() as any;
   platformClient.defaultModel = 'gpt-4o-mini';
   platformClient.provider = 'openai';
