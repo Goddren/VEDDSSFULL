@@ -49,6 +49,7 @@ const communityItems = [
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
+  { name: 'Amb. Portal',  path: 'https://veddbuild-portal.onrender.com/ambassadors', icon: DollarSign, color: '#18C87A' },
 ];
 
 const wearItems = [
@@ -613,6 +614,36 @@ export function MobileBottomNav() {
           </Link>
 
           <SectionLabel label="Community" />
+
+          {/* Ambassador Portal hero button */}
+          <a href="https://veddbuild-portal.onrender.com/ambassadors" target="_blank" rel="noopener noreferrer">
+            <button
+              onClick={close}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-2xl mb-2 transition-all active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg,rgba(24,200,122,0.16) 0%,rgba(124,111,224,0.12) 100%)',
+                border: '1.5px solid rgba(24,200,122,0.35)',
+              }}
+            >
+              <span
+                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'rgba(24,200,122,0.22)', boxShadow: '0 0 14px rgba(24,200,122,0.3)' }}
+              >
+                <DollarSign className="w-5 h-5" style={{ color: '#18C87A' }} />
+              </span>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-bold text-white leading-tight">Ambassador Portal</p>
+                <p className="text-[10px] mt-0.5" style={{ color: 'rgba(24,200,122,0.8)' }}>Track referrals · Earn commission · View playbook</p>
+              </div>
+              <span
+                className="text-[9px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: 'rgba(24,200,122,0.2)', color: '#18C87A', border: '1px solid rgba(24,200,122,0.4)' }}
+              >
+                LIVE
+              </span>
+            </button>
+          </a>
+
           <div className="grid grid-cols-3 gap-2">
             {communityItems.map(item => (
               <NavTile key={item.path} {...item} isActive={isActive(item.path)} onClose={close} />
