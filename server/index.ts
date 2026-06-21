@@ -220,6 +220,33 @@ async function withRetry<T>(
           updated_at timestamptz NOT NULL DEFAULT now(),
           UNIQUE(user_id, record_type)
         )`,
+        // FX Paper Trading — simulated account + trade log for AI SS Engine
+        `CREATE TABLE IF NOT EXISTS fx_paper_accounts (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id) UNIQUE,
+          balance real NOT NULL DEFAULT 10000,
+          initial_balance real NOT NULL DEFAULT 10000,
+          is_enabled boolean NOT NULL DEFAULT false,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`,
+        `CREATE TABLE IF NOT EXISTS fx_paper_trades (
+          id serial PRIMARY KEY,
+          user_id integer NOT NULL REFERENCES users(id),
+          pair text NOT NULL,
+          direction text NOT NULL,
+          entry_price real NOT NULL,
+          exit_price real,
+          stop_loss real,
+          take_profit real,
+          lot_size real NOT NULL DEFAULT 0.01,
+          pnl real,
+          pnl_pips real,
+          status text NOT NULL DEFAULT 'open',
+          confidence real,
+          source text DEFAULT 'fx_paper_engine',
+          opened_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz
+        )`,
       ];
       for (const m of migrations) {
         await db.execute(sql.raw(m));

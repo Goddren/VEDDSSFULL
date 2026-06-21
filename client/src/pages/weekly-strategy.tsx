@@ -890,7 +890,9 @@ export default function WeeklyStrategyPage() {
   const [showEaSetup, toggleEaSetup] = useSectionToggle("weekly", "ea_setup", false);
   const [showBrainSection, toggleBrainSection] = useSectionToggle("weekly", "brain", true);
   const [liveEngineTab, setLiveEngineTab] = useState<'activity' | 'market' | 'pairs' | 'combos'>('activity');
-  const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'|'pacing'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan'|'config'|'brain'|'engine'|'monitor'|'pacing'|'paper'>('plan');
+  const [paperBalanceInput, setPaperBalanceInput] = useState("");
+  const [paperEditingBalance, setPaperEditingBalance] = useState(false);
   const [pacingResult, setPacingResult] = useState<any>(null);
   const [pacingLoading, setPacingLoading] = useState(false);
   const [aiPathStatus, setAiPathStatus] = useState<any>(null);
@@ -900,7 +902,7 @@ export default function WeeklyStrategyPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
-    if (tab && ['plan','config','brain','engine','monitor','pacing'].includes(tab)) {
+    if (tab && ['plan','config','brain','engine','monitor','pacing','paper'].includes(tab)) {
       setActiveTab(tab as any);
     }
   }, []);
@@ -1033,6 +1035,65 @@ export default function WeeklyStrategyPage() {
   }, [mt5AccountData, tlConnection, tlAccountBalance]);
 
   // Note: engine account balance is synced by ConnectedAccountPicker OR the auto-detect above
+
+  // ── FX Paper Trading queries ─────────────────────────────────────────────────
+  const { data: paperAccount, refetch: refetchPaperAccount } = useQuery<any>({
+    queryKey: ['/api/fx-paper/account'],
+    refetchInterval: activeTab === 'paper' ? 10000 : false,
+  });
+  const { data: paperTrades = [], refetch: refetchPaperTrades } = useQuery<any[]>({
+    queryKey: ['/api/fx-paper/trades'],
+    refetchInterval: activeTab === 'paper' ? 10000 : false,
+  });
+
+  const togglePaperMutation = useMutation({
+    mutationFn: async (isEnabled: boolean) => {
+      const res = await apiRequest('POST', '/api/fx-paper/account', { isEnabled });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/fx-paper/account'] });
+    },
+  });
+
+  const savePaperBalanceMutation = useMutation({
+    mutationFn: async (balance: number) => {
+      const res = await apiRequest('POST', '/api/fx-paper/account', { balance, isEnabled: paperAccount?.isEnabled ?? false });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/fx-paper/account'] });
+      setPaperEditingBalance(false);
+      toast({ title: "Paper balance updated" });
+    },
+  });
+
+  const closePaperTradeMutation = useMutation({
+    mutationFn: async ({ id, exitPrice, pnl, pnlPips }: { id: number; exitPrice: number; pnl: number; pnlPips?: number }) => {
+      const res = await apiRequest('PATCH', `/api/fx-paper/trades/${id}`, { exitPrice, pnl, pnlPips });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/fx-paper/trades'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/fx-paper/account'] });
+      toast({ title: "Paper trade closed" });
+    },
+  });
+
+  const clearPaperHistoryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('DELETE', '/api/fx-paper/trades', {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/fx-paper/trades'] });
+      toast({ title: "Closed trade history cleared" });
+    },
+  });
+
+  const openPaperTrades = (paperTrades as any[]).filter((t: any) => t.status === 'open');
+  const closedPaperTrades = (paperTrades as any[]).filter((t: any) => t.status === 'closed');
+  const runningPnl = openPaperTrades.reduce((sum: number, t: any) => sum + (t.pnl ?? 0), 0);
 
   const toggleLiveMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
@@ -1942,6 +2003,7 @@ export default function WeeklyStrategyPage() {
             { id: 'engine',  label: '4. Live Engine',    emoji: '⚡' },
             { id: 'monitor', label: '5. Monitor',        emoji: '📊' },
             { id: 'pacing',  label: '6. Goal Pacing',    emoji: '🎯' },
+            { id: 'paper',   label: '7. Paper Trading',  emoji: '📝' },
           ] as const).map(tab => (
             <button
               key={tab.id}
@@ -6624,6 +6686,211 @@ export default function WeeklyStrategyPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* ─── Tab: FX Paper Trading ────────────────────────────── */}
+        {activeTab === 'paper' && (
+          <div className="space-y-6">
+
+            {/* Header + toggle */}
+            <div className="rounded-2xl border border-gray-800 bg-[#0D1117] p-6">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-purple-400" /> FX Paper Trading
+                  </h2>
+                  <p className="text-gray-400 text-sm mt-1">Simulated trading using the AI SS Engine signals — no real money, no broker execution.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-semibold ${paperAccount?.isEnabled ? 'text-emerald-400' : 'text-gray-500'}`}>
+                    {paperAccount?.isEnabled ? 'ENABLED' : 'DISABLED'}
+                  </span>
+                  <button
+                    onClick={() => togglePaperMutation.mutate(!paperAccount?.isEnabled)}
+                    disabled={togglePaperMutation.isPending}
+                    className={`relative w-12 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+                      paperAccount?.isEnabled ? 'bg-emerald-500' : 'bg-gray-700'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+                      paperAccount?.isEnabled ? 'translate-x-6' : 'translate-x-0'
+                    }`} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Balance row */}
+              <div className="mt-5 flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[160px]">
+                  <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider">Simulated Balance</p>
+                  {paperEditingBalance ? (
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        value={paperBalanceInput}
+                        onChange={e => setPaperBalanceInput(e.target.value)}
+                        className="bg-gray-800 border-gray-700 text-white h-9 w-36"
+                        placeholder="10000"
+                      />
+                      <Button size="sm" onClick={() => {
+                        const n = parseFloat(paperBalanceInput);
+                        if (!isNaN(n) && n > 0) savePaperBalanceMutation.mutate(n);
+                      }} className="bg-emerald-600 hover:bg-emerald-700 h-9">Save</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setPaperEditingBalance(false)} className="h-9">Cancel</Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-bold text-white">${(paperAccount?.balance ?? 10000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <button onClick={() => { setPaperBalanceInput(String(paperAccount?.balance ?? 10000)); setPaperEditingBalance(true); }}
+                        className="text-xs text-gray-500 hover:text-white underline">edit</button>
+                    </div>
+                  )}
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Starting</p>
+                  <p className="text-base font-semibold text-gray-400">${(paperAccount?.initialBalance ?? 10000).toLocaleString()}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Total P&L</p>
+                  <p className={`text-base font-semibold ${(paperAccount?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(paperAccount?.totalPnl ?? 0) >= 0 ? '+' : ''}${(paperAccount?.totalPnl ?? 0).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Open</p>
+                  <p className="text-base font-semibold text-yellow-400">{paperAccount?.openTrades ?? 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Closed</p>
+                  <p className="text-base font-semibold text-gray-300">{paperAccount?.closedTrades ?? 0}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-500 mb-1">Running P&L</p>
+                  <p className={`text-base font-semibold ${runningPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {runningPnl >= 0 ? '+' : ''}${runningPnl.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Open Positions */}
+            <div className="rounded-2xl border border-gray-800 bg-[#0D1117] overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-yellow-400" /> Open Positions
+                  <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-[10px] ml-1">{openPaperTrades.length}</Badge>
+                </h3>
+              </div>
+              {openPaperTrades.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <BookOpen className="w-8 h-8 mx-auto text-gray-700 mb-2" />
+                  <p className="text-gray-500 text-sm">No open paper trades</p>
+                  <p className="text-gray-600 text-xs mt-1">When the engine runs with paper mode enabled, trades appear here.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-gray-800">
+                        <th className="text-left px-4 py-2">Pair</th>
+                        <th className="text-left px-4 py-2">Dir</th>
+                        <th className="text-right px-4 py-2">Entry</th>
+                        <th className="text-right px-4 py-2">SL</th>
+                        <th className="text-right px-4 py-2">TP</th>
+                        <th className="text-right px-4 py-2">Conf</th>
+                        <th className="text-right px-4 py-2">Opened</th>
+                        <th className="text-right px-4 py-2">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800/50">
+                      {openPaperTrades.map((t: any) => (
+                        <tr key={t.id} className="hover:bg-gray-800/30">
+                          <td className="px-4 py-2.5 font-mono font-bold text-white">{t.pair}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`font-bold ${t.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{t.direction}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-gray-300">{t.entry_price?.toFixed(5)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-400">{t.stop_loss?.toFixed(5) ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-right text-emerald-400">{t.take_profit?.toFixed(5) ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-right text-purple-400">{t.confidence != null ? `${Math.round(t.confidence)}%` : '—'}</td>
+                          <td className="px-4 py-2.5 text-right text-gray-500">{new Date(t.opened_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            <Button size="sm" variant="outline"
+                              onClick={() => {
+                                const exitPrice = t.entry_price ?? 0;
+                                closePaperTradeMutation.mutate({ id: t.id, exitPrice, pnl: 0, pnlPips: 0 });
+                              }}
+                              className="h-6 px-2 text-[10px] border-gray-700 text-gray-400 hover:text-white"
+                            >Close</Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Closed Trades */}
+            <div className="rounded-2xl border border-gray-800 bg-[#0D1117] overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-gray-400" /> Closed Trades
+                  <Badge className="bg-gray-700 text-gray-400 border-gray-600 text-[10px] ml-1">{closedPaperTrades.length}</Badge>
+                </h3>
+                {closedPaperTrades.length > 0 && (
+                  <Button size="sm" variant="ghost"
+                    onClick={() => clearPaperHistoryMutation.mutate()}
+                    disabled={clearPaperHistoryMutation.isPending}
+                    className="text-xs text-gray-600 hover:text-red-400 h-7"
+                  >
+                    <Trash2 className="w-3 h-3 mr-1" /> Clear
+                  </Button>
+                )}
+              </div>
+              {closedPaperTrades.length === 0 ? (
+                <div className="px-5 py-8 text-center">
+                  <p className="text-gray-500 text-sm">No closed trades yet</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 border-b border-gray-800">
+                        <th className="text-left px-4 py-2">Pair</th>
+                        <th className="text-left px-4 py-2">Dir</th>
+                        <th className="text-right px-4 py-2">Entry</th>
+                        <th className="text-right px-4 py-2">Exit</th>
+                        <th className="text-right px-4 py-2">P&L</th>
+                        <th className="text-right px-4 py-2">Pips</th>
+                        <th className="text-right px-4 py-2">Closed</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800/50">
+                      {closedPaperTrades.slice(0, 50).map((t: any) => (
+                        <tr key={t.id} className="hover:bg-gray-800/30">
+                          <td className="px-4 py-2.5 font-mono font-bold text-white">{t.pair}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`font-bold ${t.direction === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{t.direction}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-gray-300">{t.entry_price?.toFixed(5)}</td>
+                          <td className="px-4 py-2.5 text-right text-gray-300">{t.exit_price?.toFixed(5) ?? '—'}</td>
+                          <td className={`px-4 py-2.5 text-right font-bold ${(t.pnl ?? 0) > 0 ? 'text-emerald-400' : (t.pnl ?? 0) < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                            {t.pnl != null ? `${t.pnl >= 0 ? '+' : ''}$${t.pnl.toFixed(2)}` : '—'}
+                          </td>
+                          <td className={`px-4 py-2.5 text-right ${(t.pnl_pips ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {t.pnl_pips != null ? `${t.pnl_pips >= 0 ? '+' : ''}${t.pnl_pips.toFixed(1)}` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-gray-500">{t.closed_at ? new Date(t.closed_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

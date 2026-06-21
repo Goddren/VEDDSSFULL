@@ -25414,6 +25414,156 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── FX Paper Trading ──────────────────────────────────────────────────────
+  // GET  /api/fx-paper/account         — fetch paper account (balance, enabled, stats)
+  // POST /api/fx-paper/account         — update balance or toggle enabled
+  // GET  /api/fx-paper/trades          — fetch trade log (open + closed)
+  // POST /api/fx-paper/trades          — open a new paper trade
+  // PATCH /api/fx-paper/trades/:id     — close a trade (set exit price + pnl)
+  // DELETE /api/fx-paper/trades        — clear all closed trades
+
+  app.get("/api/fx-paper/account", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const rows = await db.execute(sql`
+        SELECT id, balance, initial_balance, is_enabled, updated_at
+        FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
+      `);
+      const row = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      if (!row) {
+        return res.json({ balance: 10000, initialBalance: 10000, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
+      }
+      // Aggregate stats
+      const statsRows = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status='open') AS open_trades,
+          COUNT(*) FILTER (WHERE status='closed') AS closed_trades,
+          COALESCE(SUM(pnl) FILTER (WHERE status='closed'), 0) AS total_pnl
+        FROM fx_paper_trades WHERE user_id=${userId}
+      `);
+      const stats = (statsRows as any)[0]?.[0] ?? (statsRows as any).rows?.[0] ?? {};
+      res.json({
+        balance: parseFloat(row.balance ?? 10000),
+        initialBalance: parseFloat(row.initial_balance ?? 10000),
+        isEnabled: !!row.is_enabled,
+        openTrades: parseInt(stats.open_trades ?? 0),
+        closedTrades: parseInt(stats.closed_trades ?? 0),
+        totalPnl: parseFloat(stats.total_pnl ?? 0),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/fx-paper/account", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const { balance, isEnabled } = req.body;
+    try {
+      const existing = await db.execute(sql`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const row = (existing as any)[0]?.[0] ?? (existing as any).rows?.[0];
+      if (!row) {
+        const initBalance = typeof balance === "number" ? balance : 10000;
+        await db.execute(sql`
+          INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at)
+          VALUES (${userId}, ${initBalance}, ${initBalance}, ${!!isEnabled}, now())
+        `);
+      } else {
+        if (typeof balance === "number") {
+          await db.execute(sql`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
+        }
+        if (typeof isEnabled === "boolean") {
+          await db.execute(sql`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
+        }
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/fx-paper/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const status = req.query.status as string | undefined;
+    try {
+      let rows: any;
+      if (status === "open") {
+        rows = await db.execute(sql`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
+      } else if (status === "closed") {
+        rows = await db.execute(sql`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
+      } else {
+        rows = await db.execute(sql`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
+      }
+      const trades = (rows as any)[0] ?? (rows as any).rows ?? [];
+      res.json(trades);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/fx-paper/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence, source = "fx_paper_engine" } = req.body;
+    if (!pair || !direction || typeof entryPrice !== "number") {
+      return res.status(400).json({ error: "pair, direction, and entryPrice are required" });
+    }
+    try {
+      // Ensure account exists
+      const acctRows = await db.execute(sql`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const acct = (acctRows as any)[0]?.[0] ?? (acctRows as any).rows?.[0];
+      if (!acct) {
+        await db.execute(sql`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
+      }
+      await db.execute(sql`
+        INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
+        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence ?? null}, ${source}, 'open', now())
+      `);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/fx-paper/trades/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const tradeId = parseInt(req.params.id);
+    const { exitPrice, pnl, pnlPips } = req.body;
+    if (isNaN(tradeId) || typeof exitPrice !== "number") {
+      return res.status(400).json({ error: "tradeId and exitPrice required" });
+    }
+    try {
+      await db.execute(sql`
+        UPDATE fx_paper_trades
+        SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
+        WHERE id=${tradeId} AND user_id=${userId}
+      `);
+      // Update account balance with realised pnl
+      if (typeof pnl === "number") {
+        await db.execute(sql`
+          UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
+        `);
+      }
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/fx-paper/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      await db.execute(sql`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

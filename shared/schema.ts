@@ -2449,3 +2449,46 @@ export const allTimeRecords = pgTable("all_time_records", {
 export type AllTimeRecord       = typeof allTimeRecords.$inferSelect;
 export type InsertAllTimeRecord = typeof allTimeRecords.$inferInsert;
 
+// ─── FX Paper Trading (AI SS Engine simulated trades) ────────────────────────
+export const fxPaperAccounts = pgTable("fx_paper_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  balance: real("balance").notNull().default(10000),
+  initialBalance: real("initial_balance").notNull().default(10000),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const fxPaperTrades = pgTable("fx_paper_trades", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  pair: text("pair").notNull(),
+  direction: text("direction").notNull(),      // 'BUY' | 'SELL'
+  entryPrice: real("entry_price").notNull(),
+  exitPrice: real("exit_price"),
+  stopLoss: real("stop_loss"),
+  takeProfit: real("take_profit"),
+  lotSize: real("lot_size").notNull().default(0.01),
+  pnl: real("pnl"),
+  pnlPips: real("pnl_pips"),
+  status: text("status").notNull().default("open"), // 'open' | 'closed'
+  confidence: real("confidence"),
+  source: text("source").default("fx_paper_engine"),
+  openedAt: timestamp("opened_at").defaultNow().notNull(),
+  closedAt: timestamp("closed_at"),
+});
+
+export const insertFxPaperTradeSchema = createInsertSchema(fxPaperTrades).omit({
+  id: true,
+  openedAt: true,
+  closedAt: true,
+  exitPrice: true,
+  pnl: true,
+  pnlPips: true,
+  status: true,
+});
+
+export type FxPaperAccount = typeof fxPaperAccounts.$inferSelect;
+export type FxPaperTrade = typeof fxPaperTrades.$inferSelect;
+export type InsertFxPaperTrade = z.infer<typeof insertFxPaperTradeSchema>;
+
