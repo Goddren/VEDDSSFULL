@@ -2400,10 +2400,7 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
 
     const clients: UniversalAIClient[] = [];
 
-    // Vision provider priority: Anthropic → OpenAI → Google → Mistral
-    // Groq is intentionally excluded from the vision chain — their vision model IDs
-    // change frequently and cause model-not-found errors that cascade into rate-limit storms.
-    // Groq text models are still used for AI confirmations via getUniversalAIClientForUser.
+    // Vision priority: Anthropic → OpenAI → Google → Mistral → Groq (user key)
     for (const provider of ['anthropic', 'openai', 'google', 'mistral'] as const) {
       const key = activeKeys.find(k => k.provider === provider);
       if (!key?.apiKey) continue;
@@ -2412,7 +2409,6 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
         if (provider === 'anthropic') {
           clients.push(new AnthropicAsOpenAI(key.apiKey));
         } else if (provider === 'openai') {
-          // maxRetries:1 — vision calls are expensive; fail fast and let the chain take over
           const c = new OpenAI({ apiKey: key.apiKey, maxRetries: 1, timeout: 90000 }) as any;
           c.defaultModel = 'gpt-4o';
           c.provider = 'openai';
@@ -2425,11 +2421,19 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
       }
     }
 
-    // Platform OpenAI key is the guaranteed backstop — always appended last
-    // maxRetries:1 — avoid hammering when rate-limited; chain to next provider instead
+    // Groq vision — user's own key only (not platform key); sits after premium providers
+    // so it's used only when the user explicitly has a Groq key but no Anthropic/OpenAI key
+    const groqKey = activeKeys.find(k => k.provider === 'groq');
+    if (groqKey?.apiKey) {
+      const groqClient = await buildGroqVisionClient(groqKey.apiKey);
+      if (groqClient) clients.push(groqClient);
+    }
+
+    // Platform OpenAI backstop — gpt-4o-mini has 10× higher rate limits than gpt-4o
+    // and is vision-capable; used only when the user has no working personal keys
     if (process.env.OPENAI_API_KEY) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 90000 }) as any;
-      plat.defaultModel = 'gpt-4o';
+      plat.defaultModel = 'gpt-4o-mini';
       plat.provider = 'openai-platform';
       clients.push(plat as UniversalAIClient);
     }
@@ -2442,9 +2446,9 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
   } catch (e) {
     console.error('Error building vision client, falling back to platform key:', e);
   }
-  // Last resort: platform OpenAI key directly
+  // Last resort: platform OpenAI key directly (gpt-4o-mini for rate-limit headroom)
   const platformClient = getDefaultOpenAIClient() as any;
-  platformClient.defaultModel = 'gpt-4o';
+  platformClient.defaultModel = 'gpt-4o-mini';
   platformClient.provider = 'openai';
   return platformClient as UniversalAIClient;
 }

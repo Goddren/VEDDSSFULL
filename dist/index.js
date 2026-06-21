@@ -7826,6 +7826,19 @@ async function buildGroqEconomyClient(userGroqKey) {
     return null;
   }
 }
+async function buildGroqVisionClient(userGroqKey) {
+  const apiKey = userGroqKey || process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const client2 = buildOpenAICompatClient("groq", apiKey);
+    client2.defaultModel = "qwen/qwen3-vl-32b-instruct";
+    client2.provider = "groq";
+    return client2;
+  } catch (e) {
+    console.error("[AI] Failed to build Groq vision client:", e);
+    return null;
+  }
+}
 async function getUniversalAIClientForUser(userId) {
   try {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
@@ -7918,9 +7931,14 @@ async function getUniversalVisionClientForUser(userId) {
         console.error(`[AI Vision] Failed to build ${provider} client:`, e);
       }
     }
+    const groqKey = activeKeys.find((k) => k.provider === "groq");
+    if (groqKey?.apiKey) {
+      const groqClient = await buildGroqVisionClient(groqKey.apiKey);
+      if (groqClient) clients.push(groqClient);
+    }
     if (process.env.OPENAI_API_KEY) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 9e4 });
-      plat.defaultModel = "gpt-4o";
+      plat.defaultModel = "gpt-4o-mini";
       plat.provider = "openai-platform";
       clients.push(plat);
     }
@@ -7934,7 +7952,7 @@ async function getUniversalVisionClientForUser(userId) {
     console.error("Error building vision client, falling back to platform key:", e);
   }
   const platformClient = getDefaultOpenAIClient();
-  platformClient.defaultModel = "gpt-4o";
+  platformClient.defaultModel = "gpt-4o-mini";
   platformClient.provider = "openai";
   return platformClient;
 }
