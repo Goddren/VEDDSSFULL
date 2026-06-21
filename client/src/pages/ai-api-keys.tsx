@@ -432,6 +432,59 @@ export default function AiApiKeysPage() {
           </CardContent>
         </Card>
 
+        {/* AI Strategy Guide */}
+        <Card className="mb-6 border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-orange-500/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-amber-500" />
+              Which AI Strategy Is Right for You?
+            </CardTitle>
+            <CardDescription>
+              Your AI key choice determines how chart analysis runs — and whether you hit rate limits. Here's the playbook.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-green-400">
+                  <DollarSign className="h-4 w-4" /> Budget Route (Free)
+                </div>
+                <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+                  <li>Go to <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">console.groq.com</a> — create a free key</li>
+                  <li>Add it below under <strong>Groq ⚡</strong></li>
+                  <li>Select <strong>Qwen 3 VL</strong> in the model picker above</li>
+                </ol>
+                <p className="text-xs text-muted-foreground/70 pt-1">
+                  If Groq is busy, the platform automatically falls back to <strong>GPT-4o Mini</strong> — you're never left without analysis.
+                </p>
+              </div>
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-amber-400">
+                  <Sparkles className="h-4 w-4" /> Premium Route (Best Accuracy)
+                </div>
+                <ol className="text-sm text-muted-foreground space-y-1.5 list-decimal list-inside">
+                  <li>Add your <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-primary underline">OpenAI key</a> below</li>
+                  <li>Select <strong>GPT-4o</strong> in the model picker above</li>
+                </ol>
+                <p className="text-xs text-muted-foreground/70 pt-1">
+                  Highest chart analysis accuracy. Billed to your own OpenAI account — full rate limits.
+                </p>
+              </div>
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4 space-y-2">
+                <div className="flex items-center gap-2 font-semibold text-blue-400">
+                  <Cpu className="h-4 w-4" /> No Key (Platform Shared)
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  The platform provides a shared <strong>GPT-4o Mini</strong> key. Works fine for light usage, but heavy traffic can trigger rate limits. Add your own key to eliminate this risk.
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground border-t border-border pt-3">
+              <strong>Tip:</strong> Economy Mode (above) routes ALL AI features to free Groq models. The model picker here only controls chart analysis &amp; second opinion. Use both together for maximum cost savings.
+            </p>
+          </CardContent>
+        </Card>
+
         {isLoading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

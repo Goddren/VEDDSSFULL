@@ -32,11 +32,12 @@ import {
   BollingerBandsDiagram,
   VolumeDiagram,
 } from '@/components/candlestick-diagrams';
-import { 
-  GraduationCap, 
-  Video, 
-  Share2, 
-  Award, 
+import {
+  GraduationCap,
+  Video,
+  Share2,
+  Award,
+  DollarSign,
   CheckCircle2, 
   Circle,
   Play,
@@ -1071,6 +1072,78 @@ const trainingModules: TrainingModule[] = [
             'All sessions look back the same amount'
           ],
           correct: 2
+        }
+      },
+      {
+        id: 'features-12',
+        title: 'AI Provider Setup — Budget vs Premium',
+        content: [
+          'Every chart analysis on VEDD runs through an AI model — and users can control WHICH model is used',
+          'By default everyone shares the platform\'s built-in GPT-4o Mini key. Under heavy load this triggers 429 rate-limit errors.',
+          'Adding a personal key gives the user dedicated capacity and eliminates rate limits for their account',
+          '',
+          '💚 BUDGET ROUTE (Free — Groq + Qwen 3 VL):',
+          '  1. Create a free key at console.groq.com (no credit card)',
+          '  2. Add it on Profile → AI Provider Keys → Groq ⚡',
+          '  3. Select "Qwen 3 VL" in the AI Agent model picker',
+          '  → Chart analysis routes to their personal Groq key first',
+          '  → If Groq is busy, the platform auto-falls back to GPT-4o Mini — they always get an answer',
+          '',
+          '🌟 PREMIUM ROUTE (Best Accuracy — OpenAI GPT-4o):',
+          '  1. Add billing to platform.openai.com',
+          '  2. Generate an API key at platform.openai.com/api-keys',
+          '  3. Add it on Profile → AI Provider Keys → OpenAI 🤖',
+          '  4. Select "GPT-4o" in the AI Agent model picker',
+          '  → Highest accuracy vision model, full personal rate limits',
+          '  → Typical cost: fractions of a cent per analysis',
+          '',
+          '🔵 NO KEY (Platform Shared):',
+          '  → Works fine for light use; rate-limited during heavy traffic',
+          '  → Recommend users add at minimum a free Groq key',
+          '',
+          'ECONOMY MODE vs MODEL SELECTOR (common confusion — know this):',
+          '  • Economy Mode toggle = controls ALL AI features (news, EA gen, everything)',
+          '  • Model Selector = controls chart analysis & second opinion only',
+          '  • They are independent — both settings matter',
+          '  • Best budget combo: Economy Mode ON + Groq key added + Qwen 3 VL selected'
+        ],
+        tips: [
+          'Lead with the free Groq route — zero barrier to entry, eliminates the #1 user complaint (rate limit errors)',
+          'Show the 3-step Groq setup live during onboarding: console.groq.com → copy key → paste into VEDD',
+          'Clarify: Groq models in the text AI list (GPT-OSS 120B, Qwen 3.6 27B, GPT-OSS 20B) are text-only — Qwen 3 VL is the vision model for charts',
+          'Emphasize the automatic failover: if their Groq key is busy, VEDD silently falls back — no action needed',
+          'For advanced users wanting max accuracy: OpenAI GPT-4o is the premium option and worth it for serious traders'
+        ],
+        keyPoints: [
+          {
+            title: 'Free Groq Key = No More Rate Limits',
+            description: 'A free Groq key from console.groq.com gives the user personal capacity. The 429 "all providers rate limited" error goes away immediately.',
+            icon: Zap
+          },
+          {
+            title: 'Auto-Failover Always Delivers Results',
+            description: 'If the user\'s chosen provider is temporarily busy, VEDD automatically falls back to GPT-4o Mini. The user always gets their chart analysis.',
+            icon: Shield
+          },
+          {
+            title: 'Economy Mode Saves Across Everything',
+            description: 'Economy Mode routes ALL platform AI to free Groq models — not just charts. Combined with a personal Groq key, it eliminates AI costs entirely.',
+            icon: DollarSign
+          }
+        ],
+        guideLink: {
+          text: 'See User Guide: AI Provider Setup',
+          section: 'ai-provider-setup'
+        },
+        quiz: {
+          question: 'A new user is getting 429 rate-limit errors on chart analysis. What is the fastest free fix?',
+          options: [
+            'Wait 30–60 seconds and retry',
+            'Add a free Groq key at console.groq.com and select Qwen 3 VL',
+            'Upgrade to the Premium subscription plan',
+            'Switch to Economy Mode only'
+          ],
+          correct: 1
         }
       }
     ]

@@ -11,6 +11,7 @@ import {
   Bell,
   CreditCard,
   Shield,
+  Cpu,
   HelpCircle,
   ChevronDown,
   ChevronRight,
@@ -428,6 +429,76 @@ const guideSections: GuideSection[] = [
           'Upgrade or downgrade anytime',
           'Payment processed securely through Stripe',
           'Cancel anytime with no hidden fees'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'ai-provider-setup',
+    title: 'AI Provider Setup',
+    icon: Cpu,
+    description: 'Choose and configure your AI model for chart analysis — from free Groq to premium GPT-4o',
+    content: [
+      {
+        heading: 'Understanding AI Providers',
+        steps: [
+          'AI Trading Vault uses AI to analyze your charts — but which AI model it uses is up to you',
+          'By default, the platform shares a built-in GPT-4o Mini key across all users',
+          'Shared keys can hit rate limits during high-traffic periods (you\'ll see a 429 error)',
+          'Adding your own AI key gives you dedicated capacity and lets you choose your preferred model',
+          'Go to Profile → AI Provider Keys to manage your keys and model selection'
+        ],
+        tips: [
+          'A 429 "rate limit" error means too many users are hitting the shared key at once — adding your own key fixes this permanently',
+          'Your keys are stored encrypted and never shared with other users'
+        ]
+      },
+      {
+        heading: 'Budget Route — Free Groq Key + Qwen 3 VL',
+        steps: [
+          'Step 1: Visit console.groq.com and create a free account',
+          'Step 2: Generate a new API key (starts with gsk_...)',
+          'Step 3: On the AI Provider Keys page, click Add Provider → Groq ⚡',
+          'Step 4: Paste your key and save',
+          'Step 5: In the AI Agent selector on the same page, choose Qwen 3 VL (Budget)',
+          'That\'s it — chart analysis now routes through your free Groq key first',
+          'If Groq is temporarily rate-limited, the platform automatically falls back to GPT-4o Mini'
+        ],
+        tips: [
+          'Groq keys are completely free — no credit card required',
+          'Qwen 3 VL is a vision-capable model that reads your chart images accurately',
+          'The automatic fallback to GPT-4o Mini means you always get an answer, even during Groq outages'
+        ]
+      },
+      {
+        heading: 'Premium Route — OpenAI Key + GPT-4o',
+        steps: [
+          'Step 1: Visit platform.openai.com and add billing to your account',
+          'Step 2: Create an API key at platform.openai.com/api-keys',
+          'Step 3: On the AI Provider Keys page, click Add Provider → OpenAI 🤖',
+          'Step 4: Paste your key and save, then click Validate to confirm it works',
+          'Step 5: In the AI Agent selector, choose GPT-4o (Premium)',
+          'Chart analysis now uses GPT-4o — the highest accuracy vision model available'
+        ],
+        tips: [
+          'GPT-4o has much higher rate limits than the shared platform key',
+          'OpenAI charges per token — typical chart analysis costs fractions of a cent',
+          'GPT-4o is the best choice for complex multi-timeframe chart analysis'
+        ]
+      },
+      {
+        heading: 'Economy Mode vs Model Selector',
+        steps: [
+          'Economy Mode (the Full Power / Economy toggle) controls ALL AI features platform-wide',
+          'Economy mode routes every AI call — chart analysis, news sentiment, EA generation — to free Groq models',
+          'The AI Agent model selector only controls chart analysis and second opinion features',
+          'Using Economy Mode + your own Groq key = maximum cost savings across the entire platform',
+          'Using Full Power + your own OpenAI key + GPT-4o = maximum accuracy for chart analysis',
+          'You can mix: Economy Mode on (to save on text AI) while your model selector uses Qwen 3 VL (for vision)'
+        ],
+        tips: [
+          'Economy Mode is a quick toggle — great for turning on during casual browsing and off for serious analysis sessions',
+          'The Platform AI Cost Mode and the AI Agent selector are independent controls — both matter'
         ]
       }
     ]
