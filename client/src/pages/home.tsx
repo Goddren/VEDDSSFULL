@@ -421,7 +421,7 @@ const Home = () => {
                     <Sparkles className="ml-2 w-5 h-5" />
                   </Button>
                 </Link>
-                <Link href="/news-sentiment">
+                <Link href="/market-sentiment">
                   <Button variant="outline" size="lg" className="border-gray-600 hover:bg-gray-800 px-10 py-6 text-lg" data-testid="button-cta-news">
                     View Market News
                   </Button>

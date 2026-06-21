@@ -297,7 +297,7 @@ export default function ActivityHubPage() {
                 <Shirt className="w-4 h-4 text-amber-400" />
                 <p className="text-sm font-bold text-white">{untappedNfc.length} garment{untappedNfc.length > 1 ? 's' : ''} ready to tap</p>
               </div>
-              <Link href="/clothing">
+              <Link href="/vedd-clothing">
                 <span className="text-xs text-amber-400/70 flex items-center gap-0.5">See all <ChevronRight className="w-3 h-3" /></span>
               </Link>
             </div>

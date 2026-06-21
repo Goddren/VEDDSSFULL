@@ -115,7 +115,7 @@ export function ReferralCard({ className = '' }: ReferralCardProps) {
         )}
       </CardContent>
       <CardFooter className="flex justify-between">
-        <Link href="/referral-hub" className="w-full">
+        <Link href="/referral" className="w-full">
           <Button variant="outline" className="w-full">
             <Users className="h-4 w-4 mr-2" /> View Full Referral Hub
           </Button>

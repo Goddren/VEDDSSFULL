@@ -3467,7 +3467,7 @@ export default function SolanaScanner() {
                     <Badge variant="outline">Code: {referralData?.code ?? (user ? '...' : 'Sign in')}</Badge>
                   </div>
                   <div className="flex items-center gap-4 text-xs">
-                    <Link href="/referral-hub" className="text-purple-400 hover:underline flex items-center gap-1">
+                    <Link href="/referral" className="text-purple-400 hover:underline flex items-center gap-1">
                       <Users className="h-3 w-3" /> Track referrals →
                     </Link>
                   </div>

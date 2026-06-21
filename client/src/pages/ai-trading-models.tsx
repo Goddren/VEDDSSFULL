@@ -252,7 +252,7 @@ export default function AiTradingModels() {
 
       <div className="max-w-5xl mx-auto px-4 py-8">
         <div className="flex items-center gap-4 mb-8">
-          <Link href="/vedd-ss-ai">
+          <Link href="/weekly-strategy">
             <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white">
               <ArrowLeft className="h-5 w-5" />
             </Button>

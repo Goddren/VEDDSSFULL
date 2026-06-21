@@ -1696,7 +1696,7 @@ const Dashboard: React.FC = () => {
                   <p className="text-gray-500 text-[10px] mt-0.5">Solana auto-trader</p>
                 </div>
               </Link>
-              <Link href="/news-alerts" className="block">
+              <Link href="/market-sentiment" className="block">
                 <div className={`rounded-2xl border p-3 h-full cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'bg-rose-500/10 border-rose-500/30' : 'bg-white/[0.02] border-white/08'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className={`icon-tile-sm ${ssEngineRunning ? 'bg-rose-500/20' : 'bg-white/5'}`}>
