@@ -911,6 +911,10 @@ var init_schema = __esm({
       // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
       brokerName: text("broker_name"),
       // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
+      useRiskPercent: boolean("use_risk_percent").notNull().default(false),
+      // Size by % of this account's equity instead of copying source lot
+      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      // % of equity to risk per trade when useRiskPercent=true
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -6042,10 +6046,10 @@ async function computeBreakoutScore(currentPrice, m1Candles = [], m5Candles = []
   }
   const atrCandles = h1Candles.length >= 14 ? h1Candles : m15Candles.length >= 14 ? m15Candles : m5Candles;
   const atr = calcATR(atrCandles, 14);
-  const sign2 = direction === "BUY" ? 1 : -1;
-  const tp1 = direction !== "NEUTRAL" ? currentPrice + sign2 * atr : 0;
-  const tp2 = direction !== "NEUTRAL" ? currentPrice + sign2 * atr * 2 : 0;
-  const tp3 = direction !== "NEUTRAL" ? currentPrice + sign2 * atr * 3 : 0;
+  const sign3 = direction === "BUY" ? 1 : -1;
+  const tp1 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr : 0;
+  const tp2 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr * 2 : 0;
+  const tp3 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr * 3 : 0;
   const breakoutCandle = [...m15Candles, ...h1Candles][0];
   const slDistance = atr * 1.5;
   const summary = `Breakout Score: ${score}/${maxScore} fired | ${alignedVotes} aligned (${alignedPct}%) \u2014 Grade ${grade} \u2014 ${direction}
@@ -15436,7 +15440,7 @@ __export(tradelocker_exports, {
   getTLAccountValue: () => getTLAccountValue,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
-import crypto3 from "crypto";
+import crypto4 from "crypto";
 function getEncryptionKey2() {
   const key = process.env.TRADELOCKER_ENCRYPTION_KEY;
   if (!key) {
@@ -15450,11 +15454,11 @@ function getEncryptionKey2() {
   return key;
 }
 function encryptPassword(password) {
-  const iv = crypto3.randomBytes(IV_LENGTH);
-  const salt = crypto3.randomBytes(SALT_LENGTH);
+  const iv = crypto4.randomBytes(IV_LENGTH);
+  const salt = crypto4.randomBytes(SALT_LENGTH);
   const encryptionKey = getEncryptionKey2();
-  const key = crypto3.scryptSync(encryptionKey, salt, 32);
-  const cipher = crypto3.createCipheriv("aes-256-cbc", key, iv);
+  const key = crypto4.scryptSync(encryptionKey, salt, 32);
+  const cipher = crypto4.createCipheriv("aes-256-cbc", key, iv);
   let encrypted = cipher.update(password, "utf8", "hex");
   encrypted += cipher.final("hex");
   return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
@@ -15468,8 +15472,8 @@ function decryptPassword(encryptedPassword) {
   const iv = Buffer.from(parts[1], "hex");
   const encrypted = parts[2];
   const encryptionKey = getEncryptionKey2();
-  const key = crypto3.scryptSync(encryptionKey, salt, 32);
-  const decipher = crypto3.createDecipheriv("aes-256-cbc", key, iv);
+  const key = crypto4.scryptSync(encryptionKey, salt, 32);
+  const decipher = crypto4.createDecipheriv("aes-256-cbc", key, iv);
   let decrypted = decipher.update(encrypted, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
@@ -24276,18 +24280,28 @@ async function processDecision(userId, decision, newsCtx) {
           const _refBal = config.accountBalance || 0;
           let acctLot;
           let acctSizeLabel = "";
-          const _risk = getTLRisk(tlConn.id);
+          const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1 };
+          const _jsonRisk = getTLRisk(tlConn.id);
+          const _risk = _dbRisk.useRiskPercent || _dbRisk.riskPercent !== 1 ? _dbRisk : _jsonRisk;
           const _slDist = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
-          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0 && _slDist > 0) {
+          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0) {
             const pipSize = getPipSize(decision.symbol);
             const pipValue = getPipValue(decision.symbol);
-            const slPips = pipSize > 0 ? _slDist / pipSize : 0;
+            const slPips = _slDist > 0 && pipSize > 0 ? _slDist / pipSize : 0;
             const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
             if (slPips > 0 && pipValue > 0) {
               acctLot = Math.max(0.01, Math.round(riskUsd / (slPips * pipValue) * 100) / 100);
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
             } else {
-              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              const defaultPips = 20;
+              if (pipValue > 0) {
+                acctLot = Math.max(0.01, Math.round(riskUsd / (defaultPips * pipValue) * 100) / 100);
+                acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
+              } else {
+                const ratio = _refBal > 0 ? _tlAcctEq / _refBal : 1;
+                acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+                acctSizeLabel = ` (risk% fallback proportional ${ratio.toFixed(2)}\xD7)`;
+              }
             }
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             const ratio = _tlAcctEq / _refBal;
@@ -24296,7 +24310,7 @@ async function processDecision(userId, decision, newsCtx) {
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
-            acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 set engine Reference Balance for proportional sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
+            acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
@@ -26057,7 +26071,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs6 from "fs";
 import * as path6 from "path";
-import * as crypto4 from "crypto";
+import * as crypto5 from "crypto";
 function loadAll2() {
   try {
     if (fs6.existsSync(FILE2)) return JSON.parse(fs6.readFileSync(FILE2, "utf-8"));
@@ -26101,13 +26115,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto4.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto5.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto4.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto5.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -26542,7 +26556,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs7 from "fs";
 import * as path7 from "path";
-import * as crypto5 from "crypto";
+import * as crypto6 from "crypto";
 function loadAllCreds() {
   try {
     if (fs7.existsSync(CREDS_FILE)) return JSON.parse(fs7.readFileSync(CREDS_FILE, "utf-8"));
@@ -26584,7 +26598,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto5.createPrivateKey(pem);
+    crypto6.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -26633,14 +26647,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign2 = crypto5.createSign("sha256");
-  sign2.update(message);
-  sign2.end();
-  return sign2.sign(
+  const sign3 = crypto6.createSign("sha256");
+  sign3.update(message);
+  sign3.end();
+  return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto5.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto5.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto6.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto6.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -27797,21 +27811,21 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq8 } from "drizzle-orm";
-import crypto6 from "crypto";
+import crypto7 from "crypto";
 function getEncryptionKey3() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto6.createHash("sha256").update(seed).digest();
+  return crypto7.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto6.randomBytes(16);
-  const cipher = crypto6.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const iv = crypto7.randomBytes(16);
+  const cipher = crypto7.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto6.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const decipher = crypto7.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -28340,9 +28354,9 @@ function computeAutoSolSize(state, dex, overrideStrategy, mode = "live") {
   let fraction = strategy.baseFraction * phaseMultiplier;
   if (state.config.useKelly) {
     const stats = state.kellyStats[dex] || { wins: 0, losses: 0, totalGainPct: 0 };
-    const kellySize = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
-    if (kellySize > 0) {
-      const kellyFrac = kellySize / portfolio;
+    const kellySize2 = calculateSolKellySize2(stats.wins, stats.losses, stats.totalGainPct, portfolio);
+    if (kellySize2 > 0) {
+      const kellyFrac = kellySize2 / portfolio;
       fraction = (fraction + kellyFrac) / 2;
     }
   }
@@ -29827,7 +29841,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto7 from "crypto";
+import crypto8 from "crypto";
 import { createCanvas as createCanvas2 } from "canvas";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
@@ -29842,7 +29856,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto7.createHash("sha256").update(payload2).digest("hex");
+  return crypto8.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   const width = 1200;
@@ -32071,16 +32085,421 @@ var init_strategic_community_data = __esm({
   }
 });
 
+// server/services/sports-predictor.ts
+var sports_predictor_exports = {};
+__export(sports_predictor_exports, {
+  getSportsPredictions: () => getSportsPredictions,
+  refreshSportsPredictions: () => refreshSportsPredictions
+});
+import axios from "axios";
+function getElo(teamId) {
+  return eloRatings[teamId] ?? ELO_DEFAULT;
+}
+function expectedScore(own, opp) {
+  return 1 / (1 + Math.pow(10, (opp - own) / 400));
+}
+function updateElo(winnerId, loserId) {
+  const wElo = getElo(winnerId);
+  const lElo = getElo(loserId);
+  const wExp = expectedScore(wElo, lElo);
+  const lExp = expectedScore(lElo, wElo);
+  eloRatings[winnerId] = wElo + ELO_K * (1 - wExp);
+  eloRatings[loserId] = lElo + ELO_K * (0 - lExp);
+}
+function eloProbabilityHome(homeId, awayId) {
+  const h = getElo(homeId);
+  const a = getElo(awayId);
+  return expectedScore(h, a);
+}
+function kellySize(modelProb, marketPrice) {
+  const p = modelProb / 100;
+  const q = 1 - p;
+  const mkt = marketPrice / 100;
+  if (mkt <= 0 || mkt >= 1) return void 0;
+  const b = 1 / mkt - 1;
+  const f = (b * p - q) / b;
+  if (f <= 0) return void 0;
+  return Math.min(f * 100, 5);
+}
+async function safeGet(url, params) {
+  try {
+    const res = await axios.get(url, {
+      params,
+      timeout: 1e4,
+      headers: { "User-Agent": "Mozilla/5.0 VEDD-Sports/1.0" }
+    });
+    return res.data;
+  } catch {
+    return null;
+  }
+}
+function normalizeName(name) {
+  return name.toLowerCase().replace(/\s+/g, " ").replace(/[^a-z0-9 ]/g, "").trim();
+}
+function teamsMatchMarket(homeTeam, awayTeam, question) {
+  const q = normalizeName(question);
+  const h = normalizeName(homeTeam).split(" ").pop();
+  const a = normalizeName(awayTeam).split(" ").pop();
+  const hFull = normalizeName(homeTeam);
+  const aFull = normalizeName(awayTeam);
+  return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
+}
+async function fetchScoreboard(sport) {
+  const path13 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path13}/scoreboard`);
+  return data?.events ?? [];
+}
+function injuryAdjustment(injuries, sport) {
+  const keyPos = KEY_POSITIONS[sport];
+  let adj = 0;
+  const labels = [];
+  for (const inj of injuries) {
+    const isKey = keyPos.some((p) => inj.position.toUpperCase().startsWith(p));
+    if (!isKey) continue;
+    if (inj.status === "OUT") {
+      adj -= 0.1;
+      labels.push(`${inj.name} (${inj.position}) OUT`);
+    } else if (["QUESTIONABLE", "DOUBTFUL"].includes(inj.status)) {
+      adj -= 0.04;
+      labels.push(`${inj.name} (${inj.position}) ${inj.status}`);
+    }
+  }
+  return { adj: Math.max(adj, -0.2), labels };
+}
+async function fetchNewsHeadlines(query) {
+  try {
+    const url = `${GOOGLE_NEWS_BASE}?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+    const res = await axios.get(url, { timeout: 8e3 });
+    const xml = res.data;
+    const titles = [];
+    const titleRegex = /<item>[\s\S]*?<title>([\s\S]*?)<\/title>/g;
+    let match;
+    while ((match = titleRegex.exec(xml)) !== null && titles.length < 5) {
+      const raw = match[1].replace(/<!\[CDATA\[/, "").replace(/\]\]>/, "").trim();
+      if (raw) titles.push(raw);
+    }
+    return titles;
+  } catch {
+    return [];
+  }
+}
+async function fetchPolymarketSportsMarkets() {
+  const tags = ["sports", "nba", "nfl", "mlb", "nhl"];
+  const results = await Promise.allSettled(
+    tags.map(
+      (tag) => safeGet(
+        `${GAMMA_BASE2}/markets`,
+        { active: true, closed: false, tag, limit: 100 }
+      )
+    )
+  );
+  const seen = /* @__PURE__ */ new Set();
+  const markets = [];
+  for (const r of results) {
+    if (r.status !== "fulfilled" || !r.value) continue;
+    const raw = r.value;
+    const arr = Array.isArray(raw) ? raw : raw.markets ?? [];
+    for (const m of arr) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        markets.push(m);
+      }
+    }
+  }
+  return markets;
+}
+function parseOutcomePrice(market) {
+  try {
+    if (!market.outcomePrices) return void 0;
+    const prices = JSON.parse(market.outcomePrices);
+    const p = prices[0];
+    return typeof p === "number" ? p * 100 : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function buildPolymarketUrl(market) {
+  const slug = market.slug ?? market.id;
+  return `https://polymarket.com/event/${slug}`;
+}
+function registerGameDate(teamId, dateStr) {
+  if (!recentGameDates[teamId]) recentGameDates[teamId] = [];
+  if (!recentGameDates[teamId].includes(dateStr)) {
+    recentGameDates[teamId].push(dateStr);
+    if (recentGameDates[teamId].length > 10) recentGameDates[teamId].shift();
+  }
+}
+function restAdjustment(teamId, gameDate) {
+  const dates = recentGameDates[teamId] ?? [];
+  const gameMs = gameDate.getTime();
+  for (const d of dates) {
+    const prev = new Date(d).getTime();
+    const diffHours = (gameMs - prev) / 36e5;
+    if (diffHours > 0 && diffHours <= 28) {
+      return { adj: -0.03, label: "back-to-back (fatigue)" };
+    }
+  }
+  const allPrev = dates.map((d) => new Date(d).getTime()).filter((t) => t < gameMs);
+  if (allPrev.length === 0) return { adj: 0.01, label: "2+ days rest" };
+  const mostRecent = Math.max(...allPrev);
+  const diffDays = (gameMs - mostRecent) / 864e5;
+  if (diffDays >= 2) return { adj: 0.01, label: "2+ days rest" };
+  return { adj: 0, label: null };
+}
+async function processSport(sport) {
+  const events = await fetchScoreboard(sport);
+  if (!events.length) return [];
+  const teamIds = /* @__PURE__ */ new Set();
+  for (const ev of events) {
+    const comp = ev.competitions?.[0];
+    if (!comp) continue;
+    const home = comp.competitors?.find((c) => c.homeAway === "home");
+    const away = comp.competitors?.find((c) => c.homeAway === "away");
+    if (home) teamIds.add(home.team.id);
+    if (away) teamIds.add(away.team.id);
+    const isFinal = ev.status?.type?.completed === true || ev.status?.type?.name === "STATUS_FINAL";
+    if (isFinal && home && away) {
+      registerGameDate(home.team.id, ev.date);
+      registerGameDate(away.team.id, ev.date);
+      const homeWon = home.winner === true;
+      const awayWon = away.winner === true;
+      if (homeWon) updateElo(home.team.id, away.team.id);
+      else if (awayWon) updateElo(away.team.id, home.team.id);
+    }
+  }
+  const allInjuriesRes = await safeGet(
+    `${ESPN_BASE}/${SPORT_PATHS[sport]}/injuries`
+  );
+  function getTeamInjuries(teamId) {
+    if (!allInjuriesRes?.injuries) return [];
+    const result = [];
+    for (const entry of allInjuriesRes.injuries ?? []) {
+      if (String(entry.team?.id) !== String(teamId)) continue;
+      for (const inj of entry.injuries ?? []) {
+        if (inj.athlete?.displayName && inj.status) {
+          result.push({
+            name: inj.athlete.displayName,
+            position: inj.athlete.position?.abbreviation ?? "",
+            status: inj.status.toUpperCase()
+          });
+        }
+      }
+    }
+    return result;
+  }
+  const predictions = [];
+  for (const ev of events) {
+    let parseRecord2 = function(comp2) {
+      const overall = comp2.records?.find((r) => r.type === "total" || r.type === "overall");
+      const rec = overall?.summary ?? comp2.records?.[0]?.summary;
+      if (!rec) return null;
+      const parts = rec.split("-").map(Number);
+      if (parts.length >= 2) return { w: parts[0], l: parts[1] };
+      return null;
+    }, winPct2 = function(rec) {
+      if (!rec) return 0.5;
+      const total = rec.w + rec.l;
+      return total === 0 ? 0.5 : rec.w / total;
+    };
+    var parseRecord = parseRecord2, winPct = winPct2;
+    const comp = ev.competitions?.[0];
+    if (!comp) continue;
+    const homeComp = comp.competitors?.find((c) => c.homeAway === "home");
+    const awayComp = comp.competitors?.find((c) => c.homeAway === "away");
+    if (!homeComp || !awayComp) continue;
+    const homeId = homeComp.team.id;
+    const awayId = awayComp.team.id;
+    const statusName = ev.status?.type?.name ?? "";
+    const isFinal = ev.status?.type?.completed === true || statusName === "STATUS_FINAL";
+    const isInProgress = statusName === "STATUS_IN_PROGRESS" || statusName.includes("HALFTIME") || statusName.includes("INTERMISSION");
+    const status = isFinal ? "final" : isInProgress ? "in_progress" : "scheduled";
+    const gameDate = new Date(ev.date);
+    registerGameDate(homeId, ev.date);
+    registerGameDate(awayId, ev.date);
+    const eloHome = getElo(homeId);
+    const eloAway = getElo(awayId);
+    const eloProb = eloProbabilityHome(homeId, awayId);
+    const homeRecord = parseRecord2(homeComp);
+    const awayRecord = parseRecord2(awayComp);
+    const homeWinPct = winPct2(homeRecord);
+    const awayWinPct = winPct2(awayRecord);
+    const totalWinPct = homeWinPct + awayWinPct || 1;
+    const winPctProb = homeWinPct / totalWinPct;
+    const homeAdv = 0.06;
+    const homeRest = restAdjustment(homeId, gameDate);
+    const awayRest = restAdjustment(awayId, gameDate);
+    const homeInjuries = getTeamInjuries(homeId);
+    const awayInjuries = getTeamInjuries(awayId);
+    const homeInjAdj = injuryAdjustment(homeInjuries, sport);
+    const awayInjAdj = injuryAdjustment(awayInjuries, sport);
+    const injProb = 0.5 + homeInjAdj.adj - awayInjAdj.adj;
+    const h2hProb = 0.5;
+    let rawProb = 0.4 * eloProb + 0.25 * winPctProb + 0.1 * (0.5 + (homeRest.adj - awayRest.adj)) + 0.15 * Math.max(0, Math.min(1, injProb)) + 0.1 * h2hProb;
+    rawProb = Math.min(0.95, Math.max(0.05, rawProb + homeAdv * 0.5));
+    const modelProbHome = Math.round(rawProb * 100 * 10) / 10;
+    const modelProbAway = Math.round((1 - rawProb) * 100 * 10) / 10;
+    const eloDiff = Math.abs(eloHome - eloAway);
+    const confidence2 = eloDiff > 100 ? "high" : eloDiff > 50 ? "medium" : "low";
+    const reasons = [
+      `ELO: ${homeComp.team.displayName} ${eloHome.toFixed(0)} vs ${awayComp.team.displayName} ${eloAway.toFixed(0)} \u2192 ${(eloProb * 100).toFixed(1)}% home`,
+      `Win%: ${homeComp.team.displayName} ${(homeWinPct * 100).toFixed(1)}% vs ${awayComp.team.displayName} ${(awayWinPct * 100).toFixed(1)}%`,
+      `Home advantage: +6% boost applied`
+    ];
+    if (homeRest.label) reasons.push(`${homeComp.team.displayName} rest: ${homeRest.label}`);
+    if (awayRest.label) reasons.push(`${awayComp.team.displayName} rest: ${awayRest.label}`);
+    if (homeInjAdj.labels.length > 0) reasons.push(`${homeComp.team.displayName} injuries: ${homeInjAdj.labels.join(", ")}`);
+    if (awayInjAdj.labels.length > 0) reasons.push(`${awayComp.team.displayName} injuries: ${awayInjAdj.labels.join(", ")}`);
+    let newsHeadlines = [];
+    try {
+      newsHeadlines = await fetchNewsHeadlines(
+        `${homeComp.team.displayName} vs ${awayComp.team.displayName}`
+      );
+    } catch {
+    }
+    predictions.push({
+      gameId: ev.id,
+      sport,
+      homeTeam: homeComp.team.displayName,
+      awayTeam: awayComp.team.displayName,
+      gameTime: ev.date,
+      status,
+      modelProbHome,
+      modelProbAway,
+      confidence: confidence2,
+      reasons,
+      homeRecord: homeRecord ? `${homeRecord.w}-${homeRecord.l}` : void 0,
+      awayRecord: awayRecord ? `${awayRecord.w}-${awayRecord.l}` : void 0,
+      homeInjuries: homeInjAdj.labels.length ? homeInjuries.filter((i) => {
+        const keyPos = KEY_POSITIONS[sport];
+        return keyPos.some((p) => i.position.toUpperCase().startsWith(p));
+      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
+      awayInjuries: awayInjAdj.labels.length ? awayInjuries.filter((i) => {
+        const keyPos = KEY_POSITIONS[sport];
+        return keyPos.some((p) => i.position.toUpperCase().startsWith(p));
+      }).map((i) => `${i.name} (${i.status})`).slice(0, 5) : void 0,
+      newsHeadlines: newsHeadlines.length ? newsHeadlines : void 0,
+      eloHome: Math.round(eloHome),
+      eloAway: Math.round(eloAway)
+    });
+  }
+  return predictions;
+}
+function matchPolymarket(prediction, markets) {
+  const matched = markets.find(
+    (m) => teamsMatchMarket(prediction.homeTeam, prediction.awayTeam, m.question)
+  );
+  if (!matched) return {};
+  const price = parseOutcomePrice(matched);
+  if (price === void 0) return { polymarketMarketId: matched.id, polymarketQuestion: matched.question, polymarketUrl: buildPolymarketUrl(matched) };
+  const edgePct = Math.round((prediction.modelProbHome - price) * 10) / 10;
+  const kelly = kellySize(prediction.modelProbHome, price);
+  return {
+    polymarketMarketId: matched.id,
+    polymarketQuestion: matched.question,
+    polymarketHomePrice: Math.round(price * 10) / 10,
+    polymarketUrl: buildPolymarketUrl(matched),
+    edgePct,
+    kellySizePct: kelly !== void 0 ? Math.round(kelly * 100) / 100 : void 0
+  };
+}
+async function fetchAllPredictions() {
+  const sports = ["nba", "nfl", "mlb", "nhl"];
+  const [sportResults, polymarkets] = await Promise.all([
+    Promise.allSettled(sports.map((s) => processSport(s))),
+    fetchPolymarketSportsMarkets().catch(() => [])
+  ]);
+  let predictions = [];
+  for (const r of sportResults) {
+    if (r.status === "fulfilled") {
+      predictions = predictions.concat(r.value);
+    }
+  }
+  for (let i = 0; i < predictions.length; i++) {
+    const match = matchPolymarket(predictions[i], polymarkets);
+    if (Object.keys(match).length > 0) {
+      predictions[i] = { ...predictions[i], ...match };
+      if (predictions[i].edgePct !== void 0 && Math.abs(predictions[i].edgePct) > 3) {
+        predictions[i].reasons.push(
+          `Polymarket edge: ${predictions[i].edgePct > 0 ? "+" : ""}${predictions[i].edgePct}% (bet HOME)`
+        );
+      }
+      if (predictions[i].kellySizePct !== void 0) {
+        predictions[i].reasons.push(
+          `Kelly position size: ${predictions[i].kellySizePct}% of bankroll`
+        );
+      }
+    }
+  }
+  predictions.sort((a, b) => {
+    if (a.status === "scheduled" && b.status !== "scheduled") return -1;
+    if (a.status !== "scheduled" && b.status === "scheduled") return 1;
+    return new Date(a.gameTime).getTime() - new Date(b.gameTime).getTime();
+  });
+  return predictions;
+}
+async function getSportsPredictions() {
+  if (cache2 && Date.now() - cache2.fetchedAt < CACHE_TTL_MS6) {
+    return cache2.data;
+  }
+  return refreshSportsPredictions();
+}
+async function refreshSportsPredictions() {
+  try {
+    const data = await fetchAllPredictions();
+    cache2 = { data, fetchedAt: Date.now() };
+    return data;
+  } catch (err) {
+    console.error("[sports-predictor] Fatal error during refresh:", err);
+    return cache2?.data ?? [];
+  }
+}
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS6, ELO_K, ELO_DEFAULT, eloRatings, cache2, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var init_sports_predictor = __esm({
+  "server/services/sports-predictor.ts"() {
+    "use strict";
+    ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
+    GAMMA_BASE2 = "https://gamma-api.polymarket.com";
+    GOOGLE_NEWS_BASE = "https://news.google.com/rss/search";
+    CACHE_TTL_MS6 = 15 * 60 * 1e3;
+    ELO_K = 20;
+    ELO_DEFAULT = 1500;
+    eloRatings = {};
+    cache2 = null;
+    SPORT_PATHS = {
+      nba: "basketball/nba",
+      nfl: "football/nfl",
+      mlb: "baseball/mlb",
+      nhl: "hockey/nhl"
+    };
+    KEY_POSITIONS = {
+      nfl: ["QB", "WR1", "RB"],
+      nba: ["PG", "SG", "SF"],
+      mlb: ["SP", "RP"],
+      nhl: ["G", "C", "LW", "RW"]
+    };
+    recentGameDates = {};
+  }
+});
+
 // server/index.ts
 import express2 from "express";
 import { createServer as createServer2 } from "http";
+
+// server/routes.ts
+import { createServer } from "http";
+
+// server/utils/cookies.ts
+function getRequestCookie(req, name) {
+  const header = req.headers.cookie || "";
+  const match = header.match(new RegExp(`(?:^|; )${encodeURIComponent(name)}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : void 0;
+}
 
 // server/routes.ts
 init_storage();
 init_schema();
 init_db();
 init_openai();
-import { createServer } from "http";
 import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -33183,8 +33602,45 @@ async function getUserSubscription(userId) {
 // server/lemonsqueezy.ts
 init_db();
 init_schema();
-import crypto2 from "crypto";
+import crypto3 from "crypto";
 import { eq as eq5 } from "drizzle-orm";
+
+// server/veddConversionHook.ts
+import crypto2 from "crypto";
+var PORTAL_URL = process.env.VEDD_PORTAL_URL || "";
+var WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
+function sign(body) {
+  return crypto2.createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
+}
+async function fireConversionHook(payload2) {
+  if (!PORTAL_URL || !WEBHOOK_SECRET) {
+    console.warn("[VEDDHook] VEDD_PORTAL_URL or WEBHOOK_SECRET not set \u2014 skipping conversion hook");
+    return;
+  }
+  const body = JSON.stringify(payload2);
+  const sig = sign(body);
+  try {
+    const res = await fetch(`${PORTAL_URL}/webhook/signup`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-VEDD-Signature": sig
+      },
+      body,
+      signal: AbortSignal.timeout(8e3)
+    });
+    if (!res.ok) {
+      const text2 = await res.text().catch(() => "");
+      console.warn(`[VEDDHook] Conversion webhook returned ${res.status}: ${text2}`);
+    } else {
+      console.log(`[VEDDHook] Conversion recorded \u2014 ${payload2.webhookSource} \u2014 ${payload2.signupEmail}`);
+    }
+  } catch (err) {
+    console.warn("[VEDDHook] Conversion webhook failed (non-fatal):", err?.message);
+  }
+}
+
+// server/lemonsqueezy.ts
 var LS_API_KEY = process.env.LEMONSQUEEZY_API_KEY || "";
 var LS_BASE_URL = "https://api.lemonsqueezy.com/v1";
 var LS_STORE_ID = "310446";
@@ -33200,7 +33656,7 @@ async function lsGetVariants() {
   const res = await fetch(`${LS_BASE_URL}/variants?filter[store_id]=${LS_STORE_ID}&page[size]=50`, { headers: lsHeaders() });
   return res.json();
 }
-async function lsCreateCheckout(variantId, userEmail, userName, userId, planId) {
+async function lsCreateCheckout(variantId, userEmail, userName, userId, planId, referralCode) {
   const body = {
     data: {
       type: "checkouts",
@@ -33210,7 +33666,8 @@ async function lsCreateCheckout(variantId, userEmail, userName, userId, planId) 
           name: userName,
           custom: {
             user_id: userId.toString(),
-            plan_id: planId.toString()
+            plan_id: planId.toString(),
+            ...referralCode ? { referral_code: referralCode } : {}
           }
         },
         checkout_options: {
@@ -33259,11 +33716,11 @@ async function lsCancelSubscription(subscriptionId) {
 }
 function lsVerifyWebhook(rawBody, signature) {
   if (!LS_WEBHOOK_SECRET) return true;
-  const hmac = crypto2.createHmac("sha256", LS_WEBHOOK_SECRET);
+  const hmac = crypto3.createHmac("sha256", LS_WEBHOOK_SECRET);
   hmac.update(rawBody);
   const digest = hmac.digest("hex");
   try {
-    return crypto2.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
+    return crypto3.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(signature, "hex"));
   } catch {
     return false;
   }
@@ -33285,6 +33742,7 @@ async function lsHandleWebhookEvent(event) {
       const lsCustomerId = attrs?.customer_id?.toString() || null;
       const status = attrs?.status || "active";
       const renewsAt = attrs?.renews_at ? new Date(attrs.renews_at) : null;
+      const referralCode = customData?.referral_code;
       await db.update(users).set({
         lsSubscriptionId,
         lsCustomerId,
@@ -33292,6 +33750,29 @@ async function lsHandleWebhookEvent(event) {
         subscriptionStatus: status === "active" ? "active" : status,
         subscriptionCurrentPeriodEnd: renewsAt || void 0
       }).where(eq5(users.id, userId));
+      const [userRow] = await db.select({
+        email: users.email,
+        username: users.username,
+        referredBy: users.referredBy
+      }).from(users).where(eq5(users.id, userId)).limit(1).catch(() => [null]);
+      if (userRow) {
+        let resolvedReferralCode = referralCode;
+        if (!resolvedReferralCode && userRow.referredBy) {
+          const [referrer] = await db.select({ referralCode: users.referralCode }).from(users).where(eq5(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
+          resolvedReferralCode = referrer?.referralCode ?? void 0;
+        }
+        const planName = planId === 2 ? "pro" : planId === 3 ? "enterprise" : "pro";
+        const revenueCents = attrs?.total ? Math.round(parseFloat(attrs.total) * 100) : 0;
+        fireConversionHook({
+          signupEmail: userRow.email || `user_${userId}@veddbuild.internal`,
+          username: userRow.username,
+          signupPlan: planName,
+          revenueCents,
+          referralCode: resolvedReferralCode,
+          webhookSource: "lemonsqueezy"
+        }).catch(() => {
+        });
+      }
       console.log(`[LS] User ${userId} subscribed to plan ${planId}, ls_subscription_id=${lsSubscriptionId}`);
       return { handled: true, action: "subscribed" };
     }
@@ -39498,12 +39979,21 @@ Respond ONLY in valid JSON format with these exact keys:
           code: "LS_NOT_CONFIGURED"
         });
       }
+      let ambassadorCode;
+      if (user.referredBy) {
+        const referrer = await storage.getUser(user.referredBy).catch(() => null);
+        ambassadorCode = referrer?.referralCode ?? void 0;
+      }
+      if (!ambassadorCode) {
+        ambassadorCode = getRequestCookie(req, "vedd_ref");
+      }
       const checkout = await lsCreateCheckout(
         plan.lsVariantId,
         user.email,
         user.fullName || user.username,
         user.id,
-        planId
+        planId,
+        ambassadorCode
       );
       const checkoutUrl = checkout?.data?.attributes?.url;
       if (!checkoutUrl) {
@@ -45686,16 +46176,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   const _tlVal = await getTLAccountValue(token.userId, tlConn);
                   const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
                   const _tlEq = _tlVal.equity > 0 ? _tlVal.equity : _tlBal;
-                  const _eaRisk = getTLRisk(tlConn.id);
+                  const _dbRisk2 = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1 };
+                  const _jsonRisk2 = getTLRisk(tlConn.id);
+                  const _eaRisk = _dbRisk2.useRiskPercent || _dbRisk2.riskPercent !== 1 ? _dbRisk2 : _jsonRisk2;
                   const _eaSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
-                  if (_eaRisk.useRiskPercent && _tlEq && _eaSlDist > 0) {
+                  if (_eaRisk.useRiskPercent && _tlEq) {
                     const _pipSize = getPipSize(sanitizedSymbol);
                     const _pipValue = getPipValue(sanitizedSymbol);
-                    const _slPips = _pipSize > 0 ? _eaSlDist / _pipSize : 0;
+                    const _slPips = _eaSlDist > 0 && _pipSize > 0 ? _eaSlDist / _pipSize : 0;
                     const _riskUsd = _tlEq * (_eaRisk.riskPercent / 100);
                     if (_slPips > 0 && _pipValue > 0) {
                       connLot = Math.max(0.01, Math.round(_riskUsd / (_slPips * _pipValue) * 100) / 100);
                       _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
+                    } else if (_pipValue > 0) {
+                      connLot = Math.max(0.01, Math.round(_riskUsd / (20 * _pipValue) * 100) / 100);
+                      _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()} (default 20pip)`;
                     }
                   } else if (_eaCopyMode === "proportional" && _tlEq && accountBalance > 0) {
                     const _ratio = _tlEq / accountBalance;
@@ -46057,8 +46552,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache2 = global.mt5ChartDataCache || {};
-    const chartData = cache2[chartDataKey];
+    const cache3 = global.mt5ChartDataCache || {};
+    const chartData = cache3[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -48537,15 +49032,23 @@ Rules:
     if (gateMode !== void 0 && (gateMode === "full" || gateMode === "basic")) {
       updateDataById.gateMode = gateMode;
     }
+    if (useRiskPercent !== void 0) updateDataById.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== void 0) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateDataById.riskPercent = r;
+    }
     if (useRiskPercent !== void 0 || riskPercent !== void 0) {
-      const { setTLRisk: setTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
-      const patch = {};
-      if (useRiskPercent !== void 0) patch.useRiskPercent = !!useRiskPercent;
-      if (riskPercent !== void 0) {
-        const r = parseFloat(riskPercent);
-        if (!isNaN(r)) patch.riskPercent = r;
+      try {
+        const { setTLRisk: setTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
+        const patch = {};
+        if (useRiskPercent !== void 0) patch.useRiskPercent = !!useRiskPercent;
+        if (riskPercent !== void 0) {
+          const r = parseFloat(riskPercent);
+          if (!isNaN(r)) patch.riskPercent = r;
+        }
+        setTLRisk2(connId, patch);
+      } catch {
       }
-      setTLRisk2(connId, patch);
     }
     let updated = await storage.getTradelockerConnection(connId);
     if (Object.keys(updateDataById).length > 0) {
@@ -48554,9 +49057,8 @@ Rules:
     if (!updated) {
       return res.status(500).json({ error: "Failed to update connection" });
     }
-    const { getTLRisk: getTLRisk2 } = await Promise.resolve().then(() => (init_tl_risk_settings(), tl_risk_settings_exports));
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
-    res.json({ ...safeConnection, ...getTLRisk2(connId) });
+    res.json(safeConnection);
   });
   app2.patch("/api/tradelocker/connection", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -57080,15 +57582,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache2 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache2);
+    const cache3 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache3);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache2[key]) {
-        found = cache2[key];
+      if (cache3[key]) {
+        found = cache3[key];
         foundTf = tf;
         break;
       }
@@ -57096,7 +57598,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache2[partialKey];
+        found = cache3[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
@@ -58375,6 +58877,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/sports/predictions", async (_req, res) => {
+    try {
+      const { getSportsPredictions: getSportsPredictions2 } = await Promise.resolve().then(() => (init_sports_predictor(), sports_predictor_exports));
+      const data = await getSportsPredictions2();
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/sports/refresh", async (_req, res) => {
+    try {
+      const { refreshSportsPredictions: refreshSportsPredictions2 } = await Promise.resolve().then(() => (init_sports_predictor(), sports_predictor_exports));
+      const data = await refreshSportsPredictions2();
+      res.json({ refreshed: true, count: data.length, data });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   const httpServer2 = existingServer || createServer(app2);
   streamingService.initialize(httpServer2);
   return httpServer2;
@@ -58661,6 +59181,15 @@ function setupAuth(app2) {
           console.error("[auth] Referral tracking error (non-fatal):", refErr);
         }
       }
+      fireConversionHook({
+        signupEmail: user.email || `${user.username}@veddbuild.internal`,
+        username: user.username,
+        signupPlan: "free_trial",
+        revenueCents: 0,
+        referralCode: typeof refCode === "string" ? refCode : void 0,
+        webhookSource: "veddbuild_signup"
+      }).catch(() => {
+      });
       req.login(user, (err) => {
         if (err) return next(err);
         const { password, ...userWithoutPassword } = user;
@@ -59385,6 +59914,20 @@ app.use(express2.json({ limit: "50mb", verify: (req, _res, buf) => {
 } }));
 app.use(express2.urlencoded({ extended: false, limit: "50mb" }));
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
+app.get("/ambassador-portal", (req, res) => {
+  const portalUrl = process.env.VEDD_PORTAL_URL;
+  if (!portalUrl) return res.status(503).send("Ambassador portal not configured");
+  res.redirect(portalUrl + "/ambassadors");
+});
+app.use((req, _res, next) => {
+  if (req.query.ref && typeof req.query.ref === "string") {
+    const maxAge = 30 * 24 * 60 * 60;
+    const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+    const value = encodeURIComponent(req.query.ref);
+    _res.setHeader("Set-Cookie", `vedd_ref=${value}; Max-Age=${maxAge}; SameSite=Lax; Path=/${secure}`);
+  }
+  next();
+});
 var PORT = parseInt(process.env.PORT || "5000", 10);
 var httpServer = createServer2(app);
 httpServer.listen(PORT, "0.0.0.0", () => {
@@ -59517,6 +60060,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`,
         // Broker name — human-readable label derived from serverId (e.g. "Atlas", "FTUK")
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS broker_name text`,
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS use_risk_percent boolean NOT NULL DEFAULT false`,
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS risk_percent double precision NOT NULL DEFAULT 1.0`,
         // All-time record tracker for the dashboard
         `CREATE TABLE IF NOT EXISTS all_time_records (
           id serial PRIMARY KEY,

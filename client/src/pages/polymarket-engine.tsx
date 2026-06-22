@@ -649,6 +649,20 @@ export default function PolymarketEnginePage() {
     apiRequest("PUT", "/api/polymarket-us-engine/config", { strategy }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/polymarket-us-engine/status"] }));
   };
 
+  // ── Sports Predictions ────────────────────────────────────────────────────
+  const [sportFilter, setSportFilter] = useState<string>("all");
+  const [showSports, setShowSports] = useState(true);
+  const { data: sportsPredictions, isFetching: sportsLoading, refetch: refetchSports } = useQuery<any[]>({
+    queryKey: ["/api/sports/predictions"],
+    refetchInterval: 15 * 60 * 1000,
+    staleTime: 14 * 60 * 1000,
+    enabled: !!user,
+  });
+  const refreshSportsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sports/refresh").then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/sports/predictions"] }); toast({ title: "Sports predictions refreshed" }); },
+  });
+
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-24">
 
@@ -1757,6 +1771,204 @@ export default function PolymarketEnginePage() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Sports Prediction Engine ──────────────────────────────────────── */}
+        <div className="rounded-xl overflow-hidden" style={{ background: "rgba(168,85,247,0.07)", border: "1.5px solid rgba(168,85,247,0.3)" }}>
+          <button
+            className="w-full flex items-center justify-between px-4 py-3"
+            onClick={() => setShowSports(v => !v)}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">🏆</span>
+              <div className="text-left">
+                <h2 className="text-sm font-bold text-purple-300">Sports Prediction Agent</h2>
+                <p className="text-[10px] text-gray-500">ELO · Kelly · Injury · Form · News · Polymarket Edge</p>
+              </div>
+              {sportsPredictions && sportsPredictions.length > 0 && (
+                <span className="ml-2 text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded-full">
+                  {sportsPredictions.filter((g: any) => (g.edgePct ?? 0) >= 3).length} edge picks
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={e => { e.stopPropagation(); refreshSportsMutation.mutate(); }}
+                disabled={refreshSportsMutation.isPending || sportsLoading}
+                className="p-1 rounded hover:bg-purple-500/20 transition-colors disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-purple-400 ${refreshSportsMutation.isPending || sportsLoading ? "animate-spin" : ""}`} />
+              </button>
+              {showSports ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+            </div>
+          </button>
+
+          {showSports && (
+            <div className="px-4 pb-4 space-y-3">
+              {/* Sport filter tabs */}
+              <div className="flex gap-1.5 flex-wrap">
+                {(["all","nba","nfl","mlb","nhl"] as const).map(s => (
+                  <button key={s} onClick={() => setSportFilter(s)}
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-colors ${
+                      sportFilter === s
+                        ? "bg-purple-500/30 border-purple-500/60 text-purple-200"
+                        : "bg-gray-800/60 border-gray-700 text-gray-500 hover:text-gray-300"
+                    }`}>
+                    {s === "all" ? "All Sports" : s.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-3 text-[9px] text-gray-500 flex-wrap">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />Edge ≥ 3% — bet YES</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Edge ≤ -3% — bet NO</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600" />No edge / no market</span>
+              </div>
+
+              {/* Game cards */}
+              {sportsLoading && !sportsPredictions ? (
+                <div className="text-center py-8 text-gray-500 text-[11px]">
+                  <div className="animate-spin w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-2" />
+                  Gathering player stats, injuries, ELO ratings, and Polymarket markets…
+                </div>
+              ) : !sportsPredictions || sportsPredictions.length === 0 ? (
+                <div className="text-center py-6 text-gray-600 text-[11px]">
+                  No upcoming games found. Hit ↻ to refresh.
+                </div>
+              ) : (
+                sportsPredictions
+                  .filter((g: any) => sportFilter === "all" || g.sport === sportFilter)
+                  .sort((a: any, b: any) => Math.abs(b.edgePct ?? 0) - Math.abs(a.edgePct ?? 0))
+                  .map((game: any) => {
+                    const edge = game.edgePct ?? 0;
+                    const kelly = game.kellySizePct ?? 0;
+                    const hasMarket = !!game.polymarketMarketId;
+                    const edgeColor = edge >= 3 ? "#10b981" : edge <= -3 ? "#ef4444" : "#6b7280";
+                    const edgeBg = edge >= 3 ? "rgba(16,185,129,0.1)" : edge <= -3 ? "rgba(239,68,68,0.1)" : "rgba(0,0,0,0.2)";
+                    const edgeBorder = edge >= 3 ? "rgba(16,185,129,0.3)" : edge <= -3 ? "rgba(239,68,68,0.3)" : "rgba(55,65,81,0.5)";
+                    const sportEmoji: Record<string, string> = { nba:"🏀", nfl:"🏈", mlb:"⚾", nhl:"🏒" };
+
+                    return (
+                      <div key={game.gameId} className="rounded-xl p-3 space-y-2.5" style={{ background: edgeBg, border: `1.5px solid ${edgeBorder}` }}>
+                        {/* Header row */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm">{sportEmoji[game.sport] ?? "🏆"}</span>
+                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">{game.sport}</span>
+                            <span className={`text-[9px] px-1 py-0.5 rounded ${
+                              game.confidence === "high" ? "bg-emerald-500/20 text-emerald-400" :
+                              game.confidence === "medium" ? "bg-amber-500/20 text-amber-400" :
+                              "bg-gray-700 text-gray-500"
+                            }`}>{game.confidence} confidence</span>
+                          </div>
+                          <span className="text-[9px] text-gray-600">
+                            {game.gameTime ? new Date(game.gameTime).toLocaleString("en-US", { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }) : "TBD"}
+                          </span>
+                        </div>
+
+                        {/* Teams + probabilities */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 text-center">
+                            <div className="text-[11px] font-bold text-white">{game.awayTeam}</div>
+                            {game.awayRecord && <div className="text-[9px] text-gray-500">{game.awayRecord}</div>}
+                            <div className="text-lg font-black mt-0.5" style={{ color: game.modelProbAway >= 50 ? "#10b981" : "#9ca3af" }}>
+                              {game.modelProbAway}%
+                            </div>
+                          </div>
+                          <div className="text-xs font-black text-gray-600">@</div>
+                          <div className="flex-1 text-center">
+                            <div className="text-[11px] font-bold text-white">{game.homeTeam}</div>
+                            {game.homeRecord && <div className="text-[9px] text-gray-500">{game.homeRecord}</div>}
+                            <div className="text-lg font-black mt-0.5" style={{ color: game.modelProbHome >= 50 ? "#10b981" : "#9ca3af" }}>
+                              {game.modelProbHome}%
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Probability bar */}
+                        <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                          <div className="h-full rounded-full" style={{
+                            width: `${game.modelProbHome}%`,
+                            background: "linear-gradient(90deg, #10b981, #6ee7b7)"
+                          }} />
+                        </div>
+
+                        {/* Market + edge row */}
+                        {hasMarket && (
+                          <div className="flex items-center justify-between bg-black/30 rounded-lg px-2.5 py-2">
+                            <div>
+                              <div className="text-[9px] text-gray-500 mb-0.5">Polymarket Price (Home YES)</div>
+                              <div className="text-[11px] font-bold text-white">{game.polymarketHomePrice?.toFixed(1)}%</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-[9px] text-gray-500 mb-0.5">Edge</div>
+                              <div className="text-[13px] font-black" style={{ color: edgeColor }}>
+                                {edge >= 0 ? "+" : ""}{edge.toFixed(1)}%
+                              </div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-[9px] text-gray-500 mb-0.5">Kelly Size</div>
+                              <div className="text-[11px] font-bold text-purple-300">{kelly.toFixed(1)}%</div>
+                            </div>
+                            {game.polymarketUrl && (
+                              <a href={game.polymarketUrl} target="_blank" rel="noopener noreferrer"
+                                className="text-[9px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-purple-500/30 transition-colors">
+                                Trade <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+                        {!hasMarket && (
+                          <div className="text-[9px] text-gray-600 text-center py-1">No Polymarket market found for this game</div>
+                        )}
+
+                        {/* AI reasoning */}
+                        {game.reasons && game.reasons.length > 0 && (
+                          <div className="space-y-0.5">
+                            {game.reasons.slice(0, 4).map((r: string, i: number) => (
+                              <div key={i} className="text-[9px] text-gray-400 flex items-start gap-1">
+                                <span className="text-purple-500 mt-0.5 flex-shrink-0">•</span>
+                                <span>{r}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Injuries */}
+                        {((game.homeInjuries?.length > 0) || (game.awayInjuries?.length > 0)) && (
+                          <div className="flex gap-3 text-[9px]">
+                            {game.awayInjuries?.length > 0 && (
+                              <div className="flex-1">
+                                <span className="text-amber-400 font-bold">{game.awayTeam} OUT: </span>
+                                <span className="text-gray-400">{game.awayInjuries.slice(0,3).join(", ")}</span>
+                              </div>
+                            )}
+                            {game.homeInjuries?.length > 0 && (
+                              <div className="flex-1">
+                                <span className="text-amber-400 font-bold">{game.homeTeam} OUT: </span>
+                                <span className="text-gray-400">{game.homeInjuries.slice(0,3).join(", ")}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* News headlines */}
+                        {game.newsHeadlines?.length > 0 && (
+                          <div className="text-[9px] text-gray-500 italic border-t border-gray-800 pt-1.5">
+                            📰 {game.newsHeadlines[0]}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              )}
+
+              <p className="text-[9px] text-gray-600 text-center pt-1">
+                AI model: ELO (40%) · Win % (25%) · Rest (10%) · Injuries (15%) · H2H (10%) · Kelly position sizing · Not financial advice
+              </p>
             </div>
           )}
         </div>

@@ -25805,6 +25805,28 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Sports Predictions ────────────────────────────────────────────────────────
+
+  app.get("/api/sports/predictions", async (_req: Request, res: Response) => {
+    try {
+      const { getSportsPredictions } = await import("./services/sports-predictor");
+      const data = await getSportsPredictions();
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/sports/refresh", async (_req: Request, res: Response) => {
+    try {
+      const { refreshSportsPredictions } = await import("./services/sports-predictor");
+      const data = await refreshSportsPredictions();
+      res.json({ refreshed: true, count: data.length, data });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one
