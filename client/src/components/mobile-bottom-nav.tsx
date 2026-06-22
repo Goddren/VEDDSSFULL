@@ -166,6 +166,12 @@ export function MobileBottomNav() {
     enabled: !!user && open,
   });
 
+  const { data: pmUsStatus } = useQuery<any>({
+    queryKey: ['/api/polymarket-us-engine/status'],
+    refetchInterval: open ? 8000 : false,
+    enabled: !!user && open,
+  });
+
   const { data: kalshiStatus } = useQuery<any>({
     queryKey: ['/api/kalshi/engine/status'],
     refetchInterval: open ? 8000 : false,
@@ -209,8 +215,10 @@ export function MobileBottomNav() {
     onSuccess: () => setKillConfirm(false),
   });
 
-  const forexActive    = engineStatus?.isRunning ?? false;
-  const polyActive     = polyStatus?.isRunning   ?? false;
+  const forexActive    = engineStatus?.isRunning  ?? false;
+  const polyActive     = (polyStatus?.isRunning   ?? false)
+                      || (pmUsStatus?.isRunning   ?? false)
+                      || (kalshiStatus?.isRunning  ?? false);
   const anyTradeActive = forexActive || polyActive;
 
   // ── Derived MT5 values ─────────────────────────────
@@ -220,10 +228,16 @@ export function MobileBottomNav() {
   const mt5Goal       = engineStatus?.goalTracker?.weeklyTarget ?? 0;
   const mt5Progress   = engineStatus?.goalTracker?.progressPercent ?? 0;
 
-  // ── Derived Polymarket values ──────────────────────
-  const polyOpen      = polyStatus?.openPositions?.length ?? 0;
-  const polyUnreal    = polyStatus?.totalUnrealizedPnl ?? 0;
-  const polyRealized  = polyStatus?.totalRealizedPnl ?? 0;
+  // ── Derived Polymarket values (aggregate all 3 engines) ───────────────────
+  const polyOpen   = (polyStatus?.openPositions?.length   ?? 0)
+                   + (pmUsStatus?.openTrades?.length       ?? 0)
+                   + (kalshiStatus?.openTrades?.length     ?? 0);
+  const polyUnreal = (polyStatus?.totalUnrealizedPnl       ?? 0)
+                   + (pmUsStatus?.totalUnrealizedPnl        ?? 0)
+                   + (kalshiStatus?.totalUnrealizedPnl      ?? 0);
+  const polyRealized = (polyStatus?.totalRealizedPnl       ?? 0)
+                     + (pmUsStatus?.totalRealizedPnl        ?? 0)
+                     + (kalshiStatus?.totalRealizedPnl      ?? 0);
 
   // ── Derived Kalshi values ──────────────────────────
   const kalshiActive   = kalshiStatus?.isRunning ?? false;
