@@ -652,15 +652,46 @@ export default function PolymarketEnginePage() {
   // ── Sports Predictions ────────────────────────────────────────────────────
   const [sportFilter, setSportFilter] = useState<string>("all");
   const [showSports, setShowSports] = useState(true);
-  const { data: sportsPredictions, isFetching: sportsLoading, refetch: refetchSports } = useQuery<any[]>({
+  const [showSportsConfig, setShowSportsConfig] = useState(false);
+  const [sportsMinEdge, setSportsMinEdge] = useState("");
+  const [sportsStake, setSportsStake] = useState("");
+  const [sportsMaxPos, setSportsMaxPos] = useState("");
+  const [sportsMinConf, setSportsMinConf] = useState<"high"|"medium">("high");
+
+  const { data: sportsPredictions, isFetching: sportsLoading } = useQuery<any[]>({
     queryKey: ["/api/sports/predictions"],
     refetchInterval: 15 * 60 * 1000,
     staleTime: 14 * 60 * 1000,
     enabled: !!user,
   });
+  const { data: sportsEngine, refetch: refetchSportsEngine } = useQuery<any>({
+    queryKey: ["/api/sports-engine/status"],
+    refetchInterval: 10000,
+    enabled: !!user,
+  });
   const refreshSportsMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sports/refresh").then(r => r.json()),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/sports/predictions"] }); toast({ title: "Sports predictions refreshed" }); },
+  });
+  const startSportsEngineMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sports-engine/start").then(r => r.json()),
+    onSuccess: () => { refetchSportsEngine(); toast({ title: "Sports engine started" }); },
+  });
+  const stopSportsEngineMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sports-engine/stop").then(r => r.json()),
+    onSuccess: () => { refetchSportsEngine(); toast({ title: "Sports engine stopped" }); },
+  });
+  const scanSportsMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/sports-engine/scan").then(r => r.json()),
+    onSuccess: (d: any) => { refetchSportsEngine(); toast({ title: d.fired > 0 ? `${d.fired} trade(s) opened!` : "Scan complete — no trades", description: d.reason }); },
+  });
+  const saveSportsConfigMutation = useMutation({
+    mutationFn: (cfg: any) => apiRequest("PUT", "/api/sports-engine/config", cfg).then(r => r.json()),
+    onSuccess: () => { refetchSportsEngine(); setShowSportsConfig(false); toast({ title: "Sports engine config saved" }); },
+  });
+  const closeSportsTradeMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/sports-engine/trades/${id}/close`).then(r => r.json()),
+    onSuccess: () => refetchSportsEngine(),
   });
 
   return (
@@ -1826,6 +1857,162 @@ export default function PolymarketEnginePage() {
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />Edge ≥ 3% — bet YES</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Edge ≤ -3% — bet NO</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600" />No edge / no market</span>
+              </div>
+
+              {/* ── Auto-Trade Engine Controls ─────────────────────────────── */}
+              <div className="rounded-xl p-3 space-y-2" style={{ background: "rgba(0,0,0,0.3)", border: "1px solid rgba(168,85,247,0.25)" }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${sportsEngine?.isRunning ? "bg-emerald-400 animate-pulse" : "bg-gray-600"}`} />
+                    <span className="text-[11px] font-bold text-gray-300">
+                      Auto-Trade Engine — {sportsEngine?.isRunning ? (sportsEngine?.config?.paperMode ? "PAPER" : "LIVE") : "STOPPED"}
+                    </span>
+                    {sportsEngine?.isRunning && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${sportsEngine?.config?.paperMode ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"}`}>
+                        {sportsEngine?.config?.paperMode ? "Paper" : "Live"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => setShowSportsConfig(v => !v)} className="text-[9px] text-gray-500 hover:text-gray-300 border border-gray-700 rounded px-1.5 py-0.5">
+                      <Settings className="w-2.5 h-2.5 inline mr-0.5" />Config
+                    </button>
+                    {sportsEngine?.isRunning ? (
+                      <button onClick={() => stopSportsEngineMutation.mutate()} disabled={stopSportsEngineMutation.isPending}
+                        className="text-[10px] bg-red-500/20 border border-red-500/40 text-red-300 px-2 py-1 rounded-lg font-bold disabled:opacity-50">
+                        <Square className="w-2.5 h-2.5 inline mr-0.5" />Stop
+                      </button>
+                    ) : (
+                      <button onClick={() => startSportsEngineMutation.mutate()} disabled={startSportsEngineMutation.isPending}
+                        className="text-[10px] bg-purple-500/20 border border-purple-500/40 text-purple-300 px-2 py-1 rounded-lg font-bold disabled:opacity-50">
+                        <Play className="w-2.5 h-2.5 inline mr-0.5" />Start
+                      </button>
+                    )}
+                    <button onClick={() => scanSportsMutation.mutate()} disabled={scanSportsMutation.isPending}
+                      className="text-[10px] bg-gray-700/50 border border-gray-600 text-gray-300 px-2 py-1 rounded-lg disabled:opacity-50">
+                      {scanSportsMutation.isPending ? <RefreshCw className="w-2.5 h-2.5 inline animate-spin" /> : "Scan Now"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Config values summary */}
+                {sportsEngine?.config && !showSportsConfig && (
+                  <div className="flex gap-3 text-[9px] text-gray-500">
+                    <span>Edge ≥ {sportsEngine.config.minEdgePct}%</span>
+                    <span>·</span>
+                    <span>Conf: {sportsEngine.config.minConfidence}</span>
+                    <span>·</span>
+                    <span>${sportsEngine.config.stakePerGame}/game</span>
+                    <span>·</span>
+                    <span>Max {sportsEngine.config.maxOpenTrades} open</span>
+                    <span>·</span>
+                    <span>Every {sportsEngine.config.cooldownMinutes}m</span>
+                  </div>
+                )}
+
+                {/* Config panel */}
+                {showSportsConfig && (
+                  <div className="space-y-2 pt-1 border-t border-gray-800">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-gray-500">Min Edge %</label>
+                        <input value={sportsMinEdge} onChange={e => setSportsMinEdge(e.target.value)}
+                          placeholder={String(sportsEngine?.config?.minEdgePct ?? 4)}
+                          className="w-full mt-0.5 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-white" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-500">Stake / Game ($)</label>
+                        <input value={sportsStake} onChange={e => setSportsStake(e.target.value)}
+                          placeholder={String(sportsEngine?.config?.stakePerGame ?? 10)}
+                          className="w-full mt-0.5 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-white" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-500">Max Open Positions</label>
+                        <input value={sportsMaxPos} onChange={e => setSportsMaxPos(e.target.value)}
+                          placeholder={String(sportsEngine?.config?.maxOpenTrades ?? 5)}
+                          className="w-full mt-0.5 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-white" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-500">Min Confidence</label>
+                        <select value={sportsMinConf} onChange={e => setSportsMinConf(e.target.value as any)}
+                          className="w-full mt-0.5 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-[11px] text-white">
+                          <option value="high">High only</option>
+                          <option value="medium">Medium + High</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="text-[9px] text-gray-400 flex items-center gap-1.5">
+                        <input type="checkbox" checked={sportsEngine?.config?.paperMode ?? true}
+                          onChange={e => saveSportsConfigMutation.mutate({ paperMode: e.target.checked })}
+                          className="w-3 h-3 accent-purple-500" />
+                        Paper mode (simulate only)
+                      </label>
+                      <button onClick={() => saveSportsConfigMutation.mutate({
+                        minEdgePct: sportsMinEdge ? parseFloat(sportsMinEdge) : undefined,
+                        stakePerGame: sportsStake ? parseFloat(sportsStake) : undefined,
+                        maxOpenTrades: sportsMaxPos ? parseInt(sportsMaxPos) : undefined,
+                        minConfidence: sportsMinConf,
+                      })} disabled={saveSportsConfigMutation.isPending}
+                        className="text-[10px] bg-purple-600/30 border border-purple-500/40 text-purple-200 px-3 py-1 rounded-lg font-bold disabled:opacity-50">
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Last scan result */}
+                {sportsEngine?.lastScanResult && (
+                  <p className="text-[9px] text-gray-500 border-t border-gray-800 pt-1.5">
+                    Last: {sportsEngine.lastScanResult}
+                  </p>
+                )}
+
+                {/* P&L summary */}
+                {(sportsEngine?.openTrades?.length > 0 || sportsEngine?.totalRealizedPnl !== 0) && (
+                  <div className="flex gap-4 pt-1 border-t border-gray-800">
+                    <div>
+                      <div className="text-[9px] text-gray-500">Unrealized P&L</div>
+                      <div className={`text-[12px] font-bold ${(sportsEngine?.totalUnrealizedPnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {(sportsEngine?.totalUnrealizedPnl ?? 0) >= 0 ? "+" : ""}${(sportsEngine?.totalUnrealizedPnl ?? 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-gray-500">Realized P&L</div>
+                      <div className={`text-[12px] font-bold ${(sportsEngine?.totalRealizedPnl ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {(sportsEngine?.totalRealizedPnl ?? 0) >= 0 ? "+" : ""}${(sportsEngine?.totalRealizedPnl ?? 0).toFixed(2)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] text-gray-500">Open</div>
+                      <div className="text-[12px] font-bold text-purple-300">{sportsEngine?.openTrades?.length ?? 0}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Open positions */}
+                {sportsEngine?.openTrades?.length > 0 && (
+                  <div className="space-y-1.5 pt-1 border-t border-gray-800">
+                    <div className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Open Positions</div>
+                    {sportsEngine.openTrades.map((t: any) => (
+                      <div key={t.id} className="flex items-center justify-between bg-black/30 rounded-lg px-2.5 py-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] font-bold text-white truncate">{t.predictedTeam} wins</div>
+                          <div className="text-[9px] text-gray-500">{t.sport.toUpperCase()} · {t.side.toUpperCase()} · ${t.stake} stake · Edge {t.entryEdgePct.toFixed(1)}%</div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-2">
+                          <div className={`text-[11px] font-bold ${t.unrealizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {t.unrealizedPnl >= 0 ? "+" : ""}${t.unrealizedPnl.toFixed(2)}
+                          </div>
+                          <button onClick={() => closeSportsTradeMutation.mutate(t.id)}
+                            className="text-[9px] text-red-400 border border-red-500/30 rounded px-1.5 py-0.5 hover:bg-red-500/10">
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Game cards */}

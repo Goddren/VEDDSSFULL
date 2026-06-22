@@ -25827,6 +25827,62 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Sports Auto-Trade Engine ──────────────────────────────────────────────────
+
+  app.get("/api/sports-engine/status", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getSportsEngineState } = await import("./services/sports-trade-engine");
+      res.json(getSportsEngineState((req.user as any).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/sports-engine/start", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { startSportsEngine, getSportsEngineState } = await import("./services/sports-trade-engine");
+      startSportsEngine((req.user as any).id);
+      res.json(getSportsEngineState((req.user as any).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/sports-engine/stop", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { stopSportsEngine, getSportsEngineState } = await import("./services/sports-trade-engine");
+      stopSportsEngine((req.user as any).id);
+      res.json(getSportsEngineState((req.user as any).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/sports-engine/scan", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { manualSportsScan } = await import("./services/sports-trade-engine");
+      const result = await manualSportsScan((req.user as any).id);
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put("/api/sports-engine/config", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { updateSportsEngineConfig, getSportsEngineState } = await import("./services/sports-trade-engine");
+      updateSportsEngineConfig((req.user as any).id, req.body);
+      res.json(getSportsEngineState((req.user as any).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post("/api/sports-engine/trades/:id/close", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { closeSportsTrade, getSportsEngineState } = await import("./services/sports-trade-engine");
+      const ok = closeSportsTrade((req.user as any).id, req.params.id);
+      if (!ok) return res.status(404).json({ error: "Trade not found" });
+      res.json(getSportsEngineState((req.user as any).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

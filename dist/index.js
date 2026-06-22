@@ -32481,6 +32481,214 @@ var init_sports_predictor = __esm({
   }
 });
 
+// server/services/sports-trade-engine.ts
+var sports_trade_engine_exports = {};
+__export(sports_trade_engine_exports, {
+  closeSportsTrade: () => closeSportsTrade,
+  getSportsEngineState: () => getSportsEngineState,
+  manualSportsScan: () => manualSportsScan,
+  startSportsEngine: () => startSportsEngine,
+  stopSportsEngine: () => stopSportsEngine,
+  updateSportsEngineConfig: () => updateSportsEngineConfig
+});
+function getSportsEngineState(userId) {
+  if (!_states4.has(userId)) {
+    _states4.set(userId, {
+      isRunning: false,
+      lastScanAt: null,
+      lastScanResult: null,
+      openTrades: [],
+      closedTrades: [],
+      totalRealizedPnl: 0,
+      totalUnrealizedPnl: 0,
+      config: { ...DEFAULT_CONFIG5, paperMode: !hasPmUsCredentials(userId) }
+    });
+  }
+  return _states4.get(userId);
+}
+function updateSportsEngineConfig(userId, patch) {
+  const s = getSportsEngineState(userId);
+  if (patch.minEdgePct != null) patch.minEdgePct = Math.max(0, Math.min(50, patch.minEdgePct));
+  if (patch.stakePerGame != null) patch.stakePerGame = Math.max(1, Math.min(500, patch.stakePerGame));
+  if (patch.maxOpenTrades != null) patch.maxOpenTrades = Math.max(1, Math.min(20, patch.maxOpenTrades));
+  s.config = { ...s.config, ...patch };
+}
+function startSportsEngine(userId) {
+  const s = getSportsEngineState(userId);
+  if (s.isRunning) return;
+  s.isRunning = true;
+  _runScan3(userId).catch(console.error);
+  const intervalMs = Math.max(5, s.config.cooldownMinutes) * 60 * 1e3;
+  _timers3.set(userId, setInterval(() => _runScan3(userId).catch(console.error), intervalMs));
+}
+function stopSportsEngine(userId) {
+  const s = getSportsEngineState(userId);
+  s.isRunning = false;
+  const iv = _timers3.get(userId);
+  if (iv) {
+    clearInterval(iv);
+    _timers3.delete(userId);
+  }
+}
+async function manualSportsScan(userId) {
+  return _runScan3(userId, true);
+}
+function closeSportsTrade(userId, tradeId) {
+  const s = getSportsEngineState(userId);
+  const idx = s.openTrades.findIndex((t2) => t2.id === tradeId);
+  if (idx === -1) return false;
+  const t = s.openTrades[idx];
+  const realized = Math.round((t.currentPriceCents / 100 * (t.stake / (t.entryPriceCents / 100)) - t.stake) * 100) / 100;
+  t.status = "closed";
+  t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
+  t.realizedPnl = realized;
+  t.exitReason = "manual";
+  t.unrealizedPnl = 0;
+  s.openTrades.splice(idx, 1);
+  s.closedTrades.unshift(t);
+  if (s.closedTrades.length > 100) s.closedTrades.length = 100;
+  s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
+  _recalc2(s);
+  return true;
+}
+function _recalc2(s) {
+  s.totalUnrealizedPnl = Math.round(s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0) * 100) / 100;
+}
+async function _updateOpenTrades2(s) {
+  for (const t of s.openTrades) {
+    if (!t.marketId) continue;
+    try {
+      const bbo = await getPmUsBbo(t.marketId);
+      if (!bbo) continue;
+      const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+      if (!liveCents) continue;
+      t.currentPriceCents = liveCents;
+      const contracts = t.stake / (t.entryPriceCents / 100);
+      t.unrealizedPnl = Math.round((liveCents / 100 * contracts - t.stake) * 100) / 100;
+    } catch {
+    }
+  }
+  _recalc2(s);
+}
+async function _runScan3(userId, manual = false) {
+  const s = getSportsEngineState(userId);
+  s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  await _updateOpenTrades2(s);
+  if (s.openTrades.length >= s.config.maxOpenTrades) {
+    const r2 = `Max open trades (${s.config.maxOpenTrades}) reached`;
+    s.lastScanResult = r2;
+    return { fired: 0, reason: r2, trades: [] };
+  }
+  let predictions;
+  try {
+    predictions = manual ? await refreshSportsPredictions() : await getSportsPredictions();
+  } catch (err) {
+    const r2 = `Prediction fetch error: ${err.message}`;
+    s.lastScanResult = r2;
+    return { fired: 0, reason: r2, trades: [] };
+  }
+  const openGameIds = new Set(s.openTrades.map((t) => t.gameId));
+  const confOrder = { high: 2, medium: 1, low: 0 };
+  const minConfOrder = confOrder[s.config.minConfidence] ?? 2;
+  const eligible = predictions.filter(
+    (p) => p.polymarketMarketId && p.polymarketHomePrice != null && Math.abs(p.edgePct ?? 0) >= s.config.minEdgePct && (confOrder[p.confidence] ?? 0) >= minConfOrder && !openGameIds.has(p.gameId) && p.status === "scheduled"
+  ).sort((a, b) => Math.abs(b.edgePct ?? 0) - Math.abs(a.edgePct ?? 0));
+  if (eligible.length === 0) {
+    const r2 = `No eligible games (need edge \u2265${s.config.minEdgePct}%, confidence \u2265${s.config.minConfidence}, Polymarket market found)`;
+    s.lastScanResult = r2;
+    return { fired: 0, reason: r2, trades: [] };
+  }
+  const newTrades = [];
+  const slots = s.config.maxOpenTrades - s.openTrades.length;
+  for (const game of eligible.slice(0, slots)) {
+    const edge = game.edgePct ?? 0;
+    const side = edge >= 0 ? "yes" : "no";
+    const predictedTeam = edge >= 0 ? game.homeTeam : game.awayTeam;
+    const modelPricePct = edge >= 0 ? game.modelProbHome : game.modelProbAway;
+    const marketPricePct = game.polymarketHomePrice ?? 50;
+    const entryPriceCents = Math.round((side === "yes" ? marketPricePct : 100 - marketPricePct) * 1);
+    let actualEntryCents = entryPriceCents;
+    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
+      try {
+        const bbo = await getPmUsBbo(game.polymarketMarketId);
+        if (bbo) {
+          const ask = side === "yes" ? bbo.bestAsk : 1 - bbo.bestBid;
+          if (ask > 0) actualEntryCents = Math.round(ask * 100);
+        }
+      } catch {
+      }
+    }
+    if (!s.config.paperMode && hasPmUsCredentials(userId)) {
+      try {
+        const result = await placePmUsOrder(userId, {
+          marketSlug: game.polymarketMarketId,
+          intent: side === "yes" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT",
+          type: "ORDER_TYPE_MARKET",
+          quantity: Math.round(s.config.stakePerGame / (actualEntryCents / 100))
+        });
+        if (!result.ok) {
+          console.warn(`[SportsEngine] Order failed for ${game.gameId}:`, result.data);
+          continue;
+        }
+      } catch (err) {
+        console.warn(`[SportsEngine] Order error for ${game.gameId}:`, err.message);
+        continue;
+      }
+    }
+    const trade = {
+      id: `sports-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      gameId: game.gameId,
+      sport: game.sport,
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      marketId: game.polymarketMarketId,
+      marketQuestion: game.polymarketQuestion ?? `${game.awayTeam} @ ${game.homeTeam}`,
+      polymarketUrl: game.polymarketUrl,
+      side,
+      predictedTeam,
+      entryEdgePct: Math.abs(edge),
+      modelProbPct: modelPricePct,
+      marketPricePct,
+      kellySizePct: game.kellySizePct ?? 0,
+      stake: s.config.stakePerGame,
+      entryPriceCents: actualEntryCents,
+      currentPriceCents: actualEntryCents,
+      unrealizedPnl: 0,
+      gameTime: game.gameTime,
+      openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      status: "open",
+      paper: s.config.paperMode,
+      reasons: game.reasons ?? []
+    };
+    s.openTrades.push(trade);
+    newTrades.push(trade);
+    openGameIds.add(game.gameId);
+    console.log(`[SportsEngine] ${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${side.toUpperCase()} on "${trade.marketQuestion}" edge=${edge.toFixed(1)}% kelly=${game.kellySizePct?.toFixed(1)}%`);
+  }
+  _recalc2(s);
+  const r = newTrades.length > 0 ? `${s.config.paperMode ? "[PAPER]" : "[LIVE]"} Opened ${newTrades.length} trade(s): ${newTrades.map((t) => `${t.predictedTeam} (${t.sport.toUpperCase()})`).join(", ")}` : "Scan complete \u2014 no new trades opened";
+  s.lastScanResult = r;
+  return { fired: newTrades.length, reason: r, trades: newTrades };
+}
+var DEFAULT_CONFIG5, _states4, _timers3;
+var init_sports_trade_engine = __esm({
+  "server/services/sports-trade-engine.ts"() {
+    "use strict";
+    init_sports_predictor();
+    init_polymarket_us();
+    DEFAULT_CONFIG5 = {
+      minEdgePct: 4,
+      minConfidence: "high",
+      stakePerGame: 10,
+      maxOpenTrades: 5,
+      cooldownMinutes: 30,
+      paperMode: true
+    };
+    _states4 = /* @__PURE__ */ new Map();
+    _timers3 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/index.ts
 import express2 from "express";
 import { createServer as createServer2 } from "http";
@@ -58891,6 +59099,66 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { refreshSportsPredictions: refreshSportsPredictions2 } = await Promise.resolve().then(() => (init_sports_predictor(), sports_predictor_exports));
       const data = await refreshSportsPredictions2();
       res.json({ refreshed: true, count: data.length, data });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/sports-engine/status", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      res.json(getSportsEngineState2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/sports-engine/start", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { startSportsEngine: startSportsEngine2, getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      startSportsEngine2(req.user.id);
+      res.json(getSportsEngineState2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/sports-engine/stop", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { stopSportsEngine: stopSportsEngine2, getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      stopSportsEngine2(req.user.id);
+      res.json(getSportsEngineState2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/sports-engine/scan", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { manualSportsScan: manualSportsScan2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      const result = await manualSportsScan2(req.user.id);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.put("/api/sports-engine/config", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { updateSportsEngineConfig: updateSportsEngineConfig2, getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      updateSportsEngineConfig2(req.user.id, req.body);
+      res.json(getSportsEngineState2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/sports-engine/trades/:id/close", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { closeSportsTrade: closeSportsTrade2, getSportsEngineState: getSportsEngineState2 } = await Promise.resolve().then(() => (init_sports_trade_engine(), sports_trade_engine_exports));
+      const ok = closeSportsTrade2(req.user.id, req.params.id);
+      if (!ok) return res.status(404).json({ error: "Trade not found" });
+      res.json(getSportsEngineState2(req.user.id));
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
