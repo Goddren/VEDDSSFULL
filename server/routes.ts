@@ -1,5 +1,6 @@
 ﻿import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
 import { User, userApiKeys, users } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -3533,12 +3534,25 @@ Respond ONLY in valid JSON format with these exact keys:
         });
       }
 
+      // Resolve the referrer's referral code (the ambassador who brought this user in)
+      // so the LS webhook can attribute commission correctly.
+      let ambassadorCode: string | undefined;
+      if ((user as any).referredBy) {
+        const referrer = await storage.getUser((user as any).referredBy).catch(() => null);
+        ambassadorCode = referrer?.referralCode ?? undefined;
+      }
+      // Also check for ref cookie set when user first visited from an ambassador link
+      if (!ambassadorCode) {
+        ambassadorCode = getRequestCookie(req, 'vedd_ref');
+      }
+
       const checkout = await lsCreateCheckout(
         plan.lsVariantId,
         user.email,
         user.fullName || user.username,
         user.id,
         planId,
+        ambassadorCode,
       );
 
       const checkoutUrl = checkout?.data?.attributes?.url;
@@ -10763,18 +10777,25 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _tlBal = _tlVal.balance > 0 ? _tlVal.balance : null;
                 const _tlEq  = _tlVal.equity  > 0 ? _tlVal.equity  : _tlBal;
 
-                const _eaRisk = getTLRisk(tlConn.id);
+                // Read from DB column first (persists across redeploys), fall back to JSON sidecar
+                const _dbRisk2 = { useRiskPercent: (tlConn as any).useRiskPercent ?? false, riskPercent: (tlConn as any).riskPercent ?? 1.0 };
+                const _jsonRisk2 = getTLRisk(tlConn.id);
+                const _eaRisk = (_dbRisk2.useRiskPercent || _dbRisk2.riskPercent !== 1.0) ? _dbRisk2 : _jsonRisk2;
                 const _eaSlDist = (_entryPrice && analysis.tradePlan?.stopLoss)
                   ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
 
-                if (_eaRisk.useRiskPercent && _tlEq && _eaSlDist > 0) {
+                if (_eaRisk.useRiskPercent && _tlEq) {
                   const _pipSize  = getPipSize(sanitizedSymbol);
                   const _pipValue = getPipValue(sanitizedSymbol);
-                  const _slPips   = _pipSize > 0 ? _eaSlDist / _pipSize : 0;
+                  const _slPips   = _eaSlDist > 0 && _pipSize > 0 ? _eaSlDist / _pipSize : 0;
                   const _riskUsd  = _tlEq * (_eaRisk.riskPercent / 100);
                   if (_slPips > 0 && _pipValue > 0) {
                     connLot = Math.max(0.01, Math.round((_riskUsd / (_slPips * _pipValue)) * 100) / 100);
                     _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()}`;
+                  } else if (_pipValue > 0) {
+                    // No SL — default 20-pip assumption so large accounts still get proper size
+                    connLot = Math.max(0.01, Math.round((_riskUsd / (20 * _pipValue)) * 100) / 100);
+                    _sizeLabel = `risk ${_eaRisk.riskPercent}% of $${_tlEq.toLocaleString()} (default 20pip)`;
                   }
                 } else if (_eaCopyMode === 'proportional' && _tlEq && accountBalance > 0) {
                   const _ratio = _tlEq / accountBalance;
@@ -14019,16 +14040,23 @@ Rules:
       updateDataById.gateMode = gateMode;
     }
 
-    // Per-account risk-% sizing (stored in JSON sidecar — no DB column)
+    // Per-account risk-% sizing — save to DB (survives redeployment) + JSON sidecar for backward compat
+    if (useRiskPercent !== undefined) updateDataById.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== undefined) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateDataById.riskPercent = r;
+    }
+    // Also write to JSON sidecar so running engine picks up instantly (no restart needed)
     if (useRiskPercent !== undefined || riskPercent !== undefined) {
-      const { setTLRisk } = await import('./services/tl-risk-settings');
-      const patch: any = {};
-      if (useRiskPercent !== undefined) patch.useRiskPercent = !!useRiskPercent;
-      if (riskPercent !== undefined) { const r = parseFloat(riskPercent); if (!isNaN(r)) patch.riskPercent = r; }
-      setTLRisk(connId, patch);
+      try {
+        const { setTLRisk } = await import('./services/tl-risk-settings');
+        const patch: any = {};
+        if (useRiskPercent !== undefined) patch.useRiskPercent = !!useRiskPercent;
+        if (riskPercent !== undefined) { const r = parseFloat(riskPercent); if (!isNaN(r)) patch.riskPercent = r; }
+        setTLRisk(connId, patch);
+      } catch { /* non-fatal */ }
     }
 
-    // updateTradelockerConnection requires at least one DB field; skip if only risk changed
     let updated = await storage.getTradelockerConnection(connId);
     if (Object.keys(updateDataById).length > 0) {
       updated = await storage.updateTradelockerConnection(connId, updateDataById);
@@ -14037,9 +14065,8 @@ Rules:
       return res.status(500).json({ error: "Failed to update connection" });
     }
 
-    const { getTLRisk } = await import('./services/tl-risk-settings');
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
-    res.json({ ...safeConnection, ...getTLRisk(connId) });
+    res.json(safeConnection);
   });
 
   // PATCH legacy (no ID) — updates first connection for backward compat

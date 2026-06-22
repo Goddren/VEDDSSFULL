@@ -32,6 +32,30 @@ app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 // Health check endpoint — must respond before Vite compiles (Railway health check)
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 
+// ── Ambassador portal redirect ───────────────────────────────────────────────
+// Sends logged-in ambassadors (isAmbassador=true) to the separate portal service.
+// Non-authenticated users go to the portal login page.
+app.get("/ambassador-portal", (req, res) => {
+  const portalUrl = process.env.VEDD_PORTAL_URL;
+  if (!portalUrl) return res.status(503).send('Ambassador portal not configured');
+  res.redirect(portalUrl + '/ambassadors');
+});
+
+// ── Referral code cookie capture ─────────────────────────────────────────────
+// When a visitor arrives via ?ref=<code>, store it in a 30-day cookie so it
+// survives through registration and Lemon Squeezy checkout redirect.
+// We parse req.cookies manually (no cookie-parser dependency needed).
+app.use((req, _res, next) => {
+  if (req.query.ref && typeof req.query.ref === 'string') {
+    // Set the cookie via Set-Cookie header directly — no cookie-parser needed
+    const maxAge = 30 * 24 * 60 * 60;
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    const value = encodeURIComponent(req.query.ref);
+    _res.setHeader('Set-Cookie', `vedd_ref=${value}; Max-Age=${maxAge}; SameSite=Lax; Path=/${secure}`);
+  }
+  next();
+});
+
 // ── Bind the port RIGHT NOW, before any async work ──────────────────────────
 // Render kills the deploy if no port is open within 60 s. By listening here
 // (before registerRoutes, before DB, before static setup) we guarantee the
@@ -211,6 +235,8 @@ async function withRetry<T>(
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS gate_mode text NOT NULL DEFAULT 'basic'`,
         // Broker name — human-readable label derived from serverId (e.g. "Atlas", "FTUK")
         `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS broker_name text`,
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS use_risk_percent boolean NOT NULL DEFAULT false`,
+        `ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS risk_percent double precision NOT NULL DEFAULT 1.0`,
         // All-time record tracker for the dashboard
         `CREATE TABLE IF NOT EXISTS all_time_records (
           id serial PRIMARY KEY,

@@ -711,6 +711,8 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   lotMultiplier: doublePrecision("lot_multiplier").notNull().default(1.0), // Per-account lot size multiplier (0.1–5.0)
   gateMode: text("gate_mode").notNull().default('basic'), // 'basic' = original EA permissive mode (70%) | 'full' = strict gates (74%+brain+HTF)
   brokerName: text("broker_name"), // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
+  useRiskPercent: boolean("use_risk_percent").notNull().default(false), // Size by % of this account's equity instead of copying source lot
+  riskPercent: doublePrecision("risk_percent").notNull().default(1.0), // % of equity to risk per trade when useRiskPercent=true
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

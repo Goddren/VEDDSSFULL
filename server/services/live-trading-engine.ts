@@ -4439,25 +4439,39 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
           let acctLot: number;
           let acctSizeLabel = '';
-          const _risk = getTLRisk(tlConn.id);
+          // Read risk settings from DB column (persists across redeploys) with JSON sidecar fallback
+          const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1.0 };
+          const _jsonRisk = getTLRisk(tlConn.id);
+          // DB takes precedence; sidecar only wins if DB column is still at default AND sidecar was explicitly set
+          const _risk = (_dbRisk.useRiskPercent || _dbRisk.riskPercent !== 1.0) ? _dbRisk : _jsonRisk;
           const _slDist = (entryPrice && stopLoss) ? Math.abs(entryPrice - stopLoss) : 0;
 
-          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0 && _slDist > 0) {
+          if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0) {
             // Risk-% sizing: size THIS account's lot so a stop-out loses riskPercent of its equity.
             //   lots = (equity × risk%) / (slPips × pipValuePerLot)
             const pipSize  = getPipSize(decision.symbol);
             const pipValue = getPipValue(decision.symbol);
-            const slPips   = pipSize > 0 ? _slDist / pipSize : 0;
+            const slPips   = _slDist > 0 && pipSize > 0 ? _slDist / pipSize : 0;
             const riskUsd  = _tlAcctEq * (_risk.riskPercent / 100);
             if (slPips > 0 && pipValue > 0) {
               acctLot = Math.max(0.01, Math.round((riskUsd / (slPips * pipValue)) * 100) / 100);
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
             } else {
-              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              // No SL provided — use a conservative default: risk% / 20 pips equivalent
+              const defaultPips = 20;
+              if (pipValue > 0) {
+                acctLot = Math.max(0.01, Math.round((riskUsd / (defaultPips * pipValue)) * 100) / 100);
+                acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} — default 20pip SL)`;
+              } else {
+                // Last resort: proportional vs reference balance
+                const ratio = _refBal > 0 ? _tlAcctEq / _refBal : 1;
+                acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+                acctSizeLabel = ` (risk% fallback proportional ${ratio.toFixed(2)}×)`;
+              }
             }
           } else if (config.copyMode === 'proportional' && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             // Scale lot proportionally by the TL account's equity vs the engine reference:
-            // $50k account copying a $10k engine → 5× the lot (same % risk on both).
+            // $400k account copying a $44 engine → correct lot for same % risk on both.
             const ratio = _tlAcctEq / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
             acctSizeLabel = ` (proportional ${ratio.toFixed(2)}× — $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
@@ -4467,7 +4481,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               ? tlConn.lotMultiplier : 1.0;
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
             acctSizeLabel = _refBal <= 0
-              ? ` (⚠️ multiplier ${acctMult}× — set engine Reference Balance for proportional sizing)`
+              ? ` (⚠️ multiplier ${acctMult}× — enable Risk% mode or set engine Reference Balance for auto-sizing)`
               : ` (⚠️ multiplier ${acctMult}× — TL account value unavailable, could not size proportionally)`;
           }
 

@@ -566,6 +566,46 @@ export function MobileBottomNav() {
             </button>
           </Link>
 
+          {/* Polymarket Engine card */}
+          <Link href="/polymarket-engine">
+            <button
+              onClick={close}
+              className="w-full text-left px-4 py-3 rounded-2xl mb-2 transition-all active:scale-[0.97]"
+              style={{ background: 'rgba(168,85,247,0.10)', border: '1.5px solid rgba(168,85,247,0.28)' }}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(168,85,247,0.22)' }}>
+                    <TrendingUp className="w-3.5 h-3.5" style={{ color: '#c084fc' }} />
+                  </span>
+                  <span className="text-xs font-bold" style={{ color: '#e9d5ff' }}>Polymarket Engine</span>
+                </div>
+                <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full"
+                  style={{ background: polyActive ? 'rgba(168,85,247,0.25)' : 'rgba(100,116,139,0.2)', color: polyActive ? '#e9d5ff' : '#94a3b8' }}>
+                  {polyActive ? 'RUNNING' : 'OFF'}
+                </span>
+              </div>
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-[10px] text-gray-500">Open Positions</p>
+                  <p className="text-sm font-bold text-white">{polyOpen}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-500">Unrealized P&L</p>
+                  <p className="text-sm font-bold" style={{ color: pnlCls(polyUnreal) }}>
+                    {polyUnreal >= 0 ? '+' : ''}${fmtUsd(polyUnreal)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-500">Realized P&L</p>
+                  <p className="text-sm font-bold" style={{ color: pnlCls(polyRealized) }}>
+                    {polyRealized >= 0 ? '+' : ''}${fmtUsd(polyRealized)}
+                  </p>
+                </div>
+              </div>
+            </button>
+          </Link>
+
           {/* ── NAV TILES ────────────────────────────────── */}
           <SectionLabel label="Trading" />
           <div className="grid grid-cols-3 gap-2">
