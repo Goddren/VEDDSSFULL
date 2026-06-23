@@ -592,9 +592,24 @@ export default function DevotionalPage() {
 
                 {/* Scripture */}
                 <div className="bg-gray-900/60 border border-gray-700/50 rounded-lg p-4">
-                  <p className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                    <BookOpen className="h-3.5 w-3.5" /> Scripture
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-red-400 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                      <BookOpen className="h-3.5 w-3.5" /> Scripture
+                    </p>
+                    <button
+                      onClick={async () => {
+                        const shareText = `📖 ${devotional.scripture}\n\n"${devotional.scripture_text}"\n\n💹 Trading wisdom: ${devotional.trading_tie_in ?? ''}\n\n#VEDDDevotional #FaithAndTrades`;
+                        if (navigator.share) {
+                          await navigator.share({ text: shareText }).catch(() => {});
+                        } else {
+                          await navigator.clipboard.writeText(shareText).catch(() => {});
+                        }
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-gray-500 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10"
+                    >
+                      <Share2 className="h-3 w-3" /> Share
+                    </button>
+                  </div>
                   <blockquote className="text-gray-200 italic text-lg leading-relaxed">
                     "{devotional.scripture_text}"
                   </blockquote>
