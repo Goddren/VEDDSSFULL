@@ -453,13 +453,13 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
-  const { data: polyEngineStatus, refetch: refetchPoly } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalBets?: number }>({
+  const { data: polyEngineStatus, refetch: refetchPoly } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalRealizedPnl?: number; openPositions?: any[]; closedPositions?: any[] }>({
     queryKey: ['/api/polymarket-engine/status'],
     enabled: !!user,
     refetchInterval: 20000,
   });
 
-  const { data: kalshiEngineStatus, refetch: refetchKalshi } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalBets?: number }>({
+  const { data: kalshiEngineStatus, refetch: refetchKalshi } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalRealizedPnl?: number; openTrades?: any[]; closedTrades?: any[] }>({
     queryKey: ['/api/kalshi/engine/status'],
     enabled: !!user,
     refetchInterval: 20000,
@@ -969,32 +969,52 @@ const Dashboard: React.FC = () => {
             {/* Polymarket */}
             <div
               onClick={() => polyToggleMutation.mutate(!polyEngineStatus?.isRunning)}
-              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${polyEngineStatus?.isRunning ? 'border-violet-500/30' : 'border-gray-700 bg-gray-800/40'}`}
+              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${polyEngineStatus?.isRunning ? 'border-violet-500/30' : 'border-gray-700 bg-gray-800/40'}`}
               style={polyEngineStatus?.isRunning ? { background: 'rgba(139,92,246,0.07)' } : {}}
             >
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between mb-1">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Polymarket</span>
                 <span className={`w-2 h-2 rounded-full ${polyEngineStatus?.isRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-600'}`} />
               </div>
               <p className={`text-xs font-black ${polyEngineStatus?.isRunning ? 'text-violet-400' : 'text-gray-500'}`}>
                 {polyToggleMutation.isPending ? '…' : polyEngineStatus?.isRunning ? 'LIVE' : 'OFF'}
               </p>
-              <p className="text-[9px] text-gray-600 mt-0.5">{polyEngineStatus?.isPaperMode ? 'Paper mode' : 'Live mode'}</p>
+              {polyEngineStatus?.isRunning && (
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-[9px] text-gray-500">{polyEngineStatus.openPositions?.length ?? 0} open</p>
+                  {(polyEngineStatus.totalRealizedPnl ?? 0) !== 0 && (
+                    <p className={`text-[9px] font-semibold ${(polyEngineStatus.totalRealizedPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(polyEngineStatus.totalRealizedPnl ?? 0) >= 0 ? '+' : ''}${(polyEngineStatus.totalRealizedPnl ?? 0).toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              )}
+              {!polyEngineStatus?.isRunning && <p className="text-[9px] text-gray-600 mt-0.5">{polyEngineStatus?.isPaperMode !== false ? 'Paper mode' : 'Live mode'}</p>}
             </div>
             {/* Kalshi */}
             <div
               onClick={() => kalshiToggleMutation.mutate(!kalshiEngineStatus?.isRunning)}
-              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${kalshiEngineStatus?.isRunning ? 'border-cyan-500/30' : 'border-gray-700 bg-gray-800/40'}`}
+              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${kalshiEngineStatus?.isRunning ? 'border-cyan-500/30' : 'border-gray-700 bg-gray-800/40'}`}
               style={kalshiEngineStatus?.isRunning ? { background: 'rgba(6,182,212,0.07)' } : {}}
             >
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between mb-1">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Kalshi</span>
                 <span className={`w-2 h-2 rounded-full ${kalshiEngineStatus?.isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-gray-600'}`} />
               </div>
               <p className={`text-xs font-black ${kalshiEngineStatus?.isRunning ? 'text-cyan-400' : 'text-gray-500'}`}>
                 {kalshiToggleMutation.isPending ? '…' : kalshiEngineStatus?.isRunning ? 'LIVE' : 'OFF'}
               </p>
-              <p className="text-[9px] text-gray-600 mt-0.5">{kalshiEngineStatus?.isPaperMode ? 'Paper mode' : 'Live mode'}</p>
+              {kalshiEngineStatus?.isRunning && (
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-[9px] text-gray-500">{kalshiEngineStatus.openTrades?.length ?? 0} open</p>
+                  {(kalshiEngineStatus.totalRealizedPnl ?? 0) !== 0 && (
+                    <p className={`text-[9px] font-semibold ${(kalshiEngineStatus.totalRealizedPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(kalshiEngineStatus.totalRealizedPnl ?? 0) >= 0 ? '+' : ''}${(kalshiEngineStatus.totalRealizedPnl ?? 0).toFixed(2)}
+                    </p>
+                  )}
+                </div>
+              )}
+              {!kalshiEngineStatus?.isRunning && <p className="text-[9px] text-gray-600 mt-0.5">{kalshiEngineStatus?.isPaperMode !== false ? 'Paper mode' : 'Live mode'}</p>}
             </div>
             {/* Breakout Scanner */}
             <Link href="/weekly-strategy">
