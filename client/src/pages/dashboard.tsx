@@ -487,6 +487,14 @@ const Dashboard: React.FC = () => {
     refetchInterval: 120000,   // refresh every 2 min
   });
 
+  // Streak / XP / rank data
+  const { data: streakData } = useQuery<{ currentStreak: number; longestStreak: number; xpPoints: number; tier: string; tierProgress: number }>({
+    queryKey: ['/api/streak'],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
   // Daily & weekly P&L summary (works even without a strategy / SS AI)
   const { data: dailySummary } = useQuery<{
     todayClosedProfit: number; todayTotalProfit: number; todayTrades: number; todayWins: number; todayLosses: number; todayWinRate: number;
@@ -804,10 +812,26 @@ const Dashboard: React.FC = () => {
           {/* Row 1: greeting + engine status */}
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h1 className="text-xl font-black text-white leading-tight">
-                {greeting}, {displayName}
-              </h1>
-              <p className="text-[11px] text-gray-500 mt-0.5">{dateStr} · VEDD Command Center</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-black text-white leading-tight">
+                  {greeting}, {displayName}
+                </h1>
+                {streakData && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black border"
+                    style={{
+                      background: streakData.tier === 'OG' ? 'rgba(239,68,68,0.12)' : streakData.tier === 'Elite' ? 'rgba(168,85,247,0.12)' : streakData.tier === 'Pro' ? 'rgba(59,130,246,0.12)' : streakData.tier === 'Rising' ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.12)',
+                      borderColor: streakData.tier === 'OG' ? 'rgba(239,68,68,0.35)' : streakData.tier === 'Elite' ? 'rgba(168,85,247,0.35)' : streakData.tier === 'Pro' ? 'rgba(59,130,246,0.35)' : streakData.tier === 'Rising' ? 'rgba(234,179,8,0.35)' : 'rgba(34,197,94,0.35)',
+                      color: streakData.tier === 'OG' ? '#f87171' : streakData.tier === 'Elite' ? '#c084fc' : streakData.tier === 'Pro' ? '#60a5fa' : streakData.tier === 'Rising' ? '#fbbf24' : '#4ade80',
+                    }}>
+                    {streakData.tier}
+                    {streakData.currentStreak > 0 && <span className="text-amber-400 ml-1">🔥{streakData.currentStreak}</span>}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {dateStr} · VEDD Command Center
+                {streakData && streakData.xpPoints > 0 && <span className="text-gray-600"> · {streakData.xpPoints.toLocaleString()} XP</span>}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <AISourceBadge />
@@ -890,19 +914,42 @@ const Dashboard: React.FC = () => {
               {openPositions > 0 && <p className="text-[9px] text-cyan-400">{openPositions} open</p>}
             </div>
 
-            {/* Engine/Brain status */}
-            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center justify-center gap-1.5">
-              <div className={`flex items-center gap-1 text-[10px] font-bold ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-                SS AI {ssEngineRunning ? 'ON' : 'OFF'}
-              </div>
-              <div className={`flex items-center gap-1 text-[10px] font-bold ${solEngineRunning ? 'text-violet-400' : 'text-gray-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${solEngineRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-600'}`} />
-                SOL {solEngineRunning ? 'ON' : 'OFF'}
-              </div>
-              <div className={`flex items-center gap-1 text-[10px] font-bold ${breakoutMonitorOn ? 'text-amber-400' : 'text-gray-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${breakoutMonitorOn ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`} />
-                Breakout {breakoutMonitorOn ? 'ON' : 'OFF'}
+            {/* Rank / XP + Engine pulses */}
+            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col justify-between">
+              {streakData ? (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] font-black uppercase tracking-wider"
+                      style={{ color: streakData.tier === 'OG' ? '#f87171' : streakData.tier === 'Elite' ? '#c084fc' : streakData.tier === 'Pro' ? '#60a5fa' : streakData.tier === 'Rising' ? '#fbbf24' : '#4ade80' }}>
+                      {streakData.tier}
+                    </span>
+                    {streakData.currentStreak > 0 && <span className="text-[9px] text-amber-400">🔥 {streakData.currentStreak}d</span>}
+                  </div>
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mb-1.5">
+                    <div className="h-full rounded-full transition-all duration-700"
+                      style={{
+                        width: `${streakData.tierProgress ?? 0}%`,
+                        background: streakData.tier === 'OG' ? 'linear-gradient(90deg,#ef4444,#f87171)' : streakData.tier === 'Elite' ? 'linear-gradient(90deg,#a855f7,#c084fc)' : streakData.tier === 'Pro' ? 'linear-gradient(90deg,#3b82f6,#60a5fa)' : streakData.tier === 'Rising' ? 'linear-gradient(90deg,#eab308,#fbbf24)' : 'linear-gradient(90deg,#22c55e,#4ade80)',
+                      }} />
+                  </div>
+                  <p className="text-[9px] text-gray-600">{streakData.xpPoints.toLocaleString()} XP</p>
+                </>
+              ) : (
+                <p className="text-[9px] text-gray-600 text-center">Log in daily to earn XP</p>
+              )}
+              <div className="mt-2 space-y-1">
+                <div className={`flex items-center gap-1 text-[9px] font-bold ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-600'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-700'}`} />
+                  SS AI {ssEngineRunning ? 'ON' : 'OFF'}
+                </div>
+                <div className={`flex items-center gap-1 text-[9px] font-bold ${solEngineRunning ? 'text-violet-400' : 'text-gray-600'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${solEngineRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-700'}`} />
+                  SOL {solEngineRunning ? 'ON' : 'OFF'}
+                </div>
+                <div className={`flex items-center gap-1 text-[9px] font-bold ${breakoutMonitorOn ? 'text-amber-400' : 'text-gray-600'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${breakoutMonitorOn ? 'bg-amber-400 animate-pulse' : 'bg-gray-700'}`} />
+                  ORB {breakoutMonitorOn ? 'ON' : 'OFF'}
+                </div>
               </div>
             </div>
           </div>
