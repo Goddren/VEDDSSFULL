@@ -5,4 +5,4 @@ vite.config.ts.*
 *.tar.gz
 # Runtime data (certificates, curricula) — tracked via .gitkeep, data populated at runtime
 data/certificates.json
-data/curricula.json
+data/curricula.jsondist/
