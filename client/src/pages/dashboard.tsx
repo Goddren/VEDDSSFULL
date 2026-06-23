@@ -495,6 +495,17 @@ const Dashboard: React.FC = () => {
     refetchInterval: 5 * 60 * 1000,
   });
 
+  // Daily check-in status
+  const { data: checkinStatus, refetch: refetchCheckin } = useQuery<{ claimed: boolean; nextReward: number; currentStreak: number; todayReward?: number }>({
+    queryKey: ['/api/activity/daily-checkin-status'],
+    enabled: !!user,
+    staleTime: 60 * 1000,
+  });
+  const checkinMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/activity/daily-checkin').then(r => r.json()),
+    onSuccess: () => { refetchCheckin(); queryClient.invalidateQueries({ queryKey: ['/api/streak'] }); },
+  });
+
   // Daily & weekly P&L summary (works even without a strategy / SS AI)
   const { data: dailySummary } = useQuery<{
     todayClosedProfit: number; todayTotalProfit: number; todayTrades: number; todayWins: number; todayLosses: number; todayWinRate: number;
@@ -835,6 +846,21 @@ const Dashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               <AISourceBadge />
+              {/* Daily check-in button */}
+              {checkinStatus && !checkinStatus.claimed && (
+                <button
+                  onClick={() => checkinMutation.mutate()}
+                  disabled={checkinMutation.isPending}
+                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all active:scale-95"
+                >
+                  {checkinMutation.isPending ? '…' : `✓ Check In +${checkinStatus.nextReward} VEDD`}
+                </button>
+              )}
+              {checkinStatus?.claimed && (
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/08 text-emerald-500">
+                  ✓ Checked In
+                </span>
+              )}
               <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
                 {ssEngineRunning ? 'ENGINE LIVE' : 'ENGINE OFF'}
