@@ -3,6 +3,8 @@ node_modules
 server/public
 vite.config.ts.*
 *.tar.gz
-# Runtime data (certificates, curricula) — tracked via .gitkeep, data populated at runtime
+# Runtime data
 data/certificates.json
-data/curricula.jsondist/
+data/curricula.json
+# Build output — keep server bundle in git, ignore client build (Render builds it fresh)
+dist/public/
