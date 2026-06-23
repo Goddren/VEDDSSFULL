@@ -1274,6 +1274,18 @@ export default function WeeklyStrategyPage() {
     enabled: !!brainStatus?.learned,
   });
 
+  // Economic calendar for active strategy pairs
+  const strategyPairs: string[] = strategy?.pairs ?? [];
+  const calendarSymbol = strategyPairs[0] ?? 'EURUSD';
+  const { data: econEvents } = useQuery<{ events: any[] }>({
+    queryKey: ['/api/economic-calendar', calendarSymbol],
+    queryFn: () => fetch(`/api/economic-calendar?symbol=${calendarSymbol}&days=2`).then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 10 * 60 * 1000,
+    enabled: !!user,
+  });
+  const highImpactEvents = (econEvents?.events ?? []).filter((e: any) => e.impact === 'high').slice(0, 4);
+
   // Helper: color-code brain freshness
   const getBrainFreshnessColor = (lastLearned: string | undefined) => {
     if (!lastLearned) return 'bg-gray-400';
@@ -2008,6 +2020,36 @@ export default function WeeklyStrategyPage() {
               </div>
             </div>
 
+          </div>
+        )}
+
+        {/* ─── High-Impact Economic Events Strip ────────────── */}
+        {highImpactEvents.length > 0 && (
+          <div className="rounded-xl border border-rose-500/20 bg-rose-950/10 px-3 py-2.5 space-y-1.5">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-widest text-rose-400">⚡ High-Impact Events</span>
+              <span className="text-[9px] text-gray-500">— Avoid entering 15 min before/after</span>
+              {strategyPairs.length > 0 && (
+                <div className="flex gap-1 ml-auto">
+                  {strategyPairs.slice(0, 3).map(p => (
+                    <span key={p} className="text-[9px] bg-rose-500/10 border border-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded-full font-mono">{p}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            {highImpactEvents.map((ev: any, i: number) => {
+              const isToday = ev.date === new Date().toISOString().split('T')[0];
+              return (
+                <div key={i} className="flex items-center gap-2 text-[10px]">
+                  {isToday && <span className="bg-rose-500 text-white text-[8px] font-black px-1 py-0.5 rounded uppercase">TODAY</span>}
+                  <span className="text-gray-400 font-mono">{ev.time}</span>
+                  <span className="text-white font-medium flex-1 truncate">{ev.title}</span>
+                  {ev.currency && <span className="text-rose-300 font-mono">{ev.currency}</span>}
+                  {ev.forecast && <span className="text-gray-500">F: {ev.forecast}</span>}
+                  {ev.previous && <span className="text-gray-600">P: {ev.previous}</span>}
+                </div>
+              );
+            })}
           </div>
         )}
 
