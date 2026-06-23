@@ -1,6 +1,3 @@
-// canvas is an optional native module — may not be available on all hosts
-let createCanvas: any = null, loadImage: any = null, registerFont: any = null;
-try { ({ createCanvas, loadImage, registerFont } = require('canvas')); } catch { /* unavailable */ }
 import path from 'path';
 import fs from 'fs';
 import { getDailyScripture } from './scripture-helper';
@@ -67,6 +64,12 @@ const DANGER_COLOR = '#ef4444';
 const WARNING_COLOR = '#f59e0b';
 
 export async function generateShareCard(data: ShareCardData): Promise<Buffer> {
+  let createCanvas: any, loadImage: any;
+  try {
+    ({ createCanvas, loadImage } = await import('canvas' as any));
+  } catch {
+    throw new Error('Share card generation unavailable: canvas module not installed on this host');
+  }
   const canvas = createCanvas(CARD_WIDTH, CARD_HEIGHT);
   const ctx = canvas.getContext('2d');
 

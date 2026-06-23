@@ -1,7 +1,4 @@
 import crypto from 'crypto';
-// canvas is an optional native module — may not be available on all hosts
-let createCanvas: any = null, loadImage: any = null, registerFont: any = null;
-try { ({ createCanvas, loadImage, registerFont } = require('canvas')); } catch { /* unavailable */ }
 import path from 'path';
 import fs from 'fs';
 
@@ -54,6 +51,12 @@ export function generateVerificationHash(data: CertificateData): string {
 }
 
 export async function generateCertificateImage(data: CertificateData): Promise<Buffer> {
+  let createCanvas: any;
+  try {
+    ({ createCanvas } = await import('canvas' as any));
+  } catch {
+    throw new Error('Certificate image generation unavailable: canvas module not installed on this host');
+  }
   const width = 1200;
   const height = 850;
   const canvas = createCanvas(width, height);

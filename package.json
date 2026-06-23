@@ -145,8 +145,7 @@
     "bufferutil": "^4.0.8",
     "uuid-binary": "^1.0.0",
     "@rollup/rollup-linux-x64-gnu": "4.40.2",
-    "@rollup/rollup-linux-x64-musl": "4.40.2",
-    "canvas": "^3.1.2"
+    "@rollup/rollup-linux-x64-musl": "4.40.2"
   },
   "overrides": {
     "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6",
