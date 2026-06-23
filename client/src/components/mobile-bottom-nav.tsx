@@ -160,6 +160,13 @@ export function MobileBottomNav() {
     enabled: !!user && open,
   });
 
+  // ── Live MT5 EA push data (real account balance from EA) ────────────────
+  const { data: mt5LiveData } = useQuery<any>({
+    queryKey: ['/api/mt5/account-data'],
+    refetchInterval: open ? 15000 : false,
+    enabled: !!user && open,
+  });
+
   const { data: polyStatus } = useQuery<any>({
     queryKey: ['/api/polymarket-engine/status'],
     refetchInterval: open ? 8000 : false,
@@ -221,9 +228,15 @@ export function MobileBottomNav() {
                       || (kalshiStatus?.isRunning  ?? false);
   const anyTradeActive = forexActive || polyActive;
 
-  // ── Derived MT5 values ─────────────────────────────
-  const mt5Balance    = engineStatus?.config?.accountBalance ?? 0;
-  const mt5Pnl        = engineStatus?.goalTracker?.currentProfit ?? engineStatus?.weeklyProgress?.currentProfit ?? 0;
+  // ── Derived MT5 values — prefer live EA-push balance over static config ───
+  const mt5LiveAccount = mt5LiveData?.accounts?.[0];
+  const mt5LiveBalance = mt5LiveAccount?.connected ? (mt5LiveAccount.balance ?? 0) : 0;
+  const mt5Balance     = mt5LiveBalance > 0 ? mt5LiveBalance : (engineStatus?.config?.accountBalance ?? 0);
+  const mt5Equity      = mt5LiveAccount?.connected ? (mt5LiveAccount.equity ?? mt5Balance) : mt5Balance;
+  const mt5Currency    = mt5LiveAccount?.currency ?? 'USD';
+  const mt5Pnl         = mt5LiveAccount?.connected
+    ? (mt5LiveAccount.dailyPnL ?? mt5LiveAccount.profit ?? 0)
+    : (engineStatus?.goalTracker?.currentProfit ?? engineStatus?.weeklyProgress?.currentProfit ?? 0);
   const mt5PnlPct     = mt5Balance > 0 ? (mt5Pnl / mt5Balance) * 100 : 0;
   const mt5Goal       = engineStatus?.goalTracker?.weeklyTarget ?? 0;
   const mt5Progress   = engineStatus?.goalTracker?.progressPercent ?? 0;
@@ -451,11 +464,17 @@ export function MobileBottomNav() {
               </div>
               <div className="flex items-end justify-between">
                 <div>
-                  <p className="text-[10px] text-gray-500">Ref. Balance</p>
-                  <p className="text-sm font-bold text-white">${fmtUsd(mt5Balance)}</p>
+                  <p className="text-[10px] text-gray-500 flex items-center gap-1">
+                    {mt5LiveAccount?.connected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />}
+                    {mt5LiveAccount?.connected ? 'Live Balance' : 'Ref. Balance'}
+                  </p>
+                  <p className="text-sm font-bold text-white">{mt5Currency} {fmtUsd(mt5Balance)}</p>
+                  {mt5LiveAccount?.connected && mt5Equity !== mt5Balance && (
+                    <p className="text-[10px] text-gray-500">Equity: {fmtUsd(mt5Equity)}</p>
+                  )}
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-gray-500">Weekly P&L</p>
+                  <p className="text-[10px] text-gray-500">{mt5LiveAccount?.connected ? 'Daily P&L' : 'Weekly P&L'}</p>
                   <p className="text-sm font-bold" style={{ color: pnlCls(mt5Pnl) }}>
                     {mt5Pnl >= 0 ? '+' : ''}${fmtUsd(mt5Pnl)}
                     <span className="text-[9px] ml-1" style={{ color: pnlCls(mt5PnlPct) }}>({mt5PnlPct >= 0 ? '+' : ''}{mt5PnlPct.toFixed(1)}%)</span>

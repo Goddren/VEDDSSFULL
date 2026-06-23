@@ -151,6 +151,13 @@ const Header: React.FC = () => {
   });
   const activeTLNavConns = tlNavConnections.filter((c: any) => c.isActive);
 
+  // Live MT5 EA push data for the nav balance display
+  const { data: navMt5Data } = useQuery<any>({
+    queryKey: ['/api/mt5/account-data'],
+    enabled: !!user && mobileMenuOpen,
+    refetchInterval: mobileMenuOpen ? 20000 : false,
+  });
+
   // Live balances per TL connection — fetched when the slide nav opens
   const [tlNavBalances, setTlNavBalances] = useState<Record<number, { balance: number; currency: string; loading: boolean; error?: boolean }>>({});
 
@@ -881,6 +888,32 @@ const Header: React.FC = () => {
                       </Link>
                     </>
                   )}
+                  {/* ── MT5 Live Account ─────────────────────────── */}
+                  {navMt5Data?.accounts?.length > 0 && navMt5Data.accounts.some((a: any) => a.connected) && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                        MT5 Live Account
+                      </span>
+                      <div className="space-y-2 mb-2">
+                        {navMt5Data.accounts.filter((a: any) => a.connected).map((a: any, i: number) => (
+                          <div key={i} className="bg-gray-800/60 border border-indigo-700/25 rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm text-white font-medium truncate">{a.accountName || a.broker || 'MT5'}</p>
+                                <p className="text-[10px] text-gray-500">#{a.accountNumber} · {a.server}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-sm font-bold font-mono text-indigo-300">{a.currency} {(a.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                {a.equity !== a.balance && <p className="text-[10px] text-gray-500">Eq: {(a.equity ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* ── TradeLocker Accounts ─────────────────────── */}
                   {activeTLNavConns.length > 0 && (
                     <div className="border-t border-gray-700 pt-3 mt-1">

@@ -170,6 +170,7 @@ interface LiveEngineConfig {
   drawdownShieldThreshold: number;
   // Safety
   dailyLossLimit: number;
+  dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
@@ -373,6 +374,8 @@ interface EngineState {
   pnlToday: number;
   dailyLossHalted: boolean;
   dailyLossHaltedAt: string | null;
+  dailyProfitHalted: boolean;
+  dailyProfitHaltedAt: string | null;
   tradesSinceLastLearn: number;
   positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
   aiResponseCache: Record<string, { ts: number; price: number; response: any }>;
@@ -765,6 +768,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    dailyProfitTarget: 0,
     maxDailyTrades: 0,
     directionFilter: 'both',
     pairDirectionOverrides: {},
@@ -1017,6 +1021,7 @@ export function recordTradeResult(userId: number, result: {
   }
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
+  checkDailyProfitTarget(userId);
 
   // ── Decrement open position count on every trade close ────────────
   // openPositionCount was being incremented on open but never decremented —
@@ -3652,6 +3657,17 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             return;
           }
         }
+        // Daily profit target guard — stop new trades once gain % target is reached
+        if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
+          const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
+          const _floating = _positions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+          const _realized = typeof _snap.dailyPnL === 'number' ? _snap.dailyPnL : 0;
+          const _gainPct = ((_realized + _floating) / _bal) * 100;
+          if (_gainPct >= config.dailyProfitTarget) {
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🏆 PROFIT GUARD: daily gain +${_gainPct.toFixed(1)}% ≥ ${config.dailyProfitTarget}% target — new trade blocked to protect gains` });
+            return;
+          }
+        }
       }
     }
 
@@ -5054,6 +5070,8 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     pnlToday: 0,
     dailyLossHalted: false,
     dailyLossHaltedAt: null,
+    dailyProfitHalted: false,
+    dailyProfitHaltedAt: null,
     tradesSinceLastLearn: 0,
     positionTrailState: {},
     aiResponseCache: {},
@@ -5197,6 +5215,26 @@ function checkDailyLossLimit(userId: number): void {
       type: 'error',
       message: `🚨 DAILY LOSS LIMIT HIT — ${Math.abs(lossPct).toFixed(2)}% loss today exceeds ${limit}% limit. Sending CLOSE_ALL to MT5 and halting engine.`,
     });
+    emergencyStopEngine(userId);
+  }
+}
+
+function checkDailyProfitTarget(userId: number): void {
+  const state = engineStates[userId];
+  if (!state || state.dailyProfitHalted || state.dailyLossHalted) return;
+  const target = state.config.dailyProfitTarget;
+  if (!target || target <= 0) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const gainPct = (state.pnlToday / balance) * 100;
+  if (gainPct >= target) {
+    state.dailyProfitHalted = true;
+    state.dailyProfitHaltedAt = new Date().toISOString();
+    addActivity(userId, {
+      type: 'info',
+      message: `🏆 DAILY PROFIT TARGET HIT — +${gainPct.toFixed(2)}% gain today reached your ${target}% target. Engine stopping to protect gains. CLOSE_ALL sent to MT5.`,
+    });
+    // Stop the engine and send CLOSE_ALL so no open trades bleed into losses
     emergencyStopEngine(userId);
   }
 }

@@ -1377,6 +1377,7 @@ export default function WeeklyStrategyPage() {
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
+  const [engineDailyProfitTarget, setEngineDailyProfitTarget] = useState(0);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
   const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
   const [engineTrailStepPips, setEngineTrailStepPips] = useState(10);
@@ -1423,7 +1424,8 @@ export default function WeeklyStrategyPage() {
     if (saved.interval       != null) setEngineInterval(saved.interval);
     if (saved.minConf        != null) setEngineMinConf(saved.minConf);
     if (saved.maxTrades      != null) setEngineMaxTrades(saved.maxTrades);
-    if (saved.maxDailyTrades != null) setEngineMaxDailyTrades(saved.maxDailyTrades);
+    if (saved.maxDailyTrades   != null) setEngineMaxDailyTrades(saved.maxDailyTrades);
+    if (saved.dailyProfitTarget != null) setEngineDailyProfitTarget(saved.dailyProfitTarget);
     if (saved.compounding    != null) setEngineCompounding(saved.compounding);
     if (saved.drawdownShield != null) setEngineDrawdownShield(saved.drawdownShield);
     if (saved.shieldThreshold!= null) setEngineShieldThreshold(saved.shieldThreshold);
@@ -1456,6 +1458,7 @@ export default function WeeklyStrategyPage() {
         copyMode: engineCopyMode,
         accountBalance: engineAccountBalance,
         pairLotOverrides,
+        dailyProfitTarget: engineDailyProfitTarget,
       });
     }, 800);
   }, [selectedEngineAccount, engineRiskPerTrade, engineMaxLotSize, engineWeeklyTarget,
@@ -1539,6 +1542,7 @@ export default function WeeklyStrategyPage() {
         drawdownShieldThreshold: engineDrawdownShield ? engineShieldThreshold : 0,
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
+        dailyProfitTarget: engineDailyProfitTarget,
         riskPerTrade: engineRiskPerTrade,
         trailMethod: engineTrailMethod,
         breakevenBufferPips: engineBreakevenBufferPips,
@@ -2183,12 +2187,23 @@ export default function WeeklyStrategyPage() {
               </div>
 
               {/* Daily loss halted warning */}
-              {liveEngineStatus?.dailyLossHalted && (
+              {liveEngineStatus?.dailyLossHalted && !liveEngineStatus?.dailyProfitHalted && (
                 <div className="mt-3 mx-0 flex items-center gap-3 rounded-xl border-2 border-red-500/70 bg-red-950/40 px-4 py-3">
                   <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
                   <div>
                     <p className="text-red-400 font-bold text-sm">Daily Loss Limit Hit — Engine Halted</p>
                     <p className="text-red-400/70 text-xs">CLOSE ALL signal sent to MT5 EA at {liveEngineStatus.dailyLossHaltedAt ? new Date(liveEngineStatus.dailyLossHaltedAt).toLocaleTimeString() : 'N/A'}. Restart engine tomorrow.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Daily profit target hit banner */}
+              {liveEngineStatus?.dailyProfitHalted && (
+                <div className="mt-3 mx-0 flex items-center gap-3 rounded-xl border-2 border-emerald-500/70 bg-emerald-950/40 px-4 py-3">
+                  <span className="text-2xl flex-shrink-0">🏆</span>
+                  <div>
+                    <p className="text-emerald-400 font-bold text-sm">Daily Profit Target Hit — Engine Locked</p>
+                    <p className="text-emerald-400/70 text-xs">Gains protected at {liveEngineStatus.dailyProfitHaltedAt ? new Date(liveEngineStatus.dailyProfitHaltedAt).toLocaleTimeString() : 'N/A'}. CLOSE ALL sent to MT5. No new trades until tomorrow. Well done.</p>
                   </div>
                 </div>
               )}
@@ -2369,6 +2384,14 @@ export default function WeeklyStrategyPage() {
                       <Input type="number" value={engineDailyLossLimit} onChange={e => setEngineDailyLossLimit(Number(e.target.value))}
                         min={1} max={20} step={0.5} className="mt-1 bg-gray-800 border-red-900/50 text-white h-8 text-sm" />
                       <p className="text-[10px] text-red-400/70 mt-0.5">Auto-closes all trades + halts engine</p>
+                    </div>
+                    <div>
+                      <Label className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
+                        <span>🏆</span> Daily Profit Target (%)
+                      </Label>
+                      <Input type="number" value={engineDailyProfitTarget} onChange={e => setEngineDailyProfitTarget(Number(e.target.value))}
+                        min={0} max={200} step={1} className="mt-1 bg-gray-800 border-emerald-900/50 text-white h-8 text-sm" />
+                      <p className="text-[10px] text-emerald-400/70 mt-0.5">Stop trading + close all when gain % hit (0 = off)</p>
                     </div>
                   </div>
 
@@ -5291,6 +5314,7 @@ export default function WeeklyStrategyPage() {
                         copyMode: engineCopyMode,
                         trailMethod: engineTrailMethod,
                         dailyLossLimit: engineDailyLossLimit,
+                        dailyProfitTarget: engineDailyProfitTarget,
                       });
                       toast({ title: '✅ Engine Updated', description: 'All config changes pushed to the running engine.' });
                     } catch (e: any) {
