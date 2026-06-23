@@ -916,6 +916,21 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
+          {/* Goal achieved banner — shows when daily or weekly target hit */}
+          {(dayGoalPct >= 100 || weekGoalPct >= 100) && (
+            <div className="rounded-xl px-4 py-2.5 flex items-center gap-2.5 mb-2"
+              style={{ background: 'linear-gradient(90deg,rgba(16,185,129,0.15),rgba(5,150,105,0.08))', border: '1px solid rgba(16,185,129,0.3)' }}>
+              <span className="text-lg">🏆</span>
+              <div>
+                <p className="text-emerald-400 font-black text-xs leading-tight">
+                  {weekGoalPct >= 100 && dayGoalPct >= 100 ? 'WEEKLY + DAILY GOAL SMASHED!' : weekGoalPct >= 100 ? 'WEEKLY GOAL SMASHED!' : 'DAILY GOAL SMASHED!'}
+                </p>
+                <p className="text-emerald-500/70 text-[10px]">Exceptional trading — protect your profits now</p>
+              </div>
+              <span className="ml-auto text-emerald-400 font-black text-sm">+${weekClosedProfit.toFixed(0)}</span>
+            </div>
+          )}
+
           {/* Row 3: Goal rings + P&L meters */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {/* Weekly Goal Ring */}
