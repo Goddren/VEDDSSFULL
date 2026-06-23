@@ -6,5 +6,3 @@ vite.config.ts.*
 # Runtime data
 data/certificates.json
 data/curricula.json
-# Build output — keep server bundle in git, ignore client build (Render builds it fresh)
-dist/public/
