@@ -136,6 +136,18 @@ export default function LiveMonitorPage() {
     enabled: !!user,
   });
 
+  const { data: mt5AccountData } = useQuery<any>({
+    queryKey: ['/api/mt5/live-account'],
+    refetchInterval: 8000,
+    enabled: !!user,
+  });
+
+  const { data: platformMonitors } = useQuery<any>({
+    queryKey: ['/api/platform-monitors'],
+    refetchInterval: 15000,
+    enabled: !!user,
+  });
+
   useEffect(() => {
     const interval = setInterval(() => setLastRefresh(new Date()), POLL_INTERVAL);
     return () => clearInterval(interval);
@@ -155,6 +167,8 @@ export default function LiveMonitorPage() {
   const solWinRate = solStats && solStats.totalTrades > 0
     ? Math.round((solStats.wins / solStats.totalTrades) * 100) : 0;
 
+  const mt5LiveAcct = mt5AccountData?.accounts?.[0];
+  const tlAccounts = (platformMonitors?.tradelocker ?? []).filter((t: any) => !t.error);
   const anyOnline = solRunning || eaRunning;
 
   return (
@@ -181,6 +195,39 @@ export default function LiveMonitorPage() {
       <div className="flex-1 px-3 py-3 space-y-3 max-w-lg mx-auto w-full">
 
         <WeeklyProgressWidget className="mb-6" />
+
+        {/* Live account balances */}
+        {(mt5LiveAcct?.connected || tlAccounts.length > 0) && (
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {mt5LiveAcct?.connected && (
+              <div className="flex-shrink-0 rounded-xl border border-indigo-500/25 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(99,102,241,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-indigo-300 uppercase">MT5 Live</span>
+                </div>
+                <p className="text-sm font-black text-white">{mt5LiveAcct.currency ?? 'USD'} {(mt5LiveAcct.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {mt5LiveAcct.equity !== mt5LiveAcct.balance && (
+                  <p className="text-[9px] text-gray-500">Eq {(mt5LiveAcct.equity ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                )}
+                {(mt5LiveAcct.profit ?? 0) !== 0 && (
+                  <p className={`text-[10px] font-semibold ${(mt5LiveAcct.profit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(mt5LiveAcct.profit ?? 0) >= 0 ? '+' : ''}${(mt5LiveAcct.profit ?? 0).toFixed(2)} P&L
+                  </p>
+                )}
+              </div>
+            )}
+            {tlAccounts.map((t: any) => (
+              <div key={t.id} className="flex-shrink-0 rounded-xl border border-cyan-500/25 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(6,182,212,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-cyan-300 uppercase">{t.brokerName ?? 'TL'}</span>
+                </div>
+                <p className="text-sm font-black text-white">{t.currency ?? 'USD'} {(t.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {t.openTrades > 0 && <p className="text-[10px] text-cyan-400">{t.openTrades} open</p>}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Engine Status Chips */}
         <div className="grid grid-cols-2 gap-2">

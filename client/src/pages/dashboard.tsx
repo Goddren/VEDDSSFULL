@@ -901,19 +901,35 @@ const Dashboard: React.FC = () => {
           {/* Row 3: Goal rings + P&L meters */}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {/* Weekly Goal Ring */}
-            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
-              <svg width="56" height="56" viewBox="0 0 56 56">
-                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
-                <circle cx="28" cy="28" r="23" fill="none"
-                  stroke={weekGoalPct >= 100 ? '#10b981' : weekGoalPct >= 60 ? '#f59e0b' : '#6366f1'}
-                  strokeWidth="5" strokeLinecap="round"
-                  strokeDasharray={`${(weekGoalPct / 100) * 144.5} 144.5`}
-                  transform="rotate(-90 28 28)" />
-                <text x="28" y="32" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">{weekGoalPct.toFixed(0)}%</text>
-              </svg>
-              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Week Goal</p>
-              <p className="text-[10px] text-white font-semibold">${weekClosedProfit >= 0 ? '+' : ''}{weekClosedProfit.toFixed(0)} / ${weeklyTarget.toFixed(0)}</p>
-            </div>
+            {(() => {
+              const now = new Date();
+              const dayOfWeek = now.getDay(); // 0=Sun, 5=Fri (trading week ends Fri)
+              const tradingDaysLeft = dayOfWeek === 0 ? 5 : Math.max(0, 5 - dayOfWeek);
+              const ringColor = weekGoalPct >= 100 ? '#10b981' : weekGoalPct >= 60 ? '#f59e0b' : '#6366f1';
+              return (
+                <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
+                  <div className="relative">
+                    <svg width="56" height="56" viewBox="0 0 56 56">
+                      <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                      <circle cx="28" cy="28" r="23" fill="none"
+                        stroke={ringColor}
+                        strokeWidth="5" strokeLinecap="round"
+                        strokeDasharray={`${(weekGoalPct / 100) * 144.5} 144.5`}
+                        transform="rotate(-90 28 28)" />
+                      <text x="28" y="32" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">{weekGoalPct.toFixed(0)}%</text>
+                    </svg>
+                    {weekGoalPct >= 100 && (
+                      <span className="absolute -top-1 -right-1 text-[10px]">🏆</span>
+                    )}
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Week Goal</p>
+                  <p className="text-[10px] text-white font-semibold">${weekClosedProfit >= 0 ? '+' : ''}{weekClosedProfit.toFixed(0)} / ${weeklyTarget.toFixed(0)}</p>
+                  <p className="text-[9px] mt-0.5" style={{ color: tradingDaysLeft <= 1 ? '#f87171' : '#6b7280' }}>
+                    {tradingDaysLeft === 0 ? 'Week ends today' : `${tradingDaysLeft}d left`}
+                  </p>
+                </div>
+              );
+            })()}
 
             {/* Daily P&L */}
             <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
