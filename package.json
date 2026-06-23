@@ -67,7 +67,6 @@
     "axios": "^1.13.5",
     "bigint-buffer-fixed": "^1.1.6",
     "buffer": "^6.0.3",
-    "canvas": "^3.1.2",
     "canvas-confetti": "^1.9.3",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -146,11 +145,14 @@
     "bufferutil": "^4.0.8",
     "uuid-binary": "^1.0.0",
     "@rollup/rollup-linux-x64-gnu": "4.40.2",
-    "@rollup/rollup-linux-x64-musl": "4.40.2"
+    "@rollup/rollup-linux-x64-musl": "4.40.2",
+    "canvas": "^3.1.2"
   },
   "overrides": {
     "bigint-buffer": "npm:bigint-buffer-fixed@^1.1.6",
     "tar": "7.5.7",
-    "rpc-websockets": { "uuid": "8.3.2" }
+    "rpc-websockets": {
+      "uuid": "8.3.2"
+    }
   }
 }

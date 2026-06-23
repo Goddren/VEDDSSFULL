@@ -1,5 +1,7 @@
 import crypto from 'crypto';
-import { createCanvas, loadImage, registerFont } from 'canvas';
+// canvas is an optional native module — may not be available on all hosts
+let createCanvas: any = null, loadImage: any = null, registerFont: any = null;
+try { ({ createCanvas, loadImage, registerFont } = require('canvas')); } catch { /* unavailable */ }
 import path from 'path';
 import fs from 'fs';
 
