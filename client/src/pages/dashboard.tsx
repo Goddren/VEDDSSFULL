@@ -848,7 +848,7 @@ const Dashboard: React.FC = () => {
         <div className="container mx-auto">
 
           {/* Row 1: greeting + engine status */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-start justify-between gap-2 mb-3 flex-wrap">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-black text-white leading-tight">
@@ -871,26 +871,26 @@ const Dashboard: React.FC = () => {
                 {streakData && streakData.xpPoints > 0 && <span className="text-gray-600"> · {streakData.xpPoints.toLocaleString()} XP</span>}
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <AISourceBadge />
+            <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
+              <span className="hidden sm:block"><AISourceBadge /></span>
               {/* Daily check-in button */}
               {checkinStatus && !checkinStatus.claimed && (
                 <button
                   onClick={() => checkinMutation.mutate()}
                   disabled={checkinMutation.isPending}
-                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all active:scale-95"
+                  className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all active:scale-95 whitespace-nowrap"
                 >
-                  {checkinMutation.isPending ? '…' : `✓ Check In +${checkinStatus.nextReward} VEDD`}
+                  {checkinMutation.isPending ? '…' : `✓ +${checkinStatus.nextReward} VEDD`}
                 </button>
               )}
               {checkinStatus?.claimed && (
                 <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-500">
-                  ✓ Checked In
+                  ✓ In
                 </span>
               )}
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-                {ssEngineRunning ? 'ENGINE LIVE' : 'ENGINE OFF'}
+              <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                <span className="whitespace-nowrap">{ssEngineRunning ? 'LIVE' : 'OFF'}</span>
               </div>
             </div>
           </div>

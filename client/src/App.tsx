@@ -308,6 +308,7 @@ function AppLayout() {
       {showHeaderFooter && !isAuthPage && <Footer />}
       <OnboardingTutorial />
       <MobileBottomNav />
+      <MobileFAB />
       <AbbaAssistant />
       <AmbassadorTodoPopup />
       <NetworkStatus />
