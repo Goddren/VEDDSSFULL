@@ -568,6 +568,15 @@ const Dashboard: React.FC = () => {
     staleTime: 240000,
   });
 
+  // Market news for primary strategy pair
+  const { data: pairNews } = useQuery<{ news: Array<{ headline: string; sentiment: string; url?: string; source?: string; datetime?: number }> }>({
+    queryKey: ['/api/news/pair', calendarPair],
+    queryFn: () => fetch(`/api/news/pair/${calendarPair}`).then(r => r.json()),
+    enabled: !!user,
+    staleTime: 10 * 60 * 1000,
+    refetchInterval: 15 * 60 * 1000,
+  });
+
   // Live today's profit — updated by the sync mutation below
   const [liveToday, setLiveToday] = React.useState<{
     todayClosedProfit: number; unrealizedPnL: number; dailyTarget: number;
@@ -1055,6 +1064,28 @@ const Dashboard: React.FC = () => {
 
       <div className="container mx-auto px-4 md:px-6">
         <AIKeyNudgeBanner />
+
+        {/* ══════════════════════════════════════════════════════════════════
+            MARKET NEWS STRIP — latest headlines for active pair
+        ══════════════════════════════════════════════════════════════════ */}
+        {pairNews?.news && pairNews.news.length > 0 && (
+          <div className="mb-4 rounded-2xl border border-gray-700/40 bg-gray-900/40 overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800/60">
+              <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">📰 {calendarPair} News</span>
+              <span className="ml-auto text-[9px] text-gray-600">{pairNews.news.length} headlines</span>
+            </div>
+            <div className="divide-y divide-gray-800/40">
+              {pairNews.news.slice(0, 3).map((item: any, i: number) => (
+                <a key={i} href={item.url ?? '#'} target="_blank" rel="noopener noreferrer"
+                  className="flex items-start gap-2.5 px-3 py-2 hover:bg-gray-800/30 transition-colors">
+                  <span className={`flex-shrink-0 w-1 h-full self-stretch rounded-full mt-1 ${item.sentiment === 'bullish' || item.sentiment === 'positive' ? 'bg-emerald-500' : item.sentiment === 'bearish' || item.sentiment === 'negative' ? 'bg-red-500' : 'bg-gray-600'}`} style={{ minHeight: 10 }} />
+                  <p className="text-[11px] text-gray-300 leading-snug line-clamp-2">{item.headline}</p>
+                  {item.source && <span className="text-[9px] text-gray-600 flex-shrink-0 ml-auto">{item.source}</span>}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ══════════════════════════════════════════════════════════════════
             FUSEBOX — per-engine kill panel
