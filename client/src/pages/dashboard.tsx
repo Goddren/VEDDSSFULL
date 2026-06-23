@@ -305,6 +305,24 @@ const Dashboard: React.FC = () => {
   const [showMarket, toggleMarket] = useSectionToggle('market');
   const [showCoach, toggleCoach] = useSectionToggle('coach');
 
+  // Ambassador to-do checkboxes — persisted to localStorage, auto-clear at midnight
+  const [ambassadorTodos, setAmbassadorTodos] = useState<{ post: boolean; dm: boolean; comment: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem('ambassador_todos');
+      if (!saved) return { post: false, dm: false, comment: false };
+      const { date, todos } = JSON.parse(saved);
+      if (date !== new Date().toISOString().slice(0, 10)) return { post: false, dm: false, comment: false };
+      return todos;
+    } catch { return { post: false, dm: false, comment: false }; }
+  });
+  const toggleAmbassadorTodo = (key: 'post' | 'dm' | 'comment') => {
+    setAmbassadorTodos(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem('ambassador_todos', JSON.stringify({ date: new Date().toISOString().slice(0, 10), todos: next })); } catch {}
+      return next;
+    });
+  };
+
   // Initialize faith content preference from localStorage
   useEffect(() => {
     const savedPreference = localStorage.getItem('faithBasedContent');
@@ -857,7 +875,7 @@ const Dashboard: React.FC = () => {
                 </button>
               )}
               {checkinStatus?.claimed && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/08 text-emerald-500">
+                <span className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-500">
                   ✓ Checked In
                 </span>
               )}
@@ -1182,16 +1200,22 @@ const Dashboard: React.FC = () => {
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {ambassadorJourney.todayActions.postIdea && (
-                    <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-3 py-2">
-                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">📣 Post Idea</p>
-                      <p className="text-[10px] text-gray-300 leading-relaxed line-clamp-3">{ambassadorJourney.todayActions.postIdea}</p>
-                    </div>
+                    <button onClick={() => toggleAmbassadorTodo('post')}
+                      className={`rounded-xl border px-3 py-2 text-left transition-opacity w-full ${ambassadorTodos.post ? 'opacity-50 bg-emerald-900/10 border-emerald-800/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                        {ambassadorTodos.post ? '✓' : '○'} 📣 Post Idea
+                      </p>
+                      <p className={`text-[10px] leading-relaxed line-clamp-3 ${ambassadorTodos.post ? 'line-through text-gray-600' : 'text-gray-300'}`}>{ambassadorJourney.todayActions.postIdea}</p>
+                    </button>
                   )}
                   {ambassadorJourney.todayActions.dmScript && (
-                    <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-3 py-2">
-                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">💬 DM Script</p>
-                      <p className="text-[10px] text-gray-300 leading-relaxed line-clamp-3">{ambassadorJourney.todayActions.dmScript}</p>
-                    </div>
+                    <button onClick={() => toggleAmbassadorTodo('dm')}
+                      className={`rounded-xl border px-3 py-2 text-left transition-opacity w-full ${ambassadorTodos.dm ? 'opacity-50 bg-blue-900/10 border-blue-800/30' : 'bg-gray-800/60 border-gray-700/50'}`}>
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">
+                        {ambassadorTodos.dm ? '✓' : '○'} 💬 DM Script
+                      </p>
+                      <p className={`text-[10px] leading-relaxed line-clamp-3 ${ambassadorTodos.dm ? 'line-through text-gray-600' : 'text-gray-300'}`}>{ambassadorJourney.todayActions.dmScript}</p>
+                    </button>
                   )}
                 </div>
                 {ambassadorJourney.nextMilestone && (
@@ -2057,14 +2081,24 @@ const Dashboard: React.FC = () => {
             </div>
             {ambassadorJourney.todayActions ? (
               <div className="px-4 py-3 space-y-2">
-                <div className="flex items-start gap-2.5">
-                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 rounded-lg px-2 py-1 shrink-0 mt-0.5">POST</span>
-                  <p className="text-gray-300 text-xs leading-relaxed">{ambassadorJourney.todayActions.postIdea}</p>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <span className="text-[10px] font-bold text-blue-400 bg-blue-500/10 rounded-lg px-2 py-1 shrink-0 mt-0.5">DM</span>
-                  <p className="text-gray-300 text-xs leading-relaxed">{ambassadorJourney.todayActions.dmScript}</p>
-                </div>
+                {([
+                  { key: 'post' as const, label: 'POST', color: 'text-emerald-400', bg: 'bg-emerald-500/10', text: ambassadorJourney.todayActions.postIdea },
+                  { key: 'dm' as const,   label: 'DM',   color: 'text-blue-400',    bg: 'bg-blue-500/10',    text: ambassadorJourney.todayActions.dmScript },
+                  { key: 'comment' as const, label: 'FOCUS', color: 'text-amber-400', bg: 'bg-amber-500/10', text: ambassadorJourney.todayActions.focus },
+                ]).map(({ key, label, color, bg, text }) => (
+                  <button key={key}
+                    onClick={() => toggleAmbassadorTodo(key)}
+                    className={`w-full flex items-start gap-2.5 text-left transition-opacity ${ambassadorTodos[key] ? 'opacity-50' : ''}`}
+                  >
+                    <span className={`text-[10px] font-bold ${color} ${bg} rounded-lg px-2 py-1 shrink-0 mt-0.5 flex items-center gap-1`}>
+                      {ambassadorTodos[key] ? '✓' : '○'} {label}
+                    </span>
+                    <p className={`text-xs leading-relaxed ${ambassadorTodos[key] ? 'line-through text-gray-600' : 'text-gray-300'}`}>{text}</p>
+                  </button>
+                ))}
+                {Object.values(ambassadorTodos).every(Boolean) && (
+                  <p className="text-[11px] text-emerald-400 font-bold pt-1">🎯 All done today! Streak maintained.</p>
+                )}
                 {ambassadorJourney.nextMilestone && (
                   <p className="text-[11px] text-gray-500 pt-1">Next milestone: Day {ambassadorJourney.nextMilestone.day} → {ambassadorJourney.nextMilestone.reward}</p>
                 )}

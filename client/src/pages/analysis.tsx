@@ -552,11 +552,25 @@ const Analysis: React.FC = () => {
       <AnalysisStatusNotification state={analysisState} progress={analysisProgress} />
       
       {/* Page Header */}
-      <div className="mb-8 space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Chart Analysis</h1>
-        <p className="text-muted-foreground">
-          Upload your trading charts for AI-powered analysis and trading recommendations
-        </p>
+      <div className="mb-6 rounded-2xl px-5 py-4 flex items-center justify-between flex-wrap gap-3"
+        style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.12) 0%,rgba(6,182,212,0.06) 100%)', border: '1px solid rgba(99,102,241,0.2)' }}>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(99,102,241,0.3)' }}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M2 14l4-4 3 3 4-5 5 4" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="16" cy="5" r="2" fill="#6366f1" opacity="0.8"/>
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-white leading-tight">VEDD Chart Analysis</h1>
+            <p className="text-[11px] text-gray-400 mt-0.5">Upload a chart · AI reads the structure · You get the play</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-[10px]">
+          <span className="px-2 py-1 rounded-full font-bold border border-indigo-500/30 bg-indigo-500/10 text-indigo-400">SS AI Powered</span>
+          <span className="px-2 py-1 rounded-full font-bold border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">Multi-TF</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
