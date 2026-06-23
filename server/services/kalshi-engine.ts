@@ -142,16 +142,49 @@ export function startKalshiEngine(userId: number): void {
   const s = getKalshiEngineState(userId);
   if (s.isRunning) return;
   s.isRunning = true;
+  _persistKalshiRunState(userId, true, s.isPaperMode);
   _runKalshiScan(userId).catch(console.error);
-  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1000); // 5 min
+  const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1000);
   _timers.set(userId, iv);
 }
 
 export function stopKalshiEngine(userId: number): void {
   const s = getKalshiEngineState(userId);
   s.isRunning = false;
+  _persistKalshiRunState(userId, false, s.isPaperMode);
   const iv = _timers.get(userId);
   if (iv) { clearInterval(iv); _timers.delete(userId); }
+}
+
+function _persistKalshiRunState(userId: number, isRunning: boolean, isPaperMode: boolean): void {
+  import('../db').then(({ db }) => {
+    import('../../shared/schema').then(({ engineRunState }) => {
+      db.insert(engineRunState)
+        .values({ userId, engine: 'kalshi', isRunning, isPaperMode })
+        .onConflictDoUpdate({
+          target: [engineRunState.userId, engineRunState.engine],
+          set: { isRunning, isPaperMode, updatedAt: new Date() },
+        })
+        .catch(console.error);
+    });
+  });
+}
+
+export async function restoreKalshiEngineStateFromDb(userId: number): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { engineRunState } = await import('../../shared/schema');
+    const { eq, and } = await import('drizzle-orm');
+    const rows = await db.select().from(engineRunState)
+      .where(and(eq(engineRunState.userId, userId), eq(engineRunState.engine, 'kalshi')));
+    const row = rows[0];
+    if (row?.isRunning) {
+      console.log(`[Kalshi] Restoring engine for user ${userId}`);
+      startKalshiEngine(userId);
+    }
+  } catch (e) {
+    console.error('[Kalshi] Failed to restore engine state:', e);
+  }
 }
 
 export async function manualKalshiScan(userId: number): Promise<{ fired: boolean; reason: string }> {

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 
 interface PageTransitionProps {
@@ -8,41 +8,26 @@ interface PageTransitionProps {
 
 export function PageTransition({ children }: PageTransitionProps) {
   const [location] = useLocation();
-  const [key, setKey] = useState(location);
-  
+  const prevLocation = useRef(location);
+
   useEffect(() => {
-    // Scroll to top on page change
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
-    
-    // Update the key only when navigating to a dashboard route or from it
-    const isDashboard = location.includes('/dashboard') || 
-                        location.includes('/analysis') || 
-                        location.includes('/profile') ||
-                        location.includes('/home');
-    const isAuth = location === '/auth';
-    const isLanding = location === '/';
-    
-    // Only apply transition for auth to dashboard or dashboard to auth transitions
-    if ((isDashboard && (key === '/auth' || key === '/')) || 
-        ((isAuth || isLanding) && key.includes('/dashboard'))) {
-      setKey(location);
-    }
-  }, [location, key]);
+    prevLocation.current = location;
+  }, [location]);
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="wait" initial={false}>
       <motion.div
-        key={key}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        transition={{ 
-          type: "spring", 
-          stiffness: 250, 
-          damping: 25,
-          duration: 0.3 
+        key={location}
+        initial={{ opacity: 0, x: 8, filter: 'blur(2px)' }}
+        animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+        exit={{ opacity: 0, x: -8, filter: 'blur(2px)' }}
+        transition={{
+          type: 'tween',
+          ease: [0.25, 0.46, 0.45, 0.94],
+          duration: 0.22,
         }}
         className="w-full h-full"
       >

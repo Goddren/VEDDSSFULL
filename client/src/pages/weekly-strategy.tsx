@@ -875,7 +875,7 @@ export default function WeeklyStrategyPage() {
   const [tradingDays, setTradingDays] = useState<string[]>(['Monday','Tuesday','Wednesday','Thursday','Friday']);
   const [pairDayAssignments, setPairDayAssignments] = useState<Record<string,string[]>>({});
   const [smartEscalation, setSmartEscalation] = useState(false);
-  const [highConfidenceOverride, setHighConfidenceOverride] = useState(true);
+  const [highConfidenceOverride, setHighConfidenceOverride] = useState(false);
   const [confirmationModel, setConfirmationModel] = useState<string>('gpt-4o');
   const [showPinPairs, setShowPinPairs] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
@@ -1402,6 +1402,16 @@ export default function WeeklyStrategyPage() {
   const [engineAiMode, setEngineAiMode] = useState<'full' | 'economy' | 'rule_based'>('full');
   const [engineVolatileCapMode, setEngineVolatileCapMode] = useState<'risk_scaled' | 'user_only'>('risk_scaled');
   const [engineCopyMode, setEngineCopyMode] = useState<'proportional' | 'multiplier'>('proportional');
+  // Settings lock: engine never auto-adjusts risk/lots/pairs after user configures
+  const [engineLockSettings, setEngineLockSettings] = useState(false);
+  // Smart escalation: engine unlocks more pairs as account grows
+  const [engineSmartEscalation, setEngineSmartEscalation] = useState(false);
+  // High-confidence override: allow trades outside plan when EA+AI both ≥85%
+  const [engineHighConfOverride, setEngineHighConfOverride] = useState(false);
+  // Strategy lock: only the selected strategy fires — no mixing
+  const [engineSingleStrategyMode, setEngineSingleStrategyMode] = useState(false);
+  // Multiple trades per strategy per day: false = one trade max per strategy per day
+  const [engineAllowMultipleTrades, setEngineAllowMultipleTrades] = useState(true);
   // ORB Autonomous: 9:30 AM breakout+retest fires trades directly
   const [engineORBAutonomous, setEngineORBAutonomous] = useState(true);
   // Composite Autonomous: Markov×Polymarket fires crypto trades independently of AI
@@ -1543,6 +1553,9 @@ export default function WeeklyStrategyPage() {
         adaptiveScanInterval: engineAdaptiveScan,
         dailyLossLimit: engineDailyLossLimit,
         dailyProfitTarget: engineDailyProfitTarget,
+        lockSettings: engineLockSettings,
+        singleStrategyMode: engineSingleStrategyMode,
+        allowMultipleTrades: engineAllowMultipleTrades,
         riskPerTrade: engineRiskPerTrade,
         trailMethod: engineTrailMethod,
         breakevenBufferPips: engineBreakevenBufferPips,
@@ -4397,6 +4410,59 @@ export default function WeeklyStrategyPage() {
                   ))}
                 </div>
               </div>
+              {/* ── Strategy Lock Controls ────────────────────────── */}
+              <div className="rounded-xl border border-gray-700 bg-gray-900/40 p-3 space-y-3">
+                <p className="text-[11px] font-bold text-gray-300 uppercase tracking-wider">Strategy Execution Rules</p>
+
+                {/* Settings Lock — master override that freezes all auto-adjustments */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-white">🔐 Lock My Settings</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Engine never auto-adjusts your risk, lot size, or pairs</p>
+                  </div>
+                  <button
+                    onClick={() => setEngineLockSettings(v => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${engineLockSettings ? 'bg-red-500' : 'bg-gray-700'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${engineLockSettings ? 'translate-x-4' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                {engineLockSettings && (
+                  <p className="text-[10px] text-red-400 font-medium">🔐 Locked — your configured lot size, pairs, and risk % are final. No AI overrides.</p>
+                )}
+
+                {/* Strategy Lock */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-white">🔒 Strategy Lock</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Only the selected strategy fires — block all others</p>
+                  </div>
+                  <button
+                    onClick={() => setEngineSingleStrategyMode(v => !v)}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${engineSingleStrategyMode ? 'bg-orange-500' : 'bg-gray-700'}`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${engineSingleStrategyMode ? 'translate-x-4' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+                {engineSingleStrategyMode && (
+                  <div className="flex items-center justify-between pl-3 border-l-2 border-orange-500/40">
+                    <div>
+                      <p className="text-xs font-semibold text-white">📅 Multiple Trades</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5">{engineAllowMultipleTrades ? 'Unlimited trades per day on this strategy' : 'One trade maximum per day on this strategy'}</p>
+                    </div>
+                    <button
+                      onClick={() => setEngineAllowMultipleTrades(v => !v)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${engineAllowMultipleTrades ? 'bg-teal-500' : 'bg-gray-700'}`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${engineAllowMultipleTrades ? 'translate-x-4' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                )}
+                {engineSingleStrategyMode && (
+                  <p className="text-[10px] text-orange-400 font-medium">Active: Only <span className="font-bold">{strategyMode.replace('_', ' ').toUpperCase()}</span> signals will fire{!engineAllowMultipleTrades ? ' · 1 trade/day max' : ''}</p>
+                )}
+              </div>
+
               {/* ── ORB Mode callout ─────────────────────────────── */}
               {strategyMode === 'orb_breakout' && (
                 <div className="rounded-xl border overflow-hidden" style={{ background: "rgba(34,197,94,0.05)", borderColor: "rgba(34,197,94,0.3)" }}>
@@ -5315,6 +5381,9 @@ export default function WeeklyStrategyPage() {
                         trailMethod: engineTrailMethod,
                         dailyLossLimit: engineDailyLossLimit,
                         dailyProfitTarget: engineDailyProfitTarget,
+                        lockSettings: engineLockSettings,
+                        singleStrategyMode: engineSingleStrategyMode,
+                        allowMultipleTrades: engineAllowMultipleTrades,
                       });
                       toast({ title: '✅ Engine Updated', description: 'All config changes pushed to the running engine.' });
                     } catch (e: any) {

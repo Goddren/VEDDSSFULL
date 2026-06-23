@@ -2,7 +2,7 @@
 import { Link } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { BiBook } from 'react-icons/bi';
 import { SiSolana } from 'react-icons/si';
@@ -287,6 +287,7 @@ function ManualTradeDialog({ open, onClose, onSaved }: { open: boolean; onClose:
 
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [showFaithContent, setShowFaithContent] = useState<boolean>(true);
 
   const [showManualTradeDialog, setShowManualTradeDialog] = useState(false);
@@ -452,6 +453,29 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000,
   });
 
+  const { data: polyEngineStatus, refetch: refetchPoly } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalBets?: number }>({
+    queryKey: ['/api/polymarket-engine/status'],
+    enabled: !!user,
+    refetchInterval: 20000,
+  });
+
+  const { data: kalshiEngineStatus, refetch: refetchKalshi } = useQuery<{ isRunning: boolean; isPaperMode?: boolean; totalBets?: number }>({
+    queryKey: ['/api/kalshi/engine/status'],
+    enabled: !!user,
+    refetchInterval: 20000,
+  });
+
+  // Daily devotional — Bible verse + trading tie-in
+  const { data: dailyDevotional } = useQuery<{
+    title: string; theme: string; scripture: string; scripture_text: string;
+    reflection: string; trading_tie_in: string; affirmation: string;
+  }>({
+    queryKey: ['/api/devotionals/today'],
+    enabled: !!user,
+    staleTime: 1000 * 60 * 60, // cache 1 hr — only generates once per day
+    refetchInterval: false,
+  });
+
   // Ambassador journey — current day + today's actions (ambassadors only)
   const { data: ambassadorJourney } = useQuery<{
     currentDay: number; streak: number; tokensEarned: number; isComplete: boolean;
@@ -482,6 +506,7 @@ const Dashboard: React.FC = () => {
   // Weekly strategy — same source the weekly plan page uses for live progress
   const { data: activeStrategy, refetch: refetchStrategy } = useQuery<{
     profitTarget: number; currentProfit: number; progressPercentage: number; hasStrategy: boolean;
+    pairs?: string[]; riskLevel?: string; strategyMode?: string;
     todayClosedProfit?: number; todayTotalProfit?: number; dailyTarget?: number;
     dayProgressPct?: number; unrealizedPnL?: number; openPositions?: number;
     todayTrades?: number; todayWinRate?: number;
@@ -489,6 +514,21 @@ const Dashboard: React.FC = () => {
     queryKey: ['/api/weekly-strategy'],
     enabled: !!user,
     refetchInterval: 30000,
+  });
+
+  // Economic calendar tied to active strategy pairs (next 3 days, high-impact only)
+  const strategyPairs = activeStrategy?.pairs ?? [];
+  const calendarPair = strategyPairs[0] ?? 'EURUSD';
+  const { data: econCalendar } = useQuery<{ events: Array<{
+    id: string; title: string; date: string; time: string; impact: string;
+    currency: string; country: string; forecast?: string; previous?: string;
+    description?: string; affectedPairs?: string[];
+  }> }>({
+    queryKey: ['/api/economic-calendar', calendarPair],
+    queryFn: () => fetch(`/api/economic-calendar?symbol=${calendarPair}&days=3`).then(r => r.json()),
+    enabled: !!user,
+    refetchInterval: 300000,
+    staleTime: 240000,
   });
 
   // Live today's profit — updated by the sync mutation below
@@ -525,6 +565,20 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  // Fusebox engine toggle mutations
+  const killAllMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/trading/kill-all').then(r => r.json()),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['/api/vedd-live-engine/status'] }); refetchPoly(); refetchKalshi(); },
+  });
+  const polyToggleMutation = useMutation({
+    mutationFn: (start: boolean) => apiRequest('POST', start ? '/api/polymarket-engine/start' : '/api/polymarket-engine/stop').then(r => r.json()),
+    onSuccess: () => refetchPoly(),
+  });
+  const kalshiToggleMutation = useMutation({
+    mutationFn: (start: boolean) => apiRequest('POST', start ? '/api/kalshi/engine/start' : '/api/kalshi/engine/stop').then(r => r.json()),
+    onSuccess: () => refetchKalshi(),
+  });
 
   // Merge: prefer strategy's live progress over daily-summary recalc when available
   const weekProgressPct   = activeStrategy?.progressPercentage ?? dailySummary?.weekProgressPct ?? 0;
@@ -729,11 +783,135 @@ const Dashboard: React.FC = () => {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
+  // Derived live values for motherboard
+  const mt5LiveAcct   = mt5AccountData?.accounts?.[0];
+  const liveBalance   = mt5LiveAcct?.connected ? (mt5LiveAcct.balance ?? 0) : (platformMonitors?.mt5?.balance ?? 0);
+  const liveDailyPnl  = mt5LiveAcct?.connected ? (mt5LiveAcct.dailyPnL ?? mt5LiveAcct.profit ?? 0) : (todayClosedProfit + unrealizedPnL);
+  const liveWeeklyPnl = platformMonitors?.mt5?.weeklyPnl ?? weekClosedProfit;
+  const weekGoalPct   = Math.min(100, weekProgressPct);
+  const dayGoalPct    = Math.min(100, dayProgressPct);
+  const tlLiveAccts   = platformMonitors?.tradelocker ?? [];
+
   return (
     <div className="app-page">
 
-      {/* ── Greeting Header ──────────────────────────────────────────────── */}
-      <div className="px-4 md:px-6 pt-5 pb-3 container mx-auto">
+      {/* ══════════════════════════════════════════════════════════════════
+          VEDD COMMAND CENTER — gamified motherboard header
+      ══════════════════════════════════════════════════════════════════ */}
+      <div style={{ background: 'linear-gradient(180deg,#0b0e1a 0%,#080B14 100%)', borderBottom: '1px solid rgba(255,255,255,0.06)' }} className="px-4 md:px-6 pt-5 pb-4">
+        <div className="container mx-auto">
+
+          {/* Row 1: greeting + engine status */}
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-xl font-black text-white leading-tight">
+                {greeting}, {displayName}
+              </h1>
+              <p className="text-[11px] text-gray-500 mt-0.5">{dateStr} · VEDD Command Center</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <AISourceBadge />
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                {ssEngineRunning ? 'ENGINE LIVE' : 'ENGINE OFF'}
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Live account balance cards */}
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
+            {mt5LiveAcct?.connected && (
+              <div className="flex-shrink-0 rounded-xl border border-indigo-500/25 bg-indigo-500/8 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(99,102,241,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider">MT5 Live</span>
+                </div>
+                <p className="text-base font-black text-white leading-none">{mt5LiveAcct.currency ?? 'USD'} {liveBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {mt5LiveAcct.equity !== mt5LiveAcct.balance && <p className="text-[10px] text-gray-500 mt-0.5">Equity {(mt5LiveAcct.equity ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+              </div>
+            )}
+            {tlLiveAccts.filter(t => !t.error).map((t: any) => (
+              <div key={t.id} className="flex-shrink-0 rounded-xl border border-cyan-500/25 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(6,182,212,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-cyan-300 uppercase tracking-wider">{t.brokerName ?? t.accountType?.toUpperCase() ?? 'TL'}</span>
+                </div>
+                <p className="text-base font-black text-white leading-none">{t.currency ?? 'USD'} {(t.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {t.openTrades > 0 && <p className="text-[10px] text-cyan-400 mt-0.5">{t.openTrades} open</p>}
+              </div>
+            ))}
+            {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && (
+              <div className="flex-shrink-0 rounded-xl border border-gray-700 px-3 py-2.5 min-w-[160px] bg-gray-900/40">
+                <p className="text-[10px] text-gray-500">No live accounts connected</p>
+                <p className="text-[9px] text-gray-600 mt-0.5">Connect MT5 EA or TradeLocker →</p>
+              </div>
+            )}
+          </div>
+
+          {/* Row 3: Goal rings + P&L meters */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {/* Weekly Goal Ring */}
+            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                <circle cx="28" cy="28" r="23" fill="none"
+                  stroke={weekGoalPct >= 100 ? '#10b981' : weekGoalPct >= 60 ? '#f59e0b' : '#6366f1'}
+                  strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={`${(weekGoalPct / 100) * 144.5} 144.5`}
+                  transform="rotate(-90 28 28)" />
+                <text x="28" y="32" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">{weekGoalPct.toFixed(0)}%</text>
+              </svg>
+              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Week Goal</p>
+              <p className="text-[10px] text-white font-semibold">${weekClosedProfit >= 0 ? '+' : ''}{weekClosedProfit.toFixed(0)} / ${weeklyTarget.toFixed(0)}</p>
+            </div>
+
+            {/* Daily P&L */}
+            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
+              <svg width="56" height="56" viewBox="0 0 56 56">
+                <circle cx="28" cy="28" r="23" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                <circle cx="28" cy="28" r="23" fill="none"
+                  stroke={liveDailyPnl >= 0 ? '#10b981' : '#ef4444'}
+                  strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={`${Math.min(100, Math.abs(dayGoalPct)) / 100 * 144.5} 144.5`}
+                  transform="rotate(-90 28 28)" />
+                <text x="28" y="32" textAnchor="middle" fill={liveDailyPnl >= 0 ? '#10b981' : '#ef4444'} fontSize="9" fontWeight="700">{liveDailyPnl >= 0 ? '+' : ''}{liveDailyPnl.toFixed(1)}</text>
+              </svg>
+              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Daily P&L</p>
+              <p className="text-[10px] font-semibold" style={{ color: liveDailyPnl >= 0 ? '#10b981' : '#ef4444' }}>
+                {liveDailyPnl >= 0 ? '▲' : '▼'} ${Math.abs(liveDailyPnl).toFixed(2)}
+              </p>
+            </div>
+
+            {/* Today's trades */}
+            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center justify-center">
+              <p className="text-2xl font-black text-white">{todayTrades}</p>
+              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-0.5">Trades Today</p>
+              {todayWinRate > 0 && <p className="text-[10px] font-semibold text-emerald-400 mt-1">{todayWinRate.toFixed(0)}% W/R</p>}
+              {openPositions > 0 && <p className="text-[9px] text-cyan-400">{openPositions} open</p>}
+            </div>
+
+            {/* Engine/Brain status */}
+            <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center justify-center gap-1.5">
+              <div className={`flex items-center gap-1 text-[10px] font-bold ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                SS AI {ssEngineRunning ? 'ON' : 'OFF'}
+              </div>
+              <div className={`flex items-center gap-1 text-[10px] font-bold ${solEngineRunning ? 'text-violet-400' : 'text-gray-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${solEngineRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-600'}`} />
+                SOL {solEngineRunning ? 'ON' : 'OFF'}
+              </div>
+              <div className={`flex items-center gap-1 text-[10px] font-bold ${breakoutMonitorOn ? 'text-amber-400' : 'text-gray-500'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${breakoutMonitorOn ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`} />
+                Breakout {breakoutMonitorOn ? 'ON' : 'OFF'}
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Greeting Header (now just date strip) ─────────────────────── */}
+      <div className="px-4 md:px-6 pt-3 pb-1 container mx-auto" style={{ display: 'none' }}>
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-black text-white">
@@ -755,6 +933,222 @@ const Dashboard: React.FC = () => {
 
       <div className="container mx-auto px-4 md:px-6">
         <AIKeyNudgeBanner />
+
+        {/* ══════════════════════════════════════════════════════════════════
+            FUSEBOX — per-engine kill panel
+        ══════════════════════════════════════════════════════════════════ */}
+        <div className="mb-4 rounded-2xl border border-gray-700/50 bg-gray-900/60 p-3">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-red-500/15 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#ef4444" strokeWidth="1.5"/><path d="M6 3v3l2 1" stroke="#ef4444" strokeWidth="1.2" strokeLinecap="round"/></svg>
+              </div>
+              <span className="text-xs font-bold text-white uppercase tracking-wider">Engine Fusebox</span>
+            </div>
+            <button
+              onClick={() => killAllMutation.mutate()}
+              disabled={killAllMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 text-[11px] font-bold hover:bg-red-500/25 transition-colors active:scale-95"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              {killAllMutation.isPending ? 'STOPPING…' : 'KILL ALL'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {/* SS AI Engine */}
+            <Link href="/weekly-strategy">
+              <div className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${ssEngineRunning ? 'border-emerald-500/30 bg-emerald-500/8' : 'border-gray-700 bg-gray-800/40'}`} style={ssEngineRunning ? { background: 'rgba(16,185,129,0.07)' } : {}}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">SS AI</span>
+                  <span className={`w-2 h-2 rounded-full ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                </div>
+                <p className={`text-xs font-black ${ssEngineRunning ? 'text-emerald-400' : 'text-gray-500'}`}>{ssEngineRunning ? 'LIVE' : 'OFF'}</p>
+                <p className="text-[9px] text-gray-600 mt-0.5">Tap to configure</p>
+              </div>
+            </Link>
+            {/* Polymarket */}
+            <div
+              onClick={() => polyToggleMutation.mutate(!polyEngineStatus?.isRunning)}
+              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${polyEngineStatus?.isRunning ? 'border-violet-500/30' : 'border-gray-700 bg-gray-800/40'}`}
+              style={polyEngineStatus?.isRunning ? { background: 'rgba(139,92,246,0.07)' } : {}}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Polymarket</span>
+                <span className={`w-2 h-2 rounded-full ${polyEngineStatus?.isRunning ? 'bg-violet-400 animate-pulse' : 'bg-gray-600'}`} />
+              </div>
+              <p className={`text-xs font-black ${polyEngineStatus?.isRunning ? 'text-violet-400' : 'text-gray-500'}`}>
+                {polyToggleMutation.isPending ? '…' : polyEngineStatus?.isRunning ? 'LIVE' : 'OFF'}
+              </p>
+              <p className="text-[9px] text-gray-600 mt-0.5">{polyEngineStatus?.isPaperMode ? 'Paper mode' : 'Live mode'}</p>
+            </div>
+            {/* Kalshi */}
+            <div
+              onClick={() => kalshiToggleMutation.mutate(!kalshiEngineStatus?.isRunning)}
+              className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${kalshiEngineStatus?.isRunning ? 'border-cyan-500/30' : 'border-gray-700 bg-gray-800/40'}`}
+              style={kalshiEngineStatus?.isRunning ? { background: 'rgba(6,182,212,0.07)' } : {}}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Kalshi</span>
+                <span className={`w-2 h-2 rounded-full ${kalshiEngineStatus?.isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-gray-600'}`} />
+              </div>
+              <p className={`text-xs font-black ${kalshiEngineStatus?.isRunning ? 'text-cyan-400' : 'text-gray-500'}`}>
+                {kalshiToggleMutation.isPending ? '…' : kalshiEngineStatus?.isRunning ? 'LIVE' : 'OFF'}
+              </p>
+              <p className="text-[9px] text-gray-600 mt-0.5">{kalshiEngineStatus?.isPaperMode ? 'Paper mode' : 'Live mode'}</p>
+            </div>
+            {/* Breakout Scanner */}
+            <Link href="/weekly-strategy">
+              <div className={`rounded-xl border p-2.5 cursor-pointer transition-all hover:scale-[1.02] ${breakoutMonitorOn ? 'border-amber-500/30' : 'border-gray-700 bg-gray-800/40'}`} style={breakoutMonitorOn ? { background: 'rgba(245,158,11,0.07)' } : {}}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Scanner</span>
+                  <span className={`w-2 h-2 rounded-full ${breakoutMonitorOn ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`} />
+                </div>
+                <p className={`text-xs font-black ${breakoutMonitorOn ? 'text-amber-400' : 'text-gray-500'}`}>{breakoutMonitorOn ? 'ON' : 'OFF'}</p>
+                <p className="text-[9px] text-gray-600 mt-0.5">Breakout monitor</p>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════════
+            DAILY BIBLE TRADER WISDOM
+        ══════════════════════════════════════════════════════════════════ */}
+        {dailyDevotional && (
+          <div className="mb-4 rounded-2xl border border-amber-500/20 p-3" style={{ background: 'rgba(245,158,11,0.04)' }}>
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.15)' }}>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 1h8v10H2V1z" stroke="#f59e0b" strokeWidth="1.2"/><path d="M4 4h4M4 6h4M4 8h2" stroke="#f59e0b" strokeWidth="1" strokeLinecap="round"/></svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs font-black text-white">{dailyDevotional.title || 'Daily Trader Wisdom'}</span>
+                {dailyDevotional.theme && <span className="ml-2 text-[10px] text-amber-400/70">{dailyDevotional.theme}</span>}
+              </div>
+              <Link href="/devotional">
+                <span className="text-[9px] text-gray-600 hover:text-amber-400 transition-colors">Full →</span>
+              </Link>
+            </div>
+            {/* Scripture */}
+            {dailyDevotional.scripture_text && (
+              <div className="rounded-xl border border-amber-500/15 px-3 py-2.5 mb-2" style={{ background: 'rgba(245,158,11,0.07)' }}>
+                <p className="text-[11px] text-amber-100 leading-relaxed italic">"{dailyDevotional.scripture_text}"</p>
+                <p className="text-[10px] text-amber-400 font-semibold mt-1">{dailyDevotional.scripture}</p>
+              </div>
+            )}
+            {/* Trading tie-in */}
+            {dailyDevotional.trading_tie_in && (
+              <div className="rounded-xl border border-gray-700/50 bg-gray-800/40 px-3 py-2 mb-2">
+                <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Trading Application</p>
+                <p className="text-[11px] text-gray-300 leading-relaxed">{dailyDevotional.trading_tie_in}</p>
+              </div>
+            )}
+            {/* Affirmation */}
+            {dailyDevotional.affirmation && (
+              <p className="text-[10px] text-amber-400/60 italic text-center px-2">{dailyDevotional.affirmation}</p>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            DAILY DEVOTION + AMBASSADOR TO-DOS
+        ══════════════════════════════════════════════════════════════════ */}
+        {ambassadorJourney && !ambassadorJourney.isComplete && (
+          <div className="mb-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-3">
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="w-6 h-6 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.5 3 3.5.5-2.5 2.4.6 3.5L6 9l-3.1 1.4.6-3.5L1 4.5 4.5 4z" stroke="#818cf8" strokeWidth="1.2" fill="none"/></svg>
+              </div>
+              <div>
+                <span className="text-xs font-black text-white">Day {ambassadorJourney.currentDay} Mission</span>
+                {ambassadorJourney.streak > 0 && <span className="ml-2 text-[10px] text-amber-400">🔥 {ambassadorJourney.streak}-day streak</span>}
+              </div>
+              <span className="ml-auto text-[10px] font-bold text-indigo-400">{ambassadorJourney.tokensEarned} VEDD</span>
+            </div>
+            {ambassadorJourney.todayActions ? (
+              <div className="space-y-2">
+                {ambassadorJourney.todayActions.focus && (
+                  <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/15 px-3 py-2">
+                    <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider mb-0.5">Today's Focus</p>
+                    <p className="text-[11px] text-gray-200 leading-relaxed">{ambassadorJourney.todayActions.focus}</p>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {ambassadorJourney.todayActions.postIdea && (
+                    <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-3 py-2">
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">📣 Post Idea</p>
+                      <p className="text-[10px] text-gray-300 leading-relaxed line-clamp-3">{ambassadorJourney.todayActions.postIdea}</p>
+                    </div>
+                  )}
+                  {ambassadorJourney.todayActions.dmScript && (
+                    <div className="rounded-xl bg-gray-800/60 border border-gray-700/50 px-3 py-2">
+                      <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">💬 DM Script</p>
+                      <p className="text-[10px] text-gray-300 leading-relaxed line-clamp-3">{ambassadorJourney.todayActions.dmScript}</p>
+                    </div>
+                  )}
+                </div>
+                {ambassadorJourney.nextMilestone && (
+                  <p className="text-[10px] text-gray-600 pt-0.5">Next milestone: Day {ambassadorJourney.nextMilestone.day} → <span className="text-indigo-400">{ambassadorJourney.nextMilestone.reward}</span></p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500">Today's mission content loading…</p>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════
+            ECONOMIC CALENDAR — high-impact events for active pairs
+        ══════════════════════════════════════════════════════════════════ */}
+        {econCalendar && econCalendar.events && econCalendar.events.filter(e => e.impact === 'high' || e.impact === 'High').length > 0 && (
+          <div className="mb-4 rounded-2xl border border-rose-500/20 p-3" style={{ background: 'rgba(239,68,68,0.03)' }}>
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.15)' }}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2" width="10" height="9" rx="1.5" stroke="#f87171" strokeWidth="1.2"/><path d="M4 1v2M8 1v2M1 5h10" stroke="#f87171" strokeWidth="1.2" strokeLinecap="round"/></svg>
+                </div>
+                <span className="text-xs font-black text-white">High-Impact Events</span>
+                <span className="text-[10px] text-rose-400 font-semibold">
+                  {strategyPairs.slice(0, 3).join(' · ') || calendarPair}
+                </span>
+              </div>
+              <Link href="/market-insights">
+                <span className="text-[9px] text-gray-600 hover:text-rose-400 transition-colors">All →</span>
+              </Link>
+            </div>
+            <div className="space-y-1.5">
+              {econCalendar.events
+                .filter(e => e.impact === 'high' || e.impact === 'High')
+                .slice(0, 4)
+                .map((ev, i) => {
+                  const isToday = ev.date === new Date().toISOString().split('T')[0];
+                  return (
+                    <div key={ev.id ?? i} className={`rounded-xl border px-3 py-2 flex items-start gap-2.5 ${isToday ? 'border-rose-500/30 bg-rose-500/7' : 'border-gray-700/50 bg-gray-800/30'}`} style={isToday ? { background: 'rgba(239,68,68,0.07)' } : {}}>
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className={`w-2 h-2 rounded-full ${isToday ? 'bg-rose-400 animate-pulse' : 'bg-gray-600'}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-white">{ev.title}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-rose-500/20 text-rose-400">HIGH</span>
+                          {isToday && <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-amber-500/20 text-amber-400">TODAY</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] text-gray-500">{ev.time}</span>
+                          <span className="text-[10px] text-gray-600">{ev.currency} · {ev.country}</span>
+                        </div>
+                        {(ev.forecast || ev.previous) && (
+                          <div className="flex gap-3 mt-0.5">
+                            {ev.forecast && <span className="text-[9px] text-cyan-400">Fcst: {ev.forecast}</span>}
+                            {ev.previous && <span className="text-[9px] text-gray-600">Prev: {ev.previous}</span>}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <p className="text-[9px] text-gray-700 mt-2 text-center">Avoid entering trades 15 min before/after high-impact events</p>
+          </div>
+        )}
 
         {/* ── Account Balances + Weekly Goal Strip ─────────────────────── */}
         {(mt5Accounts.length > 0 || tlBalance !== null || dailySummary?.weeklyTarget) && (

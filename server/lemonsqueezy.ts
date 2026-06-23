@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db } from './db';
 import { subscriptionPlans, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { fireConversionHook } from './veddConversionHook';
 
 const LS_API_KEY = process.env.LEMONSQUEEZY_API_KEY || '';
 const LS_BASE_URL = 'https://api.lemonsqueezy.com/v1';
@@ -31,7 +32,7 @@ export async function lsGetVariants() {
   return res.json();
 }
 
-export async function lsCreateCheckout(variantId: string, userEmail: string, userName: string, userId: number, planId: number) {
+export async function lsCreateCheckout(variantId: string, userEmail: string, userName: string, userId: number, planId: number, referralCode?: string) {
   const body = {
     data: {
       type: 'checkouts',
@@ -42,6 +43,7 @@ export async function lsCreateCheckout(variantId: string, userEmail: string, use
           custom: {
             user_id: userId.toString(),
             plan_id: planId.toString(),
+            ...(referralCode ? { referral_code: referralCode } : {}),
           },
         },
         checkout_options: {
@@ -134,6 +136,7 @@ export async function lsHandleWebhookEvent(event: any) {
       const lsCustomerId = attrs?.customer_id?.toString() || null;
       const status = attrs?.status || 'active';
       const renewsAt = attrs?.renews_at ? new Date(attrs.renews_at) : null;
+      const referralCode: string | undefined = customData?.referral_code;
 
       await db.update(users).set({
         lsSubscriptionId,
@@ -142,6 +145,36 @@ export async function lsHandleWebhookEvent(event: any) {
         subscriptionStatus: status === 'active' ? 'active' : status,
         subscriptionCurrentPeriodEnd: renewsAt || undefined,
       }).where(eq(users.id, userId));
+
+      // Resolve user email + referral code for conversion tracking
+      const [userRow] = await db.select({
+        email: users.email,
+        username: users.username,
+        referredBy: users.referredBy,
+      }).from(users).where(eq(users.id, userId)).limit(1).catch(() => [null]);
+
+      if (userRow) {
+        // If checkout didn't carry a referral_code, fall back to the referrer's code
+        let resolvedReferralCode = referralCode;
+        if (!resolvedReferralCode && userRow.referredBy) {
+          const [referrer] = await db.select({ referralCode: users.referralCode })
+            .from(users).where(eq(users.id, userRow.referredBy)).limit(1).catch(() => [null]);
+          resolvedReferralCode = referrer?.referralCode ?? undefined;
+        }
+
+        // Determine plan name from planId
+        const planName = planId === 2 ? 'pro' : planId === 3 ? 'enterprise' : 'pro';
+        const revenueCents = attrs?.total ? Math.round(parseFloat(attrs.total) * 100) : 0;
+
+        fireConversionHook({
+          signupEmail:   userRow.email || `user_${userId}@veddbuild.internal`,
+          username:      userRow.username,
+          signupPlan:    planName as 'pro' | 'enterprise',
+          revenueCents,
+          referralCode:  resolvedReferralCode,
+          webhookSource: 'lemonsqueezy',
+        }).catch(() => {});
+      }
 
       console.log(`[LS] User ${userId} subscribed to plan ${planId}, ls_subscription_id=${lsSubscriptionId}`);
       return { handled: true, action: 'subscribed' };

@@ -2530,3 +2530,17 @@ export const copyTradeLogs = pgTable("copy_trade_logs", {
 export type CopyRelationship = typeof copyRelationships.$inferSelect;
 export type CopyTradeLog = typeof copyTradeLogs.$inferSelect;
 
+// Engine run-state persistence — one row per user+engine, restored on startup
+export const engineRunState = pgTable("engine_run_state", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  engine: text("engine").notNull(), // 'polymarket' | 'kalshi'
+  isRunning: boolean("is_running").notNull().default(false),
+  isPaperMode: boolean("is_paper_mode").notNull().default(true),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  uniq: unique("engine_run_state_user_engine_idx").on(t.userId, t.engine),
+}));
+
+export type EngineRunState = typeof engineRunState.$inferSelect;
+

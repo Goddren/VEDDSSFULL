@@ -155,11 +155,17 @@ export default function AbbaBotPage() {
             <h1 className="text-xl font-black tracking-tight">Abba — AI Strategist</h1>
             <p className="text-[11px] text-gray-500">Sees every trade · adapts your plan · explains the why</p>
           </div>
-          <button onClick={() => refetch()} disabled={isFetching}
-            className="ml-auto flex items-center gap-1.5 text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/25 rounded-lg px-3 py-1.5 disabled:opacity-50">
-            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            {isFetching ? "Analyzing…" : "Re-analyze"}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => refetch()} disabled={isFetching}
+              className="flex items-center gap-1.5 text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/25 rounded-lg px-3 py-1.5 disabled:opacity-50">
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              {isFetching ? "Analyzing…" : "Re-analyze"}
+            </button>
+            <a href="/dashboard" className="flex items-center gap-1 text-[11px] text-gray-400 bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-1.5 hover:text-white hover:border-gray-500 transition-all">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              Close
+            </a>
+          </div>
         </div>
 
         {/* Tab bar */}

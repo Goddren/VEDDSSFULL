@@ -4899,8 +4899,9 @@ IMPORTANT:
           progressWinRate: existingStrategy.progressWinRate || 0,
           progressPercentage: existingStrategy.progressPercentage || 0,
           strategyMode: hftMode,
-          smartEscalation: true,
-          highConfidenceOverride: true,
+          smartEscalation: req.body.smartEscalation === true,
+          highConfidenceOverride: req.body.highConfidenceOverride === true,
+          lockSettings: req.body.lockSettings === true,
         });
       } else {
         // No existing strategy — save ABBA's plan as the primary active strategy
@@ -4919,8 +4920,9 @@ IMPORTANT:
           progressWinRate: 0,
           progressPercentage: 0,
           strategyMode: hftMode,
-          smartEscalation: true,
-          highConfidenceOverride: true,
+          smartEscalation: req.body.smartEscalation === true,
+          highConfidenceOverride: req.body.highConfidenceOverride === true,
+          lockSettings: req.body.lockSettings === true,
         });
       }
 
@@ -4933,7 +4935,6 @@ IMPORTANT:
         riskLevel: savedStrategy?.riskLevel || riskLevel || 'moderate',
         lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
         plan: savedStrategy?.plan || planData,
-        // Store the chosen strategy mode so AI confirmation uses it at signal time
         strategyMode: hftMode || savedStrategy?.strategyType || 'aggressive',
         pairStats,
         generatedAt: new Date(),
@@ -4942,8 +4943,9 @@ IMPORTANT:
         progressTrades: savedStrategy?.progressTrades || 0,
         progressWinRate: savedStrategy?.progressWinRate || 0,
         progressPercentage: savedStrategy?.progressPercentage || 0,
-        smartEscalation: true,
-        highConfidenceOverride: true,
+        smartEscalation: req.body.smartEscalation === true,
+        highConfidenceOverride: req.body.highConfidenceOverride === true,
+        lockSettings: req.body.lockSettings === true,
       };
 
       // ── Auto-push strategy to all connected platforms ──────────────────────
@@ -9175,8 +9177,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const todayPlan = veddStrategy.plan.weeklyPlan[todayName];
           
           // ── Smart Pair Escalation: rank pairs by brain win-rate ──────────────
+          // Skipped when lockSettings=true — user's chosen pairs are final
           let smartUnlockedPairs: string[] | null = null;
-          if (veddStrategy.smartEscalation) {
+          if (veddStrategy.smartEscalation && !veddStrategy.lockSettings) {
             const brainData = (global as any).mt5BrainData?.[token.userId];
             const pairKnowledge = brainData?.pairKnowledge || veddStrategy.pairStats || {};
             const allPlanPairs = (veddStrategy.pairs || []) as string[];
@@ -9243,8 +9246,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(`VEDD SS AI: ${analysis.signal !== 'NEUTRAL' ? analysis.signal : 'Signal'} BLOCKED — your plan only allows ${planDirection} on ${normalizedSymbol} today. Wait for a ${planDirection} setup.`);
               }
 
-              // Apply plan's lot size if specified and larger than default
-              if (planLotSize && planLotSize > 0) {
+              // Apply plan's lot size only when settings are not locked
+              if (planLotSize && planLotSize > 0 && !veddStrategy.lockSettings) {
                 (global as any).veddSSAILotOverride = (global as any).veddSSAILotOverride || {};
                 (global as any).veddSSAILotOverride[`${token.userId}_${normalizedSymbol}`] = planLotSize;
               }
@@ -9252,7 +9255,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               // Pair not in today's plan — check overrides before blocking
               const eaConf = analysis.confidence || 0;
               const aiConf = (analysis as any).aiConfidence || 0;
-              const dualHighConf = veddStrategy.highConfidenceOverride && eaConf >= 85 && aiConf >= 85;
+              const dualHighConf = veddStrategy.highConfidenceOverride && !veddStrategy.lockSettings && eaConf >= 85 && aiConf >= 85;
               const smartUnlocked = smartUnlockedPairs && smartUnlockedPairs.includes(normalizedSymbol);
 
               if (dualHighConf) {
@@ -12554,7 +12557,8 @@ Respond with ONLY valid JSON:
         plan,
         pairStats,
         smartEscalation: smartEscalation === true,
-        highConfidenceOverride: highConfidenceOverride !== false, // default true
+        highConfidenceOverride: highConfidenceOverride === true,
+        lockSettings: (req.body as any).lockSettings === true,
         generatedAt: new Date().toISOString(),
         weekStart: getWeekStart(),
         progressTrades: [],

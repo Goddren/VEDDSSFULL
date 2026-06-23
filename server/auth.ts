@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { veddTokenService } from "./services/vedd-token-service";
+import { fireConversionHook } from "./veddConversionHook";
 
 declare global {
   namespace Express {
@@ -117,6 +118,17 @@ export function setupAuth(app: Express) {
           console.error('[auth] Referral tracking error (non-fatal):', refErr);
         }
       }
+
+      // Fire conversion webhook in background — records free-trial signup
+      // in vedd_conversions for CRM attribution and ambassador commission tracking.
+      fireConversionHook({
+        signupEmail:   user.email || `${user.username}@veddbuild.internal`,
+        username:      user.username,
+        signupPlan:    'free_trial',
+        revenueCents:  0,
+        referralCode:  typeof refCode === 'string' ? refCode : undefined,
+        webhookSource: 'veddbuild_signup',
+      }).catch(() => {});
 
       req.login(user, (err) => {
         if (err) return next(err);

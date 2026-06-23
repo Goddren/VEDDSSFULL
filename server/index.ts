@@ -166,6 +166,26 @@ async function withRetry<T>(
     console.error(`[startup] restoreDurableFiles error (non-fatal):`, err?.message ?? err);
   }
 
+  // Restore Polymarket + Kalshi engine run-state for all users that had engines
+  // running before the last Render redeploy (persisted to DB on start/stop).
+  try {
+    const { db } = await import('./db');
+    const { engineRunState } = await import('../shared/schema');
+    const { eq } = await import('drizzle-orm');
+    const runningRows = await db.select().from(engineRunState).where(eq(engineRunState.isRunning, true));
+    if (runningRows.length > 0) {
+      const { restoreEngineStateFromDb } = await import('./services/polymarket-autonomous-engine');
+      const { restoreKalshiEngineStateFromDb } = await import('./services/kalshi-engine');
+      for (const row of runningRows) {
+        if (row.engine === 'polymarket') await restoreEngineStateFromDb(row.userId);
+        if (row.engine === 'kalshi')     await restoreKalshiEngineStateFromDb(row.userId);
+      }
+      console.log(`[startup] Restored ${runningRows.length} engine(s) from DB`);
+    }
+  } catch (err: any) {
+    console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);
@@ -952,6 +972,21 @@ async function withRetry<T>(
       console.log('[startup] Daily check-in table created/verified.');
     } catch (err) {
       console.error('[startup] Daily check-in table migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS engine_run_state (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL REFERENCES users(id),
+        engine text NOT NULL,
+        is_running boolean NOT NULL DEFAULT false,
+        is_paper_mode boolean NOT NULL DEFAULT true,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE(user_id, engine)
+      )`);
+      console.log('[startup] engine_run_state table ready.');
+    } catch (err) {
+      console.error('[startup] engine_run_state table (non-fatal):', (err as Error).message);
     }
 
     await withRetry(() => seedSubscriptionPlans(), 'seedSubscriptionPlans');

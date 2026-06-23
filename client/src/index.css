@@ -318,42 +318,90 @@
     animation: liveBlink 1.4s ease-in-out infinite;
   }
 
+  /* ── Mobile: universal tap feedback + accessibility ── */
+  @media (max-width: 768px) {
+    button, a, [role="button"] {
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    button:active { transform: scale(0.97); }
+    /* Override for elements that define their own active scale */
+    .active\:scale-90:active, .active\:scale-95:active, .active\:scale-\[0\.97\]:active { transform: none; }
+    /* Minimum tap target */
+    .tab-item, .nav-tile-btn { min-height: 44px; }
+
+    /* Ensure page content never hides behind the fixed tab bar (62px) */
+    main, [data-page], .page-root {
+      padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    }
+    /* Scrollable containers inside pages */
+    .scroll-container, [data-scroll] {
+      padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    }
+  }
+
   /* ── Bottom tab nav ── */
   .tab-bar {
     position: fixed; bottom: 0; left: 0; right: 0;
     z-index: 50;
-    background: rgba(8,11,20,0.95);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border-top: 1px solid rgba(255,255,255,0.07);
+    background: rgba(8,11,20,0.96);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border-top: 1px solid rgba(255,255,255,0.08);
     padding-bottom: env(safe-area-inset-bottom);
-    display: flex; align-items: center; justify-content: space-around;
-    height: 64px;
+    display: flex; align-items: stretch; justify-content: space-around;
+    height: 62px;
   }
   .tab-item {
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 3px; flex: 1;
-    padding: 8px 4px;
-    cursor: pointer; transition: all 0.15s ease;
+    padding: 6px 2px 7px;
+    cursor: pointer; transition: color 0.15s ease, transform 0.12s ease;
     text-decoration: none; color: #6B7280;
     border: none; background: none;
+    position: relative;
+  }
+  .tab-item::after {
+    content: '';
+    position: absolute; bottom: 0; left: 20%; right: 20%;
+    height: 2px; border-radius: 2px 2px 0 0;
+    background: #ef4444;
+    opacity: 0; transform: scaleX(0);
+    transition: opacity 0.2s ease, transform 0.2s ease;
   }
   .tab-item.active { color: #ef4444; }
+  .tab-item.active::after { opacity: 1; transform: scaleX(1); }
+  .tab-item:active { transform: scale(0.93); }
   .tab-item:not(.active):hover { color: #9CA3AF; }
   .tab-icon-wrap {
     position: relative;
-    width: 28px; height: 28px;
+    width: 30px; height: 30px;
     display: flex; align-items: center; justify-content: center;
-    border-radius: 9px;
-    transition: background 0.15s ease;
+    border-radius: 10px;
+    transition: background 0.15s ease, transform 0.12s ease;
   }
   .tab-item.active .tab-icon-wrap {
-    background: rgba(239,68,68,0.12);
+    background: rgba(239,68,68,0.14);
   }
+  .tab-item:active .tab-icon-wrap { transform: scale(0.88); }
   .tab-lbl {
     font-size: 10px; font-weight: 600;
     letter-spacing: 0.02em; line-height: 1;
+  }
+  /* Live dot badge on tab icon */
+  .tab-live-dot {
+    position: absolute; top: 2px; right: 2px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #10b981;
+    border: 1.5px solid #080B14;
+    animation: liveBlink 1.8s ease-in-out infinite;
+  }
+
+  /* FAB action item spring-in animation */
+  @keyframes fabItemIn {
+    from { opacity: 0; transform: scale(0.7) translateY(12px); }
+    to   { opacity: 1; transform: scale(1)   translateY(0); }
   }
 
   /* ── List rows ── */

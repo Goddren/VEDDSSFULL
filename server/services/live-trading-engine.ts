@@ -175,6 +175,12 @@ interface LiveEngineConfig {
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
   pairDirectionOverrides: Record<string, 'buy_only' | 'sell_only' | 'both'>; // per-pair overrides
   pairLotOverrides: Record<string, number>; // per-pair hard lot cap (0 = use engine default)
+  // Settings lock: when true, engine never auto-adjusts risk, lots, or pairs — user config is final
+  lockSettings: boolean;
+  // Strategy lock: when true, only the selected strategyMode fires (no signal mixing)
+  singleStrategyMode: boolean;
+  // Multiple trades per strategy per day: false = once per strategy per day max
+  allowMultipleTrades: boolean;
   // ORB Autonomous mode: fire 9:30 AM opening range breakout trades autonomously
   enableORBAutonomous: boolean;
   // Composite Autonomous mode: fire trades directly from Markov×Polymarket (crypto only)
@@ -387,6 +393,8 @@ interface EngineState {
   compositeLastFiredAt: Record<string, number>;
   /** ORB Autonomous: tracks which pairs already traded today — value = YYYY-MM-DD */
   orbDailyFired: Record<string, string>;
+  /** Single strategy + once-per-day: key = "YYYY-MM-DD_strategyKey", value = true once fired */
+  strategyDailyFired: Record<string, boolean>;
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -773,6 +781,9 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     directionFilter: 'both',
     pairDirectionOverrides: {},
     pairLotOverrides: {},
+    lockSettings: false,
+    singleStrategyMode: false,
+    allowMultipleTrades: true,
     enableORBAutonomous: true,
     enableCompositeAutonomous: true,
     compositeMinEdgeScore: 72,
@@ -1920,7 +1931,7 @@ function generateRuleBasedSignals(indicators: Record<string, any>, config: LiveE
   const tp = direction === 'BUY' ? entry + effectiveTpDist : entry - effectiveTpDist;
 
   let lotSize = config.baseLotSize;
-  if (config.useKellyCriterion) {
+  if (config.useKellyCriterion && !config.lockSettings) {
     const pct = (winningScore / 7);
     const fractionalKelly = pct * 0.25;
     lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
@@ -3657,6 +3668,29 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             return;
           }
         }
+        // Single strategy lock: block AI signals when ORB-only mode is active
+        if (config.singleStrategyMode && config.strategyMode === 'orb_breakout') {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🔒 Strategy Lock: ORB-only mode — AI signal blocked (ORB handles its own entries)` });
+          return;
+        }
+        // Single strategy lock: block signals whose strategy key doesn't match selected mode
+        if (config.singleStrategyMode && (decision as any).strategyKey && (decision as any).strategyKey !== config.strategyMode) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🔒 Strategy Lock: ${(decision as any).strategyKey} blocked — only ${config.strategyMode} allowed` });
+          return;
+        }
+        // Once-per-day lock: when allowMultipleTrades is false, each strategy fires once/day
+        if (config.singleStrategyMode && !config.allowMultipleTrades) {
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const lockKey = `${todayStr}_${config.strategyMode}`;
+          if (!state.strategyDailyFired) state.strategyDailyFired = {};
+          if (state.strategyDailyFired[lockKey]) {
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🔒 Once-per-day lock: ${config.strategyMode} already fired today — no more trades until tomorrow` });
+            return;
+          }
+          // Mark as fired after this trade goes through (done below via a flag)
+          (decision as any).__markStrategyFired = lockKey;
+        }
+
         // Daily profit target guard — stop new trades once gain % target is reached
         if ((config.dailyProfitTarget ?? 0) > 0 && _bal > 0) {
           const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
@@ -3688,6 +3722,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     }
 
     state.signalsGenerated++;
+
+    // Mark strategy as fired for once-per-day lock
+    if ((decision as any).__markStrategyFired) {
+      if (!state.strategyDailyFired) state.strategyDailyFired = {};
+      state.strategyDailyFired[(decision as any).__markStrategyFired] = true;
+    }
 
     addActivity(userId, {
       type: 'signal',
@@ -4197,7 +4237,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     //  • Pyramid = momentum-scaling (strongly trending markets only)
     //  • Both ON = Kelly sets the base lot, pyramid fires only if ADX > 25
 
-    const bothEnabled = config.useKellyCriterion && config.enablePyramiding;
+    // When lockSettings=true, treat Kelly/Pyramid as disabled — use exact user lot size
+    const bothEnabled = !config.lockSettings && config.useKellyCriterion && config.enablePyramiding;
     const snapshot = state.marketSnapshot?.[decision.symbol] || state.lastIndicatorSnapshot?.[decision.symbol];
     const adxNow = (snapshot as any)?.adx || 0;
     const isTrending = adxNow >= 25;
@@ -4210,7 +4251,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       } else {
         sizingMode = 'kelly'; // Kelly only — no pyramiding in choppy markets
       }
-    } else if (config.useKellyCriterion) {
+    } else if (!config.lockSettings && config.useKellyCriterion) {
       sizingMode = 'kelly';
     } else if (config.enablePyramiding) {
       sizingMode = 'pyramid';
@@ -5079,6 +5120,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     pairDirectionLock: {},
     compositeLastFiredAt: {},
     orbDailyFired: {},
+    strategyDailyFired: {},
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);

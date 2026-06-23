@@ -100,24 +100,25 @@ function NavTile({
   const inner = (
     <button
       onClick={onClose}
-      className="flex flex-col items-center gap-1.5 w-full p-2 rounded-2xl transition-all active:scale-90"
+      className="nav-tile-btn flex flex-col items-center gap-1.5 w-full py-2.5 px-1.5 rounded-2xl transition-all active:scale-[0.88] duration-100"
       style={{
-        background: isActive ? `${color}22` : 'rgba(255,255,255,0.04)',
-        border: `1.5px solid ${isActive ? color + '66' : 'rgba(255,255,255,0.07)'}`,
+        background: isActive ? `${color}1a` : 'rgba(255,255,255,0.035)',
+        border: `1.5px solid ${isActive ? color + '55' : 'rgba(255,255,255,0.07)'}`,
+        minHeight: 72,
       }}
     >
       <span
-        className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+        className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform"
         style={{
-          background: `${color}22`,
-          boxShadow: isActive ? `0 0 12px ${color}55` : 'none',
+          background: `${color}20`,
+          boxShadow: isActive ? `0 0 14px ${color}44` : 'none',
         }}
       >
-        <Icon className="h-5 w-5" style={{ color }} />
+        <Icon className="h-[18px] w-[18px]" style={{ color }} />
       </span>
       <span
-        className="text-[9px] font-semibold leading-tight text-center line-clamp-2"
-        style={{ color: isActive ? color : 'rgba(255,255,255,0.65)' }}
+        className="text-[9px] font-semibold leading-tight text-center line-clamp-2 px-0.5"
+        style={{ color: isActive ? color : 'rgba(255,255,255,0.6)' }}
       >
         {name}
       </span>
@@ -156,8 +157,8 @@ export function MobileBottomNav() {
   // ── Engine status ──────────────────────────────────
   const { data: engineStatus } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/status'],
-    refetchInterval: open ? 8000 : false,
-    enabled: !!user && open,
+    refetchInterval: 15000,
+    enabled: !!user,
   });
 
   // ── Live MT5 EA push data (real account balance from EA) ────────────────
@@ -169,8 +170,8 @@ export function MobileBottomNav() {
 
   const { data: polyStatus } = useQuery<any>({
     queryKey: ['/api/polymarket-engine/status'],
-    refetchInterval: open ? 8000 : false,
-    enabled: !!user && open,
+    refetchInterval: 20000,
+    enabled: !!user,
   });
 
   const { data: pmUsStatus } = useQuery<any>({
@@ -306,12 +307,15 @@ export function MobileBottomNav() {
   const close = () => setOpen(false);
 
   const tabs = [
-    { name: 'Analysis', path: '/analysis',          Icon: LineChart  },
-    { name: 'Trade',    path: '/webhooks',          Icon: Webhook    },
-    { name: 'Predict',  path: '/polymarket-engine', Icon: DollarSign },
-    { name: 'Engine',   path: '/weekly-strategy',   Icon: Rocket     },
-    { name: 'ORB',      path: '/orb-breakout',      Icon: Radio      },
+    { name: 'Home',    path: '/dashboard',         Icon: Home,       liveKey: null        },
+    { name: 'Trade',   path: '/weekly-strategy',   Icon: TrendingUp, liveKey: 'ss'        },
+    { name: 'ORB',     path: '/orb-breakout',      Icon: Radio,      liveKey: null        },
+    { name: 'Predict', path: '/polymarket-engine', Icon: DollarSign, liveKey: 'poly'      },
+    { name: 'Analyse', path: '/analysis',          Icon: LineChart,  liveKey: null        },
   ];
+
+  const ssLive   = engineStatus?.status === 'running' || forexActive;
+  const polyLive = polyStatus?.isRunning ?? false;
 
   return (
     <>
@@ -350,11 +354,34 @@ export function MobileBottomNav() {
           </div>
           <button
             onClick={close}
-            className="w-8 h-8 rounded-full flex items-center justify-center"
+            className="w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform"
             style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
           >
             <X className="w-4 h-4 text-gray-300" />
           </button>
+        </div>
+
+        {/* ── Quick-access shortcut strip ── */}
+        <div className="px-3 pt-3 pb-1 flex gap-2 flex-shrink-0">
+          {[
+            { label: 'Dashboard', path: '/dashboard',       color: '#6366f1', Icon: Home        },
+            { label: 'Strategy',  path: '/weekly-strategy', color: '#ef4444', Icon: TrendingUp  },
+            { label: 'ORB',       path: '/orb-breakout',    color: '#22c55e', Icon: Radio       },
+            { label: 'Activity',  path: '/activity',        color: '#f59e0b', Icon: Flame       },
+          ].map(({ label, path, color, Icon }) => (
+            <Link key={path} href={path}>
+              <button
+                onClick={close}
+                className="flex flex-col items-center gap-1 flex-1 px-2 py-2 rounded-xl active:scale-90 transition-transform"
+                style={{ background: `${color}14`, border: `1px solid ${color}30`, minWidth: 58 }}
+              >
+                <span className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${color}22` }}>
+                  <Icon className="w-4 h-4" style={{ color }} />
+                </span>
+                <span className="text-[9px] font-bold" style={{ color }}>{label}</span>
+              </button>
+            </Link>
+          ))}
         </div>
 
         {/* Scrollable content — everything scrolls */}
@@ -826,12 +853,16 @@ export function MobileBottomNav() {
 
       {/* ── Tab Bar ── */}
       <nav className="tab-bar md:hidden">
-        {tabs.map(({ name, path, Icon }) => {
+        {tabs.map(({ name, path, Icon, liveKey }) => {
           const active = location === path || (path === '/dashboard' && location === '/');
+          const isLive = liveKey === 'ss' ? ssLive : liveKey === 'poly' ? polyLive : false;
           return (
             <Link key={path} href={path}>
               <button className={`tab-item ${active ? 'active' : ''}`}>
-                <span className="tab-icon-wrap"><Icon className="h-[18px] w-[18px]" /></span>
+                <span className="tab-icon-wrap">
+                  <Icon className="h-[18px] w-[18px]" />
+                  {isLive && <span className="tab-live-dot" />}
+                </span>
                 <span className="tab-lbl">{name}</span>
               </button>
             </Link>

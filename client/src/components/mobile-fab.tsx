@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings, GraduationCap } from "lucide-react";
+import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings, GraduationCap, Home } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 import { triggerHaptic, useLongPress } from "@/hooks/use-gestures";
@@ -67,6 +67,13 @@ export function MobileFAB() {
 
   const actions = [
     {
+      icon: <Home className="w-6 h-6" />,
+      label: "Dashboard",
+      path: "/dashboard",
+      color: "bg-indigo-500/20 hover:bg-indigo-500/30",
+      testId: "fab-dashboard"
+    },
+    {
       icon: <Camera className="w-6 h-6" />,
       label: "Chart Analysis",
       path: "/analysis",
@@ -131,8 +138,11 @@ export function MobileFAB() {
             {actions.map((item, index) => (
               <div
                 key={index}
-                className="flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2"
-                style={{ animationDelay: `${index * 50}ms` }}
+                className="flex items-center gap-3"
+                style={{
+                  animation: `fabItemIn 180ms cubic-bezier(0.34,1.56,0.64,1) both`,
+                  animationDelay: `${index * 40}ms`
+                }}
               >
                 <span className="bg-background/95 backdrop-blur border px-3 py-1.5 rounded-full text-sm font-medium shadow-lg whitespace-nowrap">
                   {item.label}
