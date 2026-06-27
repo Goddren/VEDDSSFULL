@@ -14993,7 +14993,7 @@ Format each recommendation as a clear, concise action item.`;
       const userId = parseInt(uid);
       if (isNaN(userId)) continue;
       try {
-        await syncTradeLockerOutcomes(userId); // internally throttled to 2 min
+        await syncTradeLockerOutcomes(userId); // internally throttled to 30s
         const fresh = await runBrainLearning(userId);
         if (fresh) {
           g.veddAIBrain = g.veddAIBrain || {};
@@ -15003,7 +15003,7 @@ Format each recommendation as a clear, concise action item.`;
         }
       } catch (_) { /* non-critical per user */ }
     }
-  }, 2 * 60 * 1000); // every 2 minutes
+  }, 60 * 1000); // every 60s — sync TL outcomes (30s throttle) + rebuild brain
 
   app.post("/api/vedd-brain/learn", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -15023,7 +15023,7 @@ Format each recommendation as a clear, concise action item.`;
   async function syncTradeLockerOutcomes(userId: number): Promise<number> {
     const g = global as any;
     g.tlOutcomeSyncAt = g.tlOutcomeSyncAt || {};
-    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 120_000) return 0;
+    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 30_000) return 0;
     g.tlOutcomeSyncAt[userId] = Date.now();
     let added = 0;
     try {
@@ -16502,7 +16502,26 @@ Respond with ONLY valid JSON:
   app.post("/api/vedd-live-engine/start", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, copyMode, volatileCapMode, pairLotOverrides } = req.body;
+
+    // Auto-detect reference balance from the first active TL connection when the caller
+    // hasn't explicitly set one. This ensures proportional lot-sizing always has a
+    // denominator, even for users who trade exclusively through TradeLocker.
+    let resolvedAccountBalance = (accountBalance !== undefined && accountBalance !== null) ? Number(accountBalance) : 0;
+    if (!resolvedAccountBalance) {
+      try {
+        const tlConns = await storage.getUserTradelockerConnections(userId);
+        const firstActive = tlConns.find((c: any) => c.isActive);
+        if (firstActive) {
+          const tlVal = await getTLAccountValue(userId, firstActive);
+          if (tlVal.balance > 0) {
+            resolvedAccountBalance = tlVal.balance;
+            console.log(`[Engine Start] Auto-detected reference balance $${resolvedAccountBalance.toLocaleString()} from TL account ${firstActive.accountId}`);
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+    }
+
     try {
       const state = startLiveEngine(userId, {
         pairs: pairs || undefined,
@@ -16516,7 +16535,7 @@ Respond with ONLY valid JSON:
         trailingStopEnabled: trailingStopEnabled !== undefined ? trailingStopEnabled : undefined,
         trailingStopATRMultiplier: trailingStopATRMultiplier ? Number(trailingStopATRMultiplier) : undefined,
         weeklyProfitTarget: weeklyProfitTarget ? Number(weeklyProfitTarget) : undefined,
-        accountBalance: accountBalance ? Number(accountBalance) : undefined,
+        accountBalance: resolvedAccountBalance > 0 ? resolvedAccountBalance : undefined,
         enableCompounding: enableCompounding !== undefined ? enableCompounding : undefined,
         baseLotSize: baseLotSize ? Number(baseLotSize) : undefined,
         propFirmMode: propFirmMode !== undefined ? Boolean(propFirmMode) : undefined,
@@ -16547,6 +16566,11 @@ Respond with ONLY valid JSON:
         enableORBAutonomous: enableORBAutonomous !== undefined ? Boolean(enableORBAutonomous) : undefined,
         enableCompositeAutonomous: enableCompositeAutonomous !== undefined ? Boolean(enableCompositeAutonomous) : undefined,
         compositeMinEdgeScore: compositeMinEdgeScore !== undefined ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : undefined,
+        copyMode: ['proportional', 'multiplier'].includes(copyMode) ? copyMode : undefined,
+        volatileCapMode: ['risk_scaled', 'user_only'].includes(volatileCapMode) ? volatileCapMode : undefined,
+        pairLotOverrides: pairLotOverrides && typeof pairLotOverrides === 'object'
+          ? Object.fromEntries(Object.entries(pairLotOverrides).map(([k, v]) => [k, Number(v)]).filter(([, v]) => !isNaN(v as number)))
+          : undefined,
       });
       res.json({ success: true, state });
     } catch (err: any) {

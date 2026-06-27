@@ -4503,35 +4503,43 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _risk = (_dbRisk.useRiskPercent || _dbRisk.riskPercent !== 1.0) ? _dbRisk : _jsonRisk;
           const _slDist = (entryPrice && stopLoss) ? Math.abs(entryPrice - stopLoss) : 0;
 
+          const _pipSize  = getPipSize(decision.symbol);
+          const _pipValue = getPipValue(decision.symbol);
+          const _slPips   = (_slDist > 0 && _pipSize > 0) ? _slDist / _pipSize : 0;
+
           if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0) {
             // Risk-% sizing: size THIS account's lot so a stop-out loses riskPercent of its equity.
             //   lots = (equity × risk%) / (slPips × pipValuePerLot)
-            const pipSize  = getPipSize(decision.symbol);
-            const pipValue = getPipValue(decision.symbol);
-            const slPips   = _slDist > 0 && pipSize > 0 ? _slDist / pipSize : 0;
-            const riskUsd  = _tlAcctEq * (_risk.riskPercent / 100);
-            if (slPips > 0 && pipValue > 0) {
-              acctLot = Math.max(0.01, Math.round((riskUsd / (slPips * pipValue)) * 100) / 100);
-              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
+            // Each account is sized independently — $100K @ 1% ≠ same lot as $400K @ 1%.
+            const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
+            if (_slPips > 0 && _pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round((riskUsd / (_slPips * _pipValue)) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} = ${_slPips.toFixed(0)}pip SL)`;
+            } else if (_pipValue > 0) {
+              // No SL distance — use conservative 20-pip equivalent so sizing stays proportional
+              acctLot = Math.max(0.01, Math.round((riskUsd / (20 * _pipValue)) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} — default 20pip SL)`;
+            } else if (_refBal > 0) {
+              // pip value unavailable — fall to proportional ratio
+              const ratio = _tlAcctEq / _refBal;
+              acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+              acctSizeLabel = ` (risk% fallback→proportional ${ratio.toFixed(2)}×)`;
             } else {
-              // No SL provided — use a conservative default: risk% / 20 pips equivalent
-              const defaultPips = 20;
-              if (pipValue > 0) {
-                acctLot = Math.max(0.01, Math.round((riskUsd / (defaultPips * pipValue)) * 100) / 100);
-                acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} — default 20pip SL)`;
-              } else {
-                // Last resort: proportional vs reference balance
-                const ratio = _refBal > 0 ? _tlAcctEq / _refBal : 1;
-                acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
-                acctSizeLabel = ` (risk% fallback proportional ${ratio.toFixed(2)}×)`;
-              }
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              acctSizeLabel = ` (risk% — no SL or reference balance, copying MT5 lot)`;
             }
           } else if (config.copyMode === 'proportional' && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             // Scale lot proportionally by the TL account's equity vs the engine reference:
-            // $400k account copying a $44 engine → correct lot for same % risk on both.
+            // $400k account copying a $100k engine → 4× the lot (same % risk on both).
             const ratio = _tlAcctEq / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
             acctSizeLabel = ` (proportional ${ratio.toFixed(2)}× — $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
+          } else if (config.copyMode === 'proportional' && _tlAcctEq && _tlAcctEq > 0 && _refBal <= 0 && _slPips > 0 && _pipValue > 0) {
+            // Proportional mode but no reference balance configured — auto-size using 1% risk on this account
+            const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1.0;
+            const riskUsd = _tlAcctEq * (autoRiskPct / 100);
+            acctLot = Math.max(0.01, Math.round((riskUsd / (_slPips * _pipValue)) * 100) / 100);
+            acctSizeLabel = ` (⚠️ auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} — set Reference Balance to enable proportional copy)`;
           } else {
             // Fall back to manual lotMultiplier (or 1.0 if not set)
             const acctMult = typeof tlConn.lotMultiplier === 'number' && tlConn.lotMultiplier > 0

@@ -178,12 +178,12 @@ const Header: React.FC = () => {
     }
   };
 
-  // Auto-fetch balances when the slide nav opens
+  // Auto-fetch balances when the slide nav opens, or when connections load after nav is already open
   useEffect(() => {
     if (mobileMenuOpen && activeTLNavConns.length > 0) {
       fetchTLNavBalances();
     }
-  }, [mobileMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mobileMenuOpen, activeTLNavConns.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derived key status for the dot indicator
   const activeValidKey = savedKeys.find(k => k.isActive && k.isValid);

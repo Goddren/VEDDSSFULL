@@ -1582,6 +1582,8 @@ export default function WeeklyStrategyPage() {
         enableORBAutonomous: engineORBAutonomous,
         enableCompositeAutonomous: engineCompositeAutonomous,
         compositeMinEdgeScore: engineCompositeMinEdge,
+        copyMode: engineCopyMode,
+        volatileCapMode: engineVolatileCapMode,
         pairLotOverrides: Object.fromEntries(
           Object.entries(pairLotOverrides)
             .map(([k, v]) => [k, parseFloat(v)])
@@ -2362,9 +2364,11 @@ export default function WeeklyStrategyPage() {
                       )}
                     </div>
                   <div>
-                      <Label className="text-gray-400 text-xs">Account Balance ($)</Label>
+                      <Label className="text-gray-400 text-xs">Primary / Reference Balance ($)</Label>
                       <Input type="number" value={engineAccountBalance} onChange={e => setEngineAccountBalance(Number(e.target.value))}
-                        min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                        min={10} step={10} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm"
+                        placeholder="e.g. 100000 for $100k" />
+                      <p className="text-[10px] text-gray-500 mt-0.5">Used for proportional lot sizing — each TL account scales lots relative to this balance</p>
                     </div>
                     <div>
                       <Label className="text-gray-400 text-xs">Weekly Target ($)</Label>
