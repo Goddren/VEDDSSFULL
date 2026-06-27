@@ -7819,7 +7819,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
         
         // Update AI trade results with WIN/LOSS based on closed trades
-        const { recordTradeResult: recordEngineResult } = await import('./services/live-trading-engine');
+        let recordEngineResult: ((uid: number, r: any) => void) | null = null;
+        try { ({ recordTradeResult: recordEngineResult } = await import('./services/live-trading-engine')); } catch (_) {}
         const now = new Date();
         const hour = now.getUTCHours();
         const detectedSession = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
@@ -7869,14 +7870,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
 
             // Always update goalTracker for ALL closed trades — this feeds the weekly P&L monitors
-            recordEngineResult(token.userId, {
-              symbol: tradeSymbol,
-              profit: closedTrade.profit || 0,
-              strategy: existingResult?.notes?.includes('strategy:')
-                ? existingResult.notes.split('strategy:')[1].trim().split(' ')[0]
-                : 'auto',
-              session: detectedSession,
-            });
+            if (recordEngineResult) {
+              recordEngineResult(token.userId, {
+                symbol: tradeSymbol,
+                profit: closedTrade.profit || 0,
+                strategy: existingResult?.notes?.includes('strategy:')
+                  ? existingResult.notes.split('strategy:')[1].trim().split(' ')[0]
+                  : 'auto',
+                session: detectedSession,
+              });
+            }
           }
         }
         
@@ -11293,6 +11296,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
 
+    // Sync TL closed trades into DB first so weekly/daily stats include them
+    try { await syncTradeLockerOutcomes(userId); } catch (_) {}
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     // Week start = last Monday (or today if Monday)
@@ -12582,6 +12588,9 @@ Respond with ONLY valid JSON:
   app.post("/api/weekly-strategy/update-progress", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
+
+    // Sync TL closed trades first so weekly progress includes them
+    try { await syncTradeLockerOutcomes(userId); } catch (_) {}
 
     // Load strategy from memory OR database (survives deploys)
     let strategy = (global as any).mt5WeeklyStrategies?.[userId];
@@ -15068,7 +15077,6 @@ Format each recommendation as a clear, concise action item.`;
   // brain + ephemeral disk file are wiped on every Render deploy). Also pulls in
   // TradeLocker outcomes so the brain learns from BOTH MT5 and TradeLocker trades.
   async function getOrRefreshBrain(userId: number): Promise<any> {
-    syncTradeLockerOutcomes(userId).catch(() => {}); // fire-and-forget: lands for next rebuild
     const g = global as any;
     g.veddAIBrain = g.veddAIBrain || {};
     g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
@@ -15083,6 +15091,8 @@ Format each recommendation as a clear, concise action item.`;
     const built = g.veddBrainBuiltAt[userId] || 0;
     const stale = Date.now() - built > 60_000;
     if (!brain || stale) {
+      // Await TL sync so the brain rebuilds from fresh data (not a 30s-old snapshot)
+      try { await syncTradeLockerOutcomes(userId); } catch (_) {}
       try {
         const fresh = await runBrainLearning(userId);
         if (fresh) { brain = fresh; g.veddBrainBuiltAt[userId] = Date.now(); }

@@ -972,8 +972,8 @@ export default function WeeklyStrategyPage() {
   const { data: tlAccountBalance } = useQuery<any>({
     queryKey: ['/api/tradelocker/account-balance'],
     enabled: !!user,
-    refetchInterval: 60000,
-    staleTime: 30000,
+    refetchInterval: 15000,
+    staleTime: 10000,
   });
 
   // Execution diagnostics — which accounts are actually firing trades
