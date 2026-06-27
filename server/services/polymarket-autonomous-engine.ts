@@ -282,7 +282,7 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
   s.lastScanAt = new Date().toISOString();
 
   // Refresh open position prices
-  await _refreshPositionPrices(s);
+  await _refreshPositionPrices(s, userId);
 
   if (s.openPositions.length >= s.config.maxOpenPositions) {
     const r = `Max open positions (${s.config.maxOpenPositions}) reached`;
@@ -314,7 +314,7 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
     }
 
     const direction: 'BUY' | 'SELL' = isBullish ? 'BUY' : 'SELL';
-    const result = await _openPosition(s, sentiment, direction);
+    const result = await _openPosition(s, sentiment, direction, userId);
     s.lastScanResult = result.reason;
     return result;
   } catch (err: any) {
@@ -330,6 +330,7 @@ async function _openPosition(
   s: PolymarketEngineState,
   sentiment: PolymarketBTCSentiment,
   direction: 'BUY' | 'SELL',
+  userId: number,
 ): Promise<{ fired: boolean; reason: string }> {
   const openIds = new Set(s.openPositions.map(p => p.market.id));
   const now = Date.now();
@@ -380,8 +381,7 @@ async function _openPosition(
   // Attempt live CLOB order if live mode enabled and token ID available
   let liveOrderId: string | undefined;
   if (!s.isPaperMode && best.yesTokenId) {
-    const userId = [..._liveModes.entries()].find(([, v]) => v)?.[0];
-    const pk = userId != null ? _privateKeys.get(userId) : undefined;
+    const pk = _privateKeys.get(userId);
     if (pk && best.yesTokenId) {
       const result = await placeClobOrder(pk, best.yesTokenId, 'BUY', entryProb / 100, s.config.stakePerTrade);
       if (!result.success) {
@@ -405,7 +405,7 @@ async function _openPosition(
 
 // ── Price refresh ─────────────────────────────────────────────────────────────
 
-async function _refreshPositionPrices(s: PolymarketEngineState): Promise<void> {
+async function _refreshPositionPrices(s: PolymarketEngineState, userId?: number): Promise<void> {
   if (s.openPositions.length === 0) return;
 
   try {
@@ -425,7 +425,7 @@ async function _refreshPositionPrices(s: PolymarketEngineState): Promise<void> {
       pos.unrealizedPnlPct = (pos.unrealizedPnl / pos.stake) * 100;
 
       if (market.closed) {
-        closePosition(s, pos.id, currentProb);
+        closePosition(s, pos.id, currentProb, userId);
       }
     }
 
@@ -435,7 +435,7 @@ async function _refreshPositionPrices(s: PolymarketEngineState): Promise<void> {
 
 // ── Close position ────────────────────────────────────────────────────────────
 
-export function closePosition(s: PolymarketEngineState, positionId: string, exitProb?: number): boolean {
+export function closePosition(s: PolymarketEngineState, positionId: string, exitProb?: number, userId?: number): boolean {
   const idx = s.openPositions.findIndex(p => p.id === positionId);
   if (idx === -1) return false;
 
@@ -460,12 +460,35 @@ export function closePosition(s: PolymarketEngineState, positionId: string, exit
   s.totalRealizedPnl += realizedPnl;
   s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
 
+  // Persist to aiTradeResults so dashboard can display Polymarket trades
+  if (userId != null) {
+    Promise.resolve().then(async () => {
+      try {
+        const { db } = await import('../db');
+        const { aiTradeResults } = await import('../../shared/schema');
+        await db.insert(aiTradeResults).values({
+          userId,
+          symbol: `POLYMARKET:BTC`,
+          direction: pos.direction,
+          entryPrice: pos.entryProbability / 100,
+          exitPrice: ep / 100,
+          result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
+          profitLoss: Math.round(realizedPnl * 100) / 100,
+          closedAt: new Date(),
+          source: 'polymarket',
+          mt5Ticket: pos.id,
+          notes: `${pos.market.question.slice(0, 100)} | ${pos.status}`,
+        });
+      } catch { /* non-blocking */ }
+    });
+  }
+
   return true;
 }
 
 export function closeAllPositions(userId: number): number {
   const s = getEngineState(userId);
   const ids = s.openPositions.map(p => p.id);
-  ids.forEach(id => closePosition(s, id));
+  ids.forEach(id => closePosition(s, id, undefined, userId));
   return ids.length;
 }

@@ -764,6 +764,28 @@ export function closeKalshiTrade(
   try {
     recordKalshiOutcome(userId, trade.strategy || 'unknown', realizedPnl);
   } catch { /* non-blocking */ }
+
+  // Persist to aiTradeResults so dashboard can display Kalshi trades
+  Promise.resolve().then(async () => {
+    try {
+      const { db } = await import('../db');
+      const { aiTradeResults } = await import('../../shared/schema');
+      await db.insert(aiTradeResults).values({
+        userId,
+        symbol: `KALSHI:${trade.ticker}`,
+        direction: trade.direction === 'SELL' ? 'SELL' : 'BUY',
+        entryPrice: trade.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
+        profitLoss: Math.round(realizedPnl * 100) / 100,
+        closedAt: new Date(),
+        source: 'kalshi',
+        mt5Ticket: trade.id,
+        notes: `${trade.strategy}: ${trade.label}${exitReason !== 'manual' ? ' | ' + exitReason : ''}`,
+      });
+    } catch { /* non-blocking */ }
+  });
+
   return true;
 }
 

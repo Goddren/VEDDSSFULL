@@ -15153,7 +15153,7 @@ Format each recommendation as a clear, concise action item.`;
         recentTrades: closed.slice(0, 12).map((t: any) => ({
           symbol: t.symbol, direction: t.direction, result: t.result,
           profitLoss: Math.round((t.profitLoss || 0) * 100) / 100,
-          source: t.source === 'tradelocker' ? 'TradeLocker' : 'MT5',
+          source: t.source === 'tradelocker' ? 'TradeLocker' : t.source === 'kalshi' ? 'Kalshi' : t.source === 'polymarket' ? 'Polymarket' : 'MT5',
           closedAt: t.closedAt,
         })),
         lastTradeAt: closed[0]?.closedAt ?? null,
@@ -17093,7 +17093,7 @@ Respond with ONLY valid JSON:
     const posId = req.params.id;
     import('./services/polymarket-autonomous-engine').then(({ getEngineState, closePosition }) => {
       const state = getEngineState(userId);
-      const ok = closePosition(state, posId);
+      const ok = closePosition(state, posId, undefined, userId);
       if (!ok) return res.status(404).json({ error: "Position not found" });
       res.json({ success: true, state });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
