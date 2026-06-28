@@ -19,7 +19,7 @@ async function hashPasswordForWallet(password: string) {
   return `${buf.toString("hex")}.${salt}`;
 }
 import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional, generateWorkforceCurriculum, analyzeORBSignal } from "./openai";
-import { setupTwilio, sendTradingSignal } from "./twilio";
+import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
 import { tradingCoachHandler, tradingTipsHandler } from "./trading-coach";
@@ -5151,6 +5151,255 @@ IMPORTANT:
       console.error('[ABBA TTS] Error:', err?.message);
       res.status(500).json({ error: 'TTS unavailable', fallback: true });
     }
+  });
+
+  // ── ABBA: Notify (send SMS/email to user, ambassador, or admin) ─────────────
+  app.post('/api/abba/notify', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const { target, phone, email, subject, message, channel } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'message required' });
+
+    const results: any = { sms: null, email: null };
+
+    // SMS via Twilio
+    if ((channel === 'sms' || channel === 'both') && phone) {
+      results.sms = await sendSmsRaw(phone, `VEDD | ${message}`);
+    }
+
+    // Email via SendGrid (if configured)
+    if ((channel === 'email' || channel === 'both') && email) {
+      const sgKey = process.env.SENDGRID_API_KEY;
+      if (sgKey) {
+        try {
+          const sgMail = await import('@sendgrid/mail');
+          (sgMail as any).default?.setApiKey?.(sgKey) || (sgMail as any).setApiKey?.(sgKey);
+          const sendFn = (sgMail as any).default?.send || (sgMail as any).send;
+          await sendFn({
+            to: email,
+            from: process.env.SENDGRID_FROM_EMAIL || 'abba@vedd.app',
+            subject: subject || 'Message from ABBA — Your VEDD Assistant',
+            text: message,
+            html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">ABBA — VEDD AI Assistant</h2><p>${message.replace(/\n/g, '<br/>')}</p><hr/><p style="color:#888;font-size:12px">Sent from the VEDD platform. Target: ${target || 'user'}</p></div>`,
+          });
+          results.email = { success: true };
+        } catch (e: any) {
+          results.email = { success: false, error: e.message };
+        }
+      } else {
+        results.email = { success: false, error: 'SENDGRID_API_KEY not configured' };
+      }
+    }
+
+    // Log to activity feed
+    try {
+      const feed = (global as any).liveActivityFeed;
+      if (Array.isArray(feed)) {
+        feed.unshift({ type: 'abba_notify', userId, target, channel, preview: message.slice(0, 80), at: new Date().toISOString() });
+        if (feed.length > 200) feed.pop();
+      }
+    } catch {}
+
+    res.json({ success: true, results });
+  });
+
+  // ── ABBA: Accounts daily P&L summary ────────────────────────────────────────
+  app.get('/api/abba/accounts-daily', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    try {
+      const { buildAbbaContext } = await import('./abba-strategist');
+      const ctx = await buildAbbaContext(userId);
+      const today = ctx.performance.today;
+      const overall = ctx.performance.overall;
+      const goal = ctx.goal;
+
+      // Live engine state for balance
+      const engineState = (global as any).liveEngineState?.[userId];
+      const balance = engineState?.balance ?? null;
+      const openTrades = engineState?.openPositions?.length ?? 0;
+
+      // Best / worst pairs today from recent trades
+      const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
+      const todayTrades = ctx.recentTrades.filter(t => new Date(t.when) >= todayStart);
+      const pairMap: Record<string, { pnl: number; trades: number }> = {};
+      for (const t of todayTrades) {
+        if (!pairMap[t.symbol]) pairMap[t.symbol] = { pnl: 0, trades: 0 };
+        pairMap[t.symbol].pnl += t.pnl;
+        pairMap[t.symbol].trades++;
+      }
+      const pairList = Object.entries(pairMap).map(([pair, v]) => ({ pair, ...v })).sort((a, b) => b.pnl - a.pnl);
+
+      res.json({
+        date: new Date().toISOString().split('T')[0],
+        balance,
+        openTrades,
+        today: { pnl: today.totalPnl, trades: today.trades, wins: today.wins, losses: today.losses, winRate: today.winRate },
+        overall: { pnl: overall.totalPnl, trades: overall.trades, winRate: overall.winRate },
+        goal: { weeklyTarget: goal.weeklyTarget, currentProfit: goal.currentProfit, progressPct: goal.progressPct },
+        bestPairs: pairList.slice(0, 3),
+        worstPairs: pairList.slice(-3).reverse(),
+        bySession: ctx.performance.bySession,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── ABBA: Send daily report via SMS/email ────────────────────────────────────
+  app.post('/api/abba/daily-report', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const userId = (req.user as User).id;
+    const { phone, email, channel } = req.body;
+    try {
+      const { buildAbbaContext } = await import('./abba-strategist');
+      const ctx = await buildAbbaContext(userId);
+      const t = ctx.performance.today;
+      const g = ctx.goal;
+
+      const pnlStr = t.totalPnl >= 0 ? `+$${t.totalPnl.toFixed(2)}` : `-$${Math.abs(t.totalPnl).toFixed(2)}`;
+      const report = [
+        `📊 VEDD Daily Report — ${new Date().toLocaleDateString()}`,
+        `Today: ${pnlStr} | ${t.trades} trades | ${t.winRate}% win rate`,
+        `Goal: $${g.weeklyTarget} weekly target — ${g.progressPct}% complete ($${g.currentProfit})`,
+        `Best session: ${ctx.performance.bySession.sort((a, b) => b.pnl - a.pnl)[0]?.session ?? 'N/A'}`,
+        `Top pair: ${ctx.performance.byPair.sort((a, b) => b.pnl - a.pnl)[0]?.pair ?? 'N/A'}`,
+        `Keep going — Abba is watching your back.`,
+      ].join('\n');
+
+      const results: any = {};
+      if ((channel === 'sms' || channel === 'both') && phone) {
+        results.sms = await sendSmsRaw(phone, report);
+      }
+      if ((channel === 'email' || channel === 'both') && email) {
+        const sgKey = process.env.SENDGRID_API_KEY;
+        if (sgKey) {
+          try {
+            const sgMail = await import('@sendgrid/mail');
+            (sgMail as any).default?.setApiKey?.(sgKey) || (sgMail as any).setApiKey?.(sgKey);
+            const sendFn = (sgMail as any).default?.send || (sgMail as any).send;
+            await sendFn({
+              to: email,
+              from: process.env.SENDGRID_FROM_EMAIL || 'abba@vedd.app',
+              subject: `VEDD Daily Report — ${new Date().toLocaleDateString()}`,
+              text: report,
+              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:24px;border-radius:12px">
+                <h2 style="color:#7c3aed;margin-bottom:4px">📊 VEDD Daily Report</h2>
+                <p style="color:#888;font-size:13px;margin-top:0">${new Date().toLocaleDateString()}</p>
+                <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin:16px 0">
+                  <p style="font-size:20px;font-weight:bold;color:${t.totalPnl >= 0 ? '#10b981' : '#ef4444'}">${pnlStr}</p>
+                  <p style="color:#ccc">${t.trades} trades · ${t.winRate}% win rate</p>
+                </div>
+                <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin:16px 0">
+                  <p style="color:#888;font-size:12px;margin:0">WEEKLY GOAL PROGRESS</p>
+                  <p style="font-size:18px;font-weight:bold;color:#7c3aed">${g.progressPct}%</p>
+                  <p style="color:#ccc">$${g.currentProfit} of $${g.weeklyTarget} target</p>
+                </div>
+                <p style="color:#888;font-size:12px">Sent by ABBA — your VEDD AI personal assistant.</p>
+              </div>`,
+            });
+            results.email = { success: true };
+          } catch (e: any) { results.email = { success: false, error: e.message }; }
+        } else {
+          results.email = { success: false, error: 'SENDGRID_API_KEY not configured' };
+        }
+      }
+      res.json({ success: true, report, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── ABBA: Onboarding guide (step-by-step for MT5, futures, Kalshi) ──────────
+  app.get('/api/abba/onboarding/:topic', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    const { topic } = req.params;
+
+    const guides: Record<string, { title: string; steps: string[]; tips: string[]; nextPage?: string }> = {
+      mt5: {
+        title: 'Connect Your MT5 Account to VEDD',
+        steps: [
+          'Download MetaTrader 5 from your broker or metatrader5.com',
+          'Open MT5 → Tools → Options → Expert Advisors → check "Allow automated trading" and "Allow DLL imports"',
+          'In VEDD, go to your Dashboard and click "Connect MT5"',
+          'Enter your broker server address, MT5 account number, and password',
+          'Enable the Live Forex Engine and choose your trading pairs (start with 2-3)',
+          'Set your confidence threshold (recommended: 75%) and session windows',
+          'Generate your first EA at /futures-ea-generator and attach it to any MT5 chart',
+          'The engine will begin scanning markets and placing trades automatically',
+        ],
+        tips: [
+          'Use a demo account first to verify everything connects correctly',
+          'Start with just 2-3 pairs — EURUSD, GBPUSD, XAUUSD are the most liquid',
+          'Keep your confidence threshold at 75%+ while learning the engine',
+          'Monitor the dashboard for the first 24 hours to watch live scans',
+        ],
+        nextPage: '/home',
+      },
+      futures: {
+        title: 'Connect Your Futures Trading Account',
+        steps: [
+          'Go to /futures-connect in the VEDD menu',
+          'Select your broker: TradeLocker, Rithmic, Tradovate, or AMP Futures',
+          'Log into your broker account and go to API/Developer settings',
+          'Generate an API key and secret from your broker dashboard',
+          'Enter the API key and secret in the VEDD futures connect form',
+          'Select the contracts you want to trade (ES, NQ, CL, GC)',
+          'Set your session windows (recommended: NY Open 9:30-11:00 AM EST)',
+          'Enable the futures engine and set max daily loss limit',
+          'Monitor your live feed at /futures-live-feed',
+        ],
+        tips: [
+          'Start with micro contracts (MES, MNQ) to reduce risk while learning',
+          'ES and NQ are the most liquid — ideal for AI trading',
+          'Use prop firm mode for stricter discipline if you are in a funded challenge',
+        ],
+        nextPage: '/futures-connect',
+      },
+      kalshi: {
+        title: 'Set Up Kalshi Prediction Market Engine',
+        steps: [
+          'Create an account at kalshi.com (US residents only)',
+          'Verify your identity on Kalshi (required for API access)',
+          'Log in → go to Settings → API → click "Generate API Key"',
+          'Copy both the API key and the private key/secret',
+          'In VEDD, go to Settings → AI API Keys',
+          'Add a new key: Provider = "Kalshi", paste your API key',
+          'Navigate to the Polymarket/Kalshi engine in the VEDD menu',
+          'Set your confidence threshold (recommended: 70%+)',
+          'The engine will scan live prediction markets and surface high-probability events',
+        ],
+        tips: [
+          'Start with markets you understand — political, economic, sports events',
+          'Always check the bid/ask spread before entering a position',
+          'Kalshi markets are binary (yes/no contracts) — position size carefully',
+        ],
+        nextPage: '/market-insights',
+      },
+      ambassador: {
+        title: 'Get Started as a VEDD Ambassador',
+        steps: [
+          'Go to /ambassador-training and complete all training modules',
+          'Pass the quiz at the end of each module to earn your certification',
+          'Visit /referral-hub to get your unique referral link',
+          'Share your link with traders in your network (social media, Discord, YouTube, etc.)',
+          'Track your referrals, commissions, and leads from the Ambassador dashboard',
+          'Use the ABBA Outreach tab to message leads and check in with prospects',
+          'Earn commissions for every user who subscribes through your link',
+          'Level up from Ambassador to Elite Ambassador by hitting referral milestones',
+        ],
+        tips: [
+          'Create content showing your real VEDD results — authenticity converts best',
+          'Target forex traders, futures traders, and people interested in AI trading',
+          'The referral hub shows you exactly which leads signed up and what plan they chose',
+        ],
+        nextPage: '/ambassador-training',
+      },
+    };
+
+    const guide = guides[topic];
+    if (!guide) return res.status(404).json({ error: 'Unknown topic. Available: mt5, futures, kalshi, ambassador' });
+    res.json(guide);
   });
 
   // Trading Tips endpoint

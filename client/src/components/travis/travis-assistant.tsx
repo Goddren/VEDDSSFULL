@@ -410,6 +410,10 @@ const QUICK_PROMPTS = [
   { icon: BarChart2,  label: 'My week plan',           prompt: "Walk me through my current weekly strategy — pairs, daily target, and where I stand." },
   { icon: Zap,        label: 'Protect my gains',       prompt: "I'm ahead on my weekly goal. What should I do to protect my gains and finish the week strong?" },
   { icon: MapPin,     label: 'Take me to Analysis',   prompt: "Take me to the Analysis page." },
+  { icon: Layers,     label: 'Set up MT5',             prompt: "Walk me through connecting my MT5 account to VEDD step by step. I'm a beginner." },
+  { icon: DollarSign, label: 'Futures setup',          prompt: "How do I connect my futures trading account to VEDD? Walk me through the setup." },
+  { icon: Wifi,       label: 'Kalshi API',             prompt: "How do I set up Kalshi API in VEDD to access prediction market signals?" },
+  { icon: Calendar,   label: 'Daily P&L report',       prompt: "Give me a full daily report — P&L, wins, losses, best pairs, and goal progress." },
 ];
 
 // ── Message bubble ────────────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import { NewsAlert, NewsEvent } from '@/components/ui/news-alert';
 import { getNewsForSymbol } from '@/lib/news-service';
 import { useNewsNotifications } from '@/components/news-notification-scheduler';
 import VolumeAnalysisChart from './volume-analysis';
+import VolumeProfileChart from './volume-profile';
 import { InsightTooltip, ConfidenceInsight, PatternInsight, IndicatorInsight, MarketTrendInsight } from '@/components/tooltips';
 import { SocialShare } from '@/components/trading/social-share';
 import { QuickShareDialog } from '@/components/trading/quick-share-dialog';
@@ -747,6 +748,17 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ analysis, imageUrl, ann
         </div>
       </div>
       
+      {/* Volume Profile — price-level liquidity map */}
+      {(analysis as any).volumeProfile?.levels?.length > 0 && (
+        <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
+          <h2 className="text-xl font-semibold mb-4">Volume Profile</h2>
+          <VolumeProfileChart
+            data={(analysis as any).volumeProfile}
+            symbol={analysis.symbol}
+          />
+        </div>
+      )}
+
       {/* Volume Analysis */}
       <div className="bg-[#1E1E1E] rounded-xl p-6 shadow-lg">
         <h2 className="text-xl font-semibold mb-4">Volume Analysis & Best Trading Times</h2>

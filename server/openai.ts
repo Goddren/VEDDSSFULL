@@ -2693,6 +2693,17 @@ export async function analyzeChartImage(base64Image: string, knownSymbol?: strin
   },
   "recommendation": string,   // Overall trading recommendation considering volume and momentum
   "steps": string[],          // Array of actionable steps to take
+  "volumeProfile": {           // Price-level volume profile (REQUIRED — estimate from visible bars/candles)
+    "poc": number,             // Point of Control: price level with highest traded volume
+    "vah": number,             // Value Area High: upper boundary of 70% value area
+    "val": number,             // Value Area Low: lower boundary of 70% value area
+    "currentPrice": number,    // Current/last close price visible on the chart
+    "hvnLevels": number[],     // High Volume Node prices (2-4 significant support/resistance prices)
+    "lvnLevels": number[],     // Low Volume Node prices (1-3 thin zones where price moves fast)
+    "levels": [                // 8-15 price levels with relative volume 0-100
+      { "price": number, "volume": number }
+    ]
+  },
   "orgStrategyInsight": {     // VEDD platform strategy framework assessment (REQUIRED)
     "strategyName": string,      // Which top strategy best matches this setup: "ICT AMD Kill Zone", "SMC Order Block Raid", "Wyckoff Accumulation/Distribution", "Fibonacci OTE Reversal", "Session Breakout Momentum", "Trend Continuation Pullback", or similar
     "alignment": string,         // How well price action aligns: "Strong", "Moderate", "Weak", or "None"
@@ -2854,6 +2865,21 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         insight: typeof response.orgStrategyInsight.insight === 'string' ? response.orgStrategyInsight.insight : '',
         actionNote: typeof response.orgStrategyInsight.actionNote === 'string' ? response.orgStrategyInsight.actionNote : '',
       } : undefined,
+      volumeProfile: (() => {
+        const vp = response.volumeProfile;
+        if (!vp || typeof vp !== 'object' || !vp.poc || !Array.isArray(vp.levels) || vp.levels.length === 0) return undefined;
+        return {
+          poc: Number(vp.poc),
+          vah: Number(vp.vah || vp.poc),
+          val: Number(vp.val || vp.poc),
+          currentPrice: vp.currentPrice ? Number(vp.currentPrice) : undefined,
+          hvnLevels: Array.isArray(vp.hvnLevels) ? vp.hvnLevels.map(Number).filter(Boolean) : [],
+          lvnLevels: Array.isArray(vp.lvnLevels) ? vp.lvnLevels.map(Number).filter(Boolean) : [],
+          levels: vp.levels
+            .filter((l: any) => l && typeof l.price === 'number' && typeof l.volume === 'number')
+            .map((l: any) => ({ price: Number(l.price), volume: Number(l.volume) })),
+        };
+      })(),
     };
     
     return analysisResponse;

@@ -25,6 +25,18 @@ export function setupTwilio() {
   }
 }
 
+// Send SMS programmatically (no req/res — for ABBA outreach)
+export async function sendSmsRaw(to: string, body: string): Promise<{ success: boolean; sid?: string; error?: string }> {
+  if (!twilioClient) return { success: false, error: 'SMS not configured — add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER to environment.' };
+  try {
+    const formatted = to.startsWith('+') ? to : `+${to}`;
+    const msg = await twilioClient.messages.create({ body, from: process.env.TWILIO_PHONE_NUMBER, to: formatted });
+    return { success: true, sid: msg.sid };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
 // Send a text message with trading signal
 export async function sendTradingSignal(req: Request, res: Response) {
   if (!twilioClient) {
