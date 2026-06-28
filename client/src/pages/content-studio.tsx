@@ -6,6 +6,7 @@ import { Redirect } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { VeddReelPlayer } from '@/components/vedd-reel-player';
+import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
@@ -492,6 +493,7 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const [view, setView] = useState<'studio' | 'reels'>('studio');
+  const [reelId, setReelId] = useState<'correction' | 'whatisveddbuild'>('correction');
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [caption, setCaption] = useState('');
@@ -565,34 +567,92 @@ export default function ContentStudioPage() {
         {/* ── Reel View ── */}
         {view === 'reels' && (
           <div>
+            {/* Reel selector */}
+            <div className="flex gap-2 mb-5">
+              <button
+                onClick={() => setReelId('correction')}
+                className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: reelId === 'correction' ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.04)',
+                  border: `1px solid ${reelId === 'correction' ? 'rgba(239,68,68,.4)' : 'rgba(255,255,255,.08)'}`,
+                  color: reelId === 'correction' ? '#f87171' : '#6b7280',
+                }}
+              >
+                Stop Staring at the Correction · :20
+              </button>
+              <button
+                onClick={() => setReelId('whatisveddbuild')}
+                className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: reelId === 'whatisveddbuild' ? 'rgba(240,210,105,.10)' : 'rgba(255,255,255,.04)',
+                  border: `1px solid ${reelId === 'whatisveddbuild' ? 'rgba(240,210,105,.4)' : 'rgba(255,255,255,.08)'}`,
+                  color: reelId === 'whatisveddbuild' ? '#F0D269' : '#6b7280',
+                }}
+              >
+                What Is VEDDBuild? · :55
+              </button>
+            </div>
+
             <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)' }}>
               <span>🎬</span>
-              <p className="text-xs text-gray-300">Animated reel preview — press Play to watch the full 20-second sequence. Screen-record to export as a real video.</p>
+              <p className="text-xs text-gray-300">Animated reel preview — press Play, then screen-record to export as a real video.</p>
             </div>
-            <div className="flex flex-col lg:flex-row gap-10 items-start">
-              <VeddReelPlayer />
-              <div className="flex-1 min-w-0">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Script — Stop Staring at the Correction</h3>
-                <div className="space-y-3 text-sm text-gray-400 leading-relaxed" style={{ maxWidth: 480 }}>
-                  <p><span className="text-red-400 font-bold">HOOK:</span> You didn't lose money this week because the market was hard. You lost it because you were the trade.</p>
-                  <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
-                  <p>Stop. Look at what just happened. BTC spent all week trapped between 64 and 65 thousand dollars. Most traders lost money not because the market was impossible — but because <span className="text-white font-semibold">they were the problem.</span></p>
-                  <p><span className="text-red-400">Fear</span> made them exit early. <span className="text-red-400">Greed</span> made them re-enter late.</p>
-                  <p><span className="text-emerald-400 font-semibold">VEDD's AI Vault had none of that.</span> Custom expert advisors built inside the platform executed every entry and exit on MT5 and TradingView without a single emotional override.</p>
-                  <p>Multi-timeframe synthesis caught the signals before the crowd even saw them. ABBA AI kept the strategy locked in when the charts looked ugliest.</p>
-                  <p>And while the dust settled, <span className="text-purple-400 font-semibold">Solana token rewards</span> kept stacking in the background.</p>
-                  <p className="text-white font-bold">This is not the future of trading. This is right now.</p>
-                  <p>Your vault is waiting. Build it before this window closes.</p>
-                  <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
-                  <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
-                    <div className="text-emerald-400 font-bold mb-1"># CLOSING TEXT CARD</div>
-                    the machine never panicked.<br/>
-                    you still can.<br/>
-                    <span className="text-emerald-400">→ build your vault now · veddbuild.com</span>
+
+            {reelId === 'correction' && (
+              <div className="flex flex-col lg:flex-row gap-10 items-start">
+                <VeddReelPlayer />
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Script — Stop Staring at the Correction</h3>
+                  <div className="space-y-3 text-sm text-gray-400 leading-relaxed" style={{ maxWidth: 480 }}>
+                    <p><span className="text-red-400 font-bold">HOOK:</span> You didn't lose money this week because the market was hard. You lost it because you were the trade.</p>
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <p>Stop. Look at what just happened. BTC spent all week trapped between 64 and 65 thousand dollars. Most traders lost money not because the market was impossible — but because <span className="text-white font-semibold">they were the problem.</span></p>
+                    <p><span className="text-red-400">Fear</span> made them exit early. <span className="text-red-400">Greed</span> made them re-enter late.</p>
+                    <p><span className="text-emerald-400 font-semibold">VEDD's AI Vault had none of that.</span> Custom expert advisors built inside the platform executed every entry and exit on MT5 and TradingView without a single emotional override.</p>
+                    <p>Multi-timeframe synthesis caught the signals before the crowd even saw them. ABBA AI kept the strategy locked in when the charts looked ugliest.</p>
+                    <p>And while the dust settled, <span className="text-purple-400 font-semibold">Solana token rewards</span> kept stacking in the background.</p>
+                    <p className="text-white font-bold">This is not the future of trading. This is right now.</p>
+                    <p>Your vault is waiting. Build it before this window closes.</p>
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
+                      <div className="text-emerald-400 font-bold mb-1"># CLOSING TEXT CARD</div>
+                      the machine never panicked.<br/>
+                      you still can.<br/>
+                      <span className="text-emerald-400">→ build your vault now · veddbuild.com</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {reelId === 'whatisveddbuild' && (
+              <div className="flex flex-col lg:flex-row gap-10 items-start">
+                <div className="flex flex-col items-center">
+                  <VeddReelWhatIsVedd />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Script — What Is VEDDBuild?</h3>
+                  <div className="space-y-3 text-sm text-gray-400 leading-relaxed" style={{ maxWidth: 480 }}>
+                    <p><span className="font-bold" style={{ color: '#F0D269' }}>HOOK (0:00–0:04):</span> What if your platform worked while you slept?</p>
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <p><span className="font-bold" style={{ color: '#F0D269' }}>PLATFORM REVEAL (0:05–0:20):</span> VEDDBuild is an AI trading ecosystem. Live signals. Smart filtering. <span className="text-white font-semibold">Auto-execution on every major broker.</span></p>
+                    <p>Features: <span className="text-white">Live AI Signals · SS AI Filter · EA Auto-Execution</span> on MT4, MT5, and TradeLocker.</p>
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <p><span className="font-bold" style={{ color: '#F0D269' }}>ECOSYSTEM (0:21–0:40):</span> It's not just signals. It's a full ecosystem built for the trader who moves differently.</p>
+                    <p><span className="text-white">SOL Scanner</span> · <span className="text-purple-400">$VEDD Token</span> · <span className="text-white">NFC Streetwear</span> · <span className="text-white">Ambassador Program</span></p>
+                    <p className="italic" style={{ color: '#F0D269' }}>vous êtes des dieux</p>
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <p><span className="font-bold" style={{ color: '#F0D269' }}>CTA (0:41–0:55):</span> Start your free trial now. No excuses. Just edge.</p>
+                    <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
+                      <div className="font-bold mb-1" style={{ color: '#F0D269' }}># CLOSING TEXT CARD</div>
+                      START FREE<br/>
+                      <span className="text-white">VEDDBuild.com</span><br/>
+                      <span style={{ color: '#F0D269' }}>→ no excuses. just edge.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
