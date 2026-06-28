@@ -1750,9 +1750,11 @@ SYNTHESIZE these into a single unified recommendation with:
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
 10. BIDIRECTIONAL TRADING: Always set allowBidirectionalTrading to false. Never recommend trading both directions simultaneously — this doubles spread cost and nets to zero. Pick the single highest-confidence direction and commit to it.
 11. PENDING BREAKOUT ORDERS:
-    - For BUY breakout: Calculate a resistance level that price must break above to trigger entry (typically highest resistance + 0.1-0.5% margin)
-    - For SELL breakout: Calculate a support level that price must break below to trigger entry (typically lowest support - 0.1-0.5% margin)
-    - These are conditional pending orders that activate when price breaks through
+    - CRITICAL: Breakout levels MUST be within 0.2-0.8% of the current live price so they actually trigger within the current session or next day. DO NOT set levels far away from current price.
+    - For BUY breakout: Set the trigger just 0.2-0.5% above current price at the nearest resistance zone — if price is 1.0850, trigger should be something like 1.0872-1.0895, NOT 1.1000 or higher
+    - For SELL breakout: Set the trigger just 0.2-0.5% below current price at the nearest support zone — if price is 1.0850, trigger should be something like 1.0820-1.0830, NOT 1.0700 or lower
+    - Use ATR to size the distance: for volatile assets (Gold, BTCUSD) use 0.3-0.8%, for stable pairs (EURUSD, GBPUSD) use 0.15-0.4%
+    - These are conditional pending orders that activate when price breaks through the NEARBY level
 
 Respond ONLY in valid JSON format with these exact keys:
 {
