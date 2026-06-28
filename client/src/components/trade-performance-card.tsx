@@ -56,8 +56,17 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
   const o = data?.overall;
   const hasData = (o?.trades ?? 0) > 0;
 
+  const timeAgo = (iso: string) => {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  };
+
   return (
     <div className={`rounded-2xl p-4 ${className}`} style={{ background: "rgba(16,185,129,0.06)", border: "1.5px solid rgba(16,185,129,0.25)" }}>
+      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-emerald-400" />
@@ -77,58 +86,100 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          {/* Today's P&L — prominent banner */}
+          <div className="rounded-xl px-4 py-3 mb-3 flex items-center justify-between" style={{ background: "rgba(0,0,0,0.30)" }}>
+            <div>
+              <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide">Today's P&L</p>
+              <p className="text-2xl font-black leading-none mt-0.5" style={{ color: pnlColor(data!.today.totalPnl) }}>
+                {usd(data!.today.totalPnl)}
+              </p>
+              <p className="text-[9px] text-gray-500 mt-0.5">
+                {data!.today.trades} trade{data!.today.trades !== 1 ? "s" : ""} · {data!.today.wins}W/{data!.today.losses}L
+              </p>
+            </div>
+            {data!.today.totalPnl >= 0
+              ? <TrendingUp className="w-8 h-8 text-emerald-400/40" />
+              : <TrendingDown className="w-8 h-8 text-red-400/40" />}
+          </div>
+
+          {/* Overall stats grid: Total Trades · Win Rate · Total P&L · Win Streak */}
+          <div className="grid grid-cols-4 gap-1.5 mb-3">
             <div className="bg-black/25 rounded-lg p-2 text-center">
-              <p className="text-[9px] text-gray-500">Win Rate</p>
-              <p className="text-lg font-black" style={{ color: wrColor(o!.winRate) }}>{o!.winRate}%</p>
-              <p className="text-[8px] text-gray-500">{o!.wins}W / {o!.losses}L</p>
+              <p className="text-[8px] text-gray-500">Trades</p>
+              <p className="text-base font-black text-gray-200">{o!.trades}</p>
             </div>
             <div className="bg-black/25 rounded-lg p-2 text-center">
-              <p className="text-[9px] text-gray-500">Total P&L</p>
-              <p className="text-lg font-black" style={{ color: pnlColor(o!.totalPnl) }}>{usd(o!.totalPnl)}</p>
-              <p className="text-[8px] text-gray-500">{o!.trades} trades</p>
+              <p className="text-[8px] text-gray-500">Win Rate</p>
+              <p className="text-base font-black" style={{ color: wrColor(o!.winRate) }}>{o!.winRate}%</p>
+              <p className="text-[7px] text-gray-500">{o!.wins}W/{o!.losses}L</p>
             </div>
             <div className="bg-black/25 rounded-lg p-2 text-center">
-              <p className="text-[9px] text-gray-500">Today</p>
-              <p className="text-lg font-black" style={{ color: pnlColor(data!.today.totalPnl) }}>{usd(data!.today.totalPnl)}</p>
-              <p className="text-[8px] text-gray-500">{data!.today.trades} trades</p>
+              <p className="text-[8px] text-gray-500">Total P&L</p>
+              <p className="text-base font-black" style={{ color: pnlColor(o!.totalPnl) }}>{usd(o!.totalPnl)}</p>
+            </div>
+            <div className="bg-black/25 rounded-lg p-2 text-center">
+              <p className="text-[8px] text-gray-500">Streak</p>
+              {data!.streak.type && data!.streak.count > 0 ? (
+                <>
+                  <p className="text-base font-black" style={{ color: data!.streak.type === "win" ? "#4ade80" : "#f87171" }}>
+                    {data!.streak.count}
+                  </p>
+                  <p className="text-[7px]" style={{ color: data!.streak.type === "win" ? "#4ade80" : "#f87171" }}>
+                    {data!.streak.type === "win" ? "wins" : "losses"}
+                  </p>
+                </>
+              ) : (
+                <p className="text-base font-black text-gray-600">—</p>
+              )}
             </div>
           </div>
 
-          {/* Per-source split */}
-          <div className="flex gap-2 mb-3">
-            {(["mt5", "tradelocker"] as const).map((src) => {
-              const s = data!.bySource[src];
-              const label = src === "mt5" ? "MT5" : "TradeLocker";
-              return (
-                <div key={src} className="flex-1 bg-black/20 rounded-lg px-2.5 py-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-gray-300">{label}</span>
-                    <span className="text-[10px] font-bold" style={{ color: wrColor(s.winRate) }}>{s.trades > 0 ? `${s.winRate}%` : "—"}</span>
+          {/* By Source breakdown — MT5 and TradeLocker rows */}
+          <div className="mb-3">
+            <p className="text-[9px] text-gray-500 mb-1 uppercase tracking-wide">By Source</p>
+            <div className="space-y-1">
+              {(["mt5", "tradelocker"] as const).map((src) => {
+                const s = data!.bySource[src];
+                const label = src === "mt5" ? "MT5" : "TradeLocker";
+                return (
+                  <div key={src} className="flex items-center justify-between bg-black/20 rounded-lg px-2.5 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${src === "mt5" ? "bg-indigo-500/20 text-indigo-300" : "bg-cyan-500/20 text-cyan-300"}`}>{label}</span>
+                      <span className="text-[9px] text-gray-500">{s.trades} trades · {s.wins}W/{s.losses}L</span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-[10px] font-bold" style={{ color: wrColor(s.winRate) }}>{s.trades > 0 ? `${s.winRate}%` : "—"}</span>
+                      <span className="text-[10px] font-bold" style={{ color: pnlColor(s.totalPnl) }}>{usd(s.totalPnl)}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[8px] text-gray-500">{s.wins}W/{s.losses}L</span>
-                    <span className="text-[9px] font-bold" style={{ color: pnlColor(s.totalPnl) }}>{usd(s.totalPnl)}</span>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
-          {/* Recent trades */}
+          {/* Last 5 recent trades mini-list */}
           {data!.recentTrades.length > 0 && (
             <div>
-              <p className="text-[9px] text-gray-500 mb-1">Recent closes</p>
-              <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                {data!.recentTrades.map((t, i) => (
+              <p className="text-[9px] text-gray-500 mb-1 uppercase tracking-wide">Last {Math.min(5, data!.recentTrades.length)} Trades</p>
+              <div className="space-y-0.5">
+                {data!.recentTrades.slice(0, 5).map((t, i) => (
                   <div key={i} className="flex items-center justify-between text-[10px] px-2 py-1 rounded bg-black/20">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {t.result === "WIN" ? <TrendingUp className="w-3 h-3 text-emerald-400 flex-shrink-0" /> : t.result === "LOSS" ? <TrendingDown className="w-3 h-3 text-red-400 flex-shrink-0" /> : <Activity className="w-3 h-3 text-gray-500 flex-shrink-0" />}
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      {t.direction === "BUY"
+                        ? <TrendingUp className="w-3 h-3 text-emerald-400 flex-shrink-0" />
+                        : <TrendingDown className="w-3 h-3 text-red-400 flex-shrink-0" />}
                       <span className="font-mono font-semibold text-gray-200 truncate">{t.symbol}</span>
-                      <span className="text-[8px] text-gray-500">{t.direction}</span>
-                      <span className="text-[8px] px-1 rounded bg-gray-700/50 text-gray-400">{t.source}</span>
+                      <span className={`text-[8px] px-1 py-0.5 rounded font-semibold flex-shrink-0 ${
+                        t.result === "WIN" ? "bg-emerald-500/20 text-emerald-400"
+                        : t.result === "LOSS" ? "bg-red-500/20 text-red-400"
+                        : "bg-gray-700/50 text-gray-400"
+                      }`}>{t.result}</span>
+                      <span className="text-[8px] px-1 rounded bg-gray-800/60 text-gray-500 flex-shrink-0">{t.source}</span>
                     </div>
-                    <span className="font-bold flex-shrink-0" style={{ color: pnlColor(t.profitLoss) }}>{usd(t.profitLoss)}</span>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-1">
+                      <span className="font-bold" style={{ color: pnlColor(t.profitLoss) }}>{usd(t.profitLoss)}</span>
+                      <span className="text-[8px] text-gray-600">{timeAgo(t.closedAt)}</span>
+                    </div>
                   </div>
                 ))}
               </div>

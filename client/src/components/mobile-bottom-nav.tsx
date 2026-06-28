@@ -17,6 +17,7 @@ import { TradePerformanceCompact } from '@/components/trade-performance-card';
 /* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
   { name: 'ORB Breakout',     path: '/orb-breakout',      icon: Radio,      color: '#22c55e' },
+  { name: 'Prop Firm',        path: '/prop-firm-challenge', icon: Shield,   color: '#7c3aed' },
   { name: 'Weekly Strategy',  path: '/weekly-strategy',   icon: TrendingUp, color: '#ef4444' },
   { name: 'Multi-TF EA',      path: '/multi-timeframe',   icon: Clock,      color: '#f59e0b' },
   { name: 'My EAs',           path: '/my-eas',            icon: Briefcase,  color: '#f59e0b' },

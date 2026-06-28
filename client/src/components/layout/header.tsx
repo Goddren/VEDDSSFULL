@@ -245,7 +245,6 @@ const Header: React.FC = () => {
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
     { name: 'Predictions', path: '/polymarket-engine', active: location === '/polymarket-engine', icon: <DollarSign className="h-4 w-4 mr-2" /> },
     { name: 'TradeLocker', path: '/webhooks', active: location === '/webhooks', icon: <LinkIcon className="h-4 w-4 mr-2" /> },
-    { name: 'Prop Firm', path: '/prop-firm-challenge', active: location === '/prop-firm-challenge', icon: <Shield className="h-4 w-4 mr-2" /> },
   ];
 
   // Secondary nav items shown in "More" dropdown
@@ -327,6 +326,33 @@ const Header: React.FC = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="center" className="w-56">
+                {/* Quick Access — Prop Firm shortcuts */}
+                <DropdownMenuLabel className="text-[10px] text-gray-500 uppercase tracking-wider py-1">Quick Access</DropdownMenuLabel>
+                <DropdownMenuItem className="cursor-pointer" asChild>
+                  <Link href="/prop-firm-challenge">
+                    <div className="flex items-center w-full text-violet-400 font-medium">
+                      <Shield className="h-4 w-4 mr-2" />
+                      <span>Prop Firm Dashboard</span>
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer" asChild>
+                  <Link href="/prop-firm-challenge#trading-mode">
+                    <div className="flex items-center w-full text-cyan-400 font-medium">
+                      <Layers className="h-4 w-4 mr-2" />
+                      <span>Trading Mode (AI/EA)</span>
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer" asChild>
+                  <Link href="/prop-firm-challenge#brain">
+                    <div className="flex items-center w-full text-violet-400 font-medium">
+                      <Brain className="h-4 w-4 mr-2" />
+                      <span>Brain Intelligence</span>
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {/* Position Size Calculator — quick access shortcut */}
                 <DropdownMenuItem className="cursor-pointer text-cyan-400" onClick={() => setCalcOpen(true)}>
                   <div className="flex items-center w-full font-medium">
@@ -458,43 +484,6 @@ const Header: React.FC = () => {
                 >
                   Cancel
                 </button>
-              </div>
-            )}
-
-            {/* ── Quick-access shortcut pills ── */}
-            {user && (
-              <div className="hidden md:flex items-center gap-1">
-                <Link href="/prop-firm-challenge">
-                  <button
-                    title="Prop Firm Challenge — Trading Mode & Brain Intelligence"
-                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
-                      location === '/prop-firm-challenge'
-                        ? 'bg-violet-500/20 border-violet-500/50 text-violet-300'
-                        : 'bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-violet-300 hover:border-violet-700/50'
-                    }`}
-                  >
-                    <Shield className="h-3 w-3" />
-                    <span>Prop</span>
-                  </button>
-                </Link>
-                <Link href="/prop-firm-challenge#trading-mode">
-                  <button
-                    title="Switch Trading Mode — Server AI / EA / Both"
-                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all border bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-cyan-300 hover:border-cyan-700/50"
-                  >
-                    <Layers className="h-3 w-3" />
-                    <span>Mode</span>
-                  </button>
-                </Link>
-                <Link href="/prop-firm-challenge#brain">
-                  <button
-                    title="AI Brain Intelligence — learning panel"
-                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-all border bg-slate-800/60 border-slate-700/50 text-slate-400 hover:text-violet-300 hover:border-violet-700/50"
-                  >
-                    <Brain className="h-3 w-3" />
-                    <span>Brain</span>
-                  </button>
-                </Link>
               </div>
             )}
 

@@ -1010,8 +1010,11 @@ export default function WeeklyStrategyPage() {
   });
 
   // Pre-fill balance from connected account whenever data arrives
-  // Priority: MT5 live > TL live equity > TL DB connection field
+  // Priority: TL live equity > MT5 live > TL DB connection field
+  // Skip entirely if user has already made an explicit account selection.
   useEffect(() => {
+    if (selectedEngineAccount) return;
+
     const mt5Balance = mt5AccountData?.accounts?.[0]?.balance ?? (mt5AccountData?.connected ? mt5AccountData?.balance : null);
     // Use live equity from the dedicated balance endpoint (sum of all active TL accounts)
     const tlLiveBalance = tlAccountBalance?.totalEquity && tlAccountBalance.totalEquity > 0
@@ -1021,18 +1024,18 @@ export default function WeeklyStrategyPage() {
     const tlFallback = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
     const tlBalance = tlLiveBalance ?? tlFallback;
 
-    if (mt5Balance && mt5Balance > 0) {
-      setAccountBalance(String(Math.round(mt5Balance * 100) / 100));
-      setAutoBalanceSource('MT5');
-      // Sync engine config balance when no account explicitly selected or MT5 is the source
-      setEngineAccountBalance(prev => prev > 0 ? prev : Math.round(mt5Balance * 100) / 100);
-    } else if (tlBalance && tlBalance > 0) {
+    if (tlBalance && tlBalance > 0) {
       setAccountBalance(String(Math.round(tlBalance * 100) / 100));
       setAutoBalanceSource(tlLiveBalance ? 'TradeLocker (Live)' : 'TradeLocker');
       // Sync engine config balance — TL live balance auto-fills the engine config field
       setEngineAccountBalance(prev => prev > 0 ? prev : Math.round(tlBalance * 100) / 100);
+    } else if (mt5Balance && mt5Balance > 0) {
+      setAccountBalance(String(Math.round(mt5Balance * 100) / 100));
+      setAutoBalanceSource('MT5');
+      // Sync engine config balance when MT5 is the source
+      setEngineAccountBalance(prev => prev > 0 ? prev : Math.round(mt5Balance * 100) / 100);
     }
-  }, [mt5AccountData, tlConnection, tlAccountBalance]);
+  }, [selectedEngineAccount, mt5AccountData, tlConnection, tlAccountBalance]);
 
   // Note: engine account balance is synced by ConnectedAccountPicker OR the auto-detect above
 
