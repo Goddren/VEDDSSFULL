@@ -8,6 +8,8 @@ import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { veddTokenService } from "./services/vedd-token-service";
 import { fireConversionHook } from "./veddConversionHook";
+import { sendWelcomeEmail, sendPasswordResetEmail } from "./email";
+import jwt from "jsonwebtoken";
 
 declare global {
   namespace Express {
@@ -130,6 +132,9 @@ export function setupAuth(app: Express) {
         webhookSource: 'veddbuild_signup',
       }).catch(() => {});
 
+      // Send welcome email (non-blocking)
+      sendWelcomeEmail(user.email || '', user.fullName || user.username).catch(() => {});
+
       req.login(user, (err) => {
         if (err) return next(err);
         // Omit password from response
@@ -188,13 +193,55 @@ export function setupAuth(app: Express) {
         message: "Not authenticated"
       });
     }
-    
+
     // Omit password from response
     const { password, ...userWithoutPassword } = req.user as SelectUser;
     res.json({
       success: true,
       user: userWithoutPassword
     });
+  });
+
+  // ── Password reset flow ───────────────────────────────────────────────────
+  const JWT_SECRET = process.env.SESSION_SECRET || 'vedd-reset-secret';
+
+  app.post("/api/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    try {
+      const user = await storage.getUserByEmail(email);
+      // Always respond 200 to avoid email enumeration
+      if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+
+      const token = jwt.sign({ userId: user.id, purpose: 'password-reset' }, JWT_SECRET, { expiresIn: '1h' });
+      const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5000';
+      const resetLink = `${baseUrl}/reset-password?token=${token}`;
+
+      sendPasswordResetEmail(user.email || email, resetLink).catch(() => {});
+      res.json({ message: "If that email exists, a reset link has been sent." });
+    } catch (err) {
+      console.error('[Auth] forgot-password error:', err);
+      res.status(500).json({ message: "Error sending reset email" });
+    }
+  });
+
+  app.post("/api/reset-password", async (req, res) => {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ message: "Token and password are required" });
+    if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as any;
+      if (payload.purpose !== 'password-reset') throw new Error('Invalid token purpose');
+
+      const hashed = await hashPassword(password);
+      await storage.updateUser(payload.userId, { password: hashed } as any);
+      res.json({ message: "Password updated successfully" });
+    } catch (err: any) {
+      const expired = err?.name === 'TokenExpiredError';
+      res.status(400).json({ message: expired ? "Reset link has expired — please request a new one" : "Invalid or expired reset link" });
+    }
   });
 
   // Update user profile

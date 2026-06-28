@@ -2,7 +2,7 @@
 import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
-import { User, userApiKeys, users } from "@shared/schema";
+import { User, userApiKeys, users, subscriptionPlans } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
@@ -58,6 +58,7 @@ import {
 } from "@shared/schema";
 import { addTradeSetupAnnotations, createAnnotatedImageUrl } from "./image-processor";
 import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
+import { sendSubscriptionConfirmation } from "./email";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue } from "./tradelocker";
@@ -3452,6 +3453,14 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: session.subscription,
             }).where(eq(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
+            // Send subscription confirmation email (non-blocking)
+            try {
+              const [updatedUser] = await db.select().from(users).where(eq(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, planId));
+              if (updatedUser?.email && plan?.name) {
+                sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {});
+              }
+            } catch { /* non-fatal */ }
           }
           break;
         }

@@ -2735,6 +2735,10 @@ var init_storage = __esm({
         const [user] = await db.select().from(users).where(eq(users.username, username));
         return user;
       }
+      async getUserByEmail(email) {
+        const [user] = await db.select().from(users).where(eq(users.email, email));
+        return user;
+      }
       async createUser(insertUser) {
         const [user] = await db.insert(users).values({
           ...insertUser,
@@ -24338,29 +24342,34 @@ async function processDecision(userId, decision, newsCtx) {
           const _jsonRisk = getTLRisk(tlConn.id);
           const _risk = _dbRisk.useRiskPercent || _dbRisk.riskPercent !== 1 ? _dbRisk : _jsonRisk;
           const _slDist = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+          const _pipSize = getPipSize(decision.symbol);
+          const _pipValue = getPipValue(decision.symbol);
+          const _slPips = _slDist > 0 && _pipSize > 0 ? _slDist / _pipSize : 0;
           if (_risk.useRiskPercent && _tlAcctEq && _tlAcctEq > 0) {
-            const pipSize = getPipSize(decision.symbol);
-            const pipValue = getPipValue(decision.symbol);
-            const slPips = _slDist > 0 && pipSize > 0 ? _slDist / pipSize : 0;
             const riskUsd = _tlAcctEq * (_risk.riskPercent / 100);
-            if (slPips > 0 && pipValue > 0) {
-              acctLot = Math.max(0.01, Math.round(riskUsd / (slPips * pipValue) * 100) / 100);
-              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()})`;
+            if (_slPips > 0 && _pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} = ${_slPips.toFixed(0)}pip SL)`;
+            } else if (_pipValue > 0) {
+              acctLot = Math.max(0.01, Math.round(riskUsd / (20 * _pipValue) * 100) / 100);
+              acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
+            } else if (_refBal > 0) {
+              const ratio = _tlAcctEq / _refBal;
+              acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+              acctSizeLabel = ` (risk% fallback\u2192proportional ${ratio.toFixed(2)}\xD7)`;
             } else {
-              const defaultPips = 20;
-              if (pipValue > 0) {
-                acctLot = Math.max(0.01, Math.round(riskUsd / (defaultPips * pipValue) * 100) / 100);
-                acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
-              } else {
-                const ratio = _refBal > 0 ? _tlAcctEq / _refBal : 1;
-                acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
-                acctSizeLabel = ` (risk% fallback proportional ${ratio.toFixed(2)}\xD7)`;
-              }
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              acctSizeLabel = ` (risk% \u2014 no SL or reference balance, copying MT5 lot)`;
             }
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             const ratio = _tlAcctEq / _refBal;
             acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
             acctSizeLabel = ` (proportional ${ratio.toFixed(2)}\xD7 \u2014 $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
+          } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal <= 0 && _slPips > 0 && _pipValue > 0) {
+            const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1;
+            const riskUsd = _tlAcctEq * (autoRiskPct / 100);
+            acctLot = Math.max(0.01, Math.round(riskUsd / (_slPips * _pipValue) * 100) / 100);
+            acctSizeLabel = ` (\u26A0\uFE0F auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} \u2014 set Reference Balance to enable proportional copy)`;
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
             acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
@@ -25926,7 +25935,7 @@ async function manualScan(userId) {
 async function _runScan(userId, manual = false) {
   const s = getEngineState(userId);
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  await _refreshPositionPrices(s);
+  await _refreshPositionPrices(s, userId);
   if (s.openPositions.length >= s.config.maxOpenPositions) {
     const r = `Max open positions (${s.config.maxOpenPositions}) reached`;
     s.lastScanResult = r;
@@ -25952,7 +25961,7 @@ async function _runScan(userId, manual = false) {
       return { fired: false, reason: r };
     }
     const direction = isBullish ? "BUY" : "SELL";
-    const result = await _openPosition(s, sentiment, direction);
+    const result = await _openPosition(s, sentiment, direction, userId);
     s.lastScanResult = result.reason;
     return result;
   } catch (err) {
@@ -25961,7 +25970,7 @@ async function _runScan(userId, manual = false) {
     return { fired: false, reason: r };
   }
 }
-async function _openPosition(s, sentiment, direction) {
+async function _openPosition(s, sentiment, direction, userId) {
   const openIds = new Set(s.openPositions.map((p) => p.market.id));
   const now = Date.now();
   const candidates = sentiment.markets.filter((m) => {
@@ -26004,8 +26013,7 @@ async function _openPosition(s, sentiment, direction) {
   };
   let liveOrderId;
   if (!s.isPaperMode && best.yesTokenId) {
-    const userId = [..._liveModes.entries()].find(([, v]) => v)?.[0];
-    const pk = userId != null ? _privateKeys.get(userId) : void 0;
+    const pk = _privateKeys.get(userId);
     if (pk && best.yesTokenId) {
       const result = await placeClobOrder(pk, best.yesTokenId, "BUY", entryProb / 100, s.config.stakePerTrade);
       if (!result.success) {
@@ -26024,7 +26032,7 @@ async function _openPosition(s, sentiment, direction) {
     reason: `${modeStr} Opened YES on "${best.question.slice(0, 60)}..." at ${entryProb}% \u2014 stake $${s.config.stakePerTrade}`
   };
 }
-async function _refreshPositionPrices(s) {
+async function _refreshPositionPrices(s, userId) {
   if (s.openPositions.length === 0) return;
   try {
     const sentiment = await getPolymarketBTCSentiment();
@@ -26038,14 +26046,14 @@ async function _refreshPositionPrices(s) {
       pos.unrealizedPnl = pos.currentValue - pos.stake;
       pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
       if (market.closed) {
-        closePosition(s, pos.id, currentProb);
+        closePosition(s, pos.id, currentProb, userId);
       }
     }
     s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
   } catch {
   }
 }
-function closePosition(s, positionId, exitProb) {
+function closePosition(s, positionId, exitProb, userId) {
   const idx = s.openPositions.findIndex((p) => p.id === positionId);
   if (idx === -1) return false;
   const pos = s.openPositions[idx];
@@ -26064,12 +26072,34 @@ function closePosition(s, positionId, exitProb) {
   if (s.closedPositions.length > 50) s.closedPositions.length = 50;
   s.totalRealizedPnl += realizedPnl;
   s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
+  if (userId != null) {
+    Promise.resolve().then(async () => {
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        await db2.insert(aiTradeResults2).values({
+          userId,
+          symbol: `POLYMARKET:BTC`,
+          direction: pos.direction,
+          entryPrice: pos.entryProbability / 100,
+          exitPrice: ep / 100,
+          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+          profitLoss: Math.round(realizedPnl * 100) / 100,
+          closedAt: /* @__PURE__ */ new Date(),
+          source: "polymarket",
+          mt5Ticket: pos.id,
+          notes: `${pos.market.question.slice(0, 100)} | ${pos.status}`
+        });
+      } catch {
+      }
+    });
+  }
   return true;
 }
 function closeAllPositions(userId) {
   const s = getEngineState(userId);
   const ids = s.openPositions.map((p) => p.id);
-  ids.forEach((id) => closePosition(s, id));
+  ids.forEach((id) => closePosition(s, id, void 0, userId));
   return ids.length;
 }
 var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _liveModes, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
@@ -27446,6 +27476,26 @@ function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual"
     recordKalshiOutcome(userId, trade.strategy || "unknown", realizedPnl);
   } catch {
   }
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      await db2.insert(aiTradeResults2).values({
+        userId,
+        symbol: `KALSHI:${trade.ticker}`,
+        direction: trade.direction === "SELL" ? "SELL" : "BUY",
+        entryPrice: trade.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: Math.round(realizedPnl * 100) / 100,
+        closedAt: /* @__PURE__ */ new Date(),
+        source: "kalshi",
+        mt5Ticket: trade.id,
+        notes: `${trade.strategy}: ${trade.label}${exitReason !== "manual" ? " | " + exitReason : ""}`
+      });
+    } catch {
+    }
+  });
   return true;
 }
 function closeAllKalshiTrades(userId) {
@@ -34176,6 +34226,133 @@ init_news_service();
 import multer from "multer";
 import { v4 as uuidv42 } from "uuid";
 
+// server/email.ts
+import sgMail from "@sendgrid/mail";
+var FROM = "VEDD Trading AI <noreply@veddbuild.com>";
+var initialized = false;
+function getClient2() {
+  if (!initialized) {
+    const key = process.env.SENDGRID_API_KEY;
+    if (!key) {
+      console.warn("[Email] SENDGRID_API_KEY not set \u2014 emails disabled");
+      return null;
+    }
+    sgMail.setApiKey(key);
+    initialized = true;
+  }
+  return sgMail;
+}
+async function send(msg) {
+  const client2 = getClient2();
+  if (!client2) return;
+  try {
+    await client2.send(msg);
+    console.log(`[Email] Sent "${msg.subject}" to ${msg.to}`);
+  } catch (err) {
+    console.error("[Email] Send error:", err?.response?.body ?? err?.message ?? err);
+  }
+}
+var baseStyle = `
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #080B14;
+  color: #e5e7eb;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 40px 32px;
+  border-radius: 16px;
+`;
+async function sendWelcomeEmail(to, name) {
+  const displayName = name || "Trader";
+  await send({
+    to,
+    from: FROM,
+    subject: "Welcome to VEDD \u2014 Your AI Trading Journey Starts Now",
+    html: `
+      <div style="${baseStyle}">
+        <img src="https://veddbuild.com/assets/IMG_3645-7VdkjQiC.png" alt="VEDD" style="height:48px;margin-bottom:24px;" />
+        <h1 style="color:#fff;font-size:24px;font-weight:900;margin:0 0 8px;">Welcome, ${displayName}! \u{1F389}</h1>
+        <p style="color:#9ca3af;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          Your VEDD account is live. You now have access to AI-powered chart analysis,
+          multi-timeframe strategies, the Abba AI Strategist, and more.
+        </p>
+        <a href="https://veddbuild.com/dashboard" style="display:inline-block;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;font-weight:700;font-size:15px;padding:14px 28px;border-radius:12px;text-decoration:none;margin-bottom:32px;">
+          Go to Dashboard \u2192
+        </a>
+        <p style="color:#6b7280;font-size:13px;margin:0;">
+          Three things to do first:<br/>
+          1. Add your AI API keys (<a href="https://veddbuild.com/ai-api-keys" style="color:#ef4444;">AI API Keys</a>)<br/>
+          2. Upload your first chart for analysis<br/>
+          3. Check your weekly plan on the <a href="https://veddbuild.com/weekly-strategy" style="color:#ef4444;">SS Engine</a>
+        </p>
+        <hr style="border:none;border-top:1px solid #1a1f2e;margin:32px 0;" />
+        <p style="color:#4b5563;font-size:12px;margin:0;">
+          VEDD Trading AI \xB7 veddbuild.com<br/>
+          You're receiving this because you created a VEDD account.
+        </p>
+      </div>
+    `
+  });
+}
+async function sendSubscriptionConfirmation(to, name, planName) {
+  const displayName = name || "Trader";
+  await send({
+    to,
+    from: FROM,
+    subject: `You're on the ${planName} plan \u2014 VEDD`,
+    html: `
+      <div style="${baseStyle}">
+        <img src="https://veddbuild.com/assets/IMG_3645-7VdkjQiC.png" alt="VEDD" style="height:48px;margin-bottom:24px;" />
+        <h1 style="color:#fff;font-size:24px;font-weight:900;margin:0 0 8px;">Subscription confirmed \u2713</h1>
+        <p style="color:#9ca3af;font-size:15px;line-height:1.6;margin:0 0 8px;">
+          Hi ${displayName}, your <strong style="color:#fff;">${planName}</strong> plan is now active.
+          All features for your plan are unlocked.
+        </p>
+        <a href="https://veddbuild.com/dashboard" style="display:inline-block;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;font-weight:700;font-size:15px;padding:14px 28px;border-radius:12px;text-decoration:none;margin:24px 0 32px;">
+          Start Trading \u2192
+        </a>
+        <p style="color:#6b7280;font-size:13px;margin:0;">
+          Manage or cancel your subscription anytime at
+          <a href="https://veddbuild.com/subscription" style="color:#ef4444;">veddbuild.com/subscription</a>.
+        </p>
+        <hr style="border:none;border-top:1px solid #1a1f2e;margin:32px 0;" />
+        <p style="color:#4b5563;font-size:12px;margin:0;">
+          VEDD Trading AI \xB7 veddbuild.com
+        </p>
+      </div>
+    `
+  });
+}
+async function sendPasswordResetEmail(to, resetLink) {
+  await send({
+    to,
+    from: FROM,
+    subject: "Reset your VEDD password",
+    html: `
+      <div style="${baseStyle}">
+        <img src="https://veddbuild.com/assets/IMG_3645-7VdkjQiC.png" alt="VEDD" style="height:48px;margin-bottom:24px;" />
+        <h1 style="color:#fff;font-size:24px;font-weight:900;margin:0 0 8px;">Password reset</h1>
+        <p style="color:#9ca3af;font-size:15px;line-height:1.6;margin:0 0 24px;">
+          We received a request to reset your VEDD password.
+          Click the button below \u2014 it expires in <strong style="color:#fff;">1 hour</strong>.
+        </p>
+        <a href="${resetLink}" style="display:inline-block;background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff;font-weight:700;font-size:15px;padding:14px 28px;border-radius:12px;text-decoration:none;margin-bottom:32px;">
+          Reset Password \u2192
+        </a>
+        <p style="color:#6b7280;font-size:13px;margin:0 0 8px;">
+          If you didn't request this, ignore this email \u2014 your password won't change.
+        </p>
+        <p style="color:#4b5563;font-size:12px;word-break:break-all;">
+          Or copy this link: ${resetLink}
+        </p>
+        <hr style="border:none;border-top:1px solid #1a1f2e;margin:32px 0;" />
+        <p style="color:#4b5563;font-size:12px;margin:0;">
+          VEDD Trading AI \xB7 veddbuild.com
+        </p>
+      </div>
+    `
+  });
+}
+
 // server/video-processor.ts
 import { spawn } from "child_process";
 import fs2 from "fs";
@@ -34312,7 +34489,7 @@ var lastFetchTime = 0;
 var CACHE_DURATION = 5 * 60 * 1e3;
 var telegramClient = null;
 var isConnecting = false;
-async function getClient2() {
+async function getClient3() {
   const apiId = parseInt(process.env.TELEGRAM_API_ID || "0");
   const apiHash = process.env.TELEGRAM_API_HASH || "";
   if (!apiId || !apiHash) {
@@ -34343,7 +34520,7 @@ async function getClient2() {
 }
 async function fetchChannelMessages(limit = 20) {
   try {
-    const client2 = await getClient2();
+    const client2 = await getClient3();
     if (!client2) {
       return [];
     }
@@ -38926,9 +39103,11 @@ SYNTHESIZE these into a single unified recommendation with:
 9. Preferred Volume Threshold: Recommend the ideal volume level as a percentage (e.g., "150% above average" or "2x volume")
 10. BIDIRECTIONAL TRADING: Always set allowBidirectionalTrading to false. Never recommend trading both directions simultaneously \u2014 this doubles spread cost and nets to zero. Pick the single highest-confidence direction and commit to it.
 11. PENDING BREAKOUT ORDERS:
-    - For BUY breakout: Calculate a resistance level that price must break above to trigger entry (typically highest resistance + 0.1-0.5% margin)
-    - For SELL breakout: Calculate a support level that price must break below to trigger entry (typically lowest support - 0.1-0.5% margin)
-    - These are conditional pending orders that activate when price breaks through
+    - CRITICAL: Breakout levels MUST be within 0.2-0.8% of the current live price so they actually trigger within the current session or next day. DO NOT set levels far away from current price.
+    - For BUY breakout: Set the trigger just 0.2-0.5% above current price at the nearest resistance zone \u2014 if price is 1.0850, trigger should be something like 1.0872-1.0895, NOT 1.1000 or higher
+    - For SELL breakout: Set the trigger just 0.2-0.5% below current price at the nearest support zone \u2014 if price is 1.0850, trigger should be something like 1.0820-1.0830, NOT 1.0700 or lower
+    - Use ATR to size the distance: for volatile assets (Gold, BTCUSD) use 0.3-0.8%, for stable pairs (EURUSD, GBPUSD) use 0.15-0.4%
+    - These are conditional pending orders that activate when price breaks through the NEARBY level
 
 Respond ONLY in valid JSON format with these exact keys:
 {
@@ -40249,6 +40428,15 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: session3.subscription
             }).where(eq9(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
+            try {
+              const [updatedUser] = await db.select().from(users).where(eq9(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq9(subscriptionPlans.id, planId));
+              if (updatedUser?.email && plan?.name) {
+                sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
+                });
+              }
+            } catch {
+            }
           }
           break;
         }
@@ -43989,7 +44177,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           trades: trimmed,
           lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
         };
-        const { recordTradeResult: recordEngineResult } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+        let recordEngineResult = null;
+        try {
+          ({ recordTradeResult: recordEngineResult } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports)));
+        } catch (_) {
+        }
         const now = /* @__PURE__ */ new Date();
         const hour = now.getUTCHours();
         const detectedSession = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
@@ -44039,12 +44231,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } catch (_createErr) {
               }
             }
-            recordEngineResult(token.userId, {
-              symbol: tradeSymbol,
-              profit: closedTrade.profit || 0,
-              strategy: existingResult?.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",
-              session: detectedSession
-            });
+            if (recordEngineResult) {
+              recordEngineResult(token.userId, {
+                symbol: tradeSymbol,
+                profit: closedTrade.profit || 0,
+                strategy: existingResult?.notes?.includes("strategy:") ? existingResult.notes.split("strategy:")[1].trim().split(" ")[0] : "auto",
+                session: detectedSession
+              });
+            }
           }
         }
         const symbolStats = {};
@@ -46958,6 +47152,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app2.get("/api/mt5/daily-summary", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
+    try {
+      await syncTradeLockerOutcomes(userId);
+    } catch (_) {
+    }
     const now = /* @__PURE__ */ new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dayOfWeek = now.getDay();
@@ -48043,6 +48241,10 @@ Respond with ONLY valid JSON:
   app2.post("/api/weekly-strategy/update-progress", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
+    try {
+      await syncTradeLockerOutcomes(userId);
+    } catch (_) {
+    }
     let strategy = global.mt5WeeklyStrategies?.[userId];
     if (!strategy) {
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
@@ -50199,7 +50401,7 @@ Format each recommendation as a clear, concise action item.`;
       } catch (_) {
       }
     }
-  }, 2 * 60 * 1e3);
+  }, 60 * 1e3);
   app2.post("/api/vedd-brain/learn", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -50214,7 +50416,7 @@ Format each recommendation as a clear, concise action item.`;
   async function syncTradeLockerOutcomes(userId) {
     const g = global;
     g.tlOutcomeSyncAt = g.tlOutcomeSyncAt || {};
-    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 12e4) return 0;
+    if (Date.now() - (g.tlOutcomeSyncAt[userId] || 0) < 3e4) return 0;
     g.tlOutcomeSyncAt[userId] = Date.now();
     let added = 0;
     try {
@@ -50254,8 +50456,6 @@ Format each recommendation as a clear, concise action item.`;
     return added;
   }
   async function getOrRefreshBrain(userId) {
-    syncTradeLockerOutcomes(userId).catch(() => {
-    });
     const g = global;
     g.veddAIBrain = g.veddAIBrain || {};
     g.veddBrainBuiltAt = g.veddBrainBuiltAt || {};
@@ -50273,6 +50473,10 @@ Format each recommendation as a clear, concise action item.`;
     const built = g.veddBrainBuiltAt[userId] || 0;
     const stale = Date.now() - built > 6e4;
     if (!brain || stale) {
+      try {
+        await syncTradeLockerOutcomes(userId);
+      } catch (_) {
+      }
       try {
         const fresh = await runBrainLearning(userId);
         if (fresh) {
@@ -50339,7 +50543,7 @@ Format each recommendation as a clear, concise action item.`;
           direction: t.direction,
           result: t.result,
           profitLoss: Math.round((t.profitLoss || 0) * 100) / 100,
-          source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+          source: t.source === "tradelocker" ? "TradeLocker" : t.source === "kalshi" ? "Kalshi" : t.source === "polymarket" ? "Polymarket" : "MT5",
           closedAt: t.closedAt
         })),
         lastTradeAt: closed[0]?.closedAt ?? null,
@@ -51499,7 +51703,22 @@ Respond with ONLY valid JSON:
   app2.post("/api/vedd-live-engine/start", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous } = req.body;
+    const { pairs, strategyMode, scanIntervalMs, maxOpenTrades, riskPerTrade, minConfidence, enablePositionManagement, trailingStopEnabled, trailingStopATRMultiplier, weeklyProfitTarget, accountBalance, enableCompounding, baseLotSize, propFirmMode, propFirmDailyDrawdownLimit, maxLotSize, adaptiveScanInterval, enablePyramiding, useKellyCriterion, drawdownShieldThreshold, dailyLossLimit, maxDailyTrades, aiMode, breakevenBufferPips, directionFilter, pairDirectionOverrides, trailMethod, trailFixedPips, trailStepPips, trailProfitLockPct, trailActivationPips, trailSarInitialAF, trailSarMaxAF, brainLearningMode, enableCompositeAutonomous, compositeMinEdgeScore, enableORBAutonomous, copyMode, volatileCapMode, pairLotOverrides } = req.body;
+    let resolvedAccountBalance = accountBalance !== void 0 && accountBalance !== null ? Number(accountBalance) : 0;
+    if (!resolvedAccountBalance) {
+      try {
+        const tlConns = await storage.getUserTradelockerConnections(userId);
+        const firstActive = tlConns.find((c) => c.isActive);
+        if (firstActive) {
+          const tlVal = await getTLAccountValue(userId, firstActive);
+          if (tlVal.balance > 0) {
+            resolvedAccountBalance = tlVal.balance;
+            console.log(`[Engine Start] Auto-detected reference balance $${resolvedAccountBalance.toLocaleString()} from TL account ${firstActive.accountId}`);
+          }
+        }
+      } catch (_) {
+      }
+    }
     try {
       const state = startLiveEngine2(userId, {
         pairs: pairs || void 0,
@@ -51513,7 +51732,7 @@ Respond with ONLY valid JSON:
         trailingStopEnabled: trailingStopEnabled !== void 0 ? trailingStopEnabled : void 0,
         trailingStopATRMultiplier: trailingStopATRMultiplier ? Number(trailingStopATRMultiplier) : void 0,
         weeklyProfitTarget: weeklyProfitTarget ? Number(weeklyProfitTarget) : void 0,
-        accountBalance: accountBalance ? Number(accountBalance) : void 0,
+        accountBalance: resolvedAccountBalance > 0 ? resolvedAccountBalance : void 0,
         enableCompounding: enableCompounding !== void 0 ? enableCompounding : void 0,
         baseLotSize: baseLotSize ? Number(baseLotSize) : void 0,
         propFirmMode: propFirmMode !== void 0 ? Boolean(propFirmMode) : void 0,
@@ -51540,7 +51759,10 @@ Respond with ONLY valid JSON:
         brainLearningMode: brainLearningMode !== void 0 ? Boolean(brainLearningMode) : void 0,
         enableORBAutonomous: enableORBAutonomous !== void 0 ? Boolean(enableORBAutonomous) : void 0,
         enableCompositeAutonomous: enableCompositeAutonomous !== void 0 ? Boolean(enableCompositeAutonomous) : void 0,
-        compositeMinEdgeScore: compositeMinEdgeScore !== void 0 ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : void 0
+        compositeMinEdgeScore: compositeMinEdgeScore !== void 0 ? Math.min(100, Math.max(50, Number(compositeMinEdgeScore))) : void 0,
+        copyMode: ["proportional", "multiplier"].includes(copyMode) ? copyMode : void 0,
+        volatileCapMode: ["risk_scaled", "user_only"].includes(volatileCapMode) ? volatileCapMode : void 0,
+        pairLotOverrides: pairLotOverrides && typeof pairLotOverrides === "object" ? Object.fromEntries(Object.entries(pairLotOverrides).map(([k, v]) => [k, Number(v)]).filter(([, v]) => !isNaN(v))) : void 0
       });
       res.json({ success: true, state });
     } catch (err) {
@@ -51982,7 +52204,7 @@ Respond with ONLY valid JSON:
     const posId = req.params.id;
     Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2, closePosition: closePosition2 }) => {
       const state = getEngineState2(userId);
-      const ok = closePosition2(state, posId);
+      const ok = closePosition2(state, posId, void 0, userId);
       if (!ok) return res.status(404).json({ error: "Position not found" });
       res.json({ success: true, state });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
@@ -59497,6 +59719,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import session2 from "express-session";
 import { scrypt as scrypt2, randomBytes as randomBytes2, timingSafeEqual } from "crypto";
 import { promisify as promisify2 } from "util";
+import jwt from "jsonwebtoken";
 var scryptAsync2 = promisify2(scrypt2);
 async function hashPassword(password) {
   const salt = randomBytes2(16).toString("hex");
@@ -59596,6 +59819,8 @@ function setupAuth(app2) {
         webhookSource: "veddbuild_signup"
       }).catch(() => {
       });
+      sendWelcomeEmail(user.email || "", user.fullName || user.username).catch(() => {
+      });
       req.login(user, (err) => {
         if (err) return next(err);
         const { password, ...userWithoutPassword } = user;
@@ -59652,6 +59877,39 @@ function setupAuth(app2) {
       success: true,
       user: userWithoutPassword
     });
+  });
+  const JWT_SECRET = process.env.SESSION_SECRET || "vedd-reset-secret";
+  app2.post("/api/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+    try {
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+      const token = jwt.sign({ userId: user.id, purpose: "password-reset" }, JWT_SECRET, { expiresIn: "1h" });
+      const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
+      const resetLink = `${baseUrl}/reset-password?token=${token}`;
+      sendPasswordResetEmail(user.email || email, resetLink).catch(() => {
+      });
+      res.json({ message: "If that email exists, a reset link has been sent." });
+    } catch (err) {
+      console.error("[Auth] forgot-password error:", err);
+      res.status(500).json({ message: "Error sending reset email" });
+    }
+  });
+  app2.post("/api/reset-password", async (req, res) => {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ message: "Token and password are required" });
+    if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+    try {
+      const payload2 = jwt.verify(token, JWT_SECRET);
+      if (payload2.purpose !== "password-reset") throw new Error("Invalid token purpose");
+      const hashed = await hashPassword(password);
+      await storage.updateUser(payload2.userId, { password: hashed });
+      res.json({ message: "Password updated successfully" });
+    } catch (err) {
+      const expired = err?.name === "TokenExpiredError";
+      res.status(400).json({ message: expired ? "Reset link has expired \u2014 please request a new one" : "Invalid or expired reset link" });
+    }
   });
   app2.patch("/api/user", async (req, res, next) => {
     if (!req.isAuthenticated()) {

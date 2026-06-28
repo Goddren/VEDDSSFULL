@@ -16,6 +16,8 @@ import Analysis from "@/pages/analysis";
 import MultiTimeframeAnalysis from "@/pages/multi-timeframe-analysis";
 import Historical from "@/pages/historical";
 import AuthPage from "@/pages/auth-page";
+import ForgotPasswordPage from "@/pages/forgot-password";
+import ResetPasswordPage from "@/pages/reset-password";
 import ProfilePage from "@/pages/profile";
 import LandingPage from "@/pages/landing";
 import SubscriptionPage from "@/pages/subscription";
@@ -190,6 +192,8 @@ function AppLayout() {
             {/* Public routes */}
             <Route path="/" component={LandingPage} />
             <Route path="/auth" component={AuthPage} />
+            <Route path="/forgot-password" component={ForgotPasswordPage} />
+            <Route path="/reset-password" component={ResetPasswordPage} />
             <Route path="/subscription" component={SubscriptionPage} />
             <Route path="/blog" component={BlogPage} />
             <Route path="/shared/:shareId" component={SharedAnalysisPage} />

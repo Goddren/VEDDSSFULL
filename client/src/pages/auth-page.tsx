@@ -228,10 +228,13 @@ export default function AuthPage() {
                     </Button>
                   </form>
                 </Form>
-                <div className="text-center">
+                <div className="flex items-center justify-between">
                   <button onClick={() => setActiveTab("register")} className="text-sm text-gray-500 hover:text-red-400 transition-colors">
                     Don't have an account? <span className="text-red-400 font-semibold">Register</span>
                   </button>
+                  <a href="/forgot-password" className="text-sm text-gray-500 hover:text-red-400 transition-colors">
+                    Forgot password?
+                  </a>
                 </div>
               </div>
             </TabsContent>
