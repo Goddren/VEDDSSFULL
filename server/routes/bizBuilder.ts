@@ -25,10 +25,25 @@ function getUserId(req: Request): number {
 }
 
 // ── Claude AI call helper ────────────────────────────────────────────────────
-// Uses the exact same pattern as callAnthropicConfirmation in openai.ts
-async function callClaude(system: string, user: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+// Resolves the API key using the same priority as the rest of the app:
+//   1. User's own Anthropic key stored in userApiKeys (via AI API Keys page)
+//   2. Server-level ANTHROPIC_API_KEY env var
+async function resolveAnthropicKey(userId: number): Promise<string> {
+  try {
+    const { storage } = await import('../storage');
+    const userKey = await storage.getActiveUserApiKey(userId, 'anthropic');
+    if (userKey?.apiKey) {
+      await storage.updateUserApiKeyUsage(userId, 'anthropic');
+      return userKey.apiKey;
+    }
+  } catch (_) {}
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  if (!envKey) throw new Error('No Anthropic API key found. Add yours at AI API Keys or ask your admin to set ANTHROPIC_API_KEY.');
+  return envKey;
+}
+
+async function callClaude(system: string, user: string, userId: number): Promise<string> {
+  const apiKey = await resolveAnthropicKey(userId);
   const Anthropic = (await import('@anthropic-ai/sdk')).default;
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
@@ -84,7 +99,8 @@ Return JSON: {
   "fundingMatches": [
     { "name": "string", "type": "string", "reason": "string" }
   ]
-}`
+}`,
+      userId
     );
 
     const aiData = parseJson<{
@@ -266,7 +282,8 @@ Always include these exact tasks (do not skip them):
 
 Then add 3-5 additional tasks specific to this business type.
 
-Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_monitoring"|"duns_registration"|"trade_line", "provider": "string", "url": "string", "due_date": "YYYY-MM-DD", "notes": "string" }]`
+Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_monitoring"|"duns_registration"|"trade_line", "provider": "string", "url": "string", "due_date": "YYYY-MM-DD", "notes": "string" }]`,
+      getUserId(req)
     );
 
     type TaskRow = { task_name: string; task_type: string; provider: string; url: string; due_date: string; notes: string };
@@ -310,7 +327,8 @@ router.post('/biz-builder/:profileId/generate-funding-matches', async (req: Requ
       'You are a business funding expert.',
       `Find the top 5 funding sources for a ${p.entityType} business in ${p.state} doing: ${p.businessIdea}.
 
-Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"sponsor"|"microloan"|"revenue_share", "match_score": number 1-100, "amount_range": "string e.g. $5K - $50K", "apply_url": "string real URL or #", "notes": "1-2 sentences on why a good fit" }]`
+Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"sponsor"|"microloan"|"revenue_share", "match_score": number 1-100, "amount_range": "string e.g. $5K - $50K", "apply_url": "string real URL or #", "notes": "1-2 sentences on why a good fit" }]`,
+      getUserId(req)
     );
 
     type FunderRow = { funder_name: string; funder_type: string; match_score: number; amount_range: string; apply_url: string; notes: string };
