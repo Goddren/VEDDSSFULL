@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2543,4 +2543,87 @@ export const engineRunState = pgTable("engine_run_state", {
 }));
 
 export type EngineRunState = typeof engineRunState.$inferSelect;
+
+// ─── Business Credit Builder ──────────────────────────────────────────────────
+
+export const bizEntityTypeEnum = pgEnum("biz_entity_type", ["llc", "s_corp", "c_corp", "sole_prop"]);
+export const bizStatusEnum      = pgEnum("biz_status", ["draft", "name_check", "formation", "ein_pending", "banking", "credit_building", "funded"]);
+export const nameCheckSourceEnum    = pgEnum("name_check_source", ["ai_generated", "sos_lookup"]);
+export const formationProviderEnum  = pgEnum("formation_provider", ["stripe_atlas", "incfile", "zenbusiness"]);
+export const bankProviderEnum       = pgEnum("bank_provider", ["mercury", "relay", "found"]);
+export const creditTaskTypeEnum     = pgEnum("credit_task_type", ["net30", "credit_monitoring", "duns_registration", "trade_line"]);
+export const taskStatusEnum         = pgEnum("task_status", ["pending", "in_progress", "complete"]);
+export const funderTypeEnum         = pgEnum("funder_type", ["grant", "cdfi", "sponsor", "microloan", "revenue_share"]);
+
+export const bizProfiles = pgTable("biz_profiles", {
+  id:             serial("id").primaryKey(),
+  userId:         integer("user_id").notNull().references(() => users.id),
+  businessName:   text("business_name"),
+  businessIdea:   text("business_idea").notNull(),
+  entityType:     bizEntityTypeEnum("entity_type").notNull().default("llc"),
+  state:          text("state").notNull(),
+  status:         bizStatusEnum("status").notNull().default("draft"),
+  aiDescription:  text("ai_description"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+  updatedAt:      timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const bizNameChecks = pgTable("biz_name_checks", {
+  id:             serial("id").primaryKey(),
+  bizProfileId:   integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+  nameChecked:    text("name_checked").notNull(),
+  available:      boolean("available").notNull().default(true),
+  source:         nameCheckSourceEnum("source").notNull().default("ai_generated"),
+  checkedAt:      timestamp("checked_at").defaultNow().notNull(),
+});
+
+export const bizFormationLinks = pgTable("biz_formation_links", {
+  id:             serial("id").primaryKey(),
+  bizProfileId:   integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+  provider:       formationProviderEnum("provider").notNull(),
+  redirectUrl:    text("redirect_url").notNull(),
+  status:         text("status").notNull().default("pending"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bizBankLinks = pgTable("biz_bank_links", {
+  id:             serial("id").primaryKey(),
+  bizProfileId:   integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+  provider:       bankProviderEnum("provider").notNull(),
+  referralUrl:    text("referral_url").notNull(),
+  status:         text("status").notNull().default("not_started"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+
+export const bizCreditTasks = pgTable("biz_credit_tasks", {
+  id:             serial("id").primaryKey(),
+  bizProfileId:   integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+  taskName:       text("task_name").notNull(),
+  taskType:       creditTaskTypeEnum("task_type").notNull(),
+  provider:       text("provider"),
+  url:            text("url"),
+  status:         taskStatusEnum("status").notNull().default("pending"),
+  dueDate:        date("due_date"),
+  notes:          text("notes"),
+  completedAt:    timestamp("completed_at"),
+});
+
+export const bizFundingMatches = pgTable("biz_funding_matches", {
+  id:             serial("id").primaryKey(),
+  bizProfileId:   integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+  funderName:     text("funder_name").notNull(),
+  funderType:     funderTypeEnum("funder_type").notNull(),
+  matchScore:     integer("match_score").notNull().default(0),
+  amountRange:    text("amount_range"),
+  applyUrl:       text("apply_url"),
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BizProfile        = typeof bizProfiles.$inferSelect;
+export type BizNameCheck      = typeof bizNameChecks.$inferSelect;
+export type BizFormationLink  = typeof bizFormationLinks.$inferSelect;
+export type BizBankLink       = typeof bizBankLinks.$inferSelect;
+export type BizCreditTask     = typeof bizCreditTasks.$inferSelect;
+export type BizFundingMatch   = typeof bizFundingMatches.$inferSelect;
 

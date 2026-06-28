@@ -88,6 +88,7 @@ import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import CreditBuilderPage from "@/pages/credit-builder";
+import BizBuilderPage from "@/pages/biz-builder";
 import ORBBreakoutPage from "@/pages/orb-breakout";
 import ContentStudioPage from "@/pages/content-studio";
 import ReferralHubPage from "@/pages/referral-hub";
@@ -257,6 +258,9 @@ function AppLayout() {
             {/* Grants & Funding (Ambassador + Admin) */}
             <ProtectedRoute path="/grants" component={GrantsFundingPage} />
             <ProtectedRoute path="/credit-builder" component={CreditBuilderPage} />
+
+            {/* Business Credit Builder */}
+            <ProtectedRoute path="/biz-builder" component={BizBuilderPage} />
 
             {/* Account Growth Plan */}
             <ProtectedRoute path="/account-growth" component={AccountGrowthPlan} />

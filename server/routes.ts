@@ -297,6 +297,7 @@ function tlSignalGuard(params: {
 import veddTokenRouter from "./routes/vedd-token";
 import tradovateRouter from "./routes/tradovate";
 import moomooRouter from "./routes/moomoo";
+import bizBuilderRouter from "./routes/bizBuilder";
 import { veddTokenService } from "./services/vedd-token-service";
 import { streamingService } from "./streaming";
 import { scanAndAnalyzeTokens, searchSolanaToken, analyzeToken, fetchTrendingSolanaTokens, fetchMultiDexTokens, type DexSource } from "./solana-scanner";
@@ -1129,6 +1130,7 @@ export async function registerRoutes(app: Express, existingServer?: Server): Pro
   app.use('/api/vedd', veddTokenRouter);
   app.use('/api', tradovateRouter);
   app.use('/api', moomooRouter);
+  app.use('/api', bizBuilderRouter);
 
   // Build-version endpoint — client polls this on startup to detect new deploys.
   // Returns the server start timestamp which changes on every Render restart.
