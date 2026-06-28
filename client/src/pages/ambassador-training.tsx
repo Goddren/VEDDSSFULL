@@ -2624,6 +2624,194 @@ const trainingModules: TrainingModule[] = [
         }
       }
     ]
+  },
+  {
+    id: 'full-platform-overview',
+    title: 'Full Platform Features & Tokenomics',
+    description: 'Every tool in the VEDD ecosystem — trading, business, AI, community, and token rewards',
+    duration: '35 min',
+    icon: Sparkles,
+    image: socialMediaImg,
+    lessons: [
+      {
+        id: 'fpo-1',
+        title: 'AI Trading Suite — Complete Feature Catalog',
+        content: [
+          'Chart Analysis: Upload any chart → instant AI pattern recognition, entry/exit points, SL/TP, and confidence score',
+          'Multi-Timeframe Analysis: Analyze a pair across M15, H1, H4, and D1 — AI synthesizes the consensus direction',
+          'VEDD SS AI Brain Engine: Dual-agent consensus (quant + AI) with 72%+ confidence floor before any signal issues',
+          'Expert Advisor Generator: One-click production code for MT5, TradingView (Pine Script), TradeLocker, and NinjaTrader 8',
+          'EA Marketplace: Publish strategies and earn passive VEDD token income when others subscribe',
+          'ABBA AI Assistant: Conversational AI for trading plans, strategy development, and journal coaching',
+          'Live Trading Engine: Automated forex execution with Trailing Stop AI across 9 dynamic methods',
+          'Futures AI Live Feed: 2-minute scanner across NQ, ES, YM, GC, CL with prop-firm circuit breakers',
+          'Copy Trading: Mirror MT5 positions to TradeLocker with lot multipliers — trade once, replicate everywhere',
+          'ORB Breakout Strategy: AI-confirmed Opening Range Breakout signals at London, New York, and Tokyo opens',
+          'Solana Token Scanner + Sol Engine: Real-time Solana launch detection with paper and live auto-trading',
+          'Polymarket Prediction Engine: Algorithmic BTC/ETH prediction market trading on CFTC-regulated Kalshi exchange',
+          'What-If Scenario Modeling: Test price targets, stop distances, and market conditions before risking capital',
+          'Market Mood & Sentiment: Aggregated market bias from news, social, and technical sources',
+        ],
+        tips: [
+          'Lead with 2–3 features that match your prospect\'s trading style — don\'t list all 135+ at once',
+          'Futures traders love the NQ/ES live feed + NinjaTrader 8 generator — most competitors don\'t touch futures at all',
+          'Show the EA generator output live: upload a chart screenshot → watch professional MQ5 code generate in seconds',
+        ],
+        keyPoints: [
+          { text: '135+ features spanning trading, AI, community, and business tools', icon: TrendingUp },
+          { text: 'Platform supports MT5, TradingView, TradeLocker, Tradovate, NinjaTrader 8', icon: Monitor },
+          { text: 'Free plan includes 3 full AI analyses — a genuine demo, not a crippled trial', icon: Star },
+        ],
+        quiz: {
+          question: 'Which VEDD feature scans NQ, ES, YM, GC, and CL every 2 minutes and posts live BUY/SELL signals?',
+          options: [
+            'ABBA AI Assistant',
+            'Futures AI Live Feed',
+            'ORB Breakout Strategy',
+            'EA Marketplace',
+          ],
+          correct: 1,
+        },
+      },
+      {
+        id: 'fpo-2',
+        title: 'Business Builder, Credit & Grants Hub',
+        content: [
+          'Business Builder (Biz Builder): Enter a business idea → AI generates name options, entity recommendation (LLC/S-Corp/C-Corp), formation provider links, banking partners, and a 90-day credit task plan',
+          'Business Credit Builder: 6-phase guided program — EIN, business banking, net-30 accounts, revolving credit lines, SBA pre-qualification, and investor readiness',
+          'Funding Matches: AI matches your business profile to SBA loans, CDFI grants, and investor leads',
+          'Grants Hub: Browse and apply for 7+ grant programs — SBA, NSF, Department of Labor, CDFI Fund, EDA, JPMorgan Chase for Business, Google.org — with AI-generated proposal drafts',
+          'Account Growth Plan: 6-phase trading account scaling system from micro ($250) to institutional ($100K+)',
+          'Micro Account Growth: Specialized rules for sub-$1K accounts — position sizing, compounding, and drawdown management',
+          'Community Impact Dashboard: Track how platform activity contributes to financial education and inclusion metrics',
+        ],
+        tips: [
+          'Business Builder is a huge differentiator — most trading platforms never touch business formation at all',
+          'Entrepreneurs can literally launch their trading business using VEDD itself — from name to EIN to business credit',
+          'Grants Hub resonates with faith-based communities and underserved founders — emphasize JPMorgan and Google.org grants',
+        ],
+        keyPoints: [
+          { text: 'Biz Builder: idea → entity → banking → credit → funding in a single 6-step wizard', icon: Target },
+          { text: 'Grants Hub covers $100K+ in grant opportunities with AI-written proposals ready to submit', icon: Coins },
+          { text: 'Credit Builder walks users from EIN registration to investor-ready financials in 6 phases', icon: Award },
+        ],
+        quiz: {
+          question: 'What does the VEDD Business Builder produce when you enter a business idea?',
+          options: [
+            'A stock portfolio recommendation',
+            'AI-generated business names, entity recommendations, formation links, and a 90-day credit plan',
+            'An MT5 Expert Advisor file',
+            'A Solana token launch',
+          ],
+          correct: 1,
+        },
+      },
+      {
+        id: 'fpo-3',
+        title: 'Gamification, XP Tiers & VEDD Token Rewards',
+        content: [
+          'XP Tier System: Every user earns XP through platform activity — tiers progress YG → Rising → Pro → Elite → OG with increasing perks at each level',
+          'Achievements: Unlock badges for completing analyses, maintaining streaks, hitting win-rate milestones, and contributing to the community',
+          'Daily Streaks: Log in and complete at least one action each day — longer streaks earn streak-bonus multipliers on all VEDD token earnings',
+          'Leaderboards: Compete by trade grade and win rate — Popular Traders board rewards top performers with bonus VEDD tokens each month',
+          'Community Challenges: Weekly and monthly platform-wide challenges with VEDD token prize pools for top finishers',
+          'Market Trend Game: Daily gamified market prediction — guess the next candle direction and earn XP when correct',
+          'VEDD Token Earning: Earn through analysis activity, ambassador referrals, wear-to-earn clothing, EA marketplace sales, devotional streaks, and challenge wins',
+          'NFC Wear-to-Earn: Buy official VEDD clothing → tap the NFC chip on your phone → earn VEDD tokens daily as a passive reward',
+          'Referral Credits: Each successful referral earns ambassador credits (1 credit = $0.01) redeemable for free subscription months',
+          'Ambassador Certification NFT: Complete all training modules → claim a digital certificate and mint a Solana NFT as on-chain proof',
+        ],
+        tips: [
+          'Gamification turns daily trading work into a progress game — great for accountability groups and coaching clients',
+          'Wear-to-earn is a viral mechanic — every VEDD shirt worn in public is a walking ad AND rewards the wearer',
+          'Show prospects their potential monthly VEDD earnings from referrals using the earnings calculator on this page',
+        ],
+        keyPoints: [
+          { text: 'YG → Rising → Pro → Elite → OG — tier tracked by XP earned through all platform actions', icon: TrendingUp },
+          { text: '2,000 earned VEDD = 1 free subscription month at fixed platform rate', icon: Coins },
+          { text: 'NFC wear-to-earn: official VEDD clothing pays you daily just for wearing it', icon: Award },
+        ],
+        quiz: {
+          question: 'How many VEDD tokens must a user earn through platform activity to redeem 1 free subscription month?',
+          options: [
+            '500 tokens',
+            '1,000 tokens',
+            '2,000 tokens',
+            '5,000 tokens',
+          ],
+          correct: 2,
+        },
+      },
+      {
+        id: 'fpo-4',
+        title: 'VEDD Token Pools, Wallets & Economics',
+        content: [
+          'Token Allocation Breakdown: 30% Community Rewards Pool • 20% Development • 20% Liquidity Pool • 15% Team • 10% Marketing • 5% Reserve',
+          'Community Rewards Pool (30%) — ACTIVE NOW: Funded at launch and actively distributing tokens for ambassador activity, referrals, EA sales, devotional streaks, and challenge completions',
+          'Liquidity Pool (20%): Provides DEX liquidity on Raydium — allows anyone to buy/sell VEDD tokens on the open market at live prices',
+          'Two Token Systems: (1) Earned VEDD — platform reward tokens at fixed rate 2,000 = $20 subscription credit; (2) Market VEDD — purchased on DEX, grows in value as the platform and community scales',
+          'Token Tiers: Holder (1,000+) → Silver (10,000+, 10% fee discount) → Gold (50,000+, 25% discount + early features) → Diamond (100,000+, 50% discount + private channels + direct team access)',
+          'Solana Wallet Integration: Connect Phantom or Solflare to verify holdings and auto-unlock gated subscription tiers without paying USD',
+          'NFT Ambassador Certification: Completing training mints a unique Solana NFT — verifiable on-chain proof of certification',
+          'Governance: VEDD token holders vote on platform proposals — token balance = voting weight in ecosystem decisions',
+          'Staking: Stake VEDD tokens to earn yield and boost earning multipliers across all platform activities',
+          'Price Roadmap: Month 1–3 bonding curve → Month 4 Raydium pool opens → Month 6 Jupiter aggregator listing → Month 9–12 CEX listings begin',
+        ],
+        tips: [
+          'Always clarify the two-token distinction: earned VEDD (activity rewards at fixed rate) vs market VEDD (investment growing with the platform)',
+          'The Community Rewards Pool is already funded and live — emphasize this is real distribution happening now, not a future promise',
+          'Diamond holders (100K VEDD) get 50% fee discounts — at scale, the tokens pay for themselves through reduced subscription costs',
+        ],
+        keyPoints: [
+          { text: '30% Community Rewards Pool — funded at launch, actively distributing to ambassadors and active users right now', icon: Coins },
+          { text: 'Two parallel economies: earned tokens (fixed platform rate) + market tokens (DEX price appreciation)', icon: TrendingUp },
+          { text: 'Diamond tier (100K+ VEDD): 50% fee discount, private channels, direct team access', icon: Award },
+        ],
+        quiz: {
+          question: 'What percentage of the total VEDD supply is allocated to the Community Rewards Pool?',
+          options: [
+            '5%',
+            '15%',
+            '20%',
+            '30%',
+          ],
+          correct: 3,
+        },
+      },
+      {
+        id: 'fpo-5',
+        title: 'Subscription Plans — What Each Tier Unlocks',
+        content: [
+          'Free Plan: 3 chart analyses/month, AI pattern recognition, entry/exit signals, community access, achievements & XP, VEDD token earning, ambassador training, referral hub, devotional streaks — a full demo, not a teaser',
+          'Starter ($49.95/mo): Free + ABBA AI Assistant, 50 analyses, multi-timeframe, full EA Generator (MT5/TV/TL/NT8), Futures EA Generator, webhooks, SS AI Brain Engine, what-if modeling, 25 social shares',
+          'Premium ($149.99/mo): Starter + Live Trading Engine, Trailing Stop AI (9 methods), Copy Trading, ORB Breakout, Futures AI Live Feed, Solana Scanner + Auto-Trade, Polymarket Engine, Business Credit Builder, Business Builder, Grants Hub, Community Impact Dashboard, unlimited analyses',
+          'Yearly ($999.99/yr): Premium + Innovation Lab, early beta access, all future updates, priority support, NFC wear-to-earn rewards, transferable membership — saves $800 vs monthly Premium over 12 months',
+          'Pay with VEDD Tokens: Hold sufficient VEDD tokens in a connected Solana wallet to auto-unlock subscription tiers — zero USD payment',
+          'Pay with Ambassador Credits: Referral credits (1 = $0.01) — Starter costs 4,995 credits, Premium costs 14,999 credits — refer enough traders and your sub is free',
+          'Bring Your Own AI Key (BYOK): Connect OpenAI, Anthropic, or Groq keys to power AI features at your own cost — unlocks Economy Mode for reduced spend',
+        ],
+        tips: [
+          'Position Starter as the "serious trader" entry — the EA generator alone is worth $50/month to most active traders',
+          'Premium is your conversion target — 19+ exclusive features and the Business Builder make it an easy upsell for growth-minded users',
+          'Remind VEDD token holders they may already have free access based on wallet balance — this creates urgency to accumulate tokens',
+        ],
+        keyPoints: [
+          { text: 'Free plan is a real, useful product — 3 full AI analyses is enough to demonstrate value before asking for money', icon: Star },
+          { text: 'Premium unlocks 19+ exclusive features including Business Builder, Biz Credit, Grants Hub, and Copy Trading', icon: Sparkles },
+          { text: 'Three ways to pay: USD (Stripe/Beacons), VEDD tokens (wallet-gated), or ambassador credits (referrals)', icon: Coins },
+        ],
+        quiz: {
+          question: 'Which subscription plan includes the Business Builder, Grants Hub, and Business Credit Builder?',
+          options: [
+            'Free',
+            'Starter',
+            'Premium',
+            'Yearly only',
+          ],
+          correct: 2,
+        },
+      },
+    ],
   }
 ];
 

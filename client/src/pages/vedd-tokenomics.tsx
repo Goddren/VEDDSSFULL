@@ -1008,15 +1008,65 @@ export default function VeddTokenomics() {
                   </div>
                 </div>
                 
+                {/* Gamification earning breakdown */}
+                <div className="mt-6 space-y-3">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-amber-400" />
+                    How the Pool Distributes to You
+                  </h3>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    {[
+                      { action: 'Chart Analysis', reward: '5–25 VEDD', note: 'Bonus for analyses above 75% confidence' },
+                      { action: 'Daily Devotional Streak', reward: '10 VEDD/day', note: 'Streak multiplier grows each consecutive day' },
+                      { action: 'Referral Signup', reward: '50 VEDD', note: 'Per new user who joins with your link' },
+                      { action: 'Referral Subscribes', reward: '150 VEDD', note: 'Per referred user who upgrades to paid plan' },
+                      { action: 'EA Marketplace Sale', reward: '100 VEDD/mo', note: 'Per active subscriber to your strategy' },
+                      { action: 'Community Challenge Win', reward: 'Up to 1,000 VEDD', note: 'Weekly & monthly prize pools' },
+                      { action: 'Ambassador Certification', reward: '500 VEDD', note: 'One-time bonus on completion + NFT mint' },
+                      { action: 'Wear-to-Earn (NFC Tap)', reward: '25 VEDD/day', note: 'Official VEDD clothing — tap NFC chip daily' },
+                      { action: 'XP Tier Milestone', reward: '100–500 VEDD', note: 'Awarded at Rising → Pro → Elite → OG' },
+                      { action: 'Achievement Badge Unlock', reward: '10–200 VEDD', note: 'Varies by badge rarity and difficulty' },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg border border-border/40">
+                        <div className="shrink-0 mt-0.5 w-2 h-2 rounded-full bg-green-400 mt-2" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <p className="font-medium text-sm">{item.action}</p>
+                            <span className="text-green-400 font-bold text-sm whitespace-nowrap">{item.reward}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">{item.note}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Redemption rate: <span className="text-white font-medium">2,000 earned VEDD = 1 month free subscription</span>. Market VEDD price is separate and grows with the ecosystem.
+                  </p>
+                </div>
+
                 <div className="mt-6 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                   <div className="flex items-start gap-3">
                     <Shield className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-medium text-yellow-400">Pool Wallet Security</p>
                       <p className="text-sm text-muted-foreground">
-                        The rewards pool is managed by a secure multi-sig wallet. Admins can deposit tokens, 
-                        and the system automatically distributes rewards when actions are verified. 
-                        All transactions are recorded on-chain for transparency.
+                        The rewards pool is managed by a secure multi-sig wallet. Admins can deposit tokens,
+                        and the system automatically distributes rewards when actions are verified.
+                        All transactions are recorded on-chain for full transparency.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 text-green-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-green-400">Pool Status: ACTIVE — Distributing Now</p>
+                      <p className="text-sm text-muted-foreground">
+                        The Community Rewards Pool is funded and live. Every chart analysis, devotional completion, referral,
+                        and ambassador action pulls from this pool automatically. New users and existing users
+                        are both eligible — there is no waiting period.
                       </p>
                     </div>
                   </div>
@@ -1025,25 +1075,62 @@ export default function VeddTokenomics() {
             </Card>
           </TabsContent>
         </Tabs>
-        
+
+        {/* Gamification & XP Tiers Section */}
+        <div className="mt-12 mb-6">
+          <h2 className="text-2xl font-bold mb-2 flex items-center gap-2">
+            <Trophy className="h-6 w-6 text-amber-400" />
+            Gamification & XP Tier System
+          </h2>
+          <p className="text-muted-foreground mb-6">Every action on the platform earns XP and VEDD tokens. Progress through tiers to unlock multipliers and exclusive benefits.</p>
+          <div className="grid sm:grid-cols-5 gap-3">
+            {[
+              { tier: 'YG', label: 'Young Grinder', xp: '0–499 XP', color: 'border-gray-500 text-gray-400', perks: 'Platform access + base earn rate' },
+              { tier: 'Rising', label: 'Rising Trader', xp: '500–1,999 XP', color: 'border-blue-500 text-blue-400', perks: '1.25× VEDD multiplier + Rising badge' },
+              { tier: 'Pro', label: 'Pro Trader', xp: '2,000–4,999 XP', color: 'border-purple-500 text-purple-400', perks: '1.5× multiplier + Pro signals channel' },
+              { tier: 'Elite', label: 'Elite Trader', xp: '5,000–9,999 XP', color: 'border-yellow-500 text-yellow-400', perks: '2× multiplier + Elite leaderboard + prize draws' },
+              { tier: 'OG', label: 'OG VEDD', xp: '10,000+ XP', color: 'border-amber-400 text-amber-400', perks: '3× multiplier + governance vote + OG community' },
+            ].map((t, i) => (
+              <div key={i} className={`rounded-xl border-2 ${t.color.split(' ')[0]} p-4 text-center`}>
+                <p className={`text-2xl font-black ${t.color.split(' ')[1]} mb-1`}>{t.tier}</p>
+                <p className="text-xs font-semibold mb-1">{t.label}</p>
+                <p className="text-xs text-muted-foreground mb-2">{t.xp}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{t.perks}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* CTA Section */}
         <div className="text-center py-12 border-t border-border/50">
           <VeddLogo height={40} className="mx-auto mb-6" />
           <h2 className="text-2xl font-bold mb-4">Ready to Join the VEDD Ecosystem?</h2>
           <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-            Connect your Solana wallet and start earning VEDD through trading, referrals, and community participation.
+            Connect your Solana wallet and start earning VEDD through trading, referrals, community participation, and wear-to-earn clothing.
           </p>
-          <div className="flex items-center justify-center gap-4">
+          <div className="flex items-center justify-center gap-4 flex-wrap">
             <Link href="/solana-scanner">
               <Button size="lg" className="bg-gradient-to-r from-purple-600 to-pink-600">
                 <SiSolana className="h-4 w-4 mr-2" />
                 Start Trading
               </Button>
             </Link>
-            <Link href="/sol-scanner">
+            <Link href="/referral">
               <Button size="lg" variant="outline">
                 <Share2 className="h-4 w-4 mr-2" />
                 Refer & Earn
+              </Button>
+            </Link>
+            <Link href="/achievements">
+              <Button size="lg" variant="outline">
+                <Trophy className="h-4 w-4 mr-2" />
+                View Achievements
+              </Button>
+            </Link>
+            <Link href="/ambassador-training">
+              <Button size="lg" variant="outline">
+                <Gift className="h-4 w-4 mr-2" />
+                Ambassador Training
               </Button>
             </Link>
           </div>

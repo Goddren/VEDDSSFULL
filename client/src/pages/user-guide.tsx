@@ -1414,6 +1414,211 @@ const guideSections: GuideSection[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'biz-builder',
+    title: 'Business Builder & Credit',
+    icon: TrendingUp,
+    description: 'Launch a business and build credit from scratch — entity formation, banking, 90-day credit plan, and funding matches',
+    content: [
+      {
+        heading: 'Starting the 6-Step Business Wizard',
+        steps: [
+          'Navigate to Business Builder (/biz-builder) from the main nav',
+          'Step 1 — Idea: Describe your business idea in plain language; click Generate Names to let AI create name options and recommend an entity type (LLC, S-Corp, C-Corp, Sole Prop)',
+          'Step 2 — Names & Entity: Review AI-generated name options and entity recommendation; select your preferred name and click Confirm Entity Selection',
+          'Step 3 — Formation: Choose a formation provider (Stripe Atlas, Incfile, ZenBusiness) and follow the link to complete official state registration',
+          'Step 4 — Banking: Select a business banking partner (Mercury, Relay, Found) and open your business account to separate personal and business finances',
+          'Step 5 — Credit Plan: Review your AI-generated 90-day credit task plan; check off completed tasks to track progress through net-30 accounts, secured cards, and vendor credit',
+          'Step 6 — Funding: Browse AI-matched funding opportunities including SBA loans, CDFI grants, and investor leads matched to your business profile',
+        ],
+        tips: [
+          'Complete Steps 1–4 in order — formation before banking, banking before credit — the sequence mirrors how lenders evaluate business legitimacy',
+          'Your business profile is saved after each step; return any time to continue without losing progress',
+          'Uses your connected Anthropic API key automatically — no separate key required',
+        ]
+      },
+      {
+        heading: 'Business Credit Builder (6-Phase Program)',
+        steps: [
+          'Navigate to Credit Builder (/credit-builder) — a standalone 6-phase program for personal and business credit',
+          'Phase 1 — Foundation: Obtain EIN from IRS.gov, open a dedicated business checking account, register with Dun & Bradstreet (DUNS number)',
+          'Phase 2 — Net-30 Accounts: Open vendor credit accounts that report to business bureaus (Uline, Quill, Grainger) — pay invoices within 30 days to build payment history',
+          'Phase 3 — Revolving Credit: Apply for a business credit card; keep utilization below 30% and pay in full monthly',
+          'Phase 4 — SBA Pre-Qualification: Use Phase 1–3 history to apply for SBA Microloan or 7(a) pre-qualification',
+          'Phase 5 — Banking Relationships: Maintain 6+ months of clean account history; request credit limit increases every 6 months',
+          'Phase 6 — Investor Readiness: Compile business financials, credit report, and bank statements into an investor-ready package',
+        ],
+        tips: [
+          'Business credit is separate from personal credit — never mix personal cards with business purchases once Phase 1 is complete',
+          'The 90-day task plan from Biz Builder aligns with Phases 1–3 of the Credit Builder — complete them together for maximum speed',
+          'A Dun & Bradstreet DUNS number is free and required by most vendors before extending net-30 terms',
+        ]
+      },
+      {
+        heading: 'Grants Hub — Finding & Applying for Grants',
+        steps: [
+          'Navigate to Grants Hub (/grants) from the main nav',
+          'Browse available grant programs: SBA, NSF, Department of Labor, CDFI Fund, EDA, JPMorgan Chase for Business, Google.org',
+          'Click the Grant Scanner to let AI identify which programs match your business type, revenue stage, and geography',
+          'Select a grant program and click Generate Proposal — AI drafts a complete proposal with required narrative sections',
+          'Review and edit the AI proposal; export or copy the text to submit via the grant program\'s official portal',
+          'Track your application status in the Application Tracker by entering submission date, grant name, and expected decision date',
+        ],
+        tips: [
+          'The AI proposal is a starting draft — always personalize with real metrics, team bios, and your specific community impact story',
+          'Apply for CDFI and EDA grants first — they have shorter review cycles and higher approval rates for early-stage businesses',
+          'Google.org grants favor education and community development projects — align your framing toward financial literacy and inclusion impact',
+        ]
+      }
+    ]
+  },
+  {
+    id: 'copy-trading-orb',
+    title: 'Copy Trading & ORB Breakout',
+    icon: TrendingUp,
+    description: 'Replicate MT5 positions to TradeLocker automatically and trade Opening Range Breakout signals at market opens',
+    content: [
+      {
+        heading: 'Copy Trading — MT5 to TradeLocker',
+        steps: [
+          'Navigate to Copy Trading (/copy-trading) from the main nav',
+          'Connect your source MT5 account (the account whose trades you want to copy)',
+          'Connect your destination TradeLocker account (the account that will mirror trades)',
+          'Set your lot multiplier — 1.0 mirrors exact lot sizes; 0.5 halves them; 2.0 doubles them',
+          'Enable Copy Trading — the relay service watches your MT5 account and replicates every new position to TradeLocker',
+          'Monitor active copied trades in the Live Monitor panel; each trade shows source, destination, lot size, and P&L',
+        ],
+        tips: [
+          'Start with lot multiplier 0.1 to verify the relay is working correctly before scaling up',
+          'Copy Trading is independent of the Live Trading Engine — you can run both simultaneously on different accounts',
+          'Use Copy Trading to mirror your manual MT5 analysis into a funded TradeLocker account automatically',
+        ]
+      },
+      {
+        heading: 'ORB Breakout Strategy',
+        steps: [
+          'Navigate to ORB Breakout (/orb-breakout) from the main nav',
+          'The system detects breakouts at the 3 major market opens where institutional order flow is highest: London (3 AM ET), New York (9:30 AM ET), and Tokyo (7 PM ET)',
+          'Select which pairs to monitor; each pair has its own breakout toggle so you can mix ORB and pure technical analysis strategies',
+          'When a breakout is detected with volume 1.2x above average, the signal is marked as confirmed with HIGH confidence',
+          'Review AI-confirmed breakout signals in the signal feed; each shows direction, entry level, SL, TP, and session',
+          'Enable Breakout Master Mode to activate a second AI confirmation layer before any signal is issued — higher precision, fewer entries',
+        ],
+        tips: [
+          'London and New York opens produce the most reliable ORB signals — most institutional order flow occurs in the first 30 minutes of each session',
+          'ORB signals with volume confirmation score higher in the SS AI Brain Engine consensus — they are weighted above pure pattern signals',
+          'Turn off ORB for USD-correlated pairs during high-impact news events — the news spike can fake a breakout that reverses immediately',
+        ]
+      }
+    ]
+  },
+  {
+    id: 'gamification-achievements',
+    title: 'Achievements, Streaks & VEDD Rewards',
+    icon: TrendingUp,
+    description: 'Earn XP, unlock badges, climb leaderboards, and earn VEDD tokens through everyday platform activity',
+    content: [
+      {
+        heading: 'XP Tiers & Progression',
+        steps: [
+          'Your XP tier is displayed in your profile and on the leaderboard — tiers progress: YG → Rising → Pro → Elite → OG',
+          'Earn XP by completing chart analyses, maintaining daily streaks, winning community challenges, posting to the social feed, and selling EAs in the marketplace',
+          'Each tier unlocks new features, VEDD token earning multipliers, and social badges displayed on your profile',
+          'View your current XP and tier progress at /achievements or through the Activity Hub (/activity)',
+        ],
+        tips: [
+          'Daily streak bonuses stack on all XP and VEDD earnings — a 30-day streak can double your token earning rate',
+          'Elite and OG tiers receive bonus entries in the monthly VEDD token prize pool draws',
+        ]
+      },
+      {
+        heading: 'Achievements & Badges',
+        steps: [
+          'Navigate to Achievements (/achievements) to see all unlockable badges and your progress toward each',
+          'Achievement categories: Analysis Milestones (complete 10, 50, 100 analyses), Streak Master (7, 30, 90-day streaks), Win Rate (achieve 60%, 70%, 80% accuracy), Community (first share, first follower, first sale), Ambassador (complete training, first referral, 10 referrals)',
+          'Earned badges appear on your public trader profile — they signal credibility and attract followers in the Social Hub',
+          'Some achievements reward VEDD tokens directly upon unlock — check the reward amount listed under each badge',
+        ],
+        tips: [
+          'Focus on Analysis Milestones first — they\'re the fastest to complete and each milestone pays VEDD tokens',
+          'The Ambassador certification badge is the most prestigious — it unlocks special ambassador-only community channels',
+        ]
+      },
+      {
+        heading: 'VEDD Token Earning — All Methods',
+        steps: [
+          'Chart Analysis: Earn tokens for every completed analysis — bonus tokens for analyses above 75% AI confidence',
+          'Daily Devotional: Complete the daily devotional lesson to earn daily streak tokens — the streak multiplier grows each consecutive day',
+          'Referrals: Every user who signs up with your referral link earns you credits (1 credit = $0.01 subscription discount) and bonus VEDD tokens when they subscribe',
+          'EA Marketplace Sales: Earn VEDD tokens (and USD) every time another trader subscribes to your published Expert Advisor',
+          'Community Challenges: Compete in weekly and monthly platform challenges — top finishers earn token prizes from the Community Rewards Pool',
+          'Wear-to-Earn: Buy official VEDD clothing with an NFC chip → tap the chip with your phone daily → earn tokens automatically',
+          'Ambassador Milestones: Complete training modules, earn certification, and hit referral milestones to unlock token bonuses',
+          'View your token balance and transaction history at My Wallet (/my-wallet); withdraw to your Solana wallet at any time',
+        ],
+        tips: [
+          '2,000 earned VEDD tokens = 1 free subscription month at the fixed platform redemption rate',
+          'Withdraw tokens to Phantom/Solflare wallet to hold them on-chain — market VEDD grows in value as the community scales',
+          'The Community Rewards Pool (30% of total supply) is actively distributing — every action you take on the platform pulls from this pool',
+        ]
+      }
+    ]
+  },
+  {
+    id: 'tokenomics-pools',
+    title: 'VEDD Tokenomics & Token Pools',
+    icon: TrendingUp,
+    description: 'Understand the VEDD token economy, how pools work, and how to maximize token benefits for new and existing users',
+    content: [
+      {
+        heading: 'Token Supply Allocation',
+        steps: [
+          'Total Supply is fixed — allocation breakdown: 30% Community Rewards Pool • 20% Development • 20% Liquidity Pool • 15% Team • 10% Marketing • 5% Reserve',
+          'Community Rewards Pool (30%): The largest allocation — actively distributing tokens to ambassadors, referrers, challenge winners, devotional streak earners, and EA sellers',
+          'Liquidity Pool (20%): Provides DEX liquidity on Raydium after the bonding curve graduates — enables open-market buying and selling of VEDD at live prices',
+          'Development (20%): Funds ongoing platform development, new feature builds, and infrastructure — vested over 24 months',
+          'Team (15%): Core team tokens — vested over 36 months to align long-term incentives',
+          'Marketing (10%): Content, influencer partnerships, and community growth campaigns',
+          'Reserve (5%): Emergency fund for ecosystem stability and bridge financing',
+        ],
+        tips: [
+          'New users: the Community Rewards Pool is live and distributing — start earning immediately through any platform activity',
+          'Existing users: your earned token balance is permanently yours — check My Wallet for your accumulated rewards',
+        ]
+      },
+      {
+        heading: 'Token Tiers — Benefits for Holders',
+        steps: [
+          'Holder (1,000+ VEDD): Basic features + community access — entry tier; easy to reach through a few weeks of platform activity',
+          'Silver (10,000+ VEDD): 10% fee discount on all subscription payments + priority support — equivalent to ~$5/month savings on Starter',
+          'Gold (50,000+ VEDD): 25% fee discount + early access to new features + exclusive signals channel — equivalent to ~$37/month savings on Premium',
+          'Diamond (100,000+ VEDD): 50% fee discount + private Diamond community channels + direct team access — equivalent to ~$75/month savings on Premium',
+          'Connect your Solana wallet (Phantom or Solflare) at /vedd-tokenomics to have your tier verified and benefits activated automatically',
+          'Token-gated subscription: hold enough VEDD on-chain to bypass USD payment entirely — the system reads your wallet balance and unlocks the corresponding tier',
+        ],
+        tips: [
+          'Earn toward Silver tier first (10,000 VEDD) — it\'s achievable through 2–3 months of active use and pays for itself in fee discounts',
+          'Existing users who\'ve been earning since day 1 should check their balance — many may already qualify for Silver or Gold tier',
+          'Diamond holders also receive governance voting weight — your 100K+ VEDD means you shape the platform\'s future features',
+        ]
+      },
+      {
+        heading: 'VEDD Price Roadmap & Milestones',
+        steps: [
+          'Month 1–3 (Bonding Curve): Token live on pump.fun — early buyers accumulate at micro-cap; ambassador system activated; first 10 ambassadors verified and earning',
+          'Month 4 (DEX Launch): Token graduates bonding curve (~$69K raised) → Raydium liquidity pool opens; first 44-day ambassador journey completions paying 500 VEDD bonuses; staking program activates',
+          'Month 6 (Aggregator): Listed on Jupiter aggregator — broader Solana ecosystem exposure; Ambassador Training V2 with video certification; token-gated membership tiers go live',
+          'Month 9 (Growth Phase): EA creators earning passive VEDD income driving platform trading volume; regional ambassador leads appointed',
+          'Month 12 (CEX Talks): Platform trading volume validates real-world utility; CEX listing discussions begin; governance proposals go to community vote',
+          'Track live token price on DexScreener — link available at /vedd-tokenomics',
+        ],
+        tips: [
+          'The roadmap milestones are driven by community activity — more ambassadors recruiting = faster token graduation from the bonding curve',
+          'Each completed milestone historically increases token visibility and trading volume — early platform users are positioned for the most appreciation',
+        ]
+      }
+    ]
   }
 ];
 
