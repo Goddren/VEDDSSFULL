@@ -5153,45 +5153,22 @@ IMPORTANT:
     }
   });
 
-  // ── ABBA: Notify (send SMS/email to user, ambassador, or admin) ─────────────
+  // ── ABBA: Channel status (which channels are configured) ────────────────────
+  app.get('/api/abba/channel-status', (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
+    import('./messaging').then(({ getChannelStatus }) => res.json(getChannelStatus())).catch(() => res.status(500).json({}));
+  });
+
+  // ── ABBA: Notify (unified multi-channel — gmail/resend/telegram/twilio/sendgrid) ──
   app.post('/api/abba/notify', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
     const userId = (req.user as User).id;
-    const { target, phone, email, subject, message, channel } = req.body;
+    const { target, phone, chatId, email, subject, message, channel } = req.body;
     if (!message?.trim()) return res.status(400).json({ error: 'message required' });
 
-    const results: any = { sms: null, email: null };
+    const { sendMessage } = await import('./messaging');
+    const result = await sendMessage({ channel, phone, chatId, email, subject, message: `VEDD | ${message}` });
 
-    // SMS via Twilio
-    if ((channel === 'sms' || channel === 'both') && phone) {
-      results.sms = await sendSmsRaw(phone, `VEDD | ${message}`);
-    }
-
-    // Email via SendGrid (if configured)
-    if ((channel === 'email' || channel === 'both') && email) {
-      const sgKey = process.env.SENDGRID_API_KEY;
-      if (sgKey) {
-        try {
-          const sgMail = await import('@sendgrid/mail');
-          (sgMail as any).default?.setApiKey?.(sgKey) || (sgMail as any).setApiKey?.(sgKey);
-          const sendFn = (sgMail as any).default?.send || (sgMail as any).send;
-          await sendFn({
-            to: email,
-            from: process.env.SENDGRID_FROM_EMAIL || 'abba@vedd.app',
-            subject: subject || 'Message from ABBA — Your VEDD Assistant',
-            text: message,
-            html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">ABBA — VEDD AI Assistant</h2><p>${message.replace(/\n/g, '<br/>')}</p><hr/><p style="color:#888;font-size:12px">Sent from the VEDD platform. Target: ${target || 'user'}</p></div>`,
-          });
-          results.email = { success: true };
-        } catch (e: any) {
-          results.email = { success: false, error: e.message };
-        }
-      } else {
-        results.email = { success: false, error: 'SENDGRID_API_KEY not configured' };
-      }
-    }
-
-    // Log to activity feed
     try {
       const feed = (global as any).liveActivityFeed;
       if (Array.isArray(feed)) {
@@ -5200,7 +5177,7 @@ IMPORTANT:
       }
     } catch {}
 
-    res.json({ success: true, results });
+    res.json({ success: result.success, result });
   });
 
   // ── ABBA: Accounts daily P&L summary ────────────────────────────────────────
@@ -5246,13 +5223,14 @@ IMPORTANT:
     }
   });
 
-  // ── ABBA: Send daily report via SMS/email ────────────────────────────────────
+  // ── ABBA: Send daily report (unified channel) ────────────────────────────────
   app.post('/api/abba/daily-report', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
     const userId = (req.user as User).id;
-    const { phone, email, channel } = req.body;
+    const { phone, chatId, email, channel } = req.body;
     try {
       const { buildAbbaContext } = await import('./abba-strategist');
+      const { sendMessage } = await import('./messaging');
       const ctx = await buildAbbaContext(userId);
       const t = ctx.performance.today;
       const g = ctx.goal;
@@ -5262,49 +5240,13 @@ IMPORTANT:
         `📊 VEDD Daily Report — ${new Date().toLocaleDateString()}`,
         `Today: ${pnlStr} | ${t.trades} trades | ${t.winRate}% win rate`,
         `Goal: $${g.weeklyTarget} weekly target — ${g.progressPct}% complete ($${g.currentProfit})`,
-        `Best session: ${ctx.performance.bySession.sort((a, b) => b.pnl - a.pnl)[0]?.session ?? 'N/A'}`,
-        `Top pair: ${ctx.performance.byPair.sort((a, b) => b.pnl - a.pnl)[0]?.pair ?? 'N/A'}`,
+        `Best session: ${ctx.performance.bySession.sort((a: any, b: any) => b.pnl - a.pnl)[0]?.session ?? 'N/A'}`,
+        `Top pair: ${ctx.performance.byPair.sort((a: any, b: any) => b.pnl - a.pnl)[0]?.pair ?? 'N/A'}`,
         `Keep going — Abba is watching your back.`,
       ].join('\n');
 
-      const results: any = {};
-      if ((channel === 'sms' || channel === 'both') && phone) {
-        results.sms = await sendSmsRaw(phone, report);
-      }
-      if ((channel === 'email' || channel === 'both') && email) {
-        const sgKey = process.env.SENDGRID_API_KEY;
-        if (sgKey) {
-          try {
-            const sgMail = await import('@sendgrid/mail');
-            (sgMail as any).default?.setApiKey?.(sgKey) || (sgMail as any).setApiKey?.(sgKey);
-            const sendFn = (sgMail as any).default?.send || (sgMail as any).send;
-            await sendFn({
-              to: email,
-              from: process.env.SENDGRID_FROM_EMAIL || 'abba@vedd.app',
-              subject: `VEDD Daily Report — ${new Date().toLocaleDateString()}`,
-              text: report,
-              html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;padding:24px;border-radius:12px">
-                <h2 style="color:#7c3aed;margin-bottom:4px">📊 VEDD Daily Report</h2>
-                <p style="color:#888;font-size:13px;margin-top:0">${new Date().toLocaleDateString()}</p>
-                <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin:16px 0">
-                  <p style="font-size:20px;font-weight:bold;color:${t.totalPnl >= 0 ? '#10b981' : '#ef4444'}">${pnlStr}</p>
-                  <p style="color:#ccc">${t.trades} trades · ${t.winRate}% win rate</p>
-                </div>
-                <div style="background:#1a1a1a;border-radius:8px;padding:16px;margin:16px 0">
-                  <p style="color:#888;font-size:12px;margin:0">WEEKLY GOAL PROGRESS</p>
-                  <p style="font-size:18px;font-weight:bold;color:#7c3aed">${g.progressPct}%</p>
-                  <p style="color:#ccc">$${g.currentProfit} of $${g.weeklyTarget} target</p>
-                </div>
-                <p style="color:#888;font-size:12px">Sent by ABBA — your VEDD AI personal assistant.</p>
-              </div>`,
-            });
-            results.email = { success: true };
-          } catch (e: any) { results.email = { success: false, error: e.message }; }
-        } else {
-          results.email = { success: false, error: 'SENDGRID_API_KEY not configured' };
-        }
-      }
-      res.json({ success: true, report, results });
+      const result = await sendMessage({ channel, phone, chatId, email, subject: `VEDD Daily Report — ${new Date().toLocaleDateString()}`, message: report });
+      res.json({ success: result.success, report, result });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

@@ -7,6 +7,7 @@ import {
   MessageSquare, BarChart2, Radio, ChevronRight, Phone, Mail,
   Users, Bell, Map, Layers, Zap, DollarSign, Trophy,
   HelpCircle, ExternalLink, Play, Image, ChevronDown, ChevronUp,
+  CheckCircle2, XCircle, AlertCircle, Send as SendIcon,
 } from "lucide-react";
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from "@/components/trade-performance-card";
 
@@ -320,13 +321,19 @@ export default function AbbaBotPage() {
 
   // ── Outreach state ──────────────────────────────────────────────────────────
   const [outTarget, setOutTarget] = useState<"user" | "ambassador" | "admin" | "lead">("user");
-  const [outChannel, setOutChannel] = useState<"sms" | "email" | "both">("sms");
+  const [outChannel, setOutChannel] = useState<"gmail" | "resend" | "telegram" | "twilio" | "sendgrid">("gmail");
   const [outPhone, setOutPhone] = useState("");
+  const [outChatId, setOutChatId] = useState("");
   const [outEmail, setOutEmail] = useState("");
   const [outSubject, setOutSubject] = useState("");
   const [outMessage, setOutMessage] = useState("");
   const [outSending, setOutSending] = useState(false);
-  const [outResult, setOutResult] = useState<{ success?: boolean; error?: string } | null>(null);
+  const [outResult, setOutResult] = useState<{ success?: boolean; error?: string; channel?: string } | null>(null);
+
+  const { data: channelStatus } = useQuery<Record<string, { configured: boolean; free: boolean; limit: string; setupUrl: string }>>({
+    queryKey: ["/api/abba/channel-status"],
+    refetchInterval: 30_000,
+  });
 
   const sendOutreach = async () => {
     if (!outMessage.trim() || outSending) return;
@@ -334,14 +341,17 @@ export default function AbbaBotPage() {
     try {
       const res = await apiRequest("POST", "/api/abba/notify", {
         target: outTarget, channel: outChannel,
-        phone: outPhone || undefined, email: outEmail || undefined,
-        subject: outSubject || undefined, message: outMessage,
+        phone: outPhone || undefined,
+        chatId: outChatId || undefined,
+        email: outEmail || undefined,
+        subject: outSubject || undefined,
+        message: outMessage,
       });
       const data = await res.json();
-      setOutResult({ success: data.success });
+      setOutResult({ success: data.success, error: data.result?.error, channel: outChannel });
       if (data.success) { setOutMessage(""); setOutSubject(""); }
     } catch {
-      setOutResult({ success: false, error: "Failed to send — check phone/email and try again." });
+      setOutResult({ success: false, error: "Failed to send — check your credentials and try again." });
     } finally {
       setOutSending(false);
     }
@@ -349,8 +359,9 @@ export default function AbbaBotPage() {
 
   // ── Daily report send ───────────────────────────────────────────────────────
   const [reportPhone, setReportPhone] = useState("");
+  const [reportChatId, setReportChatId] = useState("");
   const [reportEmail, setReportEmail] = useState("");
-  const [reportChannel, setReportChannel] = useState<"sms" | "email" | "both">("sms");
+  const [reportChannel, setReportChannel] = useState<"gmail" | "resend" | "telegram" | "twilio" | "sendgrid">("gmail");
   const [reportSending, setReportSending] = useState(false);
   const [reportResult, setReportResult] = useState<string | null>(null);
 
@@ -358,10 +369,13 @@ export default function AbbaBotPage() {
     setReportSending(true); setReportResult(null);
     try {
       const res = await apiRequest("POST", "/api/abba/daily-report", {
-        phone: reportPhone || undefined, email: reportEmail || undefined, channel: reportChannel,
+        phone: reportPhone || undefined,
+        chatId: reportChatId || undefined,
+        email: reportEmail || undefined,
+        channel: reportChannel,
       });
       const data = await res.json();
-      setReportResult(data.success ? "Report sent! ✓" : (data.error || "Failed to send."));
+      setReportResult(data.success ? "Report sent! ✓" : (data.result?.error || data.error || "Failed to send."));
     } catch {
       setReportResult("Failed to send — try again.");
     } finally {
@@ -709,30 +723,50 @@ export default function AbbaBotPage() {
                 <div className="rounded-2xl border border-blue-800/40 bg-blue-950/10 p-4 space-y-3">
                   <div className="flex items-center gap-2 mb-1">
                     <Bell className="w-4 h-4 text-blue-300" />
-                    <span className="text-sm font-bold text-blue-200">Send This Report to Yourself</span>
+                    <span className="text-sm font-bold text-blue-200">Send This Report</span>
                   </div>
-                  <div className="flex gap-2">
-                    {(["sms", "email", "both"] as const).map(ch => (
-                      <button key={ch} onClick={() => setReportChannel(ch)}
-                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold border transition-all ${reportChannel === ch ? "bg-blue-600/40 border-blue-500/60 text-blue-100" : "bg-gray-800 border-gray-700 text-gray-400"}`}>
-                        {ch.toUpperCase()}
+                  {/* Channel picker */}
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {([
+                      { id: "gmail",    label: "Gmail",    emoji: "📧", free: true },
+                      { id: "resend",   label: "Resend",   emoji: "✉️",  free: true },
+                      { id: "telegram", label: "Telegram", emoji: "✈️",  free: true },
+                      { id: "sendgrid", label: "SendGrid", emoji: "📨", free: true },
+                      { id: "twilio",   label: "SMS",      emoji: "📱", free: false },
+                    ] as const).map(ch => (
+                      <button key={ch.id} onClick={() => setReportChannel(ch.id)}
+                        className={`flex flex-col items-center py-2 rounded-lg text-[10px] font-semibold border transition-all ${reportChannel === ch.id ? "bg-blue-600/40 border-blue-500/60 text-blue-100" : "bg-gray-800 border-gray-700 text-gray-400"}`}>
+                        <span className="text-base mb-0.5">{ch.emoji}</span>
+                        <span>{ch.label}</span>
+                        {ch.free && <span className="text-[8px] text-emerald-400">FREE</span>}
                       </button>
                     ))}
                   </div>
-                  {(reportChannel === "sms" || reportChannel === "both") && (
+                  {/* Contact input by channel */}
+                  {reportChannel === "telegram" ? (
+                    <input value={reportChatId} onChange={e => setReportChatId(e.target.value)}
+                      placeholder="Telegram chat ID (numeric)"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-blue-500" />
+                  ) : reportChannel === "twilio" ? (
                     <input value={reportPhone} onChange={e => setReportPhone(e.target.value)}
                       placeholder="Phone number (+1...)"
                       className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-blue-500" />
-                  )}
-                  {(reportChannel === "email" || reportChannel === "both") && (
+                  ) : (
                     <input value={reportEmail} onChange={e => setReportEmail(e.target.value)}
                       placeholder="Email address"
                       className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-blue-500" />
                   )}
-                  <button onClick={sendDailyReport} disabled={reportSending || (!reportPhone && !reportEmail)}
+                  {/* Status hint if not configured */}
+                  {channelStatus && !channelStatus[reportChannel]?.configured && (
+                    <p className="text-[10px] text-amber-400">
+                      ⚠ {reportChannel} not configured yet —{" "}
+                      <a href={channelStatus[reportChannel]?.setupUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">get free API key</a>
+                    </p>
+                  )}
+                  <button onClick={sendDailyReport} disabled={reportSending || (!reportPhone && !reportEmail && !reportChatId)}
                     className="w-full flex items-center justify-center gap-2 bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-100 text-xs font-bold rounded-lg py-2.5 disabled:opacity-50">
                     <Bell className={`w-3.5 h-3.5 ${reportSending ? "animate-pulse" : ""}`} />
-                    {reportSending ? "Sending…" : "Send Daily Report"}
+                    {reportSending ? `Sending via ${reportChannel}…` : `Send via ${reportChannel}`}
                   </button>
                   {reportResult && <p className={`text-[11px] text-center ${reportResult.includes("✓") ? "text-emerald-400" : "text-red-400"}`}>{reportResult}</p>}
                 </div>
@@ -751,14 +785,61 @@ export default function AbbaBotPage() {
         {/* ── Outreach tab ──────────────────────────────────────────────────── */}
         {activeTab === "outreach" && (
           <div className="space-y-4">
-            <div className="rounded-2xl p-4" style={{ background: "rgba(139,92,246,0.07)", border: "1.5px solid rgba(139,92,246,0.2)" }}>
-              <p className="text-sm font-bold text-purple-200 mb-1 flex items-center gap-2"><MessageSquare className="w-4 h-4" />Abba Outreach — Lead & Network Automation</p>
-              <p className="text-[11px] text-gray-400">Send texts and emails to users, ambassadors, leads, or admin directly through Abba. Powered by Twilio SMS and SendGrid email.</p>
+
+            {/* Channel picker with live status */}
+            <div className="rounded-2xl bg-gray-900/50 border border-gray-800 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-800">
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-purple-400" /> Choose Messaging Channel
+                </p>
+                <p className="text-[10px] text-gray-500 mt-0.5">3 completely free channels available — no credit card needed</p>
+              </div>
+              <div className="divide-y divide-gray-800/60">
+                {([
+                  { id: "gmail",    label: "Gmail (SMTP)",   sub: "500/day free",         icon: "📧", color: "text-red-400",    envHint: "GMAIL_USER + GMAIL_APP_PASSWORD",    setupUrl: "https://myaccount.google.com/apppasswords", freeLabel: "FREE" },
+                  { id: "resend",   label: "Resend.com",     sub: "3,000/month free",      icon: "✉️",  color: "text-blue-400",   envHint: "RESEND_API_KEY",                    setupUrl: "https://resend.com",                       freeLabel: "FREE" },
+                  { id: "telegram", label: "Telegram Bot",   sub: "Unlimited free",        icon: "✈️",  color: "text-sky-400",    envHint: "TELEGRAM_BOT_TOKEN",                setupUrl: "https://t.me/BotFather",                   freeLabel: "FREE" },
+                  { id: "sendgrid", label: "SendGrid",       sub: "100/day free tier",     icon: "📨", color: "text-emerald-400", envHint: "SENDGRID_API_KEY",                  setupUrl: "https://sendgrid.com",                     freeLabel: "FREE" },
+                  { id: "twilio",   label: "Twilio SMS",     sub: "Paid / free trial",     icon: "📱", color: "text-orange-400",  envHint: "TWILIO_ACCOUNT_SID + AUTH_TOKEN",   setupUrl: "https://twilio.com",                       freeLabel: "TRIAL" },
+                ] as const).map(ch => {
+                  const status = channelStatus?.[ch.id];
+                  const isActive = outChannel === ch.id;
+                  return (
+                    <button key={ch.id} onClick={() => setOutChannel(ch.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-all ${isActive ? "bg-purple-600/15 border-l-2 border-purple-500" : "hover:bg-gray-800/40 border-l-2 border-transparent"}`}>
+                      <span className="text-lg w-6 text-center">{ch.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[12px] font-bold ${isActive ? "text-white" : "text-gray-300"}`}>{ch.label}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${ch.freeLabel === "FREE" ? "bg-emerald-500/20 text-emerald-400" : "bg-orange-500/20 text-orange-400"}`}>
+                            {ch.freeLabel}
+                          </span>
+                          {status && (
+                            status.configured
+                              ? <CheckCircle2 className="w-3 h-3 text-emerald-400 ml-auto" />
+                              : <AlertCircle className="w-3 h-3 text-amber-400 ml-auto" />
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gray-500">{ch.sub}</p>
+                        {isActive && !status?.configured && (
+                          <p className="text-[10px] text-amber-400 mt-1">
+                            Add <code className="bg-gray-800 px-1 rounded">{ch.envHint}</code> to env vars ·{" "}
+                            <a href={ch.setupUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline">Get free API key →</a>
+                          </p>
+                        )}
+                        {isActive && status?.configured && (
+                          <p className="text-[10px] text-emerald-400 mt-0.5">✓ Configured and ready</p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Target */}
             <div>
-              <p className="text-[11px] text-gray-500 mb-2">Send to:</p>
+              <p className="text-[11px] text-gray-500 mb-2">Sending to:</p>
               <div className="grid grid-cols-4 gap-2">
                 {(["user", "ambassador", "admin", "lead"] as const).map(t => (
                   <button key={t} onClick={() => setOutTarget(t)}
@@ -769,72 +850,76 @@ export default function AbbaBotPage() {
               </div>
             </div>
 
-            {/* Channel */}
-            <div>
-              <p className="text-[11px] text-gray-500 mb-2">Channel:</p>
-              <div className="grid grid-cols-3 gap-2">
-                {(["sms", "email", "both"] as const).map(ch => (
-                  <button key={ch} onClick={() => setOutChannel(ch)}
-                    className={`py-2 rounded-lg text-[11px] font-semibold border transition-all ${outChannel === ch ? "bg-blue-600/40 border-blue-500/60 text-blue-100" : "bg-gray-800 border-gray-700 text-gray-400"}`}>
-                    {ch === "sms" ? <span className="flex items-center justify-center gap-1"><Phone className="w-3 h-3" />SMS</span>
-                      : ch === "email" ? <span className="flex items-center justify-center gap-1"><Mail className="w-3 h-3" />Email</span>
-                      : <span className="flex items-center justify-center gap-1"><Bell className="w-3 h-3" />Both</span>}
-                  </button>
-                ))}
+            {/* Contact fields — shown based on channel type */}
+            {outChannel === "telegram" ? (
+              <div className="space-y-2">
+                <input value={outChatId} onChange={e => setOutChatId(e.target.value)}
+                  placeholder="Telegram chat ID (numeric — e.g. 123456789)"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-sky-500" />
+                <p className="text-[10px] text-gray-500 px-1">
+                  The user must message your bot first. Get their chat ID from{" "}
+                  <code className="bg-gray-800 px-1 rounded">api.telegram.org/bot{"<TOKEN>"}/getUpdates</code>
+                </p>
               </div>
-            </div>
-
-            {/* Contact fields */}
-            {(outChannel === "sms" || outChannel === "both") && (
+            ) : outChannel === "twilio" ? (
               <input value={outPhone} onChange={e => setOutPhone(e.target.value)}
                 placeholder="Phone number (+1...)"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500" />
-            )}
-            {(outChannel === "email" || outChannel === "both") && (
-              <>
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-orange-500" />
+            ) : (
+              <div className="space-y-2">
                 <input value={outEmail} onChange={e => setOutEmail(e.target.value)}
                   placeholder="Email address"
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500" />
                 <input value={outSubject} onChange={e => setOutSubject(e.target.value)}
                   placeholder="Subject (optional)"
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500" />
-              </>
+              </div>
             )}
 
             {/* Message */}
             <textarea value={outMessage} onChange={e => setOutMessage(e.target.value)}
               placeholder={outTarget === "lead"
-                ? "Hey [name], I wanted to follow up about VEDD — the AI trading platform I mentioned…"
+                ? "Hey! Just following up about VEDD — the AI trading platform that auto-trades forex and futures 24/5. Happy to walk you through it."
                 : outTarget === "ambassador"
-                ? "Hey ambassador! Quick update on your leads and commissions this week…"
-                : "Message…"}
+                ? "Hey! Quick update on your leads and commissions this week…"
+                : "Write your message here…"}
               rows={5}
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-[12px] text-white outline-none focus:border-purple-500 resize-none" />
 
-            {/* Message templates */}
-            <div className="space-y-1">
-              <p className="text-[10px] text-gray-600 mb-1">Quick templates:</p>
-              {[
-                { label: "Follow-up on VEDD", msg: "Hey! Just following up — have you had a chance to check out the VEDD AI trading platform? It auto-trades forex and futures 24/5 using AI. Happy to walk you through it." },
-                { label: "Ambassador check-in", msg: "Hey! Checking in on how your ambassador work is going. Let me know if you need any content, referral links refreshed, or commission questions answered." },
-                { label: "Daily P&L update", msg: `Today's trading report is ready on VEDD. Log in at the VEDD app to see your full daily P&L, win rate, and tomorrow's AI plan from Abba.` },
-                { label: "New feature announcement", msg: "Big update on VEDD — we just launched new features including volume profile chart analysis, prop firm challenge mode, and the full ABBA personal assistant. Log in to explore." },
-              ].map(t => (
-                <button key={t.label} onClick={() => setOutMessage(t.msg)}
-                  className="w-full text-left text-[10px] px-3 py-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700/50 rounded-lg text-gray-400 hover:text-white transition-all">
-                  {t.label}
-                </button>
-              ))}
+            {/* Templates */}
+            <div>
+              <p className="text-[10px] text-gray-600 mb-1.5">Quick templates — click to fill:</p>
+              <div className="space-y-1">
+                {[
+                  { label: "🔔 Lead follow-up",         msg: "Hey! Just following up — have you had a chance to check out VEDD? It's an AI that auto-trades forex and futures 24/5. I'm happy to walk you through it for free." },
+                  { label: "🤝 Ambassador check-in",    msg: "Hey! Checking in on how your ambassador work is going. Let me know if you need content, referral link updates, or commission questions answered." },
+                  { label: "📊 Daily P&L nudge",        msg: "Your VEDD daily trading report is ready. Log in to see your full P&L, win rate, and Abba's plan for tomorrow." },
+                  { label: "🚀 New feature drop",       msg: "Big VEDD update — volume profile charts, prop firm challenge mode, and your full AI personal assistant (Abba) are now live. Log in to explore." },
+                  { label: "🎯 Onboarding invite",      msg: "Ready to get started? I can walk you through connecting your MT5 account to VEDD in under 10 minutes. Just reply and we'll set it up together." },
+                ].map(t => (
+                  <button key={t.label} onClick={() => setOutMessage(t.msg)}
+                    className="w-full text-left text-[10px] px-3 py-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700/50 rounded-lg text-gray-400 hover:text-white transition-all">
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <button onClick={sendOutreach} disabled={outSending || !outMessage.trim() || (!outPhone && !outEmail)}
+            <button
+              onClick={sendOutreach}
+              disabled={outSending || !outMessage.trim() || (!outPhone && !outEmail && !outChatId)}
               className="w-full flex items-center justify-center gap-2 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-100 text-sm font-bold rounded-xl py-3 disabled:opacity-50">
-              {outSending ? <><Bell className="w-4 h-4 animate-pulse" />Sending…</> : <><Send className="w-4 h-4" />Send via Abba</>}
+              {outSending
+                ? <><Bell className="w-4 h-4 animate-pulse" />Sending via {outChannel}…</>
+                : <><Send className="w-4 h-4" />Send via {outChannel}</>}
             </button>
+
             {outResult && (
-              <p className={`text-[12px] text-center font-semibold ${outResult.success ? "text-emerald-400" : "text-red-400"}`}>
-                {outResult.success ? "Message sent successfully ✓" : outResult.error || "Failed — check credentials and try again."}
-              </p>
+              <div className={`rounded-xl p-3 text-center text-[12px] font-semibold border ${outResult.success ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
+                {outResult.success
+                  ? `✓ Sent via ${outResult.channel} successfully`
+                  : `✗ ${outResult.error || "Failed — check your credentials and try again."}`}
+              </div>
             )}
           </div>
         )}
