@@ -1009,6 +1009,9 @@ export default function WeeklyStrategyPage() {
     staleTime: 0,
   });
 
+  // ── Connected account selector (must be declared before the balance-sync useEffect below) ──
+  const [selectedEngineAccount, setSelectedEngineAccount] = useState<ConnectedAccount | null>(null);
+
   // Pre-fill balance from connected account whenever data arrives
   // Priority: TL live equity > MT5 live > TL DB connection field
   // Skip entirely if user has already made an explicit account selection.
@@ -1362,8 +1365,6 @@ export default function WeeklyStrategyPage() {
 
   const [enginePairs, setEnginePairs] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD']);
   const [pairLotOverrides, setPairLotOverrides] = useState<Record<string, string>>({});
-  // ── Connected account selector ─────────────────────────────────────────────
-  const [selectedEngineAccount, setSelectedEngineAccount] = useState<ConnectedAccount | null>(null);
 
   const [enginePairInput, setEnginePairInput] = useState('');
   const [engineMode, setEngineMode] = useState('aggressive');
@@ -4902,7 +4903,7 @@ export default function WeeklyStrategyPage() {
                                   <span className={`text-[11px] font-bold ${pa.winRate >= 55 ? 'text-emerald-400' : pa.winRate >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{pa.winRate}%</span>
                                   <span className="text-[10px] text-gray-500">{pa.wins}W/{pa.losses}L</span>
                                   <span className={`text-[10px] ${pa.netPnL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>${pa.netPnL}</span>
-                                  {pa.trailingOpportunity && <TrendingUp className="w-3 h-3 text-yellow-400" title="Trailing stop opportunity" />}
+                                  {pa.trailingOpportunity && <TrendingUp className="w-3 h-3 text-yellow-400" />}
                                 </div>
                               ))}
                             </div>
