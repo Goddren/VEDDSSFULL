@@ -89,6 +89,7 @@ import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import CreditBuilderPage from "@/pages/credit-builder";
 import BizBuilderPage from "@/pages/biz-builder";
+import PropFirmChallengePage from "@/pages/prop-firm-challenge";
 import ORBBreakoutPage from "@/pages/orb-breakout";
 import ContentStudioPage from "@/pages/content-studio";
 import ReferralHubPage from "@/pages/referral-hub";
@@ -261,6 +262,7 @@ function AppLayout() {
 
             {/* Business Credit Builder */}
             <ProtectedRoute path="/biz-builder" component={BizBuilderPage} />
+            <ProtectedRoute path="/prop-firm-challenge" component={PropFirmChallengePage} />
 
             {/* Account Growth Plan */}
             <ProtectedRoute path="/account-growth" component={AccountGrowthPlan} />

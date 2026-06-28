@@ -22381,6 +22381,87 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json({ success: true, context: getPropFirmContext(req.user!.id) });
   });
 
+  // ── Prop Firm Challenge Dashboard ──────────────────────────────────────────
+  app.get("/api/prop-firm-challenge/dashboard", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { getLiveEngineState } = await import('./services/live-trading-engine');
+    const state = getLiveEngineState(userId);
+    if (!state) return res.json({ active: false });
+    const cfg = state.config;
+    const today = new Date().toISOString().split('T')[0];
+    const todayPnL = state.pnlToday ?? 0;
+    const balance = cfg.accountBalance || 0;
+    const challengePnLHistory: Record<string, number> = (state as any).challengeDailyPnL ?? {};
+    challengePnLHistory[today] = todayPnL;
+    const periodKeys = Object.keys(challengePnLHistory).sort().slice(-(cfg.consistencyPeriodDays || 15));
+    const profitableDays = periodKeys.filter(k => (challengePnLHistory[k] ?? 0) > 0).length;
+    const totalTradingDays = periodKeys.length;
+    const daysRemaining = (cfg.consistencyPeriodDays || 15) - totalTradingDays;
+    const daysNeeded = (cfg.consistencyMinProfitableDays || 10) - profitableDays;
+    const consistencyStatus = (state as any)._consistencyStatus ?? null;
+    const dailyLossLimitDollar = balance * (cfg.propFirmDailyDrawdownLimit || 4) / 100;
+    const dailyLossUsedPct = dailyLossLimitDollar > 0 ? Math.abs(Math.min(0, todayPnL)) / dailyLossLimitDollar * 100 : 0;
+    const dailyProfitTargetDollar = cfg.dailyProfitTarget > 0 ? balance * cfg.dailyProfitTarget / 100 : null;
+    const sessionFilterEnabled = cfg.challengeSessionFilterEnabled && cfg.propFirmMode;
+    const utcHour = new Date().getUTCHours();
+    const inSessionWindow = utcHour >= 13 && utcHour < 17;
+    res.json({
+      active: true,
+      propFirmMode: cfg.propFirmMode,
+      balance,
+      todayPnL,
+      todayPnLPct: balance > 0 ? (todayPnL / balance) * 100 : 0,
+      dailyLossLimitPct: cfg.propFirmDailyDrawdownLimit || 4,
+      dailyLossLimitDollar,
+      dailyLossUsedPct,
+      dailyLossHalted: state.dailyLossHalted,
+      dailyProfitHalted: state.dailyProfitHalted,
+      dailyProfitTargetPct: cfg.dailyProfitTarget || 0,
+      dailyProfitTargetDollar,
+      drawdownShieldActive: state.drawdownShieldActive,
+      sessionFilterEnabled,
+      inSessionWindow,
+      consistencyEnforcementEnabled: cfg.consistencyEnforcementEnabled,
+      consistencyMinProfitableDays: cfg.consistencyMinProfitableDays || 10,
+      consistencyPeriodDays: cfg.consistencyPeriodDays || 15,
+      profitableDays,
+      totalTradingDays,
+      daysRemaining,
+      daysNeeded: Math.max(0, daysNeeded),
+      riskMultiplier: consistencyStatus?.riskMultiplier ?? 1.0,
+      dailyPnLHistory: challengePnLHistory,
+      periodKeys,
+      engineStatus: state.status,
+      scanCount: state.scanCount,
+      tradesExecuted: state.tradesExecuted,
+      openPositionCount: state.openPositionCount,
+    });
+  });
+
+  app.post("/api/prop-firm-challenge/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
+    const {
+      challengeSessionFilterEnabled,
+      consistencyEnforcementEnabled,
+      consistencyMinProfitableDays,
+      consistencyPeriodDays,
+      dailyProfitTarget,
+      propFirmDailyDrawdownLimit,
+    } = req.body;
+    const updates: Record<string, any> = {};
+    if (typeof challengeSessionFilterEnabled === 'boolean') updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
+    if (typeof consistencyEnforcementEnabled === 'boolean') updates.consistencyEnforcementEnabled = consistencyEnforcementEnabled;
+    if (typeof consistencyMinProfitableDays === 'number') updates.consistencyMinProfitableDays = consistencyMinProfitableDays;
+    if (typeof consistencyPeriodDays === 'number') updates.consistencyPeriodDays = consistencyPeriodDays;
+    if (typeof dailyProfitTarget === 'number') updates.dailyProfitTarget = dailyProfitTarget;
+    if (typeof propFirmDailyDrawdownLimit === 'number') updates.propFirmDailyDrawdownLimit = propFirmDailyDrawdownLimit;
+    updateLiveEngineConfig(userId, updates);
+    res.json({ success: true, updates });
+  });
+
   app.get("/api/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user!.id;

@@ -162,6 +162,11 @@ interface LiveEngineConfig {
   baseLotSize: number;
   propFirmMode: boolean;
   propFirmDailyDrawdownLimit: number;
+  // Prop firm challenge enhancements
+  challengeSessionFilterEnabled: boolean; // only trade London-NY overlap (13:00-17:00 UTC)
+  consistencyEnforcementEnabled: boolean; // reduce risk on days where consistency is at risk
+  consistencyMinProfitableDays: number;   // required profitable days in period (e.g. 10 for Earn2Trade)
+  consistencyPeriodDays: number;          // total days in the period (e.g. 15)
   // Acceleration features
   adaptiveScanInterval: boolean;
   enablePyramiding: boolean;
@@ -382,6 +387,10 @@ interface EngineState {
   dailyLossHaltedAt: string | null;
   dailyProfitHalted: boolean;
   dailyProfitHaltedAt: string | null;
+  // Consistency tracking: date → daily P&L for the current challenge period
+  challengeDailyPnL: Record<string, number>;
+  // Session filter: true when blocked outside London-NY overlap
+  sessionFilterBlocked: boolean;
   tradesSinceLastLearn: number;
   positionTrailState: Record<string, { highestHigh: number; lowestLow: number; sar: number; ep: number; af: number; bullish: boolean }>;
   aiResponseCache: Record<string, { ts: number; price: number; response: any }>;
@@ -778,6 +787,10 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     dailyLossLimit: 5,
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
+    challengeSessionFilterEnabled: false,
+    consistencyEnforcementEnabled: false,
+    consistencyMinProfitableDays: 10,
+    consistencyPeriodDays: 15,
     directionFilter: 'both',
     pairDirectionOverrides: {},
     pairLotOverrides: {},
@@ -1034,6 +1047,12 @@ export function recordTradeResult(userId: number, result: {
   checkDailyLossLimit(userId);
   checkDailyProfitTarget(userId);
 
+  // ── Update challenge daily P&L history on trade close ─────────────
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today = new Date().toISOString().split('T')[0];
+    state.challengeDailyPnL[today] = state.pnlToday;
+  }
+
   // ── Decrement open position count on every trade close ────────────
   // openPositionCount was being incremented on open but never decremented —
   // causing it to accumulate and permanently block new trades after a few closes.
@@ -1127,6 +1146,79 @@ async function scanMarkets(userId: number): Promise<void> {
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = new Date().toISOString();
+
+  // ── Challenge session filter ──────────────────────────────────────────────
+  // When enabled, only scan during the London–NY overlap (13:00–17:00 UTC).
+  // Outside this window the scan exits immediately — no signals, no trades.
+  if (state.config.challengeSessionFilterEnabled && state.config.propFirmMode) {
+    const utcHour = new Date().getUTCHours();
+    const inSession = utcHour >= 13 && utcHour < 17;
+    if (!inSession) {
+      if (!state.sessionFilterBlocked) {
+        state.sessionFilterBlocked = true;
+        addActivity(userId, {
+          type: 'info',
+          message: `🔒 Challenge Session Filter: outside London–NY overlap (13:00–17:00 UTC). Scans paused until 13:00 UTC. Current UTC hour: ${utcHour}:00`,
+        });
+      }
+      state.currentlyScanning = false;
+      return;
+    } else if (state.sessionFilterBlocked) {
+      state.sessionFilterBlocked = false;
+      addActivity(userId, {
+        type: 'info',
+        message: `✅ Challenge Session Filter: London–NY overlap is OPEN. High-probability window active — scanning resumes.`,
+      });
+    }
+  }
+
+  // ── Daily profit target — early exit before AI call ───────────────────────
+  // checkDailyProfitTarget fires after trade close; this gate prevents new
+  // signals from being generated when the target is already hit intra-scan.
+  if (state.dailyProfitHalted || state.dailyLossHalted) {
+    state.currentlyScanning = false;
+    return;
+  }
+
+  // ── Consistency enforcement ───────────────────────────────────────────────
+  // Tracks challenge-period daily P&L history and reduces risk dramatically
+  // when the user can't afford to lose another day without missing the
+  // consistency requirement (e.g. Earn2Trade: 10 of 15 profitable days).
+  let consistencyRiskMultiplier = 1.0;
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today = new Date().toISOString().split('T')[0];
+    // Record today's running P&L in the challenge history
+    state.challengeDailyPnL[today] = state.pnlToday;
+    const periodKeys = Object.keys(state.challengeDailyPnL).sort();
+    const recentKeys = periodKeys.slice(-state.config.consistencyPeriodDays);
+    const profitableDays = recentKeys.filter(k => (state.challengeDailyPnL[k] ?? 0) > 0).length;
+    const tradingDays = recentKeys.length;
+    const daysRemaining = state.config.consistencyPeriodDays - tradingDays;
+    const daysNeeded = state.config.consistencyMinProfitableDays - profitableDays;
+    // If today is currently a losing day, it doesn't count toward profitable days
+    const todayIsLosing = state.pnlToday < 0;
+    const effectiveProfitableDays = todayIsLosing ? profitableDays : profitableDays;
+    const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+    if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+      // Critical: must win every remaining day — switch to micro risk
+      consistencyRiskMultiplier = 0.25;
+      addActivity(userId, {
+        type: 'info',
+        message: `⚖️ Consistency Alert: ${profitableDays}/${state.config.consistencyMinProfitableDays} profitable days so far. Need ${mustWinRemaining} more in ${daysRemaining} remaining days — risk capped at 25% of normal to protect consistency requirement.`,
+      });
+    } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+      // Warning: getting tight — half risk
+      consistencyRiskMultiplier = 0.5;
+    }
+    // Store on state for dashboard reporting
+    (state as any)._consistencyStatus = { profitableDays, tradingDays, daysRemaining, mustWinRemaining, riskMultiplier: consistencyRiskMultiplier };
+  }
+  // Apply consistency multiplier to effective risk for this scan (engine reads riskPerTrade from config)
+  if (consistencyRiskMultiplier < 1.0) {
+    (state as any)._consistencyRiskOverride = consistencyRiskMultiplier;
+  } else {
+    delete (state as any)._consistencyRiskOverride;
+  }
 
   try {
     if (!marketDataService.isInitialized()) {
@@ -4186,7 +4278,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     const rawLotBase = brainLocked ? 0.01 : (parseNum(decision.lotSize) || config.baseLotSize || 0.01);
     // Apply brain-tuned lot multiplier (Kelly-based, clamped 0.5–1.5)
     const brainMult = brainLocked ? 1.0 : ((decision as any)._brainLotMultiplier || 1.0);
-    const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
+    // Apply consistency risk override (0.25 or 0.5 when consistency is at risk)
+    const consistencyMult = (state as any)._consistencyRiskOverride ?? 1.0;
+    const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     // Balance-scaled ceiling so large accounts ($100k+) aren't choked by a small
     // configured/default cap. Ceiling = lot risking ~5% at a 15-pip reference stop.
@@ -5121,6 +5215,8 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     dailyLossHaltedAt: null,
     dailyProfitHalted: false,
     dailyProfitHaltedAt: null,
+    challengeDailyPnL: {},
+    sessionFilterBlocked: false,
     tradesSinceLastLearn: 0,
     positionTrailState: {},
     aiResponseCache: {},
