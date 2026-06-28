@@ -211,6 +211,11 @@ interface LiveEngineConfig {
   // 'proportional' = acctLot = (tlAcctBalance / referenceBalance) × baseLot
   // 'multiplier'   = acctLot = baseLot × tlConn.lotMultiplier (old fixed behaviour)
   copyMode: 'proportional' | 'multiplier';
+  // Trading mode: controls whether the server AI, EA, or both are active.
+  // 'server_ai' — only the VEDD server engine fires trades (recommended)
+  // 'ea_only'   — engine scan runs but won't fire; user relies on MT5 EA
+  // 'both'      — server AI + MT5 EA both trade simultaneously (advanced)
+  tradingMode: 'server_ai' | 'ea_only' | 'both';
 }
 
 interface LiveActivity {
@@ -261,6 +266,12 @@ const mt5AccountRegistry: Record<number, Record<string, MT5AccountInfo>> = {};
 
 /** Push a signal to all registered alias queues (or 'default' if none registered). */
 function broadcastMT5Signal(userId: number, signal: PendingMT5Signal): void {
+  // Trading mode gate: 'ea_only' means the server AI never fires trade signals.
+  const mode = engineStates[userId]?.config?.tradingMode ?? 'server_ai';
+  if (mode === 'ea_only' && signal.action === 'OPEN') {
+    addActivity(userId, { type: 'info', message: `🤖 EA-Only mode: server AI signal for ${signal.symbol} suppressed — EA trades only. Switch to "Server AI" mode to enable server signals.` });
+    return;
+  }
   if (!mt5AccountQueues[userId]) mt5AccountQueues[userId] = {};
   const registry = mt5AccountRegistry[userId] || {};
   const activeAliases = Object.entries(registry)
@@ -827,6 +838,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     trailSarMaxAF: 0.20,
     volatileCapMode: 'risk_scaled',
     copyMode: 'proportional',
+    tradingMode: 'server_ai',
   };
 }
 

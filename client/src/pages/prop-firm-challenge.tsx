@@ -12,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import {
   Shield, TrendingUp, TrendingDown, Clock, Target, AlertTriangle,
   CheckCircle2, XCircle, Calendar, Zap, BarChart2, Play, Pause,
-  ChevronUp, ChevronDown, Lock, Unlock, Brain, Activity
+  ChevronUp, ChevronDown, Lock, Unlock, Brain, Activity,
+  Bot, Server, Layers, BookOpen, Sparkles, BarChart, ChevronRight
 } from 'lucide-react';
 
 interface DashboardData {
@@ -140,6 +141,27 @@ export default function PropFirmChallengePage() {
     },
     refetchInterval: 10000,
     enabled: !!user,
+  });
+
+  const { data: brainData, refetch: refetchBrain } = useQuery<any>({
+    queryKey: ['/api/engine/brain-snapshot'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/engine/brain-snapshot');
+      return res.json();
+    },
+    refetchInterval: 30000,
+    enabled: !!user,
+  });
+
+  const tradingModeMutation = useMutation({
+    mutationFn: async (mode: string) => {
+      const res = await apiRequest('PATCH', '/api/engine/trading-mode', { mode });
+      return res.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/engine/brain-snapshot'] });
+      toast({ title: `Trading mode set: ${result.tradingMode === 'server_ai' ? 'Server AI Only' : result.tradingMode === 'ea_only' ? 'EA Only' : 'Both Active'}`, description: result.tradingMode === 'server_ai' ? 'Server AI will manage all trades. EA in MT5 can be removed from charts.' : result.tradingMode === 'ea_only' ? 'Server AI signals suppressed. MT5 EA trades autonomously.' : 'Both Server AI and MT5 EA are active simultaneously.' });
+    },
   });
 
   const { data, isLoading, refetch } = useQuery<DashboardData>({
@@ -657,6 +679,306 @@ export default function PropFirmChallengePage() {
             </CardContent>
           </Card>
         )}
+
+        {/* ── Trading Mode Selector ── */}
+        <Card id="trading-mode" className="bg-[#1a1a2e] border border-slate-700/60 shadow-lg scroll-mt-20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <Layers className="w-4 h-4 text-cyan-400" />
+              Trading Mode
+              <Badge className="ml-auto text-xs bg-cyan-900/40 text-cyan-300 border-cyan-700/50">
+                {brainData?.tradingMode === 'ea_only' ? 'EA Only' : brainData?.tradingMode === 'both' ? 'Both Active' : 'Server AI Only'}
+              </Badge>
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-400">
+              Choose whether the VEDD Server AI, your MT5 EA, or both control trade execution.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { mode: 'server_ai', icon: Server, label: 'Server AI Only', desc: 'Recommended. AI engine fires trades. Remove EA from MT5 charts.', color: 'emerald' },
+                { mode: 'ea_only', icon: Bot, label: 'EA Only', desc: 'Server AI is silenced. MT5 EA trades on its own built-in logic.', color: 'amber' },
+                { mode: 'both', icon: Layers, label: 'Both Active', desc: 'Advanced. Server AI + MT5 EA trade simultaneously.', color: 'violet' },
+              ].map(({ mode, icon: Icon, label, desc, color }) => {
+                const active = (brainData?.tradingMode ?? 'server_ai') === mode;
+                const borderCls = active
+                  ? color === 'emerald' ? 'border-emerald-500 bg-emerald-900/20' : color === 'amber' ? 'border-amber-500 bg-amber-900/20' : 'border-violet-500 bg-violet-900/20'
+                  : 'border-slate-700 bg-slate-800/30 hover:border-slate-500';
+                const iconCls = color === 'emerald' ? 'text-emerald-400' : color === 'amber' ? 'text-amber-400' : 'text-violet-400';
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => tradingModeMutation.mutate(mode)}
+                    disabled={tradingModeMutation.isPending}
+                    className={`rounded-xl border p-3 text-left transition-all ${borderCls}`}
+                  >
+                    <Icon className={`w-5 h-5 mb-1.5 ${iconCls}`} />
+                    <p className="text-xs font-semibold text-slate-200 leading-tight mb-1">{label}</p>
+                    <p className="text-[10px] text-slate-400 leading-tight">{desc}</p>
+                    {active && <span className={`mt-2 inline-block text-[9px] font-bold uppercase tracking-wider ${iconCls}`}>● Active</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {brainData?.tradingMode === 'ea_only' && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-900/20 border border-amber-700/40 text-xs text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Server AI news block, HTF gate, and brain enforcement are all inactive in EA-only mode. The EA trades by its own rules only.</span>
+              </div>
+            )}
+            {brainData?.tradingMode === 'both' && (
+              <div className="flex items-start gap-2 p-2.5 rounded-lg bg-violet-900/20 border border-violet-700/40 text-xs text-violet-300">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Both systems will open trades independently — watch for position overlap and double exposure on the same pair.</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Brain Intelligence Panel ── */}
+        <Card id="brain" className="bg-[#0f1629] border border-violet-700/40 shadow-lg scroll-mt-20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold text-slate-200 flex items-center gap-2">
+              <Brain className="w-4 h-4 text-violet-400 animate-pulse" />
+              AI Brain Intelligence
+              {brainData?.trained ? (
+                <Badge className="ml-auto text-xs bg-violet-900/50 text-violet-300 border-violet-600/50 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3" /> Learning Active
+                </Badge>
+              ) : (
+                <Badge className="ml-auto text-xs bg-slate-800 text-slate-400 border-slate-600/50">
+                  Awaiting trades
+                </Badge>
+              )}
+            </CardTitle>
+            <CardDescription className="text-xs text-slate-400">
+              The brain analyzes every trade, builds pair-by-pair knowledge, and self-enforces based on what it learns. The more trades, the smarter it gets.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+
+            {/* ── Latest brain update banner ── */}
+            {brainData?.lastUpdateAt && brainData?.lastUpdateChanges?.length > 0 && (
+              <div className="bg-violet-950/40 border border-violet-700/50 rounded-xl p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 animate-pulse" />
+                  Latest Brain Update — {new Date(brainData.lastUpdateAt).toLocaleTimeString()}
+                </p>
+                {brainData.lastUpdateChanges.map((change: string, i: number) => (
+                  <div key={i} className="flex items-start gap-1.5 text-xs text-slate-300">
+                    <ChevronRight className="w-3 h-3 text-violet-400 shrink-0 mt-0.5" />
+                    <span>{change}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Brain stats row */}
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                { label: 'Trades Analyzed', value: brainData?.totalTradesAnalyzed ?? 0, color: 'text-violet-300' },
+                { label: 'Pairs Learned', value: brainData?.pairsLearned ?? 0, color: 'text-cyan-300' },
+                { label: 'Overall Win Rate', value: brainData?.trained ? `${brainData.overallWinRate}%` : '—', color: (brainData?.overallWinRate ?? 0) >= 55 ? 'text-emerald-400' : (brainData?.overallWinRate ?? 0) >= 45 ? 'text-amber-400' : 'text-red-400' },
+                { label: 'Total Profit', value: brainData?.trained ? `$${(brainData.totalProfit ?? 0).toFixed(2)}` : '—', color: (brainData?.totalProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-slate-800/40 rounded-lg p-2.5 text-center border border-slate-700/40">
+                  <p className={`text-base font-bold ${color}`}>{value}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* ── EA Second Opinion (shown when EA-only or Both mode) ── */}
+            {(brainData?.tradingMode === 'ea_only' || brainData?.tradingMode === 'both') && (
+              <div className="border border-cyan-700/50 bg-cyan-950/20 rounded-xl p-3 space-y-3">
+                <p className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <Brain className="w-3.5 h-3.5" />
+                  Server AI Second Opinion
+                  <Badge className="ml-auto text-[9px] bg-cyan-900/50 text-cyan-400 border-cyan-700/50">
+                    {brainData.tradingMode === 'ea_only' ? 'EA Active — AI watching' : 'Both running'}
+                  </Badge>
+                </p>
+                {brainData?.lastAutonomousSignals ? (
+                  <>
+                    <p className="text-[10px] text-slate-400 italic">
+                      "{brainData.lastAutonomousSignals.marketRead || 'Analyzing market conditions…'}"
+                    </p>
+                    <div className="space-y-2">
+                      {(brainData.lastAutonomousSignals.signals || []).slice(0, 5).map((sig: any, i: number) => {
+                        const isLong = sig.direction === 'BUY';
+                        return (
+                          <div key={i} className={`flex items-center gap-3 p-2.5 rounded-lg border text-xs ${isLong ? 'bg-emerald-950/30 border-emerald-800/40' : 'bg-red-950/30 border-red-800/40'}`}>
+                            <div className="shrink-0 text-center w-10">
+                              <p className={`font-bold text-sm ${isLong ? 'text-emerald-400' : 'text-red-400'}`}>{isLong ? '↑' : '↓'}</p>
+                              <p className="text-[9px] text-slate-400">{sig.direction}</p>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-slate-200">{sig.symbol}</span>
+                                <span className={`text-xs font-bold ${sig.confidence >= 75 ? 'text-emerald-400' : 'text-amber-400'}`}>{sig.confidence}%</span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 truncate mt-0.5">{sig.reason}</p>
+                              <div className="flex gap-2 mt-1 text-[9px] text-slate-500">
+                                {sig.entryZone && <span>Entry: {sig.entryZone}</span>}
+                                {sig.stopLoss && <span>SL: {sig.stopLoss}</span>}
+                                {sig.takeProfit && <span>TP: {sig.takeProfit}</span>}
+                                {sig.holdTime && <span>Hold: {sig.holdTime}</span>}
+                              </div>
+                            </div>
+                            {brainData.tradingMode === 'ea_only' && (
+                              <div className="shrink-0 text-[9px] text-slate-600 text-right">
+                                <span>Suppressed</span><br/>
+                                <span>(EA mode)</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-600">
+                      Generated: {new Date(brainData.lastAutonomousSignals.generatedAt).toLocaleTimeString()} · Brain confidence: {brainData.lastAutonomousSignals.brainConfidence}%
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">
+                    Brain signals generate automatically after each retrain. Start the engine and complete a few trades to see AI recommendations here.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Learning thresholds indicator */}
+            <div className="bg-slate-800/30 rounded-lg p-3 border border-slate-700/30 space-y-2">
+              <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-violet-400" /> Brain Learning Thresholds
+              </p>
+              <div className="space-y-1.5">
+                {[
+                  { label: 'Session blocking', needed: 3 },
+                  { label: 'Hour blocking', needed: 3 },
+                  { label: 'Direction bias (soft)', needed: 15 },
+                  { label: 'Direction bias (hard block)', needed: 30 },
+                ].map(({ label, needed }) => {
+                  const tradesPerPair = brainData?.totalTradesAnalyzed && brainData?.pairsLearned > 0
+                    ? Math.round(brainData.totalTradesAnalyzed / brainData.pairsLearned)
+                    : 0;
+                  const pct = Math.min(100, Math.round((tradesPerPair / needed) * 100));
+                  const reached = tradesPerPair >= needed;
+                  return (
+                    <div key={label} className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${reached ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-[10px] text-slate-300">{label}</span>
+                          <span className="text-[10px] text-slate-500">{needed} trades/pair</span>
+                        </div>
+                        <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all ${reached ? 'bg-emerald-500' : 'bg-violet-600'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      {reached && <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />}
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Avg ~{brainData?.pairsLearned > 0 ? Math.round((brainData?.totalTradesAnalyzed ?? 0) / brainData.pairsLearned) : 0} trades per pair · Brain always open to new data — every trade refines its knowledge
+              </p>
+            </div>
+
+            {/* What the brain has learned — insights */}
+            {brainData?.learningInsights?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+                  <Sparkles className="w-3.5 h-3.5 text-violet-400" /> What the Brain Has Learned
+                </p>
+                <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                  {brainData.learningInsights.map((insight: string, i: number) => (
+                    <div key={i} className="flex gap-2 text-xs p-2 bg-violet-950/30 rounded-lg border border-violet-800/30">
+                      <span className="text-violet-400 shrink-0">💡</span>
+                      <span className="text-slate-300">{insight}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Per-pair knowledge grid */}
+            {brainData?.pairKnowledge && Object.keys(brainData.pairKnowledge).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+                  <BarChart className="w-3.5 h-3.5 text-cyan-400" /> Pair Knowledge Base
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(brainData.pairKnowledge).map(([pair, k]: [string, any]) => {
+                    const wrColor = k.winRate >= 60 ? 'text-emerald-400' : k.winRate >= 45 ? 'text-amber-400' : 'text-red-400';
+                    const dirColor = k.preferredDirection === 'BUY' ? 'text-emerald-400' : k.preferredDirection === 'SELL' ? 'text-red-400' : 'text-slate-400';
+                    return (
+                      <div key={pair} className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/30 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-200">{pair}</span>
+                          <span className={`text-xs font-bold ${wrColor}`}>{k.winRate}%</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 ${dirColor}`}>
+                            {k.preferredDirection === 'BOTH' ? '⇅ Both' : k.preferredDirection === 'BUY' ? '↑ BUY bias' : '↓ SELL bias'}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-400">
+                            {k.totalTrades} trades
+                          </span>
+                        </div>
+                        {k.topSessions?.length > 0 && (
+                          <p className="text-[9px] text-slate-500">
+                            Best: {k.topSessions[0].session} ({k.topSessions[0].winRate}% WR)
+                          </p>
+                        )}
+                        {k.bestStrategies?.length > 0 && (
+                          <p className="text-[9px] text-cyan-600 truncate">
+                            🧠 {k.bestStrategies.slice(0, 2).join(' · ')}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Recent enforcement decisions */}
+            {brainData?.recentEnforcementLog?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-300 flex items-center gap-1.5 mb-2">
+                  <Shield className="w-3.5 h-3.5 text-orange-400" /> Recent Brain Enforcement Decisions
+                </p>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {brainData.recentEnforcementLog.slice(0, 8).map((log: any, i: number) => (
+                    <div key={i} className={`flex gap-2 text-xs p-2 rounded-lg border ${log.rule === 'pass' ? 'bg-emerald-950/20 border-emerald-800/30' : 'bg-orange-950/20 border-orange-800/30'}`}>
+                      <span className="shrink-0">{log.rule === 'pass' ? '✅' : '🚫'}</span>
+                      <span className="text-slate-300">{log.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Last retrained */}
+            {brainData?.lastLearned && (
+              <p className="text-[10px] text-slate-600 flex items-center gap-1">
+                <Activity className="w-3 h-3" />
+                Last retrained: {new Date(brainData.lastLearned).toLocaleTimeString()} · Retrains every 30 min + after every trade · Always open to new data
+              </p>
+            )}
+
+            {!brainData?.trained && (
+              <div className="text-center py-4">
+                <Brain className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-xs text-slate-500">No trade data yet. The brain will begin learning automatically after your first trade closes.</p>
+                <p className="text-[10px] text-slate-600 mt-1">Start the engine and take a few trades to activate learning.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <p className="text-xs text-slate-600 text-center pb-4">
           Dashboard refreshes every 15 seconds. All rules enforce server-side — not just in the UI.

@@ -15371,6 +15371,34 @@ Format each recommendation as a clear, concise action item.`;
     }
     (brain as any).optimalMinConfidence = optimalMinConfidence;
 
+    // ── Compute delta vs previous brain state ─────────────────────────
+    const prevBrain = (global as any).veddAIBrain?.[userId];
+    const updateChanges: string[] = [];
+    if (prevBrain) {
+      const wrDelta = brain.overallWinRate - (prevBrain.overallWinRate ?? 0);
+      if (Math.abs(wrDelta) >= 1) updateChanges.push(`Overall win rate ${wrDelta > 0 ? '▲' : '▼'} ${Math.abs(wrDelta)}% → now ${brain.overallWinRate}%`);
+      const newTrades = brain.totalTradesAnalyzed - (prevBrain.totalTradesAnalyzed ?? 0);
+      if (newTrades > 0) updateChanges.push(`+${newTrades} new trade${newTrades !== 1 ? 's' : ''} ingested (${brain.totalTradesAnalyzed} total)`);
+      const newPairs = Object.keys(brain.pairKnowledge).filter(p => !prevBrain.pairKnowledge?.[p]);
+      if (newPairs.length > 0) updateChanges.push(`New pairs learned: ${newPairs.join(', ')}`);
+      for (const [sym, k] of Object.entries(brain.pairKnowledge) as any[]) {
+        const prev = prevBrain.pairKnowledge?.[sym];
+        if (!prev) continue;
+        const wrChange = k.winRate - (prev.winRate ?? 0);
+        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? '▲' : '▼'} ${Math.abs(wrChange)}% → ${k.winRate}%`);
+        if (prev.preferredDirection !== k.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} → ${k.preferredDirection}`);
+      }
+    } else {
+      updateChanges.push(`Brain initialized from ${brain.totalTradesAnalyzed} trades across ${brain.pairsLearned} pairs`);
+    }
+    (brain as any).lastUpdateChanges = updateChanges.slice(0, 10);
+    (brain as any).lastUpdateAt = new Date().toISOString();
+
+    // Preserve autonomous signals from previous brain (they're generated after this)
+    if (prevBrain?.lastAutonomousSignals) {
+      (brain as any).lastAutonomousSignals = prevBrain.lastAutonomousSignals;
+    }
+
     (global as any).veddAIBrain[userId] = brain;
 
     // ── Persist brain to disk so it survives server restarts ──────────
@@ -22906,6 +22934,59 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         strategyWeights: state.strategyPerformanceWeights,
       },
     });
+  });
+
+  // ── Brain snapshot: full learned knowledge for the Brain Intelligence panel ──
+  app.get("/api/engine/brain-snapshot", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const brain = (global as any).veddAIBrain?.[userId];
+    const { getLiveEngineState } = await import('./services/live-trading-engine');
+    const state = getLiveEngineState(userId);
+    if (!brain) {
+      return res.json({
+        trained: false,
+        totalTradesAnalyzed: 0,
+        overallWinRate: 0,
+        pairsLearned: 0,
+        lastLearned: null,
+        pairKnowledge: {},
+        learningInsights: [],
+        hftReadiness: { hasEnoughData: false },
+        recentEnforcementLog: [],
+        tradingMode: state?.config?.tradingMode ?? 'server_ai',
+      });
+    }
+    res.json({
+      trained: true,
+      totalTradesAnalyzed: brain.totalTradesAnalyzed ?? 0,
+      overallWinRate: brain.overallWinRate ?? 0,
+      totalProfit: brain.totalProfit ?? 0,
+      pairsLearned: brain.pairsLearned ?? 0,
+      lastLearned: brain.lastLearned ?? null,
+      lastUpdateAt: brain.lastUpdateAt ?? null,
+      lastUpdateChanges: brain.lastUpdateChanges ?? [],
+      pairKnowledge: brain.pairKnowledge ?? {},
+      learningInsights: brain.learningInsights ?? [],
+      hftReadiness: brain.hftReadiness ?? {},
+      recentEnforcementLog: (brain.enforcementLog ?? brain.recentEnforcementLog ?? []).slice(0, 15),
+      lastAutonomousSignals: brain.lastAutonomousSignals ?? null,
+      tradingMode: state?.config?.tradingMode ?? 'server_ai',
+    });
+  });
+
+  // ── Trading mode PATCH (server_ai / ea_only / both) ───────────────────────
+  app.patch("/api/engine/trading-mode", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { mode } = req.body;
+    if (!['server_ai', 'ea_only', 'both'].includes(mode)) {
+      return res.status(400).json({ message: "mode must be server_ai, ea_only, or both" });
+    }
+    const userId = req.user!.id;
+    const { updateLiveEngineConfig, getLiveEngineState } = await import('./services/live-trading-engine');
+    updateLiveEngineConfig(userId, { tradingMode: mode });
+    const state = getLiveEngineState(userId);
+    res.json({ success: true, tradingMode: state?.config?.tradingMode ?? mode });
   });
 
   app.get("/api/breakout-mode", async (req: Request, res: Response) => {
