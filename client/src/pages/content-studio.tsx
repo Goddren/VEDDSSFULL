@@ -5,6 +5,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { Redirect } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { VeddReelPlayer } from '@/components/vedd-reel-player';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
@@ -490,6 +491,7 @@ export default function ContentStudioPage() {
   });
   const referralCode: string | null = referralData?.code ?? null;
 
+  const [view, setView] = useState<'studio' | 'reels'>('studio');
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [caption, setCaption] = useState('');
@@ -535,6 +537,66 @@ export default function ContentStudioPage() {
             </div>
           )}
         </div>
+
+        {/* ── View Tabs ── */}
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-4 scrollbar-hide">
+          <button onClick={() => setView('studio')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'studio' ? 'rgba(59,130,246,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'studio' ? 'rgba(59,130,246,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'studio' ? '#60a5fa' : '#9ca3af',
+            }}
+          >
+            📋 Content Studio
+          </button>
+          <button onClick={() => setView('reels')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'reels' ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'reels' ? 'rgba(239,68,68,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'reels' ? '#f87171' : '#9ca3af',
+            }}
+          >
+            🎬 Reel Preview
+          </button>
+        </div>
+
+        {/* ── Reel View ── */}
+        {view === 'reels' && (
+          <div>
+            <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)' }}>
+              <span>🎬</span>
+              <p className="text-xs text-gray-300">Animated reel preview — press Play to watch the full 20-second sequence. Screen-record to export as a real video.</p>
+            </div>
+            <div className="flex flex-col lg:flex-row gap-10 items-start">
+              <VeddReelPlayer />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Script — Stop Staring at the Correction</h3>
+                <div className="space-y-3 text-sm text-gray-400 leading-relaxed" style={{ maxWidth: 480 }}>
+                  <p><span className="text-red-400 font-bold">HOOK:</span> You didn't lose money this week because the market was hard. You lost it because you were the trade.</p>
+                  <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                  <p>Stop. Look at what just happened. BTC spent all week trapped between 64 and 65 thousand dollars. Most traders lost money not because the market was impossible — but because <span className="text-white font-semibold">they were the problem.</span></p>
+                  <p><span className="text-red-400">Fear</span> made them exit early. <span className="text-red-400">Greed</span> made them re-enter late.</p>
+                  <p><span className="text-emerald-400 font-semibold">VEDD's AI Vault had none of that.</span> Custom expert advisors built inside the platform executed every entry and exit on MT5 and TradingView without a single emotional override.</p>
+                  <p>Multi-timeframe synthesis caught the signals before the crowd even saw them. ABBA AI kept the strategy locked in when the charts looked ugliest.</p>
+                  <p>And while the dust settled, <span className="text-purple-400 font-semibold">Solana token rewards</span> kept stacking in the background.</p>
+                  <p className="text-white font-bold">This is not the future of trading. This is right now.</p>
+                  <p>Your vault is waiting. Build it before this window closes.</p>
+                  <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                  <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
+                    <div className="text-emerald-400 font-bold mb-1"># CLOSING TEXT CARD</div>
+                    the machine never panicked.<br/>
+                    you still can.<br/>
+                    <span className="text-emerald-400">→ build your vault now · veddbuild.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'studio' && (<>
 
         {/* ── Content Type Tabs ── */}
         <div className="flex gap-2 overflow-x-auto pb-1 mb-6 scrollbar-hide">
@@ -711,6 +773,8 @@ export default function ContentStudioPage() {
             ))}
           </div>
         </div>
+
+        </>)}
 
       </div>
     </div>
