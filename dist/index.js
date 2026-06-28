@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc4) => {
+var __copyProps = (to, from, except, desc5) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc4 = __getOwnPropDesc(from, key)) || desc4.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc5 = __getOwnPropDesc(from, key)) || desc5.enumerable });
   }
   return to;
 };
@@ -54,13 +54,23 @@ __export(schema_exports, {
   analysisFeedback: () => analysisFeedback,
   analysisViews: () => analysisViews,
   auditLogs: () => auditLogs,
+  bankProviderEnum: () => bankProviderEnum,
   biasReports: () => biasReports,
+  bizBankLinks: () => bizBankLinks,
+  bizCreditTasks: () => bizCreditTasks,
+  bizEntityTypeEnum: () => bizEntityTypeEnum,
+  bizFormationLinks: () => bizFormationLinks,
+  bizFundingMatches: () => bizFundingMatches,
+  bizNameChecks: () => bizNameChecks,
+  bizProfiles: () => bizProfiles,
+  bizStatusEnum: () => bizStatusEnum,
   blogPosts: () => blogPosts,
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
   connectedSocialAccounts: () => connectedSocialAccounts,
   copyRelationships: () => copyRelationships,
   copyTradeLogs: () => copyTradeLogs,
+  creditTaskTypeEnum: () => creditTaskTypeEnum,
   devotionalGroups: () => devotionalGroups,
   devotionalSessions: () => devotionalSessions,
   devotionals: () => devotionals,
@@ -69,6 +79,8 @@ __export(schema_exports, {
   eaSubscriptions: () => eaSubscriptions,
   engineRunState: () => engineRunState,
   follows: () => follows,
+  formationProviderEnum: () => formationProviderEnum,
+  funderTypeEnum: () => funderTypeEnum,
   fxPaperAccounts: () => fxPaperAccounts,
   fxPaperTrades: () => fxPaperTrades,
   governanceProposals: () => governanceProposals,
@@ -173,6 +185,7 @@ __export(schema_exports, {
   marketDataSnapshots: () => marketDataSnapshots,
   mt5ApiTokens: () => mt5ApiTokens,
   mt5SignalLogs: () => mt5SignalLogs,
+  nameCheckSourceEnum: () => nameCheckSourceEnum,
   nfcActivations: () => nfcActivations,
   nfcDailyTaps: () => nfcDailyTaps,
   paperTrades: () => paperTrades,
@@ -190,6 +203,7 @@ __export(schema_exports, {
   stopOrders: () => stopOrders,
   subscriptionPlans: () => subscriptionPlans,
   subscriptionTokenPayments: () => subscriptionTokenPayments,
+  taskStatusEnum: () => taskStatusEnum,
   tokenInvestments: () => tokenInvestments,
   tokenPositions: () => tokenPositions,
   tradelockerConnections: () => tradelockerConnections,
@@ -218,10 +232,10 @@ __export(schema_exports, {
   workforceEnrollments: () => workforceEnrollments,
   workforceModules: () => workforceModules
 });
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2614,6 +2628,73 @@ var init_schema = __esm({
     }, (t) => ({
       uniq: unique("engine_run_state_user_engine_idx").on(t.userId, t.engine)
     }));
+    bizEntityTypeEnum = pgEnum("biz_entity_type", ["llc", "s_corp", "c_corp", "sole_prop"]);
+    bizStatusEnum = pgEnum("biz_status", ["draft", "name_check", "formation", "ein_pending", "banking", "credit_building", "funded"]);
+    nameCheckSourceEnum = pgEnum("name_check_source", ["ai_generated", "sos_lookup"]);
+    formationProviderEnum = pgEnum("formation_provider", ["stripe_atlas", "incfile", "zenbusiness"]);
+    bankProviderEnum = pgEnum("bank_provider", ["mercury", "relay", "found"]);
+    creditTaskTypeEnum = pgEnum("credit_task_type", ["net30", "credit_monitoring", "duns_registration", "trade_line"]);
+    taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "complete"]);
+    funderTypeEnum = pgEnum("funder_type", ["grant", "cdfi", "sponsor", "microloan", "revenue_share"]);
+    bizProfiles = pgTable("biz_profiles", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").notNull().references(() => users.id),
+      businessName: text("business_name"),
+      businessIdea: text("business_idea").notNull(),
+      entityType: bizEntityTypeEnum("entity_type").notNull().default("llc"),
+      state: text("state").notNull(),
+      status: bizStatusEnum("status").notNull().default("draft"),
+      aiDescription: text("ai_description"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    bizNameChecks = pgTable("biz_name_checks", {
+      id: serial("id").primaryKey(),
+      bizProfileId: integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+      nameChecked: text("name_checked").notNull(),
+      available: boolean("available").notNull().default(true),
+      source: nameCheckSourceEnum("source").notNull().default("ai_generated"),
+      checkedAt: timestamp("checked_at").defaultNow().notNull()
+    });
+    bizFormationLinks = pgTable("biz_formation_links", {
+      id: serial("id").primaryKey(),
+      bizProfileId: integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+      provider: formationProviderEnum("provider").notNull(),
+      redirectUrl: text("redirect_url").notNull(),
+      status: text("status").notNull().default("pending"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    bizBankLinks = pgTable("biz_bank_links", {
+      id: serial("id").primaryKey(),
+      bizProfileId: integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+      provider: bankProviderEnum("provider").notNull(),
+      referralUrl: text("referral_url").notNull(),
+      status: text("status").notNull().default("not_started"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    bizCreditTasks = pgTable("biz_credit_tasks", {
+      id: serial("id").primaryKey(),
+      bizProfileId: integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+      taskName: text("task_name").notNull(),
+      taskType: creditTaskTypeEnum("task_type").notNull(),
+      provider: text("provider"),
+      url: text("url"),
+      status: taskStatusEnum("status").notNull().default("pending"),
+      dueDate: date("due_date"),
+      notes: text("notes"),
+      completedAt: timestamp("completed_at")
+    });
+    bizFundingMatches = pgTable("biz_funding_matches", {
+      id: serial("id").primaryKey(),
+      bizProfileId: integer("biz_profile_id").notNull().references(() => bizProfiles.id),
+      funderName: text("funder_name").notNull(),
+      funderType: funderTypeEnum("funder_type").notNull(),
+      matchScore: integer("match_score").notNull().default(0),
+      amountRange: text("amount_range"),
+      applyUrl: text("apply_url"),
+      notes: text("notes"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
   }
 });
 
@@ -5433,17 +5514,17 @@ __export(ictMacroUtils_exports, {
   getICTMacroContext: () => getICTMacroContext,
   getPremiumDiscountContext: () => getPremiumDiscountContext
 });
-function getNYOffset(date) {
-  const year = date.getUTCFullYear();
+function getNYOffset(date2) {
+  const year = date2.getUTCFullYear();
   const dstStart = new Date(Date.UTC(year, 2, 1));
   dstStart.setUTCDate(8 - (dstStart.getUTCDay() + 7) % 7 + 7);
   const dstEnd = new Date(Date.UTC(year, 10, 1));
   dstEnd.setUTCDate(1 + (7 - dstEnd.getUTCDay()) % 7);
-  return date >= dstStart && date < dstEnd ? -4 : -5;
+  return date2 >= dstStart && date2 < dstEnd ? -4 : -5;
 }
-function toNYTime(date) {
-  const offset = getNYOffset(date);
-  const nyMs = date.getTime() + offset * 60 * 60 * 1e3;
+function toNYTime(date2) {
+  const offset = getNYOffset(date2);
+  const nyMs = date2.getTime() + offset * 60 * 60 * 1e3;
   const nyDate = new Date(nyMs);
   const hours = nyDate.getUTCHours();
   const minutes = nyDate.getUTCMinutes();
@@ -8198,6 +8279,17 @@ async function analyzeChartImage(base64Image, knownSymbol, userId) {
   },
   "recommendation": string,   // Overall trading recommendation considering volume and momentum
   "steps": string[],          // Array of actionable steps to take
+  "volumeProfile": {           // Price-level volume profile (REQUIRED \u2014 estimate from visible bars/candles)
+    "poc": number,             // Point of Control: price level with highest traded volume
+    "vah": number,             // Value Area High: upper boundary of 70% value area
+    "val": number,             // Value Area Low: lower boundary of 70% value area
+    "currentPrice": number,    // Current/last close price visible on the chart
+    "hvnLevels": number[],     // High Volume Node prices (2-4 significant support/resistance prices)
+    "lvnLevels": number[],     // Low Volume Node prices (1-3 thin zones where price moves fast)
+    "levels": [                // 8-15 price levels with relative volume 0-100
+      { "price": number, "volume": number }
+    ]
+  },
   "orgStrategyInsight": {     // VEDD platform strategy framework assessment (REQUIRED)
     "strategyName": string,      // Which top strategy best matches this setup: "ICT AMD Kill Zone", "SMC Order Block Raid", "Wyckoff Accumulation/Distribution", "Fibonacci OTE Reversal", "Session Breakout Momentum", "Trend Continuation Pullback", or similar
     "alignment": string,         // How well price action aligns: "Strong", "Moderate", "Weak", or "None"
@@ -8330,7 +8422,20 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
         keyFactor: typeof response.orgStrategyInsight.keyFactor === "string" ? response.orgStrategyInsight.keyFactor : "",
         insight: typeof response.orgStrategyInsight.insight === "string" ? response.orgStrategyInsight.insight : "",
         actionNote: typeof response.orgStrategyInsight.actionNote === "string" ? response.orgStrategyInsight.actionNote : ""
-      } : void 0
+      } : void 0,
+      volumeProfile: (() => {
+        const vp = response.volumeProfile;
+        if (!vp || typeof vp !== "object" || !vp.poc || !Array.isArray(vp.levels) || vp.levels.length === 0) return void 0;
+        return {
+          poc: Number(vp.poc),
+          vah: Number(vp.vah || vp.poc),
+          val: Number(vp.val || vp.poc),
+          currentPrice: vp.currentPrice ? Number(vp.currentPrice) : void 0,
+          hvnLevels: Array.isArray(vp.hvnLevels) ? vp.hvnLevels.map(Number).filter(Boolean) : [],
+          lvnLevels: Array.isArray(vp.lvnLevels) ? vp.lvnLevels.map(Number).filter(Boolean) : [],
+          levels: vp.levels.filter((l) => l && typeof l.price === "number" && typeof l.volume === "number").map((l) => ({ price: Number(l.price), volume: Number(l.volume) }))
+        };
+      })()
     };
     return analysisResponse;
   } catch (error) {
@@ -9117,7 +9222,7 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     currentEventsContext
   };
 }
-async function generateDailyDevotional(date) {
+async function generateDailyDevotional(date2) {
   const apiKey = process.env.OPENAI_API_KEY;
   const client2 = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
   const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
@@ -9130,7 +9235,7 @@ Generate a daily devotional for ambassadors and users that:
 5. Encourages community and collaboration between ambassadors
 
 Return ONLY valid JSON, no markdown, no extra text.`;
-  const userPrompt = `Generate a daily devotional for ${date}. Return JSON with exactly these fields:
+  const userPrompt = `Generate a daily devotional for ${date2}. Return JSON with exactly these fields:
 {
   "title": "Compelling devotional title (max 10 words)",
   "theme": "One-word or short theme (e.g. 'Discipline', 'Community', 'Excellence', 'Patience', 'Vision')",
@@ -9155,7 +9260,7 @@ Return ONLY valid JSON, no markdown, no extra text.`;
     const raw = response.choices[0]?.message?.content || "{}";
     const data = JSON.parse(raw);
     return {
-      title: data.title || `Daily Devotional \u2014 ${date}`,
+      title: data.title || `Daily Devotional \u2014 ${date2}`,
       theme: data.theme || "Excellence",
       scripture: data.scripture || "Philippians 4:13",
       scriptureText: data.scriptureText || "I can do all things through Christ who strengthens me.",
@@ -9167,7 +9272,7 @@ Return ONLY valid JSON, no markdown, no extra text.`;
   } catch (err) {
     console.error("[devotional] AI generation failed:", err);
     return {
-      title: `Daily Devotional \u2014 ${date}`,
+      title: `Daily Devotional \u2014 ${date2}`,
       theme: "Discipline",
       scripture: "Proverbs 16:3",
       scriptureText: "Commit to the LORD whatever you do, and he will establish your plans.",
@@ -9535,6 +9640,85 @@ Your writing is:
 - Formatted for skimmability (strong headers, strategic bullet use, clear paragraph breaks)
 
 You ALWAYS produce proposals that are ready to submit \u2014 no placeholders like [INSERT DATA HERE], no generic language, no filler content. Every sentence earns its place.`;
+  }
+});
+
+// server/twilio.ts
+var twilio_exports = {};
+__export(twilio_exports, {
+  sendSmsRaw: () => sendSmsRaw,
+  sendTradingSignal: () => sendTradingSignal,
+  setupTwilio: () => setupTwilio
+});
+import twilio from "twilio";
+function setupTwilio() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
+  if (accountSid && authToken && twilioPhoneNumber) {
+    try {
+      twilioClient = twilio(accountSid, authToken);
+      console.log("Twilio client initialized successfully");
+      return true;
+    } catch (error) {
+      console.error("Failed to initialize Twilio client:", error);
+      return false;
+    }
+  } else {
+    console.log("Twilio credentials not found in environment variables");
+    return false;
+  }
+}
+async function sendSmsRaw(to, body) {
+  if (!twilioClient) return { success: false, error: "SMS not configured \u2014 add TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER to environment." };
+  try {
+    const formatted = to.startsWith("+") ? to : `+${to}`;
+    const msg = await twilioClient.messages.create({ body, from: process.env.TWILIO_PHONE_NUMBER, to: formatted });
+    return { success: true, sid: msg.sid };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+async function sendTradingSignal(req, res) {
+  if (!twilioClient) {
+    return res.status(503).json({
+      success: false,
+      message: "SMS service is not configured. Please contact admin to set up Twilio."
+    });
+  }
+  try {
+    const { phoneNumber, message } = req.body;
+    if (!phoneNumber || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number and message are required"
+      });
+    }
+    const formattedPhoneNumber = phoneNumber.startsWith("+") ? phoneNumber : `+${phoneNumber}`;
+    const twilioResponse = await twilioClient.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: formattedPhoneNumber
+    });
+    return res.status(200).json({
+      success: true,
+      messageId: twilioResponse.sid,
+      message: "Trading signal sent successfully"
+    });
+  } catch (err) {
+    const error = err;
+    console.error("Error sending SMS:", error);
+    return res.status(500).json({
+      success: false,
+      message: `Failed to send message: ${error.message || "Unknown error"}`
+    });
+  }
+}
+var twilioClient;
+var init_twilio = __esm({
+  "server/twilio.ts"() {
+    "use strict";
+    twilioClient = null;
   }
 });
 
@@ -14237,6 +14421,288 @@ var init_ea_generators = __esm({
   }
 });
 
+// server/abba-strategist.ts
+var abba_strategist_exports = {};
+__export(abba_strategist_exports, {
+  abbaChatHandler: () => abbaChatHandler,
+  abbaStrategistHandler: () => abbaStrategistHandler,
+  buildAbbaContext: () => buildAbbaContext
+});
+async function buildAbbaContext(userId) {
+  const all = await storage.getAiTradeResults(userId, 500);
+  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
+  const dayStart = /* @__PURE__ */ new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const tally = (rows) => {
+    const wins2 = rows.filter((r) => r.result === "WIN").length;
+    const losses2 = rows.filter((r) => r.result === "LOSS").length;
+    const decided = wins2 + losses2;
+    return {
+      trades: rows.length,
+      wins: wins2,
+      losses: losses2,
+      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
+      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
+    };
+  };
+  const group = (rows, key) => {
+    const m = {};
+    for (const t of rows) {
+      const k = key(t) || "\u2014";
+      (m[k] = m[k] || []).push(t);
+    }
+    return Object.entries(m).map(([k, v]) => {
+      const tt = tally(v);
+      return { key: k, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
+    });
+  };
+  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
+  const wins = closed.filter((t) => t.result === "WIN");
+  const losses = closed.filter((t) => t.result === "LOSS");
+  const wk = global.mt5WeeklyStrategies?.[userId];
+  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
+  let currentProfit = wk?.currentProfit ?? 0;
+  try {
+    const ws = await storage.getWeeklyStrategy?.(userId);
+    if (ws) {
+      weeklyTarget = ws.profitTarget ?? weeklyTarget;
+      currentProfit = ws.currentProfit ?? currentProfit;
+    }
+  } catch {
+  }
+  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
+  return {
+    goal: {
+      weeklyTarget,
+      currentProfit,
+      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
+      tradingPairs
+    },
+    performance: {
+      overall: tally(closed),
+      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
+      bySource: {
+        MT5: (() => {
+          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })(),
+        TradeLocker: (() => {
+          const t = tally(closed.filter((x) => x.source === "tradelocker"));
+          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
+        })()
+      },
+      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
+      avgConfWinners: avgConf(wins),
+      avgConfLosers: avgConf(losses)
+    },
+    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
+      symbol: (t.symbol || "").toUpperCase(),
+      direction: t.direction,
+      result: t.result,
+      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
+      conf: t.aiConfidence || 0,
+      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
+      session: sessionOf(new Date(t.closedAt)),
+      when: t.closedAt
+    })),
+    brain: global.veddAIBrain?.[userId] ?? null
+  };
+}
+function contextSummary(ctx) {
+  const p = ctx.performance;
+  return [
+    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
+    `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
+    `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
+    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
+    `BY PAIR (worst\u2192best): ${p.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `BY SESSION: ${p.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
+    `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
+    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
+    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
+  ].join("\n");
+}
+async function getClient(userId) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    return { client: client2, model: client2.defaultModel || "gpt-4o" };
+  } catch {
+    return null;
+  }
+}
+async function abbaStrategistHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  try {
+    const ctx = await buildAbbaContext(userId);
+    if (ctx.performance.overall.trades === 0) {
+      return res.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
+    }
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
+    const system = `You are Abba, the user's elite AI trading strategist and coach. You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. Your job: explain why results are what they are, and adapt the plan to improve accuracy and reach the weekly goal. Respond ONLY with strict JSON.`;
+    const prompt = `Here is the trader's live data:
+
+${contextSummary(ctx)}
+
+Return JSON with EXACTLY these keys:
+{
+  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
+  "nextDayPlan": {
+    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
+    "avoidPairs": ["pairs bleeding money to pause"],
+    "bestSessions": ["sessions with the edge"],
+    "recommendedMinConfidence": <number 70-90>,
+    "sizingNote": "concrete sizing guidance",
+    "strategyFocus": "which strategy/approach to lean on and which to drop"
+  },
+  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
+  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
+  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
+  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
+}`;
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1400,
+      temperature: 0.4
+    });
+    let plan = {};
+    try {
+      plan = JSON.parse(r.choices[0]?.message?.content || "{}");
+    } catch {
+      plan = {};
+    }
+    res.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
+  } catch (err) {
+    console.error("[Abba strategist]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+async function abbaChatHandler(req, res) {
+  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
+  const userId = req.user.id;
+  const { message, history } = req.body || {};
+  if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+  try {
+    const ctx = await buildAbbaContext(userId);
+    const ai = await getClient(userId);
+    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
+    const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You are warm, direct, knowledgeable, and treat every user like a VIP whether they are a total beginner or a seasoned trader.
+
+=== WHO YOU ARE ===
+You are deeply integrated with the VEDD platform. You can see the user's real trading data (below). You know every feature of the platform and can guide anyone through it step-by-step.
+
+=== VEDD PLATFORM \u2014 FULL FEATURE KNOWLEDGE ===
+You know and can guide users through ALL of these:
+
+TRADING ENGINES:
+- Live Forex AI Engine: AI-powered forex scanner and auto-trader. Connects via MT5 broker. Run from /home or /dashboard. Configure pairs, sessions, confidence threshold, drawdown limits.
+- Futures AI Engine: ES/NQ/CL/GC futures auto-trader. Connect at /futures-connect. Supports prop firm challenge mode.
+- Prop Firm Challenge Mode: Consistency enforcement, session filter (London-NY only), daily profit/loss halts, challenge dashboard at /prop-firm-challenge.
+- EA Generator: Generate MQL5 Expert Advisors from plain English at /futures-ea-generator. Download and drop into MT5 EA folder.
+- Copy Trading: Mirror signals to MT5 accounts at /copy-trading.
+- ORB Breakout: Opening Range Breakout engine for NY session at /orb-breakout.
+
+ANALYSIS TOOLS:
+- Chart Analysis: Upload chart screenshots for AI analysis (patterns, entry, SL, TP, volume profile, org strategy) at /analysis.
+- Multi-Timeframe Analysis: Cross-timeframe confluence at /multi-timeframe.
+- What-If Analysis: Scenario modeling for any trade at /what-if.
+- Sol Scanner: Solana token AI scanner.
+- Polymarket Engine: Prediction market signals.
+- Market Sentiment & Mood boards.
+
+MT5 SETUP (step-by-step):
+Step 1: Download MetaTrader 5 from your broker or metatrader5.com
+Step 2: Open MT5 \u2192 Tools \u2192 Options \u2192 Expert Advisors \u2192 check "Allow automated trading" and "Allow DLL imports"
+Step 3: In VEDD go to /home, click "Connect MT5", enter your broker server, account number, and password
+Step 4: Enable the Live Engine and configure pairs, sessions, and confidence threshold
+Step 5: In MT5, attach the VEDD EA (downloaded from EA Generator) to any chart \u2014 set "Allow live trading" in EA settings
+Step 6: The engine will start scanning and auto-placing trades. Monitor from /dashboard.
+
+FUTURES ENGINE SETUP (step-by-step):
+Step 1: Go to /futures-connect in VEDD
+Step 2: Choose your broker (TradeLocker, Rithmic, Tradovate, etc.)
+Step 3: Enter API credentials from your broker's developer/API settings page
+Step 4: Select contracts (ES, NQ, CL, GC, etc.) and session windows
+Step 5: Enable the futures engine and set risk parameters
+Step 6: Monitor from /futures-live-feed
+
+KALSHI API SETUP (step-by-step):
+Step 1: Create account at kalshi.com
+Step 2: Go to kalshi.com \u2192 Settings \u2192 API \u2192 Generate API Key
+Step 3: Copy the API key and secret
+Step 4: In VEDD, go to AI API Keys section and add Kalshi key
+Step 5: Go to Polymarket Engine page \u2014 Kalshi markets will auto-populate
+Step 6: Set confidence thresholds and let the engine scan for high-probability events
+
+BUSINESS & GROWTH TOOLS:
+- Business Builder: Build your trading business brand/entity at /business-builder.
+- Business Credit Builder: AI-guided credit building for your trading entity.
+- Grants Hub: Find grants for traders and entrepreneurs.
+- Referral Hub: Earn commissions referring users at /referral-hub.
+- Ambassador Program: Teach and earn at /ambassador-training. Training modules, quiz, certification.
+- Community Impact Dashboard: See your community stats.
+
+GAMIFICATION & REWARDS:
+- XP & Levels: Earn XP for every trade, analysis, and action. Tiers: Young Gun \u2192 Rising Star \u2192 Pro Trader \u2192 Elite \u2192 OG.
+- VEDD Token: Earn tokens for activity. Redeemable in the pool.
+- Achievements & Streaks: Daily streaks, milestone badges at /achievements.
+- Token Pools: Community reward pool distributing to active users.
+- NFC Wear-to-Earn: Physical VEDD gear earns tokens.
+
+OUTREACH & AUTOMATION:
+- You (Abba) can send SMS messages via Twilio to users, ambassadors, and admins.
+- You (Abba) can send email updates via the platform.
+- Lead automation: help ambassadors manage and message their leads.
+- Daily account P&L reports can be sent automatically.
+
+=== YOUR CAPABILITIES IN CHAT ===
+1. TRADING ADVICE: Ground all advice in the user's REAL DATA below. Cite their actual numbers.
+2. PLATFORM GUIDE: Walk beginners through any setup step-by-step. Be patient, clear, numbered.
+3. ACCOUNT UPDATES: Summarize today's P&L, wins/losses, best pairs, goal progress.
+4. SEND MESSAGES: If user asks to "send a message to my ambassador", "notify admin", "text my lead", say you'll handle it and they should use the Outreach tab to execute.
+5. DAILY REPORTS: Give a full daily briefing when asked.
+6. ONBOARDING: If user is new, detect from low trade count and proactively offer to walk them through setup.
+
+Keep answers under 300 words unless asked for depth. Be warm, specific, actionable. You are not a licensed financial advisor \u2014 include brief risk reminders where appropriate.
+
+=== TRADER'S LIVE DATA ===
+${contextSummary(ctx)}`;
+    const msgs = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const h of history.slice(-8)) {
+        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
+      }
+    }
+    msgs.push({ role: "user", content: message.slice(0, 2e3) });
+    const r = await ai.client.chat.completions.create({
+      model: ai.model,
+      messages: msgs,
+      max_tokens: 700,
+      temperature: 0.6
+    });
+    res.json({ reply: r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again." });
+  } catch (err) {
+    console.error("[Abba chat]", err);
+    res.status(500).json({ error: err.message });
+  }
+}
+var sessionOf;
+var init_abba_strategist = __esm({
+  "server/abba-strategist.ts"() {
+    "use strict";
+    init_storage();
+    sessionOf = (d) => {
+      const h = d.getUTCHours();
+      return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
+    };
+  }
+});
+
 // server/image-processor.ts
 var image_processor_exports = {};
 __export(image_processor_exports, {
@@ -15578,13 +16044,13 @@ async function getTLAccountValue(userId, conn) {
     const svc = await getOrCreateService(conn);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
-    const eq11 = info.equity || bal;
+    const eq12 = info.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq11;
+      g.tlAccountEquity[userId][acctId] = eq12;
       g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq11} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq11 };
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq12} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq12 };
     }
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
@@ -19559,6 +20025,129 @@ var init_veddPayment = __esm({
   }
 });
 
+// server/messaging.ts
+var messaging_exports = {};
+__export(messaging_exports, {
+  getChannelStatus: () => getChannelStatus,
+  sendGmail: () => sendGmail,
+  sendMessage: () => sendMessage,
+  sendResend: () => sendResend,
+  sendSendGrid: () => sendSendGrid,
+  sendTelegram: () => sendTelegram,
+  sendTwilioSms: () => sendTwilioSms
+});
+import nodemailer from "nodemailer";
+async function sendGmail(to, subject, text2, html) {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return { success: false, channel: "gmail", error: "GMAIL_USER and GMAIL_APP_PASSWORD not set. Create a Gmail App Password at myaccount.google.com/security \u2192 App Passwords." };
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass }
+    });
+    const info = await transporter.sendMail({
+      from: `"VEDD | Abba" <${user}>`,
+      to,
+      subject,
+      text: text2,
+      html: html || `<div style="font-family:sans-serif;max-width:600px;margin:0 auto"><h2 style="color:#7c3aed">VEDD \u2014 Abba AI</h2><div>${text2.replace(/\n/g, "<br/>")}</div></div>`
+    });
+    return { success: true, channel: "gmail", id: info.messageId };
+  } catch (e) {
+    return { success: false, channel: "gmail", error: e.message };
+  }
+}
+async function sendResend(to, subject, text2, html) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return { success: false, channel: "resend", error: "RESEND_API_KEY not set. Sign up free at resend.com and add your API key." };
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(apiKey);
+    const from = process.env.RESEND_FROM_EMAIL || "Abba <onboarding@resend.dev>";
+    const result = await resend.emails.send({ from, to, subject, text: text2, html });
+    if (result.error) return { success: false, channel: "resend", error: result.error.message };
+    return { success: true, channel: "resend", id: result.data?.id };
+  } catch (e) {
+    return { success: false, channel: "resend", error: e.message };
+  }
+}
+async function sendTelegram(chatId, message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { success: false, channel: "telegram", error: "TELEGRAM_BOT_TOKEN not set. Create a free bot at @BotFather on Telegram." };
+  if (!chatId?.trim()) return { success: false, channel: "telegram", error: "chatId required \u2014 user must have started your bot first." };
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const body = JSON.stringify({ chat_id: chatId, text: message, parse_mode: "HTML" });
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const data = await res.json();
+    if (!data.ok) return { success: false, channel: "telegram", error: data.description || "Telegram API error" };
+    return { success: true, channel: "telegram", id: String(data.result?.message_id) };
+  } catch (e) {
+    return { success: false, channel: "telegram", error: e.message };
+  }
+}
+async function sendTwilioSms(to, body) {
+  const { sendSmsRaw: sendSmsRaw3 } = await Promise.resolve().then(() => (init_twilio(), twilio_exports));
+  const result = await sendSmsRaw3(to, body);
+  return { ...result, channel: "twilio" };
+}
+async function sendSendGrid(to, subject, text2, html) {
+  const apiKey = process.env.SENDGRID_API_KEY;
+  if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
+  try {
+    const sgMail2 = await import("@sendgrid/mail");
+    const sg = sgMail2.default || sgMail2;
+    sg.setApiKey(apiKey);
+    await sg.send({
+      to,
+      from: process.env.SENDGRID_FROM_EMAIL || "abba@vedd.app",
+      subject,
+      text: text2,
+      html: html || text2
+    });
+    return { success: true, channel: "sendgrid" };
+  } catch (e) {
+    return { success: false, channel: "sendgrid", error: e.message };
+  }
+}
+async function sendMessage(opts) {
+  const { channel, message, phone, chatId, email, subject, html } = opts;
+  switch (channel) {
+    case "gmail":
+      if (!email) return { success: false, channel, error: "email address required for Gmail" };
+      return sendGmail(email, subject || "Message from VEDD Abba", message, html);
+    case "resend":
+      if (!email) return { success: false, channel, error: "email address required for Resend" };
+      return sendResend(email, subject || "Message from VEDD Abba", message, html);
+    case "telegram":
+      if (!chatId) return { success: false, channel, error: "Telegram chat ID required" };
+      return sendTelegram(chatId, message);
+    case "twilio":
+      if (!phone) return { success: false, channel, error: "phone number required for Twilio SMS" };
+      return sendTwilioSms(phone, message);
+    case "sendgrid":
+      if (!email) return { success: false, channel, error: "email address required for SendGrid" };
+      return sendSendGrid(email, subject || "Message from VEDD Abba", message, html);
+    default:
+      return { success: false, channel, error: `Unknown channel: ${channel}` };
+  }
+}
+function getChannelStatus() {
+  return {
+    gmail: { configured: !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD), free: true, limit: "500/day", setupUrl: "https://myaccount.google.com/apppasswords" },
+    resend: { configured: !!process.env.RESEND_API_KEY, free: true, limit: "3,000/month", setupUrl: "https://resend.com" },
+    telegram: { configured: !!process.env.TELEGRAM_BOT_TOKEN, free: true, limit: "Unlimited", setupUrl: "https://t.me/BotFather" },
+    twilio: { configured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN), free: false, limit: "Paid / trial", setupUrl: "https://twilio.com" },
+    sendgrid: { configured: !!process.env.SENDGRID_API_KEY, free: true, limit: "100/day", setupUrl: "https://sendgrid.com" }
+  };
+}
+var init_messaging = __esm({
+  "server/messaging.ts"() {
+    "use strict";
+  }
+});
+
 // server/market-data/types.ts
 var init_types = __esm({
   "server/market-data/types.ts"() {
@@ -20991,6 +21580,11 @@ async function fetchNewsContext(pairs) {
   return context;
 }
 function broadcastMT5Signal(userId, signal) {
+  const mode = engineStates[userId]?.config?.tradingMode ?? "server_ai";
+  if (mode === "ea_only" && signal.action === "OPEN") {
+    addActivity2(userId, { type: "info", message: `\u{1F916} EA-Only mode: server AI signal for ${signal.symbol} suppressed \u2014 EA trades only. Switch to "Server AI" mode to enable server signals.` });
+    return;
+  }
   if (!mt5AccountQueues[userId]) mt5AccountQueues[userId] = {};
   const registry = mt5AccountRegistry[userId] || {};
   const activeAliases = Object.entries(registry).filter(([, info]) => info.receiveSignals).map(([alias]) => alias);
@@ -21236,8 +21830,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq11 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq11(uak.userId, userId), eq11(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq12 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq12(uak.userId, userId), eq12(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -21328,6 +21922,10 @@ function getDefaultConfig(userId) {
     dailyLossLimit: 5,
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
+    challengeSessionFilterEnabled: false,
+    consistencyEnforcementEnabled: false,
+    consistencyMinProfitableDays: 10,
+    consistencyPeriodDays: 15,
     directionFilter: "both",
     pairDirectionOverrides: {},
     pairLotOverrides: {},
@@ -21346,7 +21944,8 @@ function getDefaultConfig(userId) {
     trailSarInitialAF: 0.02,
     trailSarMaxAF: 0.2,
     volatileCapMode: "risk_scaled",
-    copyMode: "proportional"
+    copyMode: "proportional",
+    tradingMode: "server_ai"
   };
 }
 function createGoalTracker(config) {
@@ -21536,6 +22135,10 @@ function recordTradeResult(userId, result) {
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
   checkDailyProfitTarget(userId);
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today2 = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    state.challengeDailyPnL[today2] = state.pnlToday;
+  }
   if (state.openPositionCount > 0) {
     state.openPositionCount = Math.max(0, state.openPositionCount - 1);
   }
@@ -21576,6 +22179,11 @@ function recordTradeResult(userId, result) {
       delete state.pairDirectionLock[result.symbol];
     }
   }
+  runAutonomousAdaptation(userId, {
+    profit: result.profit,
+    symbol: result.symbol || "",
+    strategy: result.strategy || "unknown"
+  });
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
   if (state.tradesSinceLastLearn >= 3) {
     state.tradesSinceLastLearn = 0;
@@ -21602,6 +22210,96 @@ async function scanMarkets(userId) {
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  if (state.config.challengeSessionFilterEnabled && state.config.propFirmMode) {
+    const utcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const inSession = utcHour >= 13 && utcHour < 17;
+    if (!inSession) {
+      if (!state.sessionFilterBlocked) {
+        state.sessionFilterBlocked = true;
+        addActivity2(userId, {
+          type: "info",
+          message: `\u{1F512} Challenge Session Filter: outside London\u2013NY overlap (13:00\u201317:00 UTC). Scans paused until 13:00 UTC. Current UTC hour: ${utcHour}:00`
+        });
+      }
+      state.currentlyScanning = false;
+      return;
+    } else if (state.sessionFilterBlocked) {
+      state.sessionFilterBlocked = false;
+      addActivity2(userId, {
+        type: "info",
+        message: `\u2705 Challenge Session Filter: London\u2013NY overlap is OPEN. High-probability window active \u2014 scanning resumes.`
+      });
+    }
+  }
+  if (state.dailyProfitHalted || state.dailyLossHalted) {
+    state.currentlyScanning = false;
+    return;
+  }
+  let consistencyRiskMultiplier = 1;
+  if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    state.challengeDailyPnL[today] = state.pnlToday;
+    const periodKeys = Object.keys(state.challengeDailyPnL).sort();
+    const recentKeys = periodKeys.slice(-state.config.consistencyPeriodDays);
+    const profitableDays = recentKeys.filter((k) => (state.challengeDailyPnL[k] ?? 0) > 0).length;
+    const tradingDays = recentKeys.length;
+    const daysRemaining = state.config.consistencyPeriodDays - tradingDays;
+    const daysNeeded = state.config.consistencyMinProfitableDays - profitableDays;
+    const todayIsLosing = state.pnlToday < 0;
+    const effectiveProfitableDays = todayIsLosing ? profitableDays : profitableDays;
+    const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+    if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+      consistencyRiskMultiplier = 0.25;
+      addActivity2(userId, {
+        type: "info",
+        message: `\u2696\uFE0F Consistency Alert: ${profitableDays}/${state.config.consistencyMinProfitableDays} profitable days so far. Need ${mustWinRemaining} more in ${daysRemaining} remaining days \u2014 risk capped at 25% of normal to protect consistency requirement.`
+      });
+    } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+      consistencyRiskMultiplier = 0.5;
+    }
+    state._consistencyStatus = { profitableDays, tradingDays, daysRemaining, mustWinRemaining, riskMultiplier: consistencyRiskMultiplier };
+  }
+  if (consistencyRiskMultiplier < 1) {
+    state._consistencyRiskOverride = consistencyRiskMultiplier;
+  } else {
+    delete state._consistencyRiskOverride;
+  }
+  const ms = state.mindState;
+  if (ms && ms.coolOffUntil > Date.now()) {
+    const remainingMin = Math.ceil((ms.coolOffUntil - Date.now()) / 6e4);
+    if (state.scanCount % 6 === 0) {
+      addActivity2(userId, {
+        type: "info",
+        message: `\u23F8 Mind cool-off active \u2014 ${remainingMin} min remaining. Engine protecting capital after consecutive losses.`
+      });
+    }
+    state.currentlyScanning = false;
+    return;
+  }
+  {
+    const mindDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    if (state._mindStateResetDate !== mindDate) {
+      state._mindStateResetDate = mindDate;
+      ms.sessionWins = 0;
+      ms.sessionLosses = 0;
+      ms.sessionConsecutiveLosses = 0;
+      ms.sessionConsecutiveWins = 0;
+      ms.sessionWinRate = 0.5;
+      ms.coolOffUntil = 0;
+      ms.adaptedConfidenceFloor = state.config.minConfidence || 70;
+      ms.pairSessionWins = {};
+      ms.pairSessionLosses = {};
+      ms.softBlockedPairs = {};
+      ms.hourlyPnL = {};
+      addActivity2(userId, { type: "info", message: "\u{1F305} New day \u2014 mind state reset. Session counters cleared, confidence floor restored." });
+    }
+  }
+  for (const sym of Object.keys(ms.softBlockedPairs)) {
+    if (ms.softBlockedPairs[sym].until < Date.now()) {
+      delete ms.softBlockedPairs[sym];
+      addActivity2(userId, { type: "info", message: `\u2705 ${sym} soft-block expired \u2014 restored to normal confidence threshold.` });
+    }
+  }
   try {
     if (!marketDataService.isInitialized()) {
       addActivity2(userId, { type: "error", message: "Market data service not initialized. Check TWELVE_DATA_API_KEY." });
@@ -22909,8 +23607,30 @@ These pairs had recent losses. Same-direction entries are code-blocked for 45-90
 `;
       }
     }
+    let mindSection = "";
+    {
+      const mind = state.mindState;
+      if (mind && mind.sessionWins + mind.sessionLosses > 0) {
+        const total = mind.sessionWins + mind.sessionLosses;
+        const blockedStrats = mind.blockedStrategies ? [...mind.blockedStrategies] : [];
+        const softBlocked = Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym]) => sym);
+        const bestHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => b - a)[0];
+        const worstHour = Object.entries(mind.hourlyPnL || {}).sort(([, a], [, b]) => a - b)[0];
+        mindSection = `
+\u{1F9E0} ENGINE MIND STATE (live session learning \u2014 updated after every trade):
+Session: ${mind.sessionWins}W / ${mind.sessionLosses}L | Win rate: ${(mind.sessionWinRate * 100).toFixed(0)}% | Streak: ${mind.sessionConsecutiveWins > 0 ? `+${mind.sessionConsecutiveWins} wins` : mind.sessionConsecutiveLosses > 0 ? `-${mind.sessionConsecutiveLosses} losses` : "neutral"}
+Adapted confidence floor: ${mind.adaptedConfidenceFloor}% (auto-raised from ${state.config.minConfidence}% based on session performance)
+${blockedStrats.length > 0 ? `AUTO-BLOCKED STRATEGIES (COLD weight): ${blockedStrats.join(", ")} \u2014 DO NOT use these` : "All strategies available (none cold-blocked)"}
+${softBlocked.length > 0 ? `SOFT-BLOCKED PAIRS (90%+ needed): ${softBlocked.join(", ")} \u2014 only use on exceptional structure` : ""}
+${bestHour ? `Best trading hour today: ${bestHour[0]}:00 UTC ($${bestHour[1].toFixed(0)})` : ""}
+${worstHour && worstHour[1] < 0 ? `Worst hour: ${worstHour[0]}:00 UTC ($${worstHour[1].toFixed(0)}) \u2014 be cautious during this window` : ""}
+${mind.adaptationLog.slice(0, 3).map((l) => `  \u2022 ${l}`).join("\n")}
+INSTRUCTION: The engine has autonomously adjusted based on the above. Respect the adapted confidence floor. Do NOT suggest blocked strategies. Weight your signals toward pairs and hours showing positive session performance.
+`;
+      }
+    }
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}${codeGateSection}
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
@@ -23391,8 +24111,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq11 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq11(uak.userId, userId), eq11(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq12 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq12(uak.userId, userId), eq12(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -23542,6 +24262,43 @@ async function processDecision(userId, decision, newsCtx) {
           message: `\u{1F6E1}\uFE0F SHIELD BLOCK: ${confidence2}% confidence too low during shield mode (need 80%+). Skipping.`
         });
         return;
+      }
+    }
+    {
+      const mind = state.mindState;
+      if (mind) {
+        const decStrat = (decision.strategy || "").toLowerCase();
+        if (mind.blockedStrategies && mind.blockedStrategies.has(decStrat)) {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F9E0} COLD BLOCK: "${decStrat}" is auto-blocked \u2014 performance weight \u2264 0.3. Trade rejected. Strategy must recover before being used again.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
+        const pairBlock = mind.softBlockedPairs?.[decision.symbol];
+        if (pairBlock && pairBlock.until > Date.now()) {
+          if (confidence2 < 90) {
+            addActivity2(userId, {
+              type: "info",
+              symbol: decision.symbol,
+              message: `\u{1F9E0} PAIR BLOCK: ${decision.symbol} requires 90%+ confidence (${confidence2}% given). Reason: ${pairBlock.reason}`
+            });
+            state.signalsGenerated++;
+            return;
+          }
+        }
+        const adaptedFloor = mind.adaptedConfidenceFloor || state.config.minConfidence || 70;
+        if (adaptedFloor > (state.config.minConfidence || 70) && confidence2 < adaptedFloor) {
+          addActivity2(userId, {
+            type: "info",
+            symbol: decision.symbol,
+            message: `\u{1F9E0} CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% \u2014 engine raised minimum to ${adaptedFloor}%. Signal at ${confidence2}% rejected.`
+          });
+          state.signalsGenerated++;
+          return;
+        }
       }
     }
     const htfBias = state.htfBiasCache?.[decision.symbol];
@@ -24110,7 +24867,8 @@ async function processDecision(userId, decision, newsCtx) {
     }
     const rawLotBase = brainLocked ? 0.01 : parseNum(decision.lotSize) || config.baseLotSize || 0.01;
     const brainMult = brainLocked ? 1 : decision._brainLotMultiplier || 1;
-    const rawLotSize = Math.round(rawLotBase * brainMult * 100) / 100;
+    const consistencyMult = state._consistencyRiskOverride ?? 1;
+    const rawLotSize = Math.round(rawLotBase * brainMult * consistencyMult * 100) / 100;
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     const _dynMaxLot = config.accountBalance > 0 ? Math.max(0.1, Math.round(config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol)) * 100) / 100) : 0.1;
     const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
@@ -24841,6 +25599,8 @@ function startLiveEngine(userId, config) {
     dailyLossHaltedAt: null,
     dailyProfitHalted: false,
     dailyProfitHaltedAt: null,
+    challengeDailyPnL: {},
+    sessionFilterBlocked: false,
     tradesSinceLastLearn: 0,
     positionTrailState: {},
     aiResponseCache: {},
@@ -24848,7 +25608,23 @@ function startLiveEngine(userId, config) {
     pairDirectionLock: {},
     compositeLastFiredAt: {},
     orbDailyFired: {},
-    strategyDailyFired: {}
+    strategyDailyFired: {},
+    mindState: {
+      sessionWins: 0,
+      sessionLosses: 0,
+      sessionConsecutiveLosses: 0,
+      sessionConsecutiveWins: 0,
+      sessionWinRate: 0.5,
+      coolOffUntil: 0,
+      adaptedConfidenceFloor: fullConfig.minConfidence || 70,
+      softBlockedPairs: {},
+      blockedStrategies: /* @__PURE__ */ new Set(),
+      pairSessionWins: {},
+      pairSessionLosses: {},
+      hourlyPnL: {},
+      lastAdaptedAt: null,
+      adaptationLog: []
+    }
   };
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
   const intervalDisplay = fullConfig.adaptiveScanInterval ? `adaptive (${adaptiveInterval / 1e3}s now)` : `${fullConfig.scanIntervalMs / 1e3}s`;
@@ -24946,6 +25722,99 @@ function emergencyStopEngine(userId) {
   }
   queueCloseAllSignal(userId, "Emergency stop triggered from dashboard");
   return state || null;
+}
+function runAutonomousAdaptation(userId, tradeResult) {
+  const state = engineStates[userId];
+  if (!state) return;
+  const ms = state.mindState;
+  const cfg = state.config;
+  const log2 = (msg) => {
+    ms.adaptationLog = [msg, ...ms.adaptationLog].slice(0, 20);
+    addActivity2(userId, { type: "info", message: `\u{1F9E0} Mind: ${msg}` });
+  };
+  const win = tradeResult.profit > 0;
+  if (win) {
+    ms.sessionWins++;
+    ms.sessionConsecutiveWins++;
+    ms.sessionConsecutiveLosses = 0;
+    ms.pairSessionWins[tradeResult.symbol] = (ms.pairSessionWins[tradeResult.symbol] || 0) + 1;
+  } else {
+    ms.sessionLosses++;
+    ms.sessionConsecutiveLosses++;
+    ms.sessionConsecutiveWins = 0;
+    ms.pairSessionLosses[tradeResult.symbol] = (ms.pairSessionLosses[tradeResult.symbol] || 0) + 1;
+  }
+  const totalTrades = ms.sessionWins + ms.sessionLosses;
+  ms.sessionWinRate = totalTrades > 0 ? ms.sessionWins / totalTrades : 0.5;
+  const utcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+  ms.hourlyPnL[utcHour] = (ms.hourlyPnL[utcHour] || 0) + tradeResult.profit;
+  if (ms.sessionConsecutiveLosses >= 5) {
+    const coolOffMs = 45 * 60 * 1e3;
+    ms.coolOffUntil = Date.now() + coolOffMs;
+    ms.sessionConsecutiveLosses = 0;
+    log2(`5 consecutive losses \u2014 COOLING OFF for 45 min. Session win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Market conditions appear unfavourable. Scans resume at ${new Date(ms.coolOffUntil).toISOString().substring(11, 16)} UTC.`);
+  } else if (ms.sessionConsecutiveLosses >= 3) {
+    const existing = ms.coolOffUntil - Date.now();
+    if (existing < 20 * 60 * 1e3) {
+      ms.coolOffUntil = Date.now() + 20 * 60 * 1e3;
+      log2(`3 consecutive losses \u2014 cooling off 20 min. Waiting for better structure before next signal.`);
+    }
+  }
+  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+    const baseFloor = cfg.minConfidence || 70;
+    let newFloor;
+    if (ms.sessionWinRate < 0.35) {
+      newFloor = Math.max(baseFloor, 85);
+    } else if (ms.sessionWinRate < 0.45) {
+      newFloor = Math.max(baseFloor, 80);
+    } else if (ms.sessionWinRate < 0.55) {
+      newFloor = Math.max(baseFloor, 75);
+    } else if (ms.sessionWinRate >= 0.7) {
+      newFloor = Math.max(baseFloor - 3, baseFloor);
+    } else {
+      newFloor = baseFloor;
+    }
+    if (newFloor !== ms.adaptedConfidenceFloor) {
+      log2(`Win rate ${(ms.sessionWinRate * 100).toFixed(0)}% after ${totalTrades} trades \u2014 confidence floor adjusted: ${ms.adaptedConfidenceFloor}% \u2192 ${newFloor}%`);
+      ms.adaptedConfidenceFloor = newFloor;
+    }
+  }
+  const pairLosses = ms.pairSessionLosses[tradeResult.symbol] || 0;
+  if (pairLosses >= 3 && !win) {
+    const blockUntil = Date.now() + 60 * 60 * 1e3;
+    const existing = ms.softBlockedPairs[tradeResult.symbol];
+    if (!existing || existing.until < blockUntil) {
+      ms.softBlockedPairs[tradeResult.symbol] = {
+        until: blockUntil,
+        reason: `${pairLosses} session losses \u2014 confidence raised to 90% for 60 min`
+      };
+      log2(`${tradeResult.symbol} soft-blocked: ${pairLosses} losses this session. Needs 90%+ confidence for next 60 min.`);
+    }
+  }
+  const COLD_THRESHOLD = 0.3;
+  const newBlockedStrategies = /* @__PURE__ */ new Set();
+  for (const [strat, weight] of Object.entries(state.strategyPerformanceWeights)) {
+    if (weight <= COLD_THRESHOLD) {
+      newBlockedStrategies.add(strat);
+    }
+  }
+  for (const strat of newBlockedStrategies) {
+    if (!ms.blockedStrategies.has(strat)) {
+      log2(`Strategy "${strat}" weight dropped to ${(state.strategyPerformanceWeights[strat] || 0).toFixed(2)} \u2014 AUTO-BLOCKED until it recovers above ${COLD_THRESHOLD}`);
+    }
+  }
+  for (const strat of ms.blockedStrategies) {
+    if (!newBlockedStrategies.has(strat)) {
+      log2(`Strategy "${strat}" weight recovered \u2014 AUTO-UNBLOCKED. Restored to scan pool.`);
+    }
+  }
+  ms.blockedStrategies = newBlockedStrategies;
+  if (ms.sessionConsecutiveWins === 3) {
+    log2(`3 consecutive wins \u2014 session momentum building. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Engine maintaining current rhythm.`);
+  } else if (ms.sessionConsecutiveWins === 5) {
+    log2(`5-win streak \u2014 exceptional session. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Confidence floor remains at ${ms.adaptedConfidenceFloor}% \u2014 not chasing, staying disciplined.`);
+  }
+  ms.lastAdaptedAt = (/* @__PURE__ */ new Date()).toISOString();
 }
 function checkDailyLossLimit(userId) {
   const state = engineStates[userId];
@@ -25918,8 +26787,8 @@ async function restoreEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq11, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq11(engineRunState2.userId, userId), eq11(engineRunState2.engine, "polymarket")));
+    const { eq: eq12, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq12(engineRunState2.userId, userId), eq12(engineRunState2.engine, "polymarket")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Polymarket] Restoring engine for user ${userId}`);
@@ -27069,8 +27938,8 @@ async function restoreKalshiEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq11, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq11(engineRunState2.userId, userId), eq11(engineRunState2.engine, "kalshi")));
+    const { eq: eq12, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq12(engineRunState2.userId, userId), eq12(engineRunState2.engine, "kalshi")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
@@ -27991,7 +28860,7 @@ __export(sol_engine_exports, {
   triggerSolAIReview: () => triggerSolAIReview,
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
-import { eq as eq8 } from "drizzle-orm";
+import { eq as eq9 } from "drizzle-orm";
 import crypto7 from "crypto";
 function getEncryptionKey3() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
@@ -28080,7 +28949,7 @@ async function upsertPosition(userId, pos) {
 }
 async function loadEngineStateFromDb(userId, state) {
   try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    const [settings] = await db.select().from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
     if (settings) {
       state.activeStrategy = settings.activeStrategy;
       state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
@@ -28115,7 +28984,7 @@ async function loadEngineStateFromDb(userId, state) {
         }
       }
     }
-    const positions = await db.select().from(solEnginePositions).where(eq8(solEnginePositions.userId, userId));
+    const positions = await db.select().from(solEnginePositions).where(eq9(solEnginePositions.userId, userId));
     for (const row of positions) {
       const pos = {
         id: row.positionId,
@@ -28151,7 +29020,7 @@ async function loadEngineStateFromDb(userId, state) {
 }
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -28247,7 +29116,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
 }
 async function executeServerSideBuy(userId, signal, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -28947,7 +29816,7 @@ async function refreshServerWalletBalance(userId, state) {
   if (now - state.lastWalletRefreshAt < 6e4) return;
   state.lastWalletRefreshAt = now;
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -29316,7 +30185,7 @@ async function startSolEngine(userId, config = {}) {
   }
   if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
       if (settings?.serverWalletKey) {
         const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
         const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -29836,11 +30705,11 @@ async function saveServerWallet(userId, privateKeyBase58) {
   }
 }
 async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq8(solEngineSettings.userId, userId));
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(solEngineSettings.userId, userId));
 }
 async function getServerWalletStatus(userId) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq8(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -32894,73 +33763,15 @@ init_storage();
 init_schema();
 init_db();
 init_openai();
-import { eq as eq9, and as and6, sql as sql6 } from "drizzle-orm";
+init_twilio();
+init_achievement_tracker();
+init_ea_generators();
+import { eq as eq10, and as and6, sql as sql6 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
 import * as fs9 from "fs";
 import * as path9 from "path";
-
-// server/twilio.ts
-import twilio from "twilio";
-var twilioClient = null;
-function setupTwilio() {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const twilioPhoneNumber = process.env.TWILIO_PHONE_NUMBER;
-  if (accountSid && authToken && twilioPhoneNumber) {
-    try {
-      twilioClient = twilio(accountSid, authToken);
-      console.log("Twilio client initialized successfully");
-      return true;
-    } catch (error) {
-      console.error("Failed to initialize Twilio client:", error);
-      return false;
-    }
-  } else {
-    console.log("Twilio credentials not found in environment variables");
-    return false;
-  }
-}
-async function sendTradingSignal(req, res) {
-  if (!twilioClient) {
-    return res.status(503).json({
-      success: false,
-      message: "SMS service is not configured. Please contact admin to set up Twilio."
-    });
-  }
-  try {
-    const { phoneNumber, message } = req.body;
-    if (!phoneNumber || !message) {
-      return res.status(400).json({
-        success: false,
-        message: "Phone number and message are required"
-      });
-    }
-    const formattedPhoneNumber = phoneNumber.startsWith("+") ? phoneNumber : `+${phoneNumber}`;
-    const twilioResponse = await twilioClient.messages.create({
-      body: message,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: formattedPhoneNumber
-    });
-    return res.status(200).json({
-      success: true,
-      messageId: twilioResponse.sid,
-      message: "Trading signal sent successfully"
-    });
-  } catch (err) {
-    const error = err;
-    console.error("Error sending SMS:", error);
-    return res.status(500).json({
-      success: false,
-      message: `Failed to send message: ${error.message || "Unknown error"}`
-    });
-  }
-}
-
-// server/routes.ts
-init_achievement_tracker();
-init_ea_generators();
 
 // server/trading-coach.ts
 init_openai();
@@ -33241,198 +34052,8 @@ async function tradingTipsHandler(req, res) {
   }
 }
 
-// server/abba-strategist.ts
-init_storage();
-var sessionOf = (d) => {
-  const h = d.getUTCHours();
-  return h < 7 ? "Asian" : h < 13 ? "London" : h < 20 ? "New York" : "Late NY";
-};
-async function buildAbbaContext(userId) {
-  const all = await storage.getAiTradeResults(userId, 500);
-  const closed = all.filter((t) => t.result && t.result !== "PENDING" && t.closedAt);
-  const dayStart = /* @__PURE__ */ new Date();
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const tally = (rows) => {
-    const wins2 = rows.filter((r) => r.result === "WIN").length;
-    const losses2 = rows.filter((r) => r.result === "LOSS").length;
-    const decided = wins2 + losses2;
-    return {
-      trades: rows.length,
-      wins: wins2,
-      losses: losses2,
-      winRate: decided > 0 ? Math.round(wins2 / decided * 100) : 0,
-      totalPnl: Math.round(rows.reduce((s, r) => s + (r.profitLoss || 0), 0) * 100) / 100
-    };
-  };
-  const group = (rows, key) => {
-    const m = {};
-    for (const t of rows) {
-      const k = key(t) || "\u2014";
-      (m[k] = m[k] || []).push(t);
-    }
-    return Object.entries(m).map(([k, v]) => {
-      const tt = tally(v);
-      return { key: k, trades: tt.trades, winRate: tt.winRate, pnl: tt.totalPnl };
-    });
-  };
-  const avgConf = (rows) => rows.length ? Math.round(rows.reduce((s, t) => s + (t.aiConfidence || 0), 0) / rows.length) : 0;
-  const wins = closed.filter((t) => t.result === "WIN");
-  const losses = closed.filter((t) => t.result === "LOSS");
-  const wk = global.mt5WeeklyStrategies?.[userId];
-  let weeklyTarget = wk?.plan?.profitTarget ?? wk?.profitTarget ?? 0;
-  let currentProfit = wk?.currentProfit ?? 0;
-  try {
-    const ws = await storage.getWeeklyStrategy?.(userId);
-    if (ws) {
-      weeklyTarget = ws.profitTarget ?? weeklyTarget;
-      currentProfit = ws.currentProfit ?? currentProfit;
-    }
-  } catch {
-  }
-  const tradingPairs = global.liveEngineConfigCache?.[userId]?.pairs ?? wk?.plan?.pairs ?? [...new Set(closed.map((t) => (t.symbol || "").toUpperCase()))].slice(0, 12);
-  return {
-    goal: {
-      weeklyTarget,
-      currentProfit,
-      progressPct: weeklyTarget > 0 ? Math.round(currentProfit / weeklyTarget * 100) : 0,
-      tradingPairs
-    },
-    performance: {
-      overall: tally(closed),
-      today: tally(closed.filter((t) => new Date(t.closedAt) >= dayStart)),
-      bySource: {
-        MT5: (() => {
-          const t = tally(closed.filter((x) => x.source !== "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })(),
-        TradeLocker: (() => {
-          const t = tally(closed.filter((x) => x.source === "tradelocker"));
-          return { trades: t.trades, winRate: t.winRate, totalPnl: t.totalPnl };
-        })()
-      },
-      byPair: group(closed, (t) => (t.symbol || "").toUpperCase()).map((g) => ({ pair: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      bySession: group(closed, (t) => sessionOf(new Date(t.closedAt))).map((g) => ({ session: g.key, trades: g.trades, winRate: g.winRate, pnl: g.pnl })).sort((a, b) => a.pnl - b.pnl),
-      avgConfWinners: avgConf(wins),
-      avgConfLosers: avgConf(losses)
-    },
-    recentTrades: closed.sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()).slice(0, 30).map((t) => ({
-      symbol: (t.symbol || "").toUpperCase(),
-      direction: t.direction,
-      result: t.result,
-      pnl: Math.round((t.profitLoss || 0) * 100) / 100,
-      conf: t.aiConfidence || 0,
-      source: t.source === "tradelocker" ? "TradeLocker" : "MT5",
-      session: sessionOf(new Date(t.closedAt)),
-      when: t.closedAt
-    })),
-    brain: global.veddAIBrain?.[userId] ?? null
-  };
-}
-function contextSummary(ctx) {
-  const p = ctx.performance;
-  return [
-    `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(", ")}.`,
-    `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
-    `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
-    `BY SOURCE: MT5 ${p.bySource.MT5.winRate}% ($${p.bySource.MT5.totalPnl}, ${p.bySource.MT5.trades}t) | TradeLocker ${p.bySource.TradeLocker.winRate}% ($${p.bySource.TradeLocker.totalPnl}, ${p.bySource.TradeLocker.trades}t).`,
-    `BY PAIR (worst\u2192best): ${p.byPair.slice(0, 8).map((x) => `${x.pair} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `BY SESSION: ${p.bySession.map((x) => `${x.session} ${x.winRate}%/$${x.pnl}(${x.trades}t)`).join(", ")}.`,
-    `CONFIDENCE: winners avg ${p.avgConfWinners}%, losers avg ${p.avgConfLosers}%.`,
-    `RECENT (newest first): ${ctx.recentTrades.slice(0, 18).map((t) => `${t.symbol} ${t.direction} ${t.result} $${t.pnl} @${t.conf}% [${t.session}/${t.source}]`).join(" | ")}.`,
-    ctx.brain ? `BRAIN: ${ctx.brain.overallWinRate ?? "?"}% WR over ${ctx.brain.totalTradesAnalyzed ?? "?"} trades. Insights: ${(ctx.brain.learningInsights ?? []).slice(0, 4).join(" / ")}.` : "BRAIN: not learned yet."
-  ].join("\n");
-}
-async function getClient(userId) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    return { client: client2, model: client2.defaultModel || "gpt-4o" };
-  } catch {
-    return null;
-  }
-}
-async function abbaStrategistHandler(req, res) {
-  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  try {
-    const ctx = await buildAbbaContext(userId);
-    if (ctx.performance.overall.trades === 0) {
-      return res.json({ ready: false, message: "No closed trades to analyze yet. Once trades close (MT5 or TradeLocker), Abba will build your adaptive plan." });
-    }
-    const ai = await getClient(userId);
-    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to enable Abba." });
-    const system = `You are Abba, the user's elite AI trading strategist and coach. You SEE all their real trade data. Be specific, honest, and numbers-driven \u2014 reference their actual pairs, sessions, win rates and P&L. Your job: explain why results are what they are, and adapt the plan to improve accuracy and reach the weekly goal. Respond ONLY with strict JSON.`;
-    const prompt = `Here is the trader's live data:
-
-${contextSummary(ctx)}
-
-Return JSON with EXACTLY these keys:
-{
-  "diagnosis": "2-4 sentence honest read of what's driving wins and losses (patterns: pairs, sessions, time, confidence, sizing, strategy, source).",
-  "nextDayPlan": {
-    "favorPairs": ["pairs to prioritise tomorrow based on edge"],
-    "avoidPairs": ["pairs bleeding money to pause"],
-    "bestSessions": ["sessions with the edge"],
-    "recommendedMinConfidence": <number 70-90>,
-    "sizingNote": "concrete sizing guidance",
-    "strategyFocus": "which strategy/approach to lean on and which to drop"
-  },
-  "weeklyAdjustments": ["3-5 concrete changes to hit the weekly goal"],
-  "setups": [{"pair":"", "bias":"BUY|SELL", "rationale":"high-accuracy setup to watch, with the condition/trigger"}],
-  "goalAssessment": "are they on track for the weekly goal? what's needed from here in $ and realistic trade count.",
-  "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
-}`;
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      max_tokens: 1400,
-      temperature: 0.4
-    });
-    let plan = {};
-    try {
-      plan = JSON.parse(r.choices[0]?.message?.content || "{}");
-    } catch {
-      plan = {};
-    }
-    res.json({ ready: true, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
-  } catch (err) {
-    console.error("[Abba strategist]", err);
-    res.status(500).json({ error: err.message });
-  }
-}
-async function abbaChatHandler(req, res) {
-  if (!req.isAuthenticated?.()) return res.status(401).json({ error: "Authentication required" });
-  const userId = req.user.id;
-  const { message, history } = req.body || {};
-  if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
-  try {
-    const ctx = await buildAbbaContext(userId);
-    const ai = await getClient(userId);
-    if (!ai) return res.status(400).json({ error: "No AI key configured. Add one in AI API Keys to chat with Abba." });
-    const system = `You are Abba, the trader's personal AI trading mentor inside the VEDD app. You can SEE their real trading data (below) \u2014 always ground answers in it, cite their actual pairs/sessions/win-rates/P&L. Teach clearly (examples + reasons), be encouraging but honest, and tie advice to reaching their weekly goal. Keep answers focused (under ~250 words) unless asked for depth. Include risk reminders where relevant; you are not a licensed financial advisor.
-
-=== TRADER'S LIVE DATA ===
-${contextSummary(ctx)}`;
-    const msgs = [{ role: "system", content: system }];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-8)) {
-        if (h?.role && h?.content) msgs.push({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 2e3) });
-      }
-    }
-    msgs.push({ role: "user", content: message.slice(0, 2e3) });
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: msgs,
-      max_tokens: 700,
-      temperature: 0.6
-    });
-    res.json({ reply: r.choices[0]?.message?.content || "I couldn't generate a reply right now \u2014 try again." });
-  } catch (err) {
-    console.error("[Abba chat]", err);
-    res.status(500).json({ error: err.message });
-  }
-}
+// server/routes.ts
+init_abba_strategist();
 
 // server/market-insights.ts
 init_openai();
@@ -35757,13 +36378,13 @@ function generateNinjaScriptStrategy(symbol, analyses, config) {
                 SetProfitTarget("VEDDShort", CalculationMode.Price, tpShort);${trailBlock}
             }` : "";
   const tickNote = inst ? `// Tick Value: $${inst.tickValue} per tick | Tick Size: ${inst.tickSize} | Point Value: $${inst.pointValue}` : "// Custom futures instrument";
-  const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const date2 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const strategyComments = buildStrategyComments(upperSymbol);
   const matchedStrategies = getFuturesStrategiesForSymbol(upperSymbol);
   const strategyNames = matchedStrategies.length > 0 ? matchedStrategies.map((s) => s.name).join(", ") : "General Momentum + Trend Following";
   return `// ============================================================
 // VEDD Trading AI \u2014 NinjaTrader 8 Strategy
-// Generated: ${date}
+// Generated: ${date2}
 // Symbol:    ${upperSymbol}
 // Strategy:  ${strategyName}
 // ${propFirmNote}
@@ -37316,6 +37937,300 @@ router3.get("/moomoo/account", async (req, res) => {
 });
 var moomoo_default = router3;
 
+// server/routes/bizBuilder.ts
+init_db();
+init_schema();
+import { Router as Router4 } from "express";
+import { eq as eq8, desc as desc4 } from "drizzle-orm";
+var router4 = Router4();
+function requireAuth3(req, res) {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    res.status(401).json({ error: "Authentication required" });
+    return false;
+  }
+  return true;
+}
+function getUserId3(req) {
+  return req.user.id;
+}
+async function resolveAnthropicKey(userId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    const userKey = await storage2.getActiveUserApiKey(userId, "anthropic");
+    if (userKey?.apiKey) {
+      await storage2.updateUserApiKeyUsage(userId, "anthropic");
+      return userKey.apiKey;
+    }
+  } catch (_) {
+  }
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  if (!envKey) throw new Error("No Anthropic API key found. Add yours at AI API Keys or ask your admin to set ANTHROPIC_API_KEY.");
+  return envKey;
+}
+async function callClaude(system, user, userId) {
+  const apiKey = await resolveAnthropicKey(userId);
+  const Anthropic = (await import("@anthropic-ai/sdk")).default;
+  const client2 = new Anthropic({ apiKey });
+  const response = await client2.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 2048,
+    system: system + " Return ONLY valid JSON, no markdown, no code fences.",
+    messages: [{ role: "user", content: user }]
+  });
+  const block = response.content[0];
+  return block.type === "text" ? block.text : "";
+}
+function parseJson(raw) {
+  const cleaned = raw.replace(/^```[a-z]*\n?/m, "").replace(/```$/m, "").trim();
+  return JSON.parse(cleaned);
+}
+var FORMATION_URLS = {
+  stripe_atlas: process.env.STRIPE_ATLAS_REF_URL || "https://stripe.com/atlas",
+  incfile: process.env.INCFILE_REF_URL || "https://www.incfile.com",
+  zenbusiness: process.env.ZENBUSINESS_REF_URL || "https://www.zenbusiness.com"
+};
+var BANK_URLS = {
+  mercury: process.env.MERCURY_REF_URL || "https://mercury.com",
+  relay: process.env.RELAY_REF_URL || "https://relayfi.com",
+  found: process.env.FOUND_REF_URL || "https://found.com"
+};
+router4.post("/biz-builder/create", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  const userId = getUserId3(req);
+  try {
+    const { businessIdea, entityType, state } = req.body;
+    if (!businessIdea || !entityType || !state) {
+      return res.status(400).json({ error: "businessIdea, entityType, and state are required" });
+    }
+    const raw = await callClaude(
+      "You are a business formation expert.",
+      `Business idea: ${businessIdea}. Entity: ${entityType}. State: ${state}.
+Return JSON: {
+  "suggestedNames": ["name1","name2","name3","name4","name5"],
+  "description": "3 sentences max about this business",
+  "entityRecommendation": { "type": "string", "reason": "string" },
+  "fundingMatches": [
+    { "name": "string", "type": "string", "reason": "string" }
+  ]
+}`,
+      userId
+    );
+    const aiData = parseJson(raw);
+    const [profile] = await db.insert(bizProfiles).values({
+      userId,
+      businessIdea,
+      entityType,
+      state,
+      status: "name_check",
+      aiDescription: aiData.description
+    }).returning();
+    res.json({ profile, aiData });
+  } catch (e) {
+    console.error("[BizBuilder] create error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.get("/biz-builder/my-profile", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  const userId = getUserId3(req);
+  try {
+    const profiles = await db.select().from(bizProfiles).where(eq8(bizProfiles.userId, userId)).orderBy(desc4(bizProfiles.createdAt)).limit(1);
+    if (!profiles.length) return res.json({ profile: null });
+    const profile = profiles[0];
+    const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
+      db.select().from(bizNameChecks).where(eq8(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq8(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq8(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq8(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq8(bizFundingMatches.bizProfileId, profile.id))
+    ]);
+    res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
+  } catch (e) {
+    console.error("[BizBuilder] my-profile error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.get("/biz-builder/:profileId", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const profiles = await db.select().from(bizProfiles).where(eq8(bizProfiles.id, profileId)).limit(1);
+    if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
+    const profile = profiles[0];
+    const [nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches] = await Promise.all([
+      db.select().from(bizNameChecks).where(eq8(bizNameChecks.bizProfileId, profile.id)),
+      db.select().from(bizFormationLinks).where(eq8(bizFormationLinks.bizProfileId, profile.id)),
+      db.select().from(bizBankLinks).where(eq8(bizBankLinks.bizProfileId, profile.id)),
+      db.select().from(bizCreditTasks).where(eq8(bizCreditTasks.bizProfileId, profile.id)),
+      db.select().from(bizFundingMatches).where(eq8(bizFundingMatches.bizProfileId, profile.id))
+    ]);
+    res.json({ profile, nameChecks, formationLinks, bankLinks, creditTasks, fundingMatches });
+  } catch (e) {
+    console.error("[BizBuilder] get profile error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.post("/biz-builder/:profileId/name-check", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "name is required" });
+    await db.insert(bizNameChecks).values({
+      bizProfileId: profileId,
+      nameChecked: name,
+      available: true,
+      source: "ai_generated"
+    });
+    res.json({
+      name,
+      available: true,
+      message: "Name appears available. Verify at your state SOS before filing."
+    });
+  } catch (e) {
+    console.error("[BizBuilder] name-check error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.post("/biz-builder/:profileId/select-formation", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const { provider } = req.body;
+    if (!FORMATION_URLS[provider]) {
+      return res.status(400).json({ error: "Invalid provider. Must be stripe_atlas, incfile, or zenbusiness." });
+    }
+    const redirectUrl = FORMATION_URLS[provider];
+    await db.insert(bizFormationLinks).values({ bizProfileId: profileId, provider, redirectUrl });
+    await db.update(bizProfiles).set({ status: "formation", updatedAt: /* @__PURE__ */ new Date() }).where(eq8(bizProfiles.id, profileId));
+    res.json({ provider, redirectUrl });
+  } catch (e) {
+    console.error("[BizBuilder] select-formation error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.post("/biz-builder/:profileId/select-bank", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const { provider } = req.body;
+    if (!BANK_URLS[provider]) {
+      return res.status(400).json({ error: "Invalid provider. Must be mercury, relay, or found." });
+    }
+    const referralUrl = BANK_URLS[provider];
+    await db.insert(bizBankLinks).values({ bizProfileId: profileId, provider, referralUrl });
+    await db.update(bizProfiles).set({ status: "banking", updatedAt: /* @__PURE__ */ new Date() }).where(eq8(bizProfiles.id, profileId));
+    res.json({ provider, referralUrl });
+  } catch (e) {
+    console.error("[BizBuilder] select-bank error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.post("/biz-builder/:profileId/generate-credit-tasks", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const profiles = await db.select().from(bizProfiles).where(eq8(bizProfiles.id, profileId)).limit(1);
+    if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
+    const p = profiles[0];
+    const today = /* @__PURE__ */ new Date();
+    const fmt = (d) => d.toISOString().split("T")[0];
+    const addDays = (n) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + n);
+      return fmt(d);
+    };
+    const raw = await callClaude(
+      "You are a business credit expert.",
+      `Generate a 90-day business credit building plan for a ${p.entityType} in ${p.state} doing: ${p.businessIdea}.
+
+Always include these exact tasks (do not skip them):
+1. Register with Dun & Bradstreet (get DUNS number) \u2014 due ${addDays(7)}, url: https://www.dnb.com/duns-number.html
+2. Open Uline Net-30 account \u2014 due ${addDays(14)}, url: https://www.uline.com
+3. Open Quill Net-30 account \u2014 due ${addDays(14)}, url: https://www.quill.com
+4. Open Grainger Net-30 account \u2014 due ${addDays(21)}, url: https://www.grainger.com
+5. Set up Nav.com credit monitoring \u2014 due ${addDays(7)}, url: https://www.nav.com
+6. Register Experian Business profile \u2014 due ${addDays(14)}, url: https://www.experian.com/small-business
+7. Register Equifax Business profile \u2014 due ${addDays(21)}, url: https://www.equifax.com/business
+
+Then add 3-5 additional tasks specific to this business type.
+
+Return a JSON array: [{ "task_name": "string", "task_type": "net30"|"credit_monitoring"|"duns_registration"|"trade_line", "provider": "string", "url": "string", "due_date": "YYYY-MM-DD", "notes": "string" }]`,
+      getUserId3(req)
+    );
+    const tasks = parseJson(raw);
+    const inserted = await db.insert(bizCreditTasks).values(
+      tasks.map((t) => ({
+        bizProfileId: profileId,
+        taskName: t.task_name,
+        taskType: t.task_type,
+        provider: t.provider || null,
+        url: t.url || null,
+        dueDate: t.due_date || null,
+        notes: t.notes || null,
+        status: "pending"
+      }))
+    ).returning();
+    await db.update(bizProfiles).set({ status: "credit_building", updatedAt: /* @__PURE__ */ new Date() }).where(eq8(bizProfiles.id, profileId));
+    res.json({ tasks: inserted });
+  } catch (e) {
+    console.error("[BizBuilder] generate-credit-tasks error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.post("/biz-builder/:profileId/generate-funding-matches", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const profileId = parseInt(req.params.profileId);
+    const profiles = await db.select().from(bizProfiles).where(eq8(bizProfiles.id, profileId)).limit(1);
+    if (!profiles.length) return res.status(404).json({ error: "Profile not found" });
+    const p = profiles[0];
+    const raw = await callClaude(
+      "You are a business funding expert.",
+      `Find the top 5 funding sources for a ${p.entityType} business in ${p.state} doing: ${p.businessIdea}.
+
+Return a JSON array: [{ "funder_name": "string", "funder_type": "grant"|"cdfi"|"sponsor"|"microloan"|"revenue_share", "match_score": number 1-100, "amount_range": "string e.g. $5K - $50K", "apply_url": "string real URL or #", "notes": "1-2 sentences on why a good fit" }]`,
+      getUserId3(req)
+    );
+    const funders = parseJson(raw);
+    const inserted = await db.insert(bizFundingMatches).values(
+      funders.map((f) => ({
+        bizProfileId: profileId,
+        funderName: f.funder_name,
+        funderType: f.funder_type,
+        matchScore: f.match_score || 0,
+        amountRange: f.amount_range || null,
+        applyUrl: f.apply_url || "#",
+        notes: f.notes || null
+      }))
+    ).returning();
+    await db.update(bizProfiles).set({ status: "funded", updatedAt: /* @__PURE__ */ new Date() }).where(eq8(bizProfiles.id, profileId));
+    res.json({ matches: inserted });
+  } catch (e) {
+    console.error("[BizBuilder] generate-funding-matches error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+router4.patch("/biz-builder/tasks/:taskId/complete", async (req, res) => {
+  if (!requireAuth3(req, res)) return;
+  try {
+    const taskId = parseInt(req.params.taskId);
+    const existing = await db.select().from(bizCreditTasks).where(eq8(bizCreditTasks.id, taskId)).limit(1);
+    if (!existing.length) return res.status(404).json({ error: "Task not found" });
+    const isComplete = existing[0].status === "complete";
+    const newStatus = isComplete ? "pending" : "complete";
+    const [updated] = await db.update(bizCreditTasks).set({
+      status: newStatus,
+      completedAt: newStatus === "complete" ? /* @__PURE__ */ new Date() : null
+    }).where(eq8(bizCreditTasks.id, taskId)).returning();
+    res.json({ task: updated });
+  } catch (e) {
+    console.error("[BizBuilder] complete task error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+var bizBuilder_default = router4;
+
 // server/routes.ts
 init_vedd_token_service();
 
@@ -38617,6 +39532,7 @@ async function registerRoutes(app2, existingServer) {
   app2.use("/api/vedd", vedd_token_default);
   app2.use("/api", tradovate_default);
   app2.use("/api", moomoo_default);
+  app2.use("/api", bizBuilder_default);
   app2.get("/api/config", (_req, res) => {
     res.json({
       googleClientId: process.env.GOOGLE_CLIENT_ID || null
@@ -40426,11 +41342,11 @@ Respond ONLY in valid JSON format with these exact keys:
               subscriptionPlanId: planId,
               subscriptionStatus: "active",
               stripeSubscriptionId: session3.subscription
-            }).where(eq9(users.id, userId));
+            }).where(eq10(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
             try {
-              const [updatedUser] = await db.select().from(users).where(eq9(users.id, userId));
-              const [plan] = await db.select().from(subscriptionPlans).where(eq9(subscriptionPlans.id, planId));
+              const [updatedUser] = await db.select().from(users).where(eq10(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq10(subscriptionPlans.id, planId));
               if (updatedUser?.email && plan?.name) {
                 sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
                 });
@@ -40451,7 +41367,7 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: sub.id,
               subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
               ...planId ? { subscriptionPlanId: planId } : {}
-            }).where(eq9(users.id, userId));
+            }).where(eq10(users.id, userId));
             console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
           }
           break;
@@ -40460,7 +41376,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const sub = event.data.object;
           const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
           if (userId) {
-            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq9(users.id, userId));
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq10(users.id, userId));
             console.log(`[Stripe] Subscription canceled for user ${userId}`);
           }
           break;
@@ -40468,7 +41384,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_succeeded": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "active" }).where(eq9(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq10(users.stripeSubscriptionId, invoice.subscription));
             console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
           }
           break;
@@ -40476,7 +41392,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_failed": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq9(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq10(users.stripeSubscriptionId, invoice.subscription));
             console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
           }
           break;
@@ -41964,6 +42880,382 @@ IMPORTANT:
       console.error("[ABBA TTS] Error:", err?.message);
       res.status(500).json({ error: "TTS unavailable", fallback: true });
     }
+  });
+  app2.get("/api/abba/channel-status", (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    Promise.resolve().then(() => (init_messaging(), messaging_exports)).then(({ getChannelStatus: getChannelStatus2 }) => res.json(getChannelStatus2())).catch(() => res.status(500).json({}));
+  });
+  app2.post("/api/abba/notify", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { target, phone, chatId, email, subject, message, channel } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: "message required" });
+    const { sendMessage: sendMessage2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const result = await sendMessage2({ channel, phone, chatId, email, subject, message: `VEDD | ${message}` });
+    try {
+      const feed = global.liveActivityFeed;
+      if (Array.isArray(feed)) {
+        feed.unshift({ type: "abba_notify", userId, target, channel, preview: message.slice(0, 80), at: (/* @__PURE__ */ new Date()).toISOString() });
+        if (feed.length > 200) feed.pop();
+      }
+    } catch {
+    }
+    res.json({ success: result.success, result });
+  });
+  app2.get("/api/abba/accounts-daily", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { buildAbbaContext: buildAbbaContext2 } = await Promise.resolve().then(() => (init_abba_strategist(), abba_strategist_exports));
+      const ctx = await buildAbbaContext2(userId);
+      const today = ctx.performance.today;
+      const overall = ctx.performance.overall;
+      const goal = ctx.goal;
+      const engineState = global.liveEngineState?.[userId];
+      const balance = engineState?.balance ?? null;
+      const openTrades = engineState?.openPositions?.length ?? 0;
+      const todayStart = /* @__PURE__ */ new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const todayTrades = ctx.recentTrades.filter((t) => new Date(t.when) >= todayStart);
+      const pairMap = {};
+      for (const t of todayTrades) {
+        if (!pairMap[t.symbol]) pairMap[t.symbol] = { pnl: 0, trades: 0 };
+        pairMap[t.symbol].pnl += t.pnl;
+        pairMap[t.symbol].trades++;
+      }
+      const pairList = Object.entries(pairMap).map(([pair, v]) => ({ pair, ...v })).sort((a, b) => b.pnl - a.pnl);
+      res.json({
+        date: (/* @__PURE__ */ new Date()).toISOString().split("T")[0],
+        balance,
+        openTrades,
+        today: { pnl: today.totalPnl, trades: today.trades, wins: today.wins, losses: today.losses, winRate: today.winRate },
+        overall: { pnl: overall.totalPnl, trades: overall.trades, winRate: overall.winRate },
+        goal: { weeklyTarget: goal.weeklyTarget, currentProfit: goal.currentProfit, progressPct: goal.progressPct },
+        bestPairs: pairList.slice(0, 3),
+        worstPairs: pairList.slice(-3).reverse(),
+        bySession: ctx.performance.bySession
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/abba/daily-report", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { phone, chatId, email, channel } = req.body;
+    try {
+      const { buildAbbaContext: buildAbbaContext2 } = await Promise.resolve().then(() => (init_abba_strategist(), abba_strategist_exports));
+      const { sendMessage: sendMessage2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+      const ctx = await buildAbbaContext2(userId);
+      const t = ctx.performance.today;
+      const g = ctx.goal;
+      const pnlStr = t.totalPnl >= 0 ? `+$${t.totalPnl.toFixed(2)}` : `-$${Math.abs(t.totalPnl).toFixed(2)}`;
+      const report = [
+        `\u{1F4CA} VEDD Daily Report \u2014 ${(/* @__PURE__ */ new Date()).toLocaleDateString()}`,
+        `Today: ${pnlStr} | ${t.trades} trades | ${t.winRate}% win rate`,
+        `Goal: $${g.weeklyTarget} weekly target \u2014 ${g.progressPct}% complete ($${g.currentProfit})`,
+        `Best session: ${ctx.performance.bySession.sort((a, b) => b.pnl - a.pnl)[0]?.session ?? "N/A"}`,
+        `Top pair: ${ctx.performance.byPair.sort((a, b) => b.pnl - a.pnl)[0]?.pair ?? "N/A"}`,
+        `Keep going \u2014 Abba is watching your back.`
+      ].join("\n");
+      const result = await sendMessage2({ channel, phone, chatId, email, subject: `VEDD Daily Report \u2014 ${(/* @__PURE__ */ new Date()).toLocaleDateString()}`, message: report });
+      res.json({ success: result.success, report, result });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/abba/onboarding/:topic", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const { topic } = req.params;
+    const guides = {
+      mt5: {
+        title: "Connect Your MT5 Account to VEDD",
+        intro: "Let's get your MetaTrader 5 account linked to the VEDD AI engine. Follow each step and watch the videos \u2014 this takes about 10 minutes.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "mP5qXc24VFk",
+          caption: "MetaTrader 5 complete setup walkthrough \u2014 watch this first"
+        },
+        steps: [
+          {
+            text: "Download MetaTrader 5 from your broker's website or from metatrader5.com. Install it on your computer.",
+            media: { type: "youtube", videoId: "LNf4JB5UtUI", caption: "How to download and install MetaTrader 5" }
+          },
+          {
+            text: 'Open MT5 \u2192 click Tools in the top menu \u2192 Options \u2192 Expert Advisors tab. Check both "Allow automated trading" AND "Allow DLL imports". Click OK.',
+            media: { type: "image", url: "/patterns/channel.svg", caption: "MT5 Tools \u2192 Options \u2192 Expert Advisors settings panel" }
+          },
+          {
+            text: "In MT5, go to File \u2192 Login to Trade Account. Enter your broker server name, account number, and password. Click OK to connect.",
+            media: { type: "youtube", videoId: "a2L3V2PVXBY", caption: "Logging into your MT5 broker account" }
+          },
+          {
+            text: 'Inside VEDD, go to your Dashboard or Home page and click "Connect MT5". Enter the same broker server, account number, and password you just used.'
+          },
+          {
+            text: "Enable the Live Forex Engine toggle. Choose 2-3 trading pairs to start \u2014 EURUSD, GBPUSD, and XAUUSD are the best starting pairs."
+          },
+          {
+            text: "Set your minimum confidence threshold to 75%. This means the AI only trades when it is 75% or more confident in a signal."
+          },
+          {
+            text: "Go to the EA Generator page (/futures-ea-generator) and generate your first Expert Advisor. Download the .mq5 file.",
+            media: { type: "youtube", videoId: "mP5qXc24VFk", caption: "Installing and attaching an EA in MetaTrader 5" }
+          },
+          {
+            text: 'In MT5, drag the EA from the Navigator panel onto any chart. In the EA settings window, make sure "Allow live trading" is checked. Click OK.'
+          },
+          {
+            text: "The engine is now live. Watch the Activity feed in your VEDD dashboard \u2014 you will see scans and trades appear in real time.",
+            media: { type: "youtube", videoId: "wF5P0BioHRQ", caption: "Running your first automated trade in MT5" }
+          }
+        ],
+        tips: [
+          "Use a demo account first \u2014 test the connection with zero risk before going live",
+          "Start with just 2-3 pairs until you understand the engine behavior",
+          "Keep confidence at 75%+ for the first week, then lower gradually if win rate is strong",
+          "The engine scans every few minutes \u2014 you do not need to stare at charts"
+        ],
+        nextPage: "/home"
+      },
+      futures: {
+        title: "Connect Your Futures Trading Account",
+        intro: "Let's connect your futures broker to the VEDD AI futures engine. This works with TradeLocker, Rithmic, Tradovate, and AMP Futures.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "HCCrKlLOI4o",
+          caption: "Futures trading for beginners \u2014 what you need to know first"
+        },
+        steps: [
+          {
+            text: "Open the VEDD menu and navigate to Futures Connect (/futures-connect). This is where you link your broker."
+          },
+          {
+            text: "Choose your broker from the list: TradeLocker, Rithmic, Tradovate, or AMP Futures. If you do not have an account yet, click the link to open one.",
+            media: { type: "youtube", videoId: "HCCrKlLOI4o", caption: "Choosing the right futures broker for AI trading" }
+          },
+          {
+            text: `Log into your broker's website. Go to Settings (or Account Settings) and look for "API Access", "Developer", or "Integrations". Enable API access.`
+          },
+          {
+            text: "Generate a new API key and secret (or API password). Copy both \u2014 you will need them in VEDD. Keep them private.",
+            media: { type: "youtube", videoId: "9N2AiNOHZqw", caption: "How to generate API keys from your futures broker" }
+          },
+          {
+            text: "Back in VEDD Futures Connect, paste your API key and secret into the form. Select your account type (live or paper trading)."
+          },
+          {
+            text: "Choose the futures contracts you want the AI to trade. Start with ES (S&P 500) or NQ (Nasdaq) \u2014 they are the most liquid.",
+            media: { type: "youtube", videoId: "PFQ5T8IPXLU", caption: "ES and NQ futures explained for beginners" }
+          },
+          {
+            text: "Set your session window. The best time for AI futures trading is the NY session open: 9:30 AM \u2013 11:00 AM EST."
+          },
+          {
+            text: "Set your max daily loss limit (recommended: 2% of account balance). This is your safety stop \u2014 the engine halts if this is hit."
+          },
+          {
+            text: "Enable the futures engine and monitor your live feed at /futures-live-feed. You will see real-time scans and trade executions."
+          }
+        ],
+        tips: [
+          "Start with micro contracts (MES = micro S&P, MNQ = micro Nasdaq) to reduce risk while learning",
+          "ES and NQ move fast \u2014 set your daily loss limit before enabling the engine",
+          "Use Prop Firm Mode (/prop-firm-challenge) if you are in a funded challenge evaluation",
+          "The NY open (9:30-11:00 AM EST) has the highest volume and best AI accuracy"
+        ],
+        nextPage: "/futures-connect"
+      },
+      kalshi: {
+        title: "Set Up Kalshi Prediction Market Engine",
+        intro: "Kalshi is a regulated prediction market where you can trade on real-world events. VEDD's AI scans Kalshi markets for high-probability opportunities.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "v_ZlB9BNPQY",
+          caption: "What is Kalshi? Prediction markets explained"
+        },
+        steps: [
+          {
+            text: "Go to kalshi.com and create a free account. Kalshi is available to US residents. You will need to verify your identity.",
+            media: { type: "youtube", videoId: "v_ZlB9BNPQY", caption: "Creating your Kalshi account step by step" }
+          },
+          {
+            text: "Complete identity verification on Kalshi. This is required by law (CFTC regulated). Upload your government ID when prompted."
+          },
+          {
+            text: "Once verified, log in to Kalshi. Click your profile icon in the top right \u2192 Settings \u2192 API tab."
+          },
+          {
+            text: 'Click "Generate API Key". Kalshi will show you a key and secret \u2014 copy BOTH immediately. The secret is only shown once.'
+          },
+          {
+            text: 'In VEDD, go to Settings \u2192 AI API Keys. Click "Add New Key". Set Provider to "Kalshi" and paste your API key.'
+          },
+          {
+            text: "Go to the Polymarket Engine page in the VEDD menu. Your Kalshi markets will now auto-populate. You will see live prediction markets."
+          },
+          {
+            text: "Set your confidence threshold (recommended: 70%). The AI will only flag markets where it has 70%+ edge on the outcome."
+          },
+          {
+            text: "Deposit funds into your Kalshi account. Start small ($100-$500) while learning how prediction markets work."
+          },
+          {
+            text: "The engine will scan live Kalshi markets for high-probability events. When a signal fires, review it and decide whether to enter.",
+            media: { type: "youtube", videoId: "AHgIyxVuT4U", caption: "How to trade on Kalshi \u2014 placing your first position" }
+          }
+        ],
+        tips: [
+          "Start with markets on topics you understand \u2014 economic data, sports, political outcomes",
+          "Binary contracts expire at $1 (yes wins) or $0 (no wins) \u2014 you can also sell before expiration",
+          "Check the bid-ask spread before entering \u2014 thin markets have wide spreads that eat into profit",
+          "Kalshi is regulated by the CFTC \u2014 your funds are held in a segregated account"
+        ],
+        nextPage: "/market-insights"
+      },
+      ambassador: {
+        title: "Get Started as a VEDD Ambassador",
+        intro: "As a VEDD Ambassador you earn commissions every time someone you refer subscribes. The more you share, the more you earn \u2014 and ABBA helps you manage your leads.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "dQw4w9WgXcQ",
+          caption: "How the VEDD Ambassador program works \u2014 full overview"
+        },
+        steps: [
+          {
+            text: "Go to Ambassador Training (/ambassador-training) and start with Module 1. Complete all lessons in order.",
+            media: { type: "youtube", videoId: "dQw4w9WgXcQ", caption: "Intro to the VEDD Ambassador Program" }
+          },
+          {
+            text: "Pass the quiz at the end of each training module to unlock the next one. You need 70%+ to pass. Take your time \u2014 re-read the lesson if needed."
+          },
+          {
+            text: "After completing all modules, go to the Referral Hub (/referral-hub). Your unique referral link is shown there \u2014 copy it."
+          },
+          {
+            text: "Share your referral link everywhere you reach traders: Instagram, TikTok, YouTube, Discord, Telegram, WhatsApp groups, trading forums.",
+            media: { type: "image", url: "/assets/stock_images/social_media_marketi_1d2f1efd.jpg", caption: "Sharing your VEDD link across social platforms" }
+          },
+          {
+            text: "When someone clicks your link and subscribes to VEDD, you earn a commission automatically. Track it all in the Referral Hub dashboard."
+          },
+          {
+            text: "Use the ABBA Outreach tab to send personalized follow-up messages to your leads via SMS or email. Stay top of mind."
+          },
+          {
+            text: "Create short-form video content showing your real VEDD results \u2014 actual trade screenshots, P&L, and the platform in action. Authenticity converts.",
+            media: { type: "image", url: "/assets/stock_images/professional_video_r_aada2fa4.jpg", caption: "Creating trading content that converts" }
+          },
+          {
+            text: "Hit ambassador milestones to level up to Elite Ambassador \u2014 higher commission rates, exclusive bonuses, and priority support from the VEDD team."
+          }
+        ],
+        tips: [
+          "Authenticity beats hype \u2014 show your real trades and let the results speak",
+          "Focus on forex traders, futures traders, and anyone interested in passive/AI income",
+          'The #1 converting message: "I let an AI trade for me and here are my results"',
+          "Follow up with leads 2-3 times \u2014 most conversions happen on the 2nd or 3rd touchpoint"
+        ],
+        nextPage: "/ambassador-training"
+      },
+      prop_firm: {
+        title: "Pass Your Prop Firm Challenge with VEDD",
+        intro: "Prop firms give you up to $200,000 of funded capital if you pass their evaluation. VEDD's challenge mode is built to help you pass \u2014 consistently.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "v4xq2BfQDGE",
+          caption: "What is a prop firm challenge? Full explainer"
+        },
+        steps: [
+          {
+            text: "Go to Prop Firm Challenge (/prop-firm-challenge) in your VEDD menu. This is your challenge dashboard.",
+            media: { type: "youtube", videoId: "v4xq2BfQDGE", caption: "Understanding prop firm rules and how to pass" }
+          },
+          {
+            text: "Enable Prop Firm Mode in your live engine settings. This activates stricter rules: daily loss limit, session filter, and consistency enforcement."
+          },
+          {
+            text: "Set your Max Daily Loss to match your prop firm's rule (usually 4-5% of account). The engine auto-halts if this is hit."
+          },
+          {
+            text: "Enable the Session Filter \u2014 the AI will only trade during the London and New York sessions (8 AM \u2013 5 PM EST) when liquidity is highest."
+          },
+          {
+            text: "Enable Consistency Enforcement \u2014 this tracks your daily P&L to ensure you are winning consistently, not just on one lucky day."
+          },
+          {
+            text: "Set a Daily Profit Target (recommended: 1.5-2% of account). When this is hit, the engine stops trading for the day. This protects your gains."
+          },
+          {
+            text: "Monitor the ring gauges on the challenge dashboard daily. They show: daily loss used %, daily profit progress %, and consistency progress %."
+          },
+          {
+            text: "Let the Engine Mind panel guide you \u2014 it shows which strategies are hot, which pairs are blocked, and how the AI is adapting in real time."
+          },
+          {
+            text: "After 10+ consistent profitable days within your evaluation period, you pass. Submit your results to the prop firm for funding."
+          }
+        ],
+        tips: [
+          "Never risk more than 0.5-1% per trade during a challenge \u2014 slow and steady wins",
+          "Avoid trading on major news days (FOMC, NFP, CPI) \u2014 use the session filter to skip them",
+          "Consistency matters more than big days \u2014 prop firms want to see steady growth",
+          "The drawdown shield activates at 3% drawdown and restricts the AI to sniper-only setups"
+        ],
+        nextPage: "/prop-firm-challenge"
+      },
+      ea_generator: {
+        title: "Build & Install Your First MT5 Expert Advisor",
+        intro: "The VEDD EA Generator turns your strategy idea into real MQL5 code in seconds. You just describe what you want in plain English.",
+        heroVideo: {
+          type: "youtube",
+          videoId: "PicnkJPVUks",
+          caption: "What is an Expert Advisor (EA) and how does it work in MT5?"
+        },
+        steps: [
+          {
+            text: "Go to the EA Generator page (/futures-ea-generator) in the VEDD menu.",
+            media: { type: "youtube", videoId: "PicnkJPVUks", caption: "Overview of MetaTrader 5 Expert Advisors" }
+          },
+          {
+            text: 'In the text box, describe your strategy in plain English. Example: "Buy EURUSD when the RSI crosses above 30 from oversold. Use a 20-pip stop loss and 40-pip take profit. Only trade during London session."'
+          },
+          {
+            text: "Click Generate EA. ABBA will write the full MQL5 code for your strategy in about 30 seconds."
+          },
+          {
+            text: "Review the EA name, description, and code preview. If it looks right, click Download .mq5 to save the file to your computer."
+          },
+          {
+            text: "In MetaTrader 5, click File \u2192 Open Data Folder. Navigate to MQL5 \u2192 Experts folder. Copy your downloaded .mq5 file into this folder.",
+            media: { type: "youtube", videoId: "wF5P0BioHRQ", caption: "How to install an EA file into MetaTrader 5" }
+          },
+          {
+            text: "Back in MT5, press F5 (or right-click the Experts folder in Navigator and click Refresh). Your EA will appear in the list."
+          },
+          {
+            text: 'Drag the EA from the Navigator panel onto any chart. The EA settings dialog will open \u2014 make sure "Allow live trading" is checked.'
+          },
+          {
+            text: "Click OK. You will see a smiley face icon in the top right of the chart \u2014 this means the EA is running. An X means it is disabled \u2014 check the settings.",
+            media: { type: "youtube", videoId: "wF5P0BioHRQ", caption: "Verifying your EA is running correctly in MT5" }
+          },
+          {
+            text: "Monitor the Experts tab at the bottom of MT5 for log messages. Your EA will log every action it takes."
+          }
+        ],
+        tips: [
+          "Always test on a demo account first before running any EA on live funds",
+          "Be specific in your strategy description \u2014 the more detail, the better the code",
+          "You can save EAs to My EAs inside VEDD to reuse and share them later",
+          "If the EA is not triggering, check that AutoTrading is enabled (the green play button at the top of MT5)"
+        ],
+        nextPage: "/futures-ea-generator"
+      }
+    };
+    const guide = guides[topic];
+    if (!guide) return res.status(404).json({ error: "Unknown topic. Available: mt5, futures, kalshi, ambassador, prop_firm, ea_generator" });
+    res.json(guide);
   });
   app2.get("/api/trading-tips", tradingTipsHandler);
   app2.get("/api/gold-sentiment", async (req, res) => {
@@ -47418,7 +48710,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const today = (/* @__PURE__ */ new Date()).toISOString().substring(0, 10);
       dailyMap[today] = Math.round(currentBalance * 100) / 100;
     }
-    const series = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, balance]) => ({ date, balance }));
+    const series = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).map(([date2, balance]) => ({ date: date2, balance }));
     if (series.length === 0 && currentBalance > 0) {
       series.push({ date: (/* @__PURE__ */ new Date()).toISOString().substring(0, 10), balance: currentBalance });
     }
@@ -49931,9 +51223,9 @@ Rules:
       const lossDirections = { BUY: 0, SELL: 0 };
       lossTrades.forEach((trade) => {
         if (trade.createdAt) {
-          const date = new Date(trade.createdAt);
-          const hour = date.getHours();
-          const day = date.getDay();
+          const date2 = new Date(trade.createdAt);
+          const hour = date2.getHours();
+          const day = date2.getDay();
           lossHours[hour] = (lossHours[hour] || 0) + 1;
           lossDays[day] = (lossDays[day] || 0) + 1;
         }
@@ -50356,6 +51648,30 @@ Format each recommendation as a clear, concise action item.`;
       }
     }
     brain.optimalMinConfidence = optimalMinConfidence;
+    const prevBrain = global.veddAIBrain?.[userId];
+    const updateChanges = [];
+    if (prevBrain) {
+      const wrDelta = brain.overallWinRate - (prevBrain.overallWinRate ?? 0);
+      if (Math.abs(wrDelta) >= 1) updateChanges.push(`Overall win rate ${wrDelta > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrDelta)}% \u2192 now ${brain.overallWinRate}%`);
+      const newTrades = brain.totalTradesAnalyzed - (prevBrain.totalTradesAnalyzed ?? 0);
+      if (newTrades > 0) updateChanges.push(`+${newTrades} new trade${newTrades !== 1 ? "s" : ""} ingested (${brain.totalTradesAnalyzed} total)`);
+      const newPairs = Object.keys(brain.pairKnowledge).filter((p) => !prevBrain.pairKnowledge?.[p]);
+      if (newPairs.length > 0) updateChanges.push(`New pairs learned: ${newPairs.join(", ")}`);
+      for (const [sym, k] of Object.entries(brain.pairKnowledge)) {
+        const prev = prevBrain.pairKnowledge?.[sym];
+        if (!prev) continue;
+        const wrChange = k.winRate - (prev.winRate ?? 0);
+        if (Math.abs(wrChange) >= 3) updateChanges.push(`${sym} win rate ${wrChange > 0 ? "\u25B2" : "\u25BC"} ${Math.abs(wrChange)}% \u2192 ${k.winRate}%`);
+        if (prev.preferredDirection !== k.preferredDirection) updateChanges.push(`${sym} direction bias changed: ${prev.preferredDirection} \u2192 ${k.preferredDirection}`);
+      }
+    } else {
+      updateChanges.push(`Brain initialized from ${brain.totalTradesAnalyzed} trades across ${brain.pairsLearned} pairs`);
+    }
+    brain.lastUpdateChanges = updateChanges.slice(0, 10);
+    brain.lastUpdateAt = (/* @__PURE__ */ new Date()).toISOString();
+    if (prevBrain?.lastAutonomousSignals) {
+      brain.lastAutonomousSignals = prevBrain.lastAutonomousSignals;
+    }
     global.veddAIBrain[userId] = brain;
     try {
       const brainDir = path9.join(process.cwd(), "data", "brains");
@@ -51581,7 +52897,7 @@ Respond with ONLY valid JSON:
       let waitForConfirm = null;
       for (let i = 20; i < bars.length; i++) {
         const bar = bars[i];
-        const date = new Date(bar.timestamp).toISOString().slice(0, 16);
+        const date2 = new Date(bar.timestamp).toISOString().slice(0, 16);
         if (openTrade) {
           const { entryPrice: entryPrice2, direction: direction2, tp: tpPrice, sl: slPrice, lots: lots2, entryDate } = openTrade;
           let closed = false;
@@ -51616,7 +52932,7 @@ Respond with ONLY valid JSON:
             if (equity > peakEquity) peakEquity = equity;
             const dd = (peakEquity - equity) / peakEquity * 100;
             if (dd > maxDrawdownPct) maxDrawdownPct = dd;
-            tradeLog.push({ entryDate, exitDate: date, direction: direction2, entryPrice: entryPrice2, exitPrice, pnlPct, result });
+            tradeLog.push({ entryDate, exitDate: date2, direction: direction2, entryPrice: entryPrice2, exitPrice, pnlPct, result });
             openTrade = null;
           }
           continue;
@@ -51651,7 +52967,7 @@ Respond with ONLY valid JSON:
         const slP = direction === "BUY" ? entryPrice * (1 - sl / 100) : entryPrice * (1 + sl / 100);
         let lots = ab * rpt / 100 / (sl / 100 * entryPrice);
         lots = Math.max(0.01, Math.min(2, lots));
-        openTrade = { entryPrice, direction, entryBar: i, tp: tpP, sl: slP, lots, entryDate: date };
+        openTrade = { entryPrice, direction, entryBar: i, tp: tpP, sl: slP, lots, entryDate: date2 };
       }
       const totalTrades = tradeLog.length;
       const wins = tradeLog.filter((t) => t.result === "WIN").length;
@@ -52839,14 +54155,14 @@ Respond with ONLY valid JSON:
       const cached2 = global.mt5AccountData?.[userId];
       const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
-      const eq11 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
+      const eq12 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const [todayDbTrades, weekDbTrades] = await Promise.all([
         db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
         db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
       ]);
       const dailyPnl = parseFloat(todayDbTrades[0]?.[0]?.pnl ?? 0);
       const weeklyPnl = parseFloat(weekDbTrades[0]?.[0]?.pnl ?? 0);
-      mt5 = { balance: bal, equity: eq11, dailyPnl, weeklyPnl, isOnline };
+      mt5 = { balance: bal, equity: eq12, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
     }
@@ -56213,7 +57529,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -56273,7 +57589,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -56285,7 +57601,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq9(userApiKeys.userId, req.user.id), eq9(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -56456,6 +57772,166 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     setPropFirmContext2(req.user.id, ctx);
     res.json({ success: true, context: getPropFirmContext2(req.user.id) });
   });
+  app2.get("/api/prop-firm-challenge/dashboard", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user.id;
+    const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const state = getLiveEngineState3(userId);
+    if (!state) return res.json({ active: false });
+    const cfg = state.config;
+    const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    const todayPnL = state.pnlToday ?? 0;
+    const balance = cfg.accountBalance || 0;
+    const challengePnLHistory = state.challengeDailyPnL ?? {};
+    challengePnLHistory[today] = todayPnL;
+    const periodKeys = Object.keys(challengePnLHistory).sort().slice(-(cfg.consistencyPeriodDays || 15));
+    const profitableDays = periodKeys.filter((k) => (challengePnLHistory[k] ?? 0) > 0).length;
+    const totalTradingDays = periodKeys.length;
+    const daysRemaining = (cfg.consistencyPeriodDays || 15) - totalTradingDays;
+    const daysNeeded = (cfg.consistencyMinProfitableDays || 10) - profitableDays;
+    const consistencyStatus = state._consistencyStatus ?? null;
+    const dailyLossLimitDollar = balance * (cfg.propFirmDailyDrawdownLimit || 4) / 100;
+    const dailyLossUsedPct = dailyLossLimitDollar > 0 ? Math.abs(Math.min(0, todayPnL)) / dailyLossLimitDollar * 100 : 0;
+    const dailyProfitTargetDollar = cfg.dailyProfitTarget > 0 ? balance * cfg.dailyProfitTarget / 100 : null;
+    const sessionFilterEnabled = cfg.challengeSessionFilterEnabled && cfg.propFirmMode;
+    const utcHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const inSessionWindow = utcHour >= 13 && utcHour < 17;
+    res.json({
+      active: true,
+      propFirmMode: cfg.propFirmMode,
+      balance,
+      todayPnL,
+      todayPnLPct: balance > 0 ? todayPnL / balance * 100 : 0,
+      dailyLossLimitPct: cfg.propFirmDailyDrawdownLimit || 4,
+      dailyLossLimitDollar,
+      dailyLossUsedPct,
+      dailyLossHalted: state.dailyLossHalted,
+      dailyProfitHalted: state.dailyProfitHalted,
+      dailyProfitTargetPct: cfg.dailyProfitTarget || 0,
+      dailyProfitTargetDollar,
+      drawdownShieldActive: state.drawdownShieldActive,
+      sessionFilterEnabled,
+      inSessionWindow,
+      consistencyEnforcementEnabled: cfg.consistencyEnforcementEnabled,
+      consistencyMinProfitableDays: cfg.consistencyMinProfitableDays || 10,
+      consistencyPeriodDays: cfg.consistencyPeriodDays || 15,
+      profitableDays,
+      totalTradingDays,
+      daysRemaining,
+      daysNeeded: Math.max(0, daysNeeded),
+      riskMultiplier: consistencyStatus?.riskMultiplier ?? 1,
+      dailyPnLHistory: challengePnLHistory,
+      periodKeys,
+      engineStatus: state.status,
+      scanCount: state.scanCount,
+      tradesExecuted: state.tradesExecuted,
+      openPositionCount: state.openPositionCount
+    });
+  });
+  app2.post("/api/prop-firm-challenge/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user.id;
+    const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const {
+      challengeSessionFilterEnabled,
+      consistencyEnforcementEnabled,
+      consistencyMinProfitableDays,
+      consistencyPeriodDays,
+      dailyProfitTarget,
+      propFirmDailyDrawdownLimit
+    } = req.body;
+    const updates = {};
+    if (typeof challengeSessionFilterEnabled === "boolean") updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
+    if (typeof consistencyEnforcementEnabled === "boolean") updates.consistencyEnforcementEnabled = consistencyEnforcementEnabled;
+    if (typeof consistencyMinProfitableDays === "number") updates.consistencyMinProfitableDays = consistencyMinProfitableDays;
+    if (typeof consistencyPeriodDays === "number") updates.consistencyPeriodDays = consistencyPeriodDays;
+    if (typeof dailyProfitTarget === "number") updates.dailyProfitTarget = dailyProfitTarget;
+    if (typeof propFirmDailyDrawdownLimit === "number") updates.propFirmDailyDrawdownLimit = propFirmDailyDrawdownLimit;
+    updateLiveEngineConfig3(userId, updates);
+    res.json({ success: true, updates });
+  });
+  app2.get("/api/engine/mind-state", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user.id;
+    const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const state = getLiveEngineState3(userId);
+    if (!state) return res.json({ active: false });
+    const mind = state.mindState;
+    if (!mind) return res.json({ active: true, mindState: null });
+    res.json({
+      active: true,
+      engineStatus: state.status,
+      mindState: {
+        sessionWins: mind.sessionWins,
+        sessionLosses: mind.sessionLosses,
+        sessionConsecutiveLosses: mind.sessionConsecutiveLosses,
+        sessionConsecutiveWins: mind.sessionConsecutiveWins,
+        sessionWinRate: mind.sessionWinRate,
+        coolOffUntil: mind.coolOffUntil,
+        coolOffActive: mind.coolOffUntil > Date.now(),
+        coolOffRemainingMin: mind.coolOffUntil > Date.now() ? Math.ceil((mind.coolOffUntil - Date.now()) / 6e4) : 0,
+        adaptedConfidenceFloor: mind.adaptedConfidenceFloor,
+        configuredConfidenceFloor: state.config.minConfidence,
+        softBlockedPairs: Object.entries(mind.softBlockedPairs || {}).filter(([, v]) => v.until > Date.now()).map(([sym, v]) => ({ sym, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 6e4) })),
+        blockedStrategies: mind.blockedStrategies ? [...mind.blockedStrategies] : [],
+        pairSessionWins: mind.pairSessionWins,
+        pairSessionLosses: mind.pairSessionLosses,
+        hourlyPnL: mind.hourlyPnL,
+        lastAdaptedAt: mind.lastAdaptedAt,
+        adaptationLog: mind.adaptationLog,
+        strategyWeights: state.strategyPerformanceWeights
+      }
+    });
+  });
+  app2.get("/api/engine/brain-snapshot", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user.id;
+    const brain = global.veddAIBrain?.[userId];
+    const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const state = getLiveEngineState3(userId);
+    if (!brain) {
+      return res.json({
+        trained: false,
+        totalTradesAnalyzed: 0,
+        overallWinRate: 0,
+        pairsLearned: 0,
+        lastLearned: null,
+        pairKnowledge: {},
+        learningInsights: [],
+        hftReadiness: { hasEnoughData: false },
+        recentEnforcementLog: [],
+        tradingMode: state?.config?.tradingMode ?? "server_ai"
+      });
+    }
+    res.json({
+      trained: true,
+      totalTradesAnalyzed: brain.totalTradesAnalyzed ?? 0,
+      overallWinRate: brain.overallWinRate ?? 0,
+      totalProfit: brain.totalProfit ?? 0,
+      pairsLearned: brain.pairsLearned ?? 0,
+      lastLearned: brain.lastLearned ?? null,
+      lastUpdateAt: brain.lastUpdateAt ?? null,
+      lastUpdateChanges: brain.lastUpdateChanges ?? [],
+      pairKnowledge: brain.pairKnowledge ?? {},
+      learningInsights: brain.learningInsights ?? [],
+      hftReadiness: brain.hftReadiness ?? {},
+      recentEnforcementLog: (brain.enforcementLog ?? brain.recentEnforcementLog ?? []).slice(0, 15),
+      lastAutonomousSignals: brain.lastAutonomousSignals ?? null,
+      tradingMode: state?.config?.tradingMode ?? "server_ai"
+    });
+  });
+  app2.patch("/api/engine/trading-mode", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { mode } = req.body;
+    if (!["server_ai", "ea_only", "both"].includes(mode)) {
+      return res.status(400).json({ message: "mode must be server_ai, ea_only, or both" });
+    }
+    const userId = req.user.id;
+    const { updateLiveEngineConfig: updateLiveEngineConfig3, getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    updateLiveEngineConfig3(userId, { tradingMode: mode });
+    const state = getLiveEngineState3(userId);
+    res.json({ success: true, tradingMode: state?.config?.tradingMode ?? mode });
+  });
   app2.get("/api/breakout-mode", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user.id;
@@ -56600,7 +58076,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq11, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq12, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -56613,7 +58089,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq11(wearToEarnClaims2.userId, userId), eq11(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq12(wearToEarnClaims2.userId, userId), eq12(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -56640,7 +58116,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq11(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq12(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -56649,7 +58125,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq11(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq12(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -56658,7 +58134,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql, eq: eq11, and: and7, desc: desc4 } = await import("drizzle-orm");
+    const { sql: drizzleSql, eq: eq12, and: and7, desc: desc5 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -56752,7 +58228,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq11, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq12, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -56767,16 +58243,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
         ownedByMe: drizzleSql`false`
-      }).from(nfcActivations2).where(eq11(nfcActivations2.chipUid, uid2)).limit(1);
+      }).from(nfcActivations2).where(eq12(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq11(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq12(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq11(nfcDailyTaps2.userId, userId), eq11(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq12(nfcDailyTaps2.userId, userId), eq12(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -56787,7 +58263,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq11(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq12(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -56820,13 +58296,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq11(nfcActivations2.chipUid, uid2), eq11(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq12(nfcActivations2.chipUid, uid2), eq12(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and7(
-        eq11(nfcDailyTaps2.userId, userId),
-        eq11(nfcDailyTaps2.chipUid, uid2),
-        eq11(nfcDailyTaps2.dayString, today)
+        eq12(nfcDailyTaps2.userId, userId),
+        eq12(nfcDailyTaps2.chipUid, uid2),
+        eq12(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -56853,7 +58329,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq11(nfcActivations2.id, activation.id));
+      }).where(eq12(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -57304,12 +58780,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const existing = await storage.getGrantApplicationById(appId);
     if (!existing) return res.status(404).json({ error: "Application not found" });
     if (existing.userId !== user.id && !user.isAdmin) return res.status(403).json({ error: "Forbidden" });
-    const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const date2 = (/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     const exportText = [
       "===================================",
       "GRANT PROPOSAL \u2014 VEDD AI Trading",
       "===================================",
-      `Grant: ${existing.grant.title} | Funder: ${existing.grant.funder} | Date: ${date}`,
+      `Grant: ${existing.grant.title} | Funder: ${existing.grant.funder} | Date: ${date2}`,
       "===================================",
       "",
       existing.proposalContent || "(No proposal content yet \u2014 generate a proposal first)",
@@ -57945,8 +59421,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Admin only" });
     }
     try {
-      const { date } = req.body;
-      const targetDate = date || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const { date: date2 } = req.body;
+      const targetDate = date2 || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const generated = await generateDailyDevotional(targetDate);
       const inserted = await insertDevotional({ date: targetDate, ...generated });
       res.json(inserted[0] || inserted);
@@ -60178,7 +61654,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq10 } from "drizzle-orm";
+import { eq as eq11 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -60312,7 +61788,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq10(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq11(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -60668,8 +62144,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq11 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq11(engineRunState2.isRunning, true));
+    const { eq: eq12 } = await import("drizzle-orm");
+    const runningRows = await db2.select().from(engineRunState2).where(eq12(engineRunState2.isRunning, true));
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));

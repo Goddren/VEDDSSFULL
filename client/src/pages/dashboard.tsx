@@ -291,6 +291,7 @@ const Dashboard: React.FC = () => {
   const [showFaithContent, setShowFaithContent] = useState<boolean>(true);
 
   const [showManualTradeDialog, setShowManualTradeDialog] = useState(false);
+  const [showFeaturesHub, setShowFeaturesHub] = useState(false);
 
   // Section toggles — persisted in localStorage
   const [showStats, toggleStats] = useSectionToggle('stats');
@@ -892,6 +893,15 @@ const Dashboard: React.FC = () => {
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
                 <span className="whitespace-nowrap">{ssEngineRunning ? 'LIVE' : 'OFF'}</span>
               </div>
+              {/* Explore Features button — desktop prominent, mobile compact */}
+              <button
+                onClick={() => setShowFeaturesHub(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:border-red-500/60 transition-all active:scale-95 whitespace-nowrap"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" strokeWidth="1.5"/><path d="M4 6h4M6 4v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                <span className="hidden sm:inline">Explore Features</span>
+                <span className="sm:hidden">Features</span>
+              </button>
             </div>
           </div>
 
@@ -1059,6 +1069,32 @@ const Dashboard: React.FC = () => {
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════════
+          DESKTOP QUICK-ACCESS GRID — visible on md+ only
+      ══════════════════════════════════════════════════════════════════ */}
+      <div className="hidden md:block container mx-auto px-6 pt-4 pb-1">
+        <div className="grid grid-cols-8 gap-2">
+          {[
+            { label: 'Chart Analysis', icon: '📊', path: '/analysis', color: '#ef4444' },
+            { label: 'SS AI Engine', icon: '⚡', path: '/weekly-strategy', color: '#10b981', dot: ssEngineRunning },
+            { label: 'ORB Breakout', icon: '🎯', path: '/orb-breakout', color: '#f59e0b' },
+            { label: 'Abba AI', icon: '🧠', path: '/abba', color: '#a855f7' },
+            { label: 'Copy Trading', icon: '📋', path: '/copy-trading', color: '#6366f1' },
+            { label: 'Multi-TF', icon: '🔬', path: '/multi-timeframe', color: '#22d3ee' },
+            { label: 'EA Marketplace', icon: '🤖', path: '/ea-marketplace', color: '#fb923c' },
+            { label: 'My EAs', icon: '💾', path: '/my-eas', color: '#84cc16' },
+          ].map(item => (
+            <Link key={item.path} href={item.path}>
+              <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-2 py-2.5 flex flex-col items-center gap-1.5 cursor-pointer hover:border-gray-600 hover:bg-gray-800/60 transition-all group relative">
+                {item.dot && <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                <span className="text-lg leading-none">{item.icon}</span>
+                <span className="text-[9px] font-bold text-gray-400 group-hover:text-white text-center leading-tight transition-colors">{item.label}</span>
+              </div>
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -2981,10 +3017,146 @@ const Dashboard: React.FC = () => {
         open={showManualTradeDialog}
         onClose={() => setShowManualTradeDialog(false)}
         onSaved={() => {
-          // Trigger a fresh progress sync so the weekly bar updates immediately
           syncProgressMutation.mutate();
         }}
       />
+
+      {/* ══════════════════════════════════════════════════════════════════
+          FEATURES HUB OVERLAY — full app navigation in one place
+      ══════════════════════════════════════════════════════════════════ */}
+      {showFeaturesHub && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:justify-end" onClick={() => setShowFeaturesHub(false)}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+          {/* Drawer panel */}
+          <div
+            className="relative z-10 w-full md:w-[420px] md:h-full md:max-h-screen overflow-y-auto rounded-t-3xl md:rounded-none md:rounded-l-3xl border-t md:border-t-0 md:border-l border-gray-700/60"
+            style={{ background: '#0D1117', maxHeight: '90vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b border-gray-800" style={{ background: '#0D1117' }}>
+              <div>
+                <h2 className="text-white font-black text-base">All Features</h2>
+                <p className="text-gray-500 text-xs mt-0.5">Everything VEDD has to offer</p>
+              </div>
+              <button onClick={() => setShowFeaturesHub(false)} className="w-8 h-8 rounded-xl bg-gray-800 hover:bg-gray-700 flex items-center justify-center transition-colors">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-5">
+              {[
+                {
+                  label: '🤖 AI Analysis', color: '#ef4444',
+                  items: [
+                    { name: 'Chart Analysis', path: '/analysis', desc: 'AI reads your charts', icon: '📊' },
+                    { name: 'Multi-Timeframe', path: '/multi-timeframe', desc: 'Cross-TF confirmation', icon: '🔬' },
+                    { name: 'Historical', path: '/historical', desc: 'Past analysis library', icon: '📚' },
+                    { name: 'What-If Analysis', path: '/what-if', desc: 'Scenario simulator', icon: '🔮' },
+                    { name: 'Market Insights', path: '/market-insights', desc: 'AI market read', icon: '🌐' },
+                  ]
+                },
+                {
+                  label: '⚡ Trading Engines', color: '#10b981',
+                  items: [
+                    { name: 'VEDD SS Engine', path: '/weekly-strategy', desc: 'AI forex engine', icon: '⚡', live: ssEngineRunning },
+                    { name: 'ORB Breakout', path: '/orb-breakout', desc: 'Open-range scanner', icon: '🎯', live: breakoutMonitorOn },
+                    { name: 'Abba AI Strategist', path: '/abba', desc: 'Weekly planning AI', icon: '🧠' },
+                    { name: 'Copy Trading', path: '/copy-trading', desc: 'Mirror top traders', icon: '📋' },
+                    { name: 'Solana Scanner', path: '/solana-scanner', desc: 'SOL token AI', icon: '◎' },
+                    { name: 'Futures Connect', path: '/futures-connect', desc: 'Futures trading', icon: '📈' },
+                  ]
+                },
+                {
+                  label: '🤖 EAs & Bots', color: '#f59e0b',
+                  items: [
+                    { name: 'My EAs', path: '/my-eas', desc: 'Your saved expert advisors', icon: '💾' },
+                    { name: 'EA Marketplace', path: '/ea-marketplace', desc: 'Download community EAs', icon: '🛒' },
+                    { name: 'AI Trading Models', path: '/ai-trading-models', desc: 'AI-generated strategies', icon: '🧮' },
+                    { name: 'Live Monitor', path: '/live-monitor', desc: 'Real-time engine watch', icon: '📡' },
+                    { name: 'Webhooks', path: '/webhooks', desc: 'Signal automation', icon: '🔗' },
+                    { name: 'Mobile Alerts', path: '/mobile-alerts', desc: 'Push notifications', icon: '🔔' },
+                  ]
+                },
+                {
+                  label: '💰 Grow & Earn', color: '#a855f7',
+                  items: [
+                    { name: 'VEDD Wallet', path: '/vedd-wallet', desc: 'Your VEDD token balance', icon: '💎' },
+                    { name: 'Account Growth', path: '/account-growth', desc: 'Growth plan builder', icon: '📈' },
+                    { name: 'Referral Hub', path: '/referral', desc: 'Earn by referring', icon: '🎁' },
+                    { name: 'Achievements', path: '/achievements', desc: 'Unlock badges', icon: '🏆' },
+                    { name: 'Activity Hub', path: '/activity', desc: 'Daily missions & XP', icon: '🎮' },
+                    { name: 'Streak Tracker', path: '/streak', desc: 'Daily login streaks', icon: '🔥' },
+                  ]
+                },
+                {
+                  label: '🌐 Community', color: '#22d3ee',
+                  items: [
+                    { name: 'Community', path: '/community', desc: 'Trader network', icon: '👥' },
+                    { name: 'Social Hub', path: '/social-hub', desc: 'Share & engage', icon: '📱' },
+                    { name: 'Blog', path: '/blog', desc: 'Trading insights', icon: '📝' },
+                    { name: 'Market Sentiment', path: '/market-sentiment', desc: 'Crowd signal', icon: '🌡️' },
+                  ]
+                },
+                {
+                  label: '📚 Learn', color: '#84cc16',
+                  items: [
+                    { name: 'Daily Devotional', path: '/devotional', desc: 'Faith & trading wisdom', icon: '✝️' },
+                    { name: 'Training Calendar', path: '/training-calendar', desc: 'Structured learning', icon: '📅' },
+                    { name: 'Ambassador Training', path: '/ambassador-training', desc: '44-day challenge', icon: '🌟' },
+                    { name: 'Workforce Academy', path: '/workforce-academy', desc: 'Earn certificates', icon: '🎓' },
+                  ]
+                },
+              ].map(section => (
+                <div key={section.label}>
+                  <p className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: section.color }}>{section.label}</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {section.items.map(item => (
+                      <Link key={item.path} href={item.path}>
+                        <div
+                          onClick={() => setShowFeaturesHub(false)}
+                          className="flex items-center gap-2.5 rounded-xl border border-gray-800 bg-gray-900/40 px-3 py-2.5 cursor-pointer hover:border-gray-600 hover:bg-gray-800/60 transition-all group"
+                        >
+                          <span className="text-base flex-shrink-0">{item.icon}</span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              <p className="text-xs font-semibold text-white group-hover:text-white leading-tight truncate">{item.name}</p>
+                              {(item as any).live && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />}
+                            </div>
+                            <p className="text-[9px] text-gray-500 leading-tight truncate">{item.desc}</p>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* Settings row */}
+              <div className="pt-1 border-t border-gray-800 flex gap-2">
+                {[
+                  { name: 'Profile', path: '/profile', icon: '👤' },
+                  { name: 'AI API Keys', path: '/ai-api-keys', icon: '🔑' },
+                  { name: 'Subscription', path: '/subscription', icon: '💳' },
+                  { name: 'MT5 Data', path: '/mt5-chart-data', icon: '📉' },
+                ].map(item => (
+                  <Link key={item.path} href={item.path}>
+                    <div
+                      onClick={() => setShowFeaturesHub(false)}
+                      className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-gray-800 bg-gray-900/30 px-3 py-2 cursor-pointer hover:border-gray-600 transition-all"
+                    >
+                      <span className="text-sm">{item.icon}</span>
+                      <span className="text-[9px] text-gray-500 font-medium text-center">{item.name}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
