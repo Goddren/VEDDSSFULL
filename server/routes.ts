@@ -22462,6 +22462,43 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     res.json({ success: true, updates });
   });
 
+  // Engine mind state — live autonomous adaptation metrics
+  app.get("/api/engine/mind-state", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { getLiveEngineState } = await import('./services/live-trading-engine');
+    const state = getLiveEngineState(userId);
+    if (!state) return res.json({ active: false });
+    const mind = state.mindState;
+    if (!mind) return res.json({ active: true, mindState: null });
+    res.json({
+      active: true,
+      engineStatus: state.status,
+      mindState: {
+        sessionWins: mind.sessionWins,
+        sessionLosses: mind.sessionLosses,
+        sessionConsecutiveLosses: mind.sessionConsecutiveLosses,
+        sessionConsecutiveWins: mind.sessionConsecutiveWins,
+        sessionWinRate: mind.sessionWinRate,
+        coolOffUntil: mind.coolOffUntil,
+        coolOffActive: mind.coolOffUntil > Date.now(),
+        coolOffRemainingMin: mind.coolOffUntil > Date.now() ? Math.ceil((mind.coolOffUntil - Date.now()) / 60000) : 0,
+        adaptedConfidenceFloor: mind.adaptedConfidenceFloor,
+        configuredConfidenceFloor: state.config.minConfidence,
+        softBlockedPairs: Object.entries(mind.softBlockedPairs || {})
+          .filter(([, v]) => v.until > Date.now())
+          .map(([sym, v]) => ({ sym, reason: v.reason, remainingMin: Math.ceil((v.until - Date.now()) / 60000) })),
+        blockedStrategies: mind.blockedStrategies ? [...mind.blockedStrategies] : [],
+        pairSessionWins: mind.pairSessionWins,
+        pairSessionLosses: mind.pairSessionLosses,
+        hourlyPnL: mind.hourlyPnL,
+        lastAdaptedAt: mind.lastAdaptedAt,
+        adaptationLog: mind.adaptationLog,
+        strategyWeights: state.strategyPerformanceWeights,
+      },
+    });
+  });
+
   app.get("/api/breakout-mode", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user!.id;

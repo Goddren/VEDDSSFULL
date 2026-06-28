@@ -404,6 +404,23 @@ interface EngineState {
   orbDailyFired: Record<string, string>;
   /** Single strategy + once-per-day: key = "YYYY-MM-DD_strategyKey", value = true once fired */
   strategyDailyFired: Record<string, boolean>;
+  /** Autonomous mind state — updated after every trade and every 5 scans */
+  mindState: {
+    sessionWins: number;
+    sessionLosses: number;
+    sessionConsecutiveLosses: number;
+    sessionConsecutiveWins: number;
+    sessionWinRate: number;          // rolling session win rate 0–1
+    coolOffUntil: number;            // ms timestamp — no scans until this passes
+    adaptedConfidenceFloor: number;  // engine-adjusted min confidence (overrides config)
+    softBlockedPairs: Record<string, { until: number; reason: string }>;  // pairs throttled by engine
+    blockedStrategies: Set<string>;  // strategies blocked by COLD weight gate
+    pairSessionWins: Record<string, number>;
+    pairSessionLosses: Record<string, number>;
+    hourlyPnL: Record<number, number>;   // UTC hour → session P&L in that hour
+    lastAdaptedAt: string | null;
+    adaptationLog: string[];          // last 10 autonomous decisions the engine made
+  };
 }
 
 const engineStates: Record<number, EngineState> = {};
@@ -1114,6 +1131,13 @@ export function recordTradeResult(userId: number, result: {
     }
   }
 
+  // ── Autonomous adaptation — fires on every trade close ────────────
+  runAutonomousAdaptation(userId, {
+    profit: result.profit,
+    symbol: result.symbol || '',
+    strategy: result.strategy || 'unknown',
+  });
+
   // ── Auto-retrain brain every 3 trade results ───────────────────────
   state.tradesSinceLastLearn = (state.tradesSinceLastLearn || 0) + 1;
   if (state.tradesSinceLastLearn >= 3) {
@@ -1218,6 +1242,50 @@ async function scanMarkets(userId: number): Promise<void> {
     (state as any)._consistencyRiskOverride = consistencyRiskMultiplier;
   } else {
     delete (state as any)._consistencyRiskOverride;
+  }
+
+  // ── Mind state: cool-off gate ─────────────────────────────────────────────
+  // Fires after 3 or 5 consecutive session losses. Engine pauses scanning
+  // entirely — no AI calls, no signals — until conditions reset.
+  const ms = state.mindState;
+  if (ms && ms.coolOffUntil > Date.now()) {
+    const remainingMin = Math.ceil((ms.coolOffUntil - Date.now()) / 60000);
+    if (state.scanCount % 6 === 0) { // log every ~6 scans to avoid spamming
+      addActivity(userId, {
+        type: 'info',
+        message: `⏸ Mind cool-off active — ${remainingMin} min remaining. Engine protecting capital after consecutive losses.`,
+      });
+    }
+    state.currentlyScanning = false;
+    return;
+  }
+
+  // Reset daily mind state metrics at UTC midnight
+  {
+    const mindDate = new Date().toISOString().split('T')[0];
+    if ((state as any)._mindStateResetDate !== mindDate) {
+      (state as any)._mindStateResetDate = mindDate;
+      ms.sessionWins = 0;
+      ms.sessionLosses = 0;
+      ms.sessionConsecutiveLosses = 0;
+      ms.sessionConsecutiveWins = 0;
+      ms.sessionWinRate = 0.5;
+      ms.coolOffUntil = 0;
+      ms.adaptedConfidenceFloor = state.config.minConfidence || 70;
+      ms.pairSessionWins = {};
+      ms.pairSessionLosses = {};
+      ms.softBlockedPairs = {};
+      ms.hourlyPnL = {};
+      addActivity(userId, { type: 'info', message: '🌅 New day — mind state reset. Session counters cleared, confidence floor restored.' });
+    }
+  }
+
+  // Clean up expired soft-blocked pairs
+  for (const sym of Object.keys(ms.softBlockedPairs)) {
+    if (ms.softBlockedPairs[sym].until < Date.now()) {
+      delete ms.softBlockedPairs[sym];
+      addActivity(userId, { type: 'info', message: `✅ ${sym} soft-block expired — restored to normal confidence threshold.` });
+    }
   }
 
   try {
@@ -2858,8 +2926,36 @@ These pairs had recent losses. Same-direction entries are code-blocked for 45-90
       }
     }
 
+    // ── Mind State section — tells AI what the engine has learned this session ──
+    let mindSection = '';
+    {
+      const mind = state.mindState;
+      if (mind && (mind.sessionWins + mind.sessionLosses) > 0) {
+        const total = mind.sessionWins + mind.sessionLosses;
+        const blockedStrats = mind.blockedStrategies ? [...mind.blockedStrategies] : [];
+        const softBlocked = Object.entries(mind.softBlockedPairs || {})
+          .filter(([, v]) => v.until > Date.now())
+          .map(([sym]) => sym);
+        const bestHour = Object.entries(mind.hourlyPnL || {})
+          .sort(([, a], [, b]) => (b as number) - (a as number))[0];
+        const worstHour = Object.entries(mind.hourlyPnL || {})
+          .sort(([, a], [, b]) => (a as number) - (b as number))[0];
+        mindSection = `
+🧠 ENGINE MIND STATE (live session learning — updated after every trade):
+Session: ${mind.sessionWins}W / ${mind.sessionLosses}L | Win rate: ${(mind.sessionWinRate * 100).toFixed(0)}% | Streak: ${mind.sessionConsecutiveWins > 0 ? `+${mind.sessionConsecutiveWins} wins` : mind.sessionConsecutiveLosses > 0 ? `-${mind.sessionConsecutiveLosses} losses` : 'neutral'}
+Adapted confidence floor: ${mind.adaptedConfidenceFloor}% (auto-raised from ${state.config.minConfidence}% based on session performance)
+${blockedStrats.length > 0 ? `AUTO-BLOCKED STRATEGIES (COLD weight): ${blockedStrats.join(', ')} — DO NOT use these` : 'All strategies available (none cold-blocked)'}
+${softBlocked.length > 0 ? `SOFT-BLOCKED PAIRS (90%+ needed): ${softBlocked.join(', ')} — only use on exceptional structure` : ''}
+${bestHour ? `Best trading hour today: ${bestHour[0]}:00 UTC ($${(bestHour[1] as number).toFixed(0)})` : ''}
+${worstHour && (worstHour[1] as number) < 0 ? `Worst hour: ${worstHour[0]}:00 UTC ($${(worstHour[1] as number).toFixed(0)}) — be cautious during this window` : ''}
+${mind.adaptationLog.slice(0, 3).map(l => `  • ${l}`).join('\n')}
+INSTRUCTION: The engine has autonomously adjusted based on the above. Respect the adapted confidence floor. Do NOT suggest blocked strategies. Weight your signals toward pairs and hours showing positive session performance.
+`;
+      }
+    }
+
     const prompt = `You are VEDD SS AI LIVE TRADING ENGINE - operating in REAL-TIME autonomous HIGH-FREQUENCY mode. You are directly monitoring live market data and making INSTANT trading decisions to hit a weekly profit goal.
-${triggerSection}${crossAssetSection}${codeGateSection}
+${triggerSection}${crossAssetSection}${codeGateSection}${mindSection}
 LIVE MARKET DATA (just fetched):
 ${marketSummary}
 
@@ -3528,6 +3624,50 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           message: `🛡️ SHIELD BLOCK: ${confidence}% confidence too low during shield mode (need 80%+). Skipping.`,
         });
         return;
+      }
+    }
+
+    // ── Mind State Gates (autonomous adaptation) ─────────────────────
+    {
+      const mind = state.mindState;
+      if (mind) {
+        // Gate A: Cold strategy block — strategy was auto-blocked due to weight ≤ 0.3
+        const decStrat = (decision.strategy || '').toLowerCase();
+        if (mind.blockedStrategies && mind.blockedStrategies.has(decStrat)) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🧠 COLD BLOCK: "${decStrat}" is auto-blocked — performance weight ≤ 0.3. Trade rejected. Strategy must recover before being used again.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
+
+        // Gate B: Soft-blocked pair — needs 90%+ confidence for 60 min after 3+ losses
+        const pairBlock = mind.softBlockedPairs?.[decision.symbol];
+        if (pairBlock && pairBlock.until > Date.now()) {
+          if (confidence < 90) {
+            addActivity(userId, {
+              type: 'info',
+              symbol: decision.symbol,
+              message: `🧠 PAIR BLOCK: ${decision.symbol} requires 90%+ confidence (${confidence}% given). Reason: ${pairBlock.reason}`,
+            });
+            state.signalsGenerated++;
+            return;
+          }
+        }
+
+        // Gate C: Adapted confidence floor — engine raised the floor based on session win rate
+        const adaptedFloor = mind.adaptedConfidenceFloor || state.config.minConfidence || 70;
+        if (adaptedFloor > (state.config.minConfidence || 70) && confidence < adaptedFloor) {
+          addActivity(userId, {
+            type: 'info',
+            symbol: decision.symbol,
+            message: `🧠 CONFIDENCE FLOOR: Session win rate ${(mind.sessionWinRate * 100).toFixed(0)}% — engine raised minimum to ${adaptedFloor}%. Signal at ${confidence}% rejected.`,
+          });
+          state.signalsGenerated++;
+          return;
+        }
       }
     }
 
@@ -5225,6 +5365,22 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     compositeLastFiredAt: {},
     orbDailyFired: {},
     strategyDailyFired: {},
+    mindState: {
+      sessionWins: 0,
+      sessionLosses: 0,
+      sessionConsecutiveLosses: 0,
+      sessionConsecutiveWins: 0,
+      sessionWinRate: 0.5,
+      coolOffUntil: 0,
+      adaptedConfidenceFloor: fullConfig.minConfidence || 70,
+      softBlockedPairs: {},
+      blockedStrategies: new Set<string>(),
+      pairSessionWins: {},
+      pairSessionLosses: {},
+      hourlyPnL: {},
+      lastAdaptedAt: null,
+      adaptationLog: [],
+    },
   };
 
   const adaptiveInterval = getAdaptiveScanInterval(fullConfig);
@@ -5346,6 +5502,131 @@ export function emergencyStopEngine(userId: number): EngineState | null {
 
   queueCloseAllSignal(userId, 'Emergency stop triggered from dashboard');
   return state || null;
+}
+
+// ── Autonomous Engine Adaptation ─────────────────────────────────────────────
+// Called after every trade close. Reads session performance and autonomously
+// adjusts: confidence floor, cool-off periods, soft-blocked pairs,
+// and blocked cold strategies — without any user input required.
+function runAutonomousAdaptation(userId: number, tradeResult: { profit: number; symbol: string; strategy: string }): void {
+  const state = engineStates[userId];
+  if (!state) return;
+  const ms = state.mindState;
+  const cfg = state.config;
+  const log = (msg: string) => {
+    ms.adaptationLog = [msg, ...ms.adaptationLog].slice(0, 20);
+    addActivity(userId, { type: 'info', message: `🧠 Mind: ${msg}` });
+  };
+
+  // ── 1. Update session win/loss counters ────────────────────────────────────
+  const win = tradeResult.profit > 0;
+  if (win) {
+    ms.sessionWins++;
+    ms.sessionConsecutiveWins++;
+    ms.sessionConsecutiveLosses = 0;
+    ms.pairSessionWins[tradeResult.symbol] = (ms.pairSessionWins[tradeResult.symbol] || 0) + 1;
+  } else {
+    ms.sessionLosses++;
+    ms.sessionConsecutiveLosses++;
+    ms.sessionConsecutiveWins = 0;
+    ms.pairSessionLosses[tradeResult.symbol] = (ms.pairSessionLosses[tradeResult.symbol] || 0) + 1;
+  }
+  const totalTrades = ms.sessionWins + ms.sessionLosses;
+  ms.sessionWinRate = totalTrades > 0 ? ms.sessionWins / totalTrades : 0.5;
+
+  // ── 2. Track P&L by UTC hour ───────────────────────────────────────────────
+  const utcHour = new Date().getUTCHours();
+  ms.hourlyPnL[utcHour] = (ms.hourlyPnL[utcHour] || 0) + tradeResult.profit;
+
+  // ── 3. Cool-off after 5 consecutive losses ─────────────────────────────────
+  // 5 consecutive losses in a session is a structural problem, not random noise.
+  // Engine pauses for 45 minutes to let conditions reset before trying again.
+  if (ms.sessionConsecutiveLosses >= 5) {
+    const coolOffMs = 45 * 60 * 1000;
+    ms.coolOffUntil = Date.now() + coolOffMs;
+    ms.sessionConsecutiveLosses = 0; // reset counter so next run starts fresh
+    log(`5 consecutive losses — COOLING OFF for 45 min. Session win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Market conditions appear unfavourable. Scans resume at ${new Date(ms.coolOffUntil).toISOString().substring(11, 16)} UTC.`);
+  } else if (ms.sessionConsecutiveLosses >= 3) {
+    // 3 losses: shorter cool-off of 20 minutes
+    const existing = ms.coolOffUntil - Date.now();
+    if (existing < 20 * 60 * 1000) {
+      ms.coolOffUntil = Date.now() + 20 * 60 * 1000;
+      log(`3 consecutive losses — cooling off 20 min. Waiting for better structure before next signal.`);
+    }
+  }
+
+  // ── 4. Autonomous confidence floor adjustment ──────────────────────────────
+  // Win rate drives the adaptive confidence floor, adjusted after every 5 trades.
+  if (totalTrades >= 5 && totalTrades % 5 === 0) {
+    const baseFloor = cfg.minConfidence || 70;
+    let newFloor: number;
+    if (ms.sessionWinRate < 0.35) {
+      // Below 35% win rate: engine is in a bad regime — raise to 85%
+      newFloor = Math.max(baseFloor, 85);
+    } else if (ms.sessionWinRate < 0.45) {
+      newFloor = Math.max(baseFloor, 80);
+    } else if (ms.sessionWinRate < 0.55) {
+      newFloor = Math.max(baseFloor, 75);
+    } else if (ms.sessionWinRate >= 0.70) {
+      // Strong win rate: engine earned the right to be slightly more selective
+      // Lower floor by 3% (never below user's configured floor)
+      newFloor = Math.max(baseFloor - 3, baseFloor);
+    } else {
+      newFloor = baseFloor;
+    }
+    if (newFloor !== ms.adaptedConfidenceFloor) {
+      log(`Win rate ${(ms.sessionWinRate * 100).toFixed(0)}% after ${totalTrades} trades — confidence floor adjusted: ${ms.adaptedConfidenceFloor}% → ${newFloor}%`);
+      ms.adaptedConfidenceFloor = newFloor;
+    }
+  }
+
+  // ── 5. Soft-block pairs with 3+ session losses ────────────────────────────
+  // A pair with 3+ losses this session gets a soft block: confidence raised to 90%
+  // for the next 60 minutes. Still tradeable, but only on exceptional setups.
+  const pairLosses = ms.pairSessionLosses[tradeResult.symbol] || 0;
+  if (pairLosses >= 3 && !win) {
+    const blockUntil = Date.now() + 60 * 60 * 1000;
+    const existing = ms.softBlockedPairs[tradeResult.symbol];
+    if (!existing || existing.until < blockUntil) {
+      ms.softBlockedPairs[tradeResult.symbol] = {
+        until: blockUntil,
+        reason: `${pairLosses} session losses — confidence raised to 90% for 60 min`,
+      };
+      log(`${tradeResult.symbol} soft-blocked: ${pairLosses} losses this session. Needs 90%+ confidence for next 60 min.`);
+    }
+  }
+
+  // ── 6. Auto-block cold strategies based on performance weights ─────────────
+  // Strategies at or below COLD threshold (≤0.3) are gate-blocked, not just flagged.
+  const COLD_THRESHOLD = 0.3;
+  const newBlockedStrategies = new Set<string>();
+  for (const [strat, weight] of Object.entries(state.strategyPerformanceWeights)) {
+    if (weight <= COLD_THRESHOLD) {
+      newBlockedStrategies.add(strat);
+    }
+  }
+  // Log newly blocked strategies
+  for (const strat of newBlockedStrategies) {
+    if (!ms.blockedStrategies.has(strat)) {
+      log(`Strategy "${strat}" weight dropped to ${(state.strategyPerformanceWeights[strat] || 0).toFixed(2)} — AUTO-BLOCKED until it recovers above ${COLD_THRESHOLD}`);
+    }
+  }
+  // Log newly unblocked strategies
+  for (const strat of ms.blockedStrategies) {
+    if (!newBlockedStrategies.has(strat)) {
+      log(`Strategy "${strat}" weight recovered — AUTO-UNBLOCKED. Restored to scan pool.`);
+    }
+  }
+  ms.blockedStrategies = newBlockedStrategies;
+
+  // ── 7. Announce win streaks ────────────────────────────────────────────────
+  if (ms.sessionConsecutiveWins === 3) {
+    log(`3 consecutive wins — session momentum building. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Engine maintaining current rhythm.`);
+  } else if (ms.sessionConsecutiveWins === 5) {
+    log(`5-win streak — exceptional session. Win rate: ${(ms.sessionWinRate * 100).toFixed(0)}%. Confidence floor remains at ${ms.adaptedConfidenceFloor}% — not chasing, staying disciplined.`);
+  }
+
+  ms.lastAdaptedAt = new Date().toISOString();
 }
 
 function checkDailyLossLimit(userId: number): void {

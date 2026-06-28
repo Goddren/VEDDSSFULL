@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import {
   Shield, TrendingUp, TrendingDown, Clock, Target, AlertTriangle,
   CheckCircle2, XCircle, Calendar, Zap, BarChart2, Play, Pause,
-  ChevronUp, ChevronDown, Lock, Unlock
+  ChevronUp, ChevronDown, Lock, Unlock, Brain, Activity
 } from 'lucide-react';
 
 interface DashboardData {
@@ -130,6 +130,16 @@ export default function PropFirmChallengePage() {
     consistencyPeriodDays: 15,
     dailyProfitTarget: 2,
     propFirmDailyDrawdownLimit: 4,
+  });
+
+  const { data: mindData, refetch: refetchMind } = useQuery<any>({
+    queryKey: ['/api/engine/mind-state'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/engine/mind-state');
+      return res.json();
+    },
+    refetchInterval: 10000,
+    enabled: !!user,
   });
 
   const { data, isLoading, refetch } = useQuery<DashboardData>({
@@ -535,6 +545,118 @@ export default function PropFirmChallengePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Engine Mind State */}
+        {mindData?.active && mindData?.mindState && (
+          <Card className="bg-slate-900 border-slate-700">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-base text-white flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-violet-400" />
+                  Engine Mind — Live Session Intelligence
+                </CardTitle>
+                {mindData.mindState.coolOffActive && (
+                  <Badge className="bg-orange-500/20 border-orange-500/40 text-orange-300 text-xs border">
+                    ⏸ Cool-off: {mindData.mindState.coolOffRemainingMin}m remaining
+                  </Badge>
+                )}
+              </div>
+              <CardDescription className="text-slate-400 text-xs">
+                The engine autonomously updates its own rules after every trade — no user input required.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {/* Session stats row */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Session Wins', value: mindData.mindState.sessionWins, color: 'text-emerald-400' },
+                  { label: 'Session Losses', value: mindData.mindState.sessionLosses, color: 'text-red-400' },
+                  { label: 'Win Rate', value: `${(mindData.mindState.sessionWinRate * 100).toFixed(0)}%`, color: mindData.mindState.sessionWinRate >= 0.55 ? 'text-emerald-400' : mindData.mindState.sessionWinRate >= 0.40 ? 'text-amber-400' : 'text-red-400' },
+                  { label: 'Confidence Floor', value: `${mindData.mindState.adaptedConfidenceFloor}%`, color: mindData.mindState.adaptedConfidenceFloor > mindData.mindState.configuredConfidenceFloor ? 'text-orange-400' : 'text-slate-300' },
+                ].map(s => (
+                  <div key={s.label} className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 text-center">
+                    <p className="text-xs text-slate-500 mb-1">{s.label}</p>
+                    <p className={`text-xl font-bold ${s.color}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Blocked strategies */}
+              {mindData.mindState.blockedStrategies?.length > 0 && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <p className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-2">
+                    <XCircle className="w-3.5 h-3.5" /> Auto-Blocked Strategies (COLD weight ≤ 0.3)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {mindData.mindState.blockedStrategies.map((s: string) => (
+                      <span key={s} className="px-2 py-1 bg-red-500/20 rounded text-xs text-red-300 font-mono">{s}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Soft-blocked pairs */}
+              {mindData.mindState.softBlockedPairs?.length > 0 && (
+                <div className="p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+                  <p className="text-xs font-semibold text-orange-400 mb-2 flex items-center gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Soft-Blocked Pairs (90%+ confidence required)
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {mindData.mindState.softBlockedPairs.map((b: any) => (
+                      <span key={b.sym} className="px-2 py-1 bg-orange-500/20 rounded text-xs text-orange-300">
+                        {b.sym} — {b.remainingMin}m left
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-pair session performance */}
+              {Object.keys(mindData.mindState.pairSessionWins || {}).length > 0 || Object.keys(mindData.mindState.pairSessionLosses || {}).length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 mb-2">Pair Performance This Session</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {Array.from(new Set([
+                      ...Object.keys(mindData.mindState.pairSessionWins || {}),
+                      ...Object.keys(mindData.mindState.pairSessionLosses || {}),
+                    ])).map((pair: string) => {
+                      const w = mindData.mindState.pairSessionWins?.[pair] || 0;
+                      const l = mindData.mindState.pairSessionLosses?.[pair] || 0;
+                      const wr = w + l > 0 ? w / (w + l) : 0;
+                      return (
+                        <div key={pair} className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5 text-center">
+                          <p className="text-xs font-mono font-bold text-white mb-1">{pair}</p>
+                          <p className="text-[10px] text-slate-500">{w}W / {l}L</p>
+                          <p className={`text-xs font-bold mt-0.5 ${wr >= 0.6 ? 'text-emerald-400' : wr >= 0.4 ? 'text-amber-400' : 'text-red-400'}`}>
+                            {(wr * 100).toFixed(0)}%
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Adaptation log */}
+              {mindData.mindState.adaptationLog?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-violet-400" />
+                    Recent Autonomous Decisions
+                  </p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {mindData.mindState.adaptationLog.map((entry: string, i: number) => (
+                      <div key={i} className="flex gap-2 text-xs p-2 bg-slate-800/40 rounded border border-slate-700/50">
+                        <span className="text-violet-400 shrink-0">🧠</span>
+                        <span className="text-slate-300">{entry}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <p className="text-xs text-slate-600 text-center pb-4">
           Dashboard refreshes every 15 seconds. All rules enforce server-side — not just in the UI.
