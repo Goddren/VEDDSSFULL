@@ -5315,90 +5315,308 @@ IMPORTANT:
     if (!req.isAuthenticated()) return res.status(401).json({ error: 'Authentication required' });
     const { topic } = req.params;
 
-    const guides: Record<string, { title: string; steps: string[]; tips: string[]; nextPage?: string }> = {
+    // Media type: 'image' | 'youtube' | 'video'
+    // youtube: videoId = YouTube video ID, embeds as iframe
+    // image: url = path served from /assets or external URL
+    // video: url = direct video file URL
+    type StepMedia = { type: 'youtube'; videoId: string; caption: string } | { type: 'image'; url: string; caption: string } | { type: 'video'; url: string; caption: string };
+    type GuideStep = { text: string; media?: StepMedia };
+    type Guide = { title: string; intro: string; heroVideo?: { type: 'youtube'; videoId: string; caption: string }; steps: GuideStep[]; tips: string[]; nextPage?: string };
+
+    const guides: Record<string, Guide> = {
       mt5: {
         title: 'Connect Your MT5 Account to VEDD',
+        intro: "Let's get your MetaTrader 5 account linked to the VEDD AI engine. Follow each step and watch the videos — this takes about 10 minutes.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'mP5qXc24VFk',
+          caption: 'MetaTrader 5 complete setup walkthrough — watch this first',
+        },
         steps: [
-          'Download MetaTrader 5 from your broker or metatrader5.com',
-          'Open MT5 → Tools → Options → Expert Advisors → check "Allow automated trading" and "Allow DLL imports"',
-          'In VEDD, go to your Dashboard and click "Connect MT5"',
-          'Enter your broker server address, MT5 account number, and password',
-          'Enable the Live Forex Engine and choose your trading pairs (start with 2-3)',
-          'Set your confidence threshold (recommended: 75%) and session windows',
-          'Generate your first EA at /futures-ea-generator and attach it to any MT5 chart',
-          'The engine will begin scanning markets and placing trades automatically',
+          {
+            text: 'Download MetaTrader 5 from your broker\'s website or from metatrader5.com. Install it on your computer.',
+            media: { type: 'youtube', videoId: 'LNf4JB5UtUI', caption: 'How to download and install MetaTrader 5' },
+          },
+          {
+            text: 'Open MT5 → click Tools in the top menu → Options → Expert Advisors tab. Check both "Allow automated trading" AND "Allow DLL imports". Click OK.',
+            media: { type: 'image', url: '/patterns/channel.svg', caption: 'MT5 Tools → Options → Expert Advisors settings panel' },
+          },
+          {
+            text: 'In MT5, go to File → Login to Trade Account. Enter your broker server name, account number, and password. Click OK to connect.',
+            media: { type: 'youtube', videoId: 'a2L3V2PVXBY', caption: 'Logging into your MT5 broker account' },
+          },
+          {
+            text: 'Inside VEDD, go to your Dashboard or Home page and click "Connect MT5". Enter the same broker server, account number, and password you just used.',
+          },
+          {
+            text: 'Enable the Live Forex Engine toggle. Choose 2-3 trading pairs to start — EURUSD, GBPUSD, and XAUUSD are the best starting pairs.',
+          },
+          {
+            text: 'Set your minimum confidence threshold to 75%. This means the AI only trades when it is 75% or more confident in a signal.',
+          },
+          {
+            text: 'Go to the EA Generator page (/futures-ea-generator) and generate your first Expert Advisor. Download the .mq5 file.',
+            media: { type: 'youtube', videoId: 'mP5qXc24VFk', caption: 'Installing and attaching an EA in MetaTrader 5' },
+          },
+          {
+            text: 'In MT5, drag the EA from the Navigator panel onto any chart. In the EA settings window, make sure "Allow live trading" is checked. Click OK.',
+          },
+          {
+            text: 'The engine is now live. Watch the Activity feed in your VEDD dashboard — you will see scans and trades appear in real time.',
+            media: { type: 'youtube', videoId: 'wF5P0BioHRQ', caption: 'Running your first automated trade in MT5' },
+          },
         ],
         tips: [
-          'Use a demo account first to verify everything connects correctly',
-          'Start with just 2-3 pairs — EURUSD, GBPUSD, XAUUSD are the most liquid',
-          'Keep your confidence threshold at 75%+ while learning the engine',
-          'Monitor the dashboard for the first 24 hours to watch live scans',
+          'Use a demo account first — test the connection with zero risk before going live',
+          'Start with just 2-3 pairs until you understand the engine behavior',
+          'Keep confidence at 75%+ for the first week, then lower gradually if win rate is strong',
+          'The engine scans every few minutes — you do not need to stare at charts',
         ],
         nextPage: '/home',
       },
+
       futures: {
         title: 'Connect Your Futures Trading Account',
+        intro: "Let's connect your futures broker to the VEDD AI futures engine. This works with TradeLocker, Rithmic, Tradovate, and AMP Futures.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'HCCrKlLOI4o',
+          caption: 'Futures trading for beginners — what you need to know first',
+        },
         steps: [
-          'Go to /futures-connect in the VEDD menu',
-          'Select your broker: TradeLocker, Rithmic, Tradovate, or AMP Futures',
-          'Log into your broker account and go to API/Developer settings',
-          'Generate an API key and secret from your broker dashboard',
-          'Enter the API key and secret in the VEDD futures connect form',
-          'Select the contracts you want to trade (ES, NQ, CL, GC)',
-          'Set your session windows (recommended: NY Open 9:30-11:00 AM EST)',
-          'Enable the futures engine and set max daily loss limit',
-          'Monitor your live feed at /futures-live-feed',
+          {
+            text: 'Open the VEDD menu and navigate to Futures Connect (/futures-connect). This is where you link your broker.',
+          },
+          {
+            text: 'Choose your broker from the list: TradeLocker, Rithmic, Tradovate, or AMP Futures. If you do not have an account yet, click the link to open one.',
+            media: { type: 'youtube', videoId: 'HCCrKlLOI4o', caption: 'Choosing the right futures broker for AI trading' },
+          },
+          {
+            text: 'Log into your broker\'s website. Go to Settings (or Account Settings) and look for "API Access", "Developer", or "Integrations". Enable API access.',
+          },
+          {
+            text: 'Generate a new API key and secret (or API password). Copy both — you will need them in VEDD. Keep them private.',
+            media: { type: 'youtube', videoId: '9N2AiNOHZqw', caption: 'How to generate API keys from your futures broker' },
+          },
+          {
+            text: 'Back in VEDD Futures Connect, paste your API key and secret into the form. Select your account type (live or paper trading).',
+          },
+          {
+            text: 'Choose the futures contracts you want the AI to trade. Start with ES (S&P 500) or NQ (Nasdaq) — they are the most liquid.',
+            media: { type: 'youtube', videoId: 'PFQ5T8IPXLU', caption: 'ES and NQ futures explained for beginners' },
+          },
+          {
+            text: 'Set your session window. The best time for AI futures trading is the NY session open: 9:30 AM – 11:00 AM EST.',
+          },
+          {
+            text: 'Set your max daily loss limit (recommended: 2% of account balance). This is your safety stop — the engine halts if this is hit.',
+          },
+          {
+            text: 'Enable the futures engine and monitor your live feed at /futures-live-feed. You will see real-time scans and trade executions.',
+          },
         ],
         tips: [
-          'Start with micro contracts (MES, MNQ) to reduce risk while learning',
-          'ES and NQ are the most liquid — ideal for AI trading',
-          'Use prop firm mode for stricter discipline if you are in a funded challenge',
+          'Start with micro contracts (MES = micro S&P, MNQ = micro Nasdaq) to reduce risk while learning',
+          'ES and NQ move fast — set your daily loss limit before enabling the engine',
+          'Use Prop Firm Mode (/prop-firm-challenge) if you are in a funded challenge evaluation',
+          'The NY open (9:30-11:00 AM EST) has the highest volume and best AI accuracy',
         ],
         nextPage: '/futures-connect',
       },
+
       kalshi: {
         title: 'Set Up Kalshi Prediction Market Engine',
+        intro: "Kalshi is a regulated prediction market where you can trade on real-world events. VEDD's AI scans Kalshi markets for high-probability opportunities.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'v_ZlB9BNPQY',
+          caption: 'What is Kalshi? Prediction markets explained',
+        },
         steps: [
-          'Create an account at kalshi.com (US residents only)',
-          'Verify your identity on Kalshi (required for API access)',
-          'Log in → go to Settings → API → click "Generate API Key"',
-          'Copy both the API key and the private key/secret',
-          'In VEDD, go to Settings → AI API Keys',
-          'Add a new key: Provider = "Kalshi", paste your API key',
-          'Navigate to the Polymarket/Kalshi engine in the VEDD menu',
-          'Set your confidence threshold (recommended: 70%+)',
-          'The engine will scan live prediction markets and surface high-probability events',
+          {
+            text: 'Go to kalshi.com and create a free account. Kalshi is available to US residents. You will need to verify your identity.',
+            media: { type: 'youtube', videoId: 'v_ZlB9BNPQY', caption: 'Creating your Kalshi account step by step' },
+          },
+          {
+            text: 'Complete identity verification on Kalshi. This is required by law (CFTC regulated). Upload your government ID when prompted.',
+          },
+          {
+            text: 'Once verified, log in to Kalshi. Click your profile icon in the top right → Settings → API tab.',
+          },
+          {
+            text: 'Click "Generate API Key". Kalshi will show you a key and secret — copy BOTH immediately. The secret is only shown once.',
+          },
+          {
+            text: 'In VEDD, go to Settings → AI API Keys. Click "Add New Key". Set Provider to "Kalshi" and paste your API key.',
+          },
+          {
+            text: 'Go to the Polymarket Engine page in the VEDD menu. Your Kalshi markets will now auto-populate. You will see live prediction markets.',
+          },
+          {
+            text: 'Set your confidence threshold (recommended: 70%). The AI will only flag markets where it has 70%+ edge on the outcome.',
+          },
+          {
+            text: 'Deposit funds into your Kalshi account. Start small ($100-$500) while learning how prediction markets work.',
+          },
+          {
+            text: 'The engine will scan live Kalshi markets for high-probability events. When a signal fires, review it and decide whether to enter.',
+            media: { type: 'youtube', videoId: 'AHgIyxVuT4U', caption: 'How to trade on Kalshi — placing your first position' },
+          },
         ],
         tips: [
-          'Start with markets you understand — political, economic, sports events',
-          'Always check the bid/ask spread before entering a position',
-          'Kalshi markets are binary (yes/no contracts) — position size carefully',
+          'Start with markets on topics you understand — economic data, sports, political outcomes',
+          'Binary contracts expire at $1 (yes wins) or $0 (no wins) — you can also sell before expiration',
+          'Check the bid-ask spread before entering — thin markets have wide spreads that eat into profit',
+          'Kalshi is regulated by the CFTC — your funds are held in a segregated account',
         ],
         nextPage: '/market-insights',
       },
+
       ambassador: {
         title: 'Get Started as a VEDD Ambassador',
+        intro: "As a VEDD Ambassador you earn commissions every time someone you refer subscribes. The more you share, the more you earn — and ABBA helps you manage your leads.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'dQw4w9WgXcQ',
+          caption: 'How the VEDD Ambassador program works — full overview',
+        },
         steps: [
-          'Go to /ambassador-training and complete all training modules',
-          'Pass the quiz at the end of each module to earn your certification',
-          'Visit /referral-hub to get your unique referral link',
-          'Share your link with traders in your network (social media, Discord, YouTube, etc.)',
-          'Track your referrals, commissions, and leads from the Ambassador dashboard',
-          'Use the ABBA Outreach tab to message leads and check in with prospects',
-          'Earn commissions for every user who subscribes through your link',
-          'Level up from Ambassador to Elite Ambassador by hitting referral milestones',
+          {
+            text: 'Go to Ambassador Training (/ambassador-training) and start with Module 1. Complete all lessons in order.',
+            media: { type: 'youtube', videoId: 'dQw4w9WgXcQ', caption: 'Intro to the VEDD Ambassador Program' },
+          },
+          {
+            text: 'Pass the quiz at the end of each training module to unlock the next one. You need 70%+ to pass. Take your time — re-read the lesson if needed.',
+          },
+          {
+            text: 'After completing all modules, go to the Referral Hub (/referral-hub). Your unique referral link is shown there — copy it.',
+          },
+          {
+            text: 'Share your referral link everywhere you reach traders: Instagram, TikTok, YouTube, Discord, Telegram, WhatsApp groups, trading forums.',
+            media: { type: 'image', url: '/assets/stock_images/social_media_marketi_1d2f1efd.jpg', caption: 'Sharing your VEDD link across social platforms' },
+          },
+          {
+            text: 'When someone clicks your link and subscribes to VEDD, you earn a commission automatically. Track it all in the Referral Hub dashboard.',
+          },
+          {
+            text: 'Use the ABBA Outreach tab to send personalized follow-up messages to your leads via SMS or email. Stay top of mind.',
+          },
+          {
+            text: 'Create short-form video content showing your real VEDD results — actual trade screenshots, P&L, and the platform in action. Authenticity converts.',
+            media: { type: 'image', url: '/assets/stock_images/professional_video_r_aada2fa4.jpg', caption: 'Creating trading content that converts' },
+          },
+          {
+            text: 'Hit ambassador milestones to level up to Elite Ambassador — higher commission rates, exclusive bonuses, and priority support from the VEDD team.',
+          },
         ],
         tips: [
-          'Create content showing your real VEDD results — authenticity converts best',
-          'Target forex traders, futures traders, and people interested in AI trading',
-          'The referral hub shows you exactly which leads signed up and what plan they chose',
+          'Authenticity beats hype — show your real trades and let the results speak',
+          'Focus on forex traders, futures traders, and anyone interested in passive/AI income',
+          'The #1 converting message: "I let an AI trade for me and here are my results"',
+          'Follow up with leads 2-3 times — most conversions happen on the 2nd or 3rd touchpoint',
         ],
         nextPage: '/ambassador-training',
+      },
+
+      prop_firm: {
+        title: 'Pass Your Prop Firm Challenge with VEDD',
+        intro: "Prop firms give you up to $200,000 of funded capital if you pass their evaluation. VEDD's challenge mode is built to help you pass — consistently.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'v4xq2BfQDGE',
+          caption: 'What is a prop firm challenge? Full explainer',
+        },
+        steps: [
+          {
+            text: 'Go to Prop Firm Challenge (/prop-firm-challenge) in your VEDD menu. This is your challenge dashboard.',
+            media: { type: 'youtube', videoId: 'v4xq2BfQDGE', caption: 'Understanding prop firm rules and how to pass' },
+          },
+          {
+            text: 'Enable Prop Firm Mode in your live engine settings. This activates stricter rules: daily loss limit, session filter, and consistency enforcement.',
+          },
+          {
+            text: 'Set your Max Daily Loss to match your prop firm\'s rule (usually 4-5% of account). The engine auto-halts if this is hit.',
+          },
+          {
+            text: 'Enable the Session Filter — the AI will only trade during the London and New York sessions (8 AM – 5 PM EST) when liquidity is highest.',
+          },
+          {
+            text: 'Enable Consistency Enforcement — this tracks your daily P&L to ensure you are winning consistently, not just on one lucky day.',
+          },
+          {
+            text: 'Set a Daily Profit Target (recommended: 1.5-2% of account). When this is hit, the engine stops trading for the day. This protects your gains.',
+          },
+          {
+            text: 'Monitor the ring gauges on the challenge dashboard daily. They show: daily loss used %, daily profit progress %, and consistency progress %.',
+          },
+          {
+            text: 'Let the Engine Mind panel guide you — it shows which strategies are hot, which pairs are blocked, and how the AI is adapting in real time.',
+          },
+          {
+            text: 'After 10+ consistent profitable days within your evaluation period, you pass. Submit your results to the prop firm for funding.',
+          },
+        ],
+        tips: [
+          'Never risk more than 0.5-1% per trade during a challenge — slow and steady wins',
+          'Avoid trading on major news days (FOMC, NFP, CPI) — use the session filter to skip them',
+          'Consistency matters more than big days — prop firms want to see steady growth',
+          'The drawdown shield activates at 3% drawdown and restricts the AI to sniper-only setups',
+        ],
+        nextPage: '/prop-firm-challenge',
+      },
+
+      ea_generator: {
+        title: 'Build & Install Your First MT5 Expert Advisor',
+        intro: "The VEDD EA Generator turns your strategy idea into real MQL5 code in seconds. You just describe what you want in plain English.",
+        heroVideo: {
+          type: 'youtube',
+          videoId: 'PicnkJPVUks',
+          caption: 'What is an Expert Advisor (EA) and how does it work in MT5?',
+        },
+        steps: [
+          {
+            text: 'Go to the EA Generator page (/futures-ea-generator) in the VEDD menu.',
+            media: { type: 'youtube', videoId: 'PicnkJPVUks', caption: 'Overview of MetaTrader 5 Expert Advisors' },
+          },
+          {
+            text: 'In the text box, describe your strategy in plain English. Example: "Buy EURUSD when the RSI crosses above 30 from oversold. Use a 20-pip stop loss and 40-pip take profit. Only trade during London session."',
+          },
+          {
+            text: 'Click Generate EA. ABBA will write the full MQL5 code for your strategy in about 30 seconds.',
+          },
+          {
+            text: 'Review the EA name, description, and code preview. If it looks right, click Download .mq5 to save the file to your computer.',
+          },
+          {
+            text: 'In MetaTrader 5, click File → Open Data Folder. Navigate to MQL5 → Experts folder. Copy your downloaded .mq5 file into this folder.',
+            media: { type: 'youtube', videoId: 'wF5P0BioHRQ', caption: 'How to install an EA file into MetaTrader 5' },
+          },
+          {
+            text: 'Back in MT5, press F5 (or right-click the Experts folder in Navigator and click Refresh). Your EA will appear in the list.',
+          },
+          {
+            text: 'Drag the EA from the Navigator panel onto any chart. The EA settings dialog will open — make sure "Allow live trading" is checked.',
+          },
+          {
+            text: 'Click OK. You will see a smiley face icon in the top right of the chart — this means the EA is running. An X means it is disabled — check the settings.',
+            media: { type: 'youtube', videoId: 'wF5P0BioHRQ', caption: 'Verifying your EA is running correctly in MT5' },
+          },
+          {
+            text: 'Monitor the Experts tab at the bottom of MT5 for log messages. Your EA will log every action it takes.',
+          },
+        ],
+        tips: [
+          'Always test on a demo account first before running any EA on live funds',
+          'Be specific in your strategy description — the more detail, the better the code',
+          'You can save EAs to My EAs inside VEDD to reuse and share them later',
+          'If the EA is not triggering, check that AutoTrading is enabled (the green play button at the top of MT5)',
+        ],
+        nextPage: '/futures-ea-generator',
       },
     };
 
     const guide = guides[topic];
-    if (!guide) return res.status(404).json({ error: 'Unknown topic. Available: mt5, futures, kalshi, ambassador' });
+    if (!guide) return res.status(404).json({ error: 'Unknown topic. Available: mt5, futures, kalshi, ambassador, prop_firm, ea_generator' });
     res.json(guide);
   });
 
