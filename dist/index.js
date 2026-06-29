@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc5) => {
+var __copyProps = (to, from, except, desc6) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc5 = __getOwnPropDesc(from, key)) || desc5.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc6 = __getOwnPropDesc(from, key)) || desc6.enumerable });
   }
   return to;
 };
@@ -180,6 +180,8 @@ __export(schema_exports, {
   internalWallets: () => internalWallets,
   investmentPools: () => investmentPools,
   landingPageQuizzes: () => landingPageQuizzes,
+  leadHunterRuns: () => leadHunterRuns,
+  leads: () => leads,
   loginUserSchema: () => loginUserSchema,
   marketDataRefreshJobs: () => marketDataRefreshJobs,
   marketDataSnapshots: () => marketDataSnapshots,
@@ -235,7 +237,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2256,6 +2258,40 @@ var init_schema = __esm({
     insertLandingPageQuizSchema = createInsertSchema(landingPageQuizzes).omit({ id: true, createdAt: true, updatedAt: true });
     insertQuizLeadSchema = createInsertSchema(quizLeads).omit({ id: true, createdAt: true, updatedAt: true });
     insertSocialLeadScanSchema = createInsertSchema(socialLeadScans).omit({ id: true, createdAt: true });
+    leads = pgTable("leads", {
+      id: varchar("id", { length: 500 }).primaryKey(),
+      date: varchar("date", { length: 20 }).notNull(),
+      platform: varchar("platform", { length: 50 }).notNull(),
+      username: varchar("username", { length: 255 }).notNull(),
+      profileUrl: text("profile_url"),
+      postContent: text("post_content"),
+      postUrl: text("post_url"),
+      intentScore: integer("intent_score").default(0),
+      accountQuality: integer("account_quality").default(0),
+      contactOpportunity: text("contact_opportunity"),
+      status: varchar("status", { length: 50 }).default("New"),
+      subreddit: varchar("subreddit", { length: 100 }),
+      followerCount: integer("follower_count").default(0),
+      headline: text("headline"),
+      engagementStats: text("engagement_stats"),
+      suggestedReply: text("suggested_reply"),
+      autoEngaged: boolean("auto_engaged").default(false),
+      engagementType: varchar("engagement_type", { length: 100 }),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    leadHunterRuns = pgTable("lead_hunter_runs", {
+      id: serial("id").primaryKey(),
+      date: varchar("date", { length: 20 }).notNull(),
+      status: varchar("status", { length: 50 }).default("running"),
+      totalScraped: integer("total_scraped").default(0),
+      newLeads: integer("new_leads").default(0),
+      highIntent: integer("high_intent").default(0),
+      autoEngagedCount: integer("auto_engaged_count").default(0),
+      platformBreakdown: text("platform_breakdown"),
+      errorLog: text("error_log"),
+      createdAt: timestamp("created_at").defaultNow(),
+      completedAt: timestamp("completed_at")
+    });
     blogPosts = pgTable("blog_posts", {
       id: serial("id").primaryKey(),
       title: text("title").notNull(),
@@ -20096,8 +20132,8 @@ async function sendSendGrid(to, subject, text2, html) {
   const apiKey = process.env.SENDGRID_API_KEY;
   if (!apiKey) return { success: false, channel: "sendgrid", error: "SENDGRID_API_KEY not set. Sign up at sendgrid.com (100/day free)." };
   try {
-    const sgMail2 = await import("@sendgrid/mail");
-    const sg = sgMail2.default || sgMail2;
+    const sgMail3 = await import("@sendgrid/mail");
+    const sg = sgMail3.default || sgMail3;
     sg.setApiKey(apiKey);
     await sg.send({
       to,
@@ -23337,8 +23373,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     let _usingGroq = false;
     if (aiMode === "economy" && process.env.GROQ_API_KEY) {
       try {
-        const OpenAI5 = (await import("openai")).default;
-        const groqClient = new OpenAI5({
+        const OpenAI6 = (await import("openai")).default;
+        const groqClient = new OpenAI6({
           apiKey: process.env.GROQ_API_KEY,
           baseURL: "https://api.groq.com/openai/v1",
           maxRetries: 4,
@@ -29502,8 +29538,8 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     if (useEconomy) {
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
-        const OpenAI5 = (await import("openai")).default;
-        openai2 = new OpenAI5({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        const OpenAI6 = (await import("openai")).default;
+        openai2 = new OpenAI6({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         openai2.defaultModel = "openai/gpt-oss-120b";
         modelLabel = "Groq Llama";
         addActivity3(state, {
@@ -33744,6 +33780,630 @@ var init_sports_trade_engine = __esm({
   }
 });
 
+// server/services/lead-hunter.ts
+var lead_hunter_exports = {};
+__export(lead_hunter_exports, {
+  runLeadHunter: () => runLeadHunter,
+  startLeadHunterScheduler: () => startLeadHunterScheduler
+});
+import OpenAI5 from "openai";
+import { sql as sql6 } from "drizzle-orm";
+import sgMail2 from "@sendgrid/mail";
+function getAI() {
+  const groq = process.env.GROQ_API_KEY;
+  const oai = process.env.OPENAI_API_KEY;
+  if (groq) return new OpenAI5({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" });
+  if (oai) return new OpenAI5({ apiKey: oai });
+  return null;
+}
+async function aiChat(messages) {
+  const ai = getAI();
+  if (!ai) return "";
+  try {
+    const res = await ai.chat.completions.create({
+      model: ai.defaultModel || "llama-3.1-8b-instant",
+      messages,
+      max_tokens: 1e3,
+      temperature: 0.3
+    });
+    return res.choices[0]?.message?.content?.trim() || "";
+  } catch {
+    return "";
+  }
+}
+async function apifyScrape(actorId, input) {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) {
+    console.log(`[LeadHunter] APIFY_API_TOKEN not set \u2014 skipping ${actorId}`);
+    return [];
+  }
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${token}&timeout=90&memory=256`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(1e5)
+      }
+    );
+    if (!res.ok) {
+      console.log(`[LeadHunter] Apify ${actorId} HTTP ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.log(`[LeadHunter] Apify ${actorId} error: ${e.message}`);
+    return [];
+  }
+}
+async function scrapeReddit() {
+  try {
+    const raw = await apifyScrape("apify/reddit-scraper", {
+      searches: ["AI trading tools", "chart analysis", "Solana trading", "MT5 trading"],
+      startUrls: [
+        { url: "https://www.reddit.com/r/algotrading/" },
+        { url: "https://www.reddit.com/r/Forex/" },
+        { url: "https://www.reddit.com/r/CryptoCurrency/" },
+        { url: "https://www.reddit.com/r/Solana/" },
+        { url: "https://www.reddit.com/r/Daytrading/" }
+      ],
+      sort: "new",
+      time: "day",
+      maxItems: 50,
+      maxPostCount: 50,
+      maxComments: 2,
+      skipComments: false
+    });
+    const posts = raw.filter((item) => item.dataType === "post");
+    return posts.map((p) => ({
+      platform: "Reddit",
+      username: "r/" + (p.parsedCommunityName || "unknown") + "_" + (p.parsedId || p.id || "post"),
+      post_content: ((p.title || "") + ": " + (p.body || "")).substring(0, 500),
+      post_url: p.url || p.link || "",
+      subreddit: p.communityName || p.parsedCommunityName || "",
+      engagement: p.upVotes || 0,
+      num_comments: p.numberOfComments || 0,
+      date: (p.createdAt || "").substring(0, 10)
+    }));
+  } catch (e) {
+    console.log("[LeadHunter] Reddit error: " + e.message);
+    return [];
+  }
+}
+async function scrapeTwitter() {
+  const token = process.env.TWITTER_BEARER_TOKEN;
+  if (!token) {
+    console.log("[LeadHunter] TWITTER_BEARER_TOKEN not set \u2014 skipping Twitter");
+    return [];
+  }
+  const queries = [
+    '("AI trading tools" OR "chart analysis tool" OR "trading platform" OR "best trading app") -is:retweet lang:en',
+    '("Solana trading" OR "trading signals AI" OR "MT5 trading" OR "algo trading") -is:retweet lang:en'
+  ];
+  const all = [];
+  for (const query of queries) {
+    try {
+      const url = new URL("https://api.twitter.com/2/tweets/search/recent");
+      url.searchParams.set("query", query);
+      url.searchParams.set("max_results", "20");
+      url.searchParams.set("tweet.fields", "created_at,public_metrics,author_id,text");
+      url.searchParams.set("expansions", "author_id");
+      url.searchParams.set("user.fields", "username,name,public_metrics");
+      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const tweets = data.data || [];
+      const users2 = data.includes?.users || [];
+      const userMap = {};
+      for (const u of users2) userMap[u.id] = u;
+      for (const t of tweets) {
+        const u = userMap[t.author_id] || {};
+        all.push({
+          platform: "X/Twitter",
+          username: u.username || "unknown",
+          post_content: t.text || "",
+          post_url: `https://x.com/${u.username || "_"}/status/${t.id}`,
+          tweet_id: t.id,
+          follower_count: u.public_metrics?.followers_count || 0,
+          engagement: (t.public_metrics?.like_count || 0) + (t.public_metrics?.retweet_count || 0),
+          num_comments: t.public_metrics?.reply_count || 0,
+          date: (t.created_at || "").substring(0, 10)
+        });
+      }
+    } catch (e) {
+      console.log("[LeadHunter] Twitter query error: " + e.message);
+    }
+  }
+  return all;
+}
+async function scrapeInstagram() {
+  try {
+    const raw = await apifyScrape("apify/instagram-scraper", {
+      directUrls: [
+        "https://www.instagram.com/explore/tags/aitrading/",
+        "https://www.instagram.com/explore/tags/chartanalysis/",
+        "https://www.instagram.com/explore/tags/tradingtools/",
+        "https://www.instagram.com/explore/tags/forextrader/",
+        "https://www.instagram.com/explore/tags/solanacrypto/"
+      ],
+      resultsType: "posts",
+      resultsLimit: 20,
+      onlyPostsNewerThan: "1 days"
+    });
+    return raw.map((p) => ({
+      platform: "Instagram",
+      username: p.ownerUsername || "unknown",
+      post_content: (p.caption || "").substring(0, 500),
+      post_url: p.url || "",
+      engagement: p.likesCount || 0,
+      num_comments: p.commentsCount || 0,
+      date: (p.timestamp || "").substring(0, 10)
+    }));
+  } catch (e) {
+    console.log("[LeadHunter] Instagram error: " + e.message);
+    return [];
+  }
+}
+async function scrapeLinkedIn() {
+  const all = [];
+  for (const keyword of ["AI trading tools", "chart analysis software"]) {
+    try {
+      const raw = await apifyScrape("apify/linkedin-post-search", {
+        keyword,
+        limit: 20,
+        date_filter: "past-24h"
+      });
+      for (const p of raw) {
+        all.push({
+          platform: "LinkedIn",
+          username: p.author?.headline || "unknown",
+          profile_url: p.author?.profile_url || "",
+          post_content: (p.text || "").substring(0, 500),
+          post_url: p.post_url || "",
+          activity_id: p.activity_id || "",
+          engagement: p.stats?.total_reactions || 0,
+          num_comments: p.stats?.comments || 0,
+          headline: p.author?.headline || "",
+          date: (p.posted_at?.date || "").substring(0, 10)
+        });
+      }
+    } catch (e) {
+      console.log("[LeadHunter] LinkedIn error: " + e.message);
+    }
+  }
+  return all;
+}
+async function scrapeFacebook() {
+  try {
+    const raw = await apifyScrape("apify/facebook-posts-scraper", {
+      startUrls: [
+        { url: "https://www.facebook.com/TradingView/" },
+        { url: "https://www.facebook.com/metatrader5/" }
+      ],
+      resultsLimit: 10,
+      onlyPostsNewerThan: "1 days"
+    });
+    const valid = raw.filter((p) => !p.error && p.text);
+    return valid.map((p) => ({
+      platform: "Facebook",
+      username: p.pageName || p.username || "unknown",
+      post_content: (p.text || "").substring(0, 500),
+      post_url: p.url || p.postUrl || "",
+      engagement: (p.likes || 0) + (p.shares || 0),
+      num_comments: p.comments || 0,
+      date: (p.time || "").substring(0, 10)
+    }));
+  } catch (e) {
+    console.log("[LeadHunter] Facebook error: " + e.message);
+    return [];
+  }
+}
+function isBotOrSpam(lead) {
+  if (lead.platform === "X/Twitter") {
+    const fc = lead.follower_count || 0;
+    if (fc === 0) return true;
+  }
+  if (lead.platform === "Reddit") {
+    if ((lead.post_content || "").length < 20) return true;
+  }
+  return false;
+}
+async function getExistingKeys() {
+  try {
+    const rows = await db.execute(
+      sql6`SELECT DISTINCT (platform || '|' || lower(username)) as dedup_key FROM leads WHERE date >= CURRENT_DATE - INTERVAL '30 days'`
+    );
+    const set = /* @__PURE__ */ new Set();
+    for (const row of rows.rows || rows) {
+      const key = row.dedup_key;
+      if (key) set.add(String(key).toLowerCase());
+    }
+    return set;
+  } catch {
+    return /* @__PURE__ */ new Set();
+  }
+}
+async function scoreLeads(rawLeads) {
+  if (rawLeads.length === 0) return [];
+  const ai = getAI();
+  if (!ai) {
+    return rawLeads.map((l) => ({
+      ...l,
+      intent_score: 5,
+      account_quality: 5,
+      contact_opportunity: "Unknown",
+      suggested_reply: "",
+      auto_engaged: false,
+      engagement_type: ""
+    }));
+  }
+  const scored = [];
+  const batch = rawLeads.slice(0, 50);
+  for (const lead of batch) {
+    try {
+      const prompt = `You are a lead qualification AI for VEDDBuild (veddbuild.com) \u2014 an AI trading platform.
+
+Analyze this social media post and return JSON only:
+Platform: ${lead.platform}
+Username: ${lead.username}
+Content: ${lead.post_content}
+Followers: ${lead.follower_count || "N/A"}
+Engagement: ${lead.engagement || 0}
+
+Return ONLY valid JSON (no markdown):
+{
+  "account_quality": <1-10, 10=definitely real active person>,
+  "intent_score": <1-10: 10=actively asking for tool recommendations, 7-9=frustrated with current tools, 4-6=discussing trading generally, 1-3=generic trading interest>,
+  "contact_opportunity": "<one sentence on why/how to reach them>",
+  "suggested_reply": "<platform-appropriate reply. For score 1-3: genuine engagement no VEDD mention. For 4-6: subtle. For 7+: mention VEDDBuild or veddbuild.com naturally. Under 250 chars for Twitter. NEVER say 'check this out' or 'DM me'.>"
+}`;
+      const raw = await aiChat([{ role: "user", content: prompt }]);
+      let parsed = {};
+      try {
+        const match = raw.match(/\{[\s\S]*\}/);
+        parsed = match ? JSON.parse(match[0]) : {};
+      } catch {
+      }
+      scored.push({
+        ...lead,
+        intent_score: Math.min(10, Math.max(1, parseInt(parsed.intent_score) || 5)),
+        account_quality: Math.min(10, Math.max(1, parseInt(parsed.account_quality) || 5)),
+        contact_opportunity: parsed.contact_opportunity || "",
+        suggested_reply: parsed.suggested_reply || "",
+        auto_engaged: false,
+        engagement_type: ""
+      });
+    } catch {
+      scored.push({
+        ...lead,
+        intent_score: 5,
+        account_quality: 5,
+        contact_opportunity: "",
+        suggested_reply: "",
+        auto_engaged: false,
+        engagement_type: ""
+      });
+    }
+  }
+  return scored;
+}
+async function engageTwitter(lead) {
+  const token = process.env.TWITTER_ACCESS_TOKEN;
+  if (!token || !lead.tweet_id) return "";
+  try {
+    await fetch(`https://api.twitter.com/2/users/${TWITTER_USER_ID}/likes`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ tweet_id: lead.tweet_id })
+    });
+    if (lead.suggested_reply) {
+      await fetch("https://api.twitter.com/2/tweets", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: lead.suggested_reply, reply: { in_reply_to_tweet_id: lead.tweet_id } })
+      });
+      return "Like + Reply";
+    }
+    return "Like";
+  } catch {
+    return "";
+  }
+}
+async function engageLinkedIn(lead) {
+  const token = process.env.LINKEDIN_ACCESS_TOKEN;
+  if (!token || !lead.activity_id || !lead.suggested_reply) return "";
+  try {
+    const urn = encodeURIComponent(`urn:li:activity:${lead.activity_id}`);
+    const res = await fetch(`https://api.linkedin.com/v2/socialActions/${urn}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0"
+      },
+      body: JSON.stringify({
+        actor: `urn:li:person:${LINKEDIN_PERSON_ID}`,
+        message: { text: lead.suggested_reply }
+      })
+    });
+    return res.ok ? "Comment" : "";
+  } catch {
+    return "";
+  }
+}
+async function sendDigest(scored, platformBreakdown, dedupStats, autoEngagedLeads, errors) {
+  const key = process.env.SENDGRID_API_KEY;
+  if (!key) {
+    console.log("[LeadHunter] No email key, skipping digest");
+    return;
+  }
+  sgMail2.setApiKey(key);
+  const highIntent = scored.filter((l) => l.intent_score >= 7);
+  const medIntent = scored.filter((l) => l.intent_score >= 4 && l.intent_score < 7);
+  const top10 = [...highIntent, ...medIntent].slice(0, 10);
+  const intentBadge = (score) => {
+    const bg = score >= 7 ? "#16a34a" : score >= 4 ? "#d97706" : "#6b7280";
+    return `<span style="background:${bg};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;">${score}/10</span>`;
+  };
+  const leadsTable = top10.map((l) => `
+    <tr style="border-bottom:1px solid #1a1f2e;">
+      <td style="padding:8px 6px;font-size:12px;color:#9ca3af;">${l.platform}</td>
+      <td style="padding:8px 6px;font-size:12px;color:#fff;">${l.username}</td>
+      <td style="padding:8px 6px;">${intentBadge(l.intent_score)}</td>
+      <td style="padding:8px 6px;font-size:11px;color:#d1d5db;max-width:280px;">${(l.post_content || "").substring(0, 120)}\u2026</td>
+      <td style="padding:8px 6px;font-size:11px;color:#F0D269;">${(l.suggested_reply || "").substring(0, 100)}${l.suggested_reply?.length > 100 ? "\u2026" : ""}</td>
+    </tr>`).join("");
+  const engageTable = autoEngagedLeads.length > 0 ? autoEngagedLeads.map((l) => `
+    <tr style="border-bottom:1px solid #1a1f2e;">
+      <td style="padding:6px;font-size:12px;color:#9ca3af;">${l.platform}</td>
+      <td style="padding:6px;font-size:12px;color:#fff;">${l.username}</td>
+      <td style="padding:6px;font-size:12px;color:#F0D269;">${l.engagement_type}</td>
+      <td style="padding:6px;">${intentBadge(l.intent_score)}</td>
+    </tr>`).join("") : '<tr><td colspan="4" style="padding:12px;color:#6b7280;font-size:12px;text-align:center;">No auto-engagements this run</td></tr>';
+  const breakdown = Object.entries(platformBreakdown).map(
+    ([p, c]) => `<span style="margin-right:12px;font-size:13px;color:#d1d5db;"><strong style="color:#F0D269;">${c}</strong> ${p}</span>`
+  ).join("");
+  const html = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#080B14;color:#e5e7eb;max-width:700px;margin:0 auto;padding:40px 32px;border-radius:16px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:32px;">
+    <div style="width:40px;height:40px;background:linear-gradient(135deg,#F0D269,#d4a800);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">\u{1F3AF}</div>
+    <div>
+      <h1 style="color:#fff;font-size:20px;font-weight:900;margin:0;">VEDD Lead Hunter</h1>
+      <p style="color:#6b7280;font-size:13px;margin:0;">Daily digest \u2014 ${(/* @__PURE__ */ new Date()).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;">
+    ${[
+    ["Scraped", dedupStats.totalScraped, "#6b7280"],
+    ["New Leads", dedupStats.newLeads, "#3b82f6"],
+    ["High Intent", highIntent.length, "#16a34a"],
+    ["Auto-Engaged", autoEngagedLeads.length, "#F0D269"]
+  ].map(([label, val, color]) => `
+      <div style="background:#0f1420;border:1px solid #1a1f2e;border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:26px;font-weight:900;color:${color};">${val}</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px;">${label}</div>
+      </div>`).join("")}
+  </div>
+
+  <div style="background:#0f1420;border:1px solid #1a1f2e;border-radius:12px;padding:16px;margin-bottom:24px;">
+    <h3 style="color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;">Platform Breakdown</h3>
+    <div>${breakdown}</div>
+    <div style="margin-top:10px;font-size:12px;color:#6b7280;">
+      Pipeline: ${dedupStats.totalScraped} scraped \u2192 ${dedupStats.totalScraped - dedupStats.duplicatesRemoved} after dedup \u2192 ${scored.length} verified \u2192 ${highIntent.length} high-intent
+    </div>
+  </div>
+
+  <h3 style="color:#fff;font-size:14px;font-weight:700;margin:0 0 12px;">Auto-Engagements</h3>
+  <div style="overflow-x:auto;margin-bottom:24px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="border-bottom:2px solid #1a1f2e;">
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Platform</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">User</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Action</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Score</th>
+      </tr></thead>
+      <tbody>${engageTable}</tbody>
+    </table>
+  </div>
+
+  <h3 style="color:#fff;font-size:14px;font-weight:700;margin:0 0 12px;">Top Leads + Suggested Replies</h3>
+  <div style="overflow-x:auto;margin-bottom:24px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="border-bottom:2px solid #1a1f2e;">
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Platform</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Username</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Intent</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Post</th>
+        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Suggested Reply</th>
+      </tr></thead>
+      <tbody>${leadsTable}</tbody>
+    </table>
+  </div>
+
+  ${errors.length > 0 ? `<div style="background:#1a0a0a;border:1px solid #7f1d1d;border-radius:8px;padding:12px;margin-bottom:24px;font-size:12px;color:#fca5a5;">${errors.join("<br/>")}</div>` : ""}
+
+  <hr style="border:none;border-top:1px solid #1a1f2e;margin:24px 0;"/>
+  <p style="color:#4b5563;font-size:12px;margin:0;">VEDD Lead Hunter \xB7 veddbuild.com \xB7 Powered by AI</p>
+</div>`;
+  try {
+    await sgMail2.send({
+      to: DIGEST_TO,
+      cc: DIGEST_CC,
+      from: FROM2,
+      subject: `VEDD Lead Hunter \u2014 ${highIntent.length} high-intent leads today`,
+      html
+    });
+    console.log("[LeadHunter] Digest sent to " + DIGEST_TO);
+  } catch (e) {
+    console.error("[LeadHunter] Digest email error:", e?.response?.body ?? e?.message);
+  }
+}
+async function runLeadHunter() {
+  console.log("[LeadHunter] Starting run...");
+  const today = (/* @__PURE__ */ new Date()).toISOString().substring(0, 10);
+  const errors = [];
+  let runId = 0;
+  try {
+    const [run] = await db.insert(leadHunterRuns).values({ date: today, status: "running" }).returning();
+    runId = run.id;
+  } catch (e) {
+    console.log("[LeadHunter] Could not create run record: " + e.message);
+    errors.push("DB run record failed: " + e.message);
+  }
+  const [redditLeads, twitterLeads, igLeads, liLeads, fbLeads] = await Promise.all([
+    scrapeReddit().catch((e) => {
+      errors.push("Reddit: " + e.message);
+      return [];
+    }),
+    scrapeTwitter().catch((e) => {
+      errors.push("Twitter: " + e.message);
+      return [];
+    }),
+    scrapeInstagram().catch((e) => {
+      errors.push("Instagram: " + e.message);
+      return [];
+    }),
+    scrapeLinkedIn().catch((e) => {
+      errors.push("LinkedIn: " + e.message);
+      return [];
+    }),
+    scrapeFacebook().catch((e) => {
+      errors.push("Facebook: " + e.message);
+      return [];
+    })
+  ]);
+  if (fbLeads.length === 0) errors.push("Facebook: no data (expected \u2014 most pages are private)");
+  const platformBreakdown = {
+    Reddit: redditLeads.length,
+    "X/Twitter": twitterLeads.length,
+    Instagram: igLeads.length,
+    LinkedIn: liLeads.length,
+    Facebook: fbLeads.length
+  };
+  const allLeads = [...redditLeads, ...twitterLeads, ...igLeads, ...liLeads, ...fbLeads];
+  console.log(`[LeadHunter] Scraped ${allLeads.length} total leads`);
+  const existingKeys = await getExistingKeys();
+  const newRaw = allLeads.filter((l) => {
+    const key = (l.platform + "|" + l.username).toLowerCase();
+    return !existingKeys.has(key) && !SKIP_USERNAMES.has(l.username.toLowerCase());
+  });
+  const dupeCount = allLeads.length - newRaw.length;
+  console.log(`[LeadHunter] ${dupeCount} dupes removed \u2192 ${newRaw.length} new leads`);
+  const cleanLeads = newRaw.filter((l) => !isBotOrSpam(l));
+  console.log(`[LeadHunter] ${cleanLeads.length} after bot filter`);
+  const scored = await scoreLeads(cleanLeads);
+  const highIntent = scored.filter((l) => l.intent_score >= 7);
+  console.log(`[LeadHunter] ${highIntent.length} high-intent leads`);
+  const autoEngagedLeads = [];
+  for (const lead of highIntent.slice(0, 10)) {
+    let engType = "";
+    if (lead.platform === "X/Twitter" && lead.tweet_id) {
+      engType = await engageTwitter(lead);
+    } else if (lead.platform === "LinkedIn" && lead.activity_id) {
+      engType = await engageLinkedIn(lead);
+    }
+    if (engType) {
+      lead.auto_engaged = true;
+      lead.engagement_type = engType;
+      autoEngagedLeads.push(lead);
+    }
+  }
+  let storedCount = 0;
+  for (const lead of scored) {
+    try {
+      const id = (lead.platform + "_" + (lead.post_url || lead.username)).substring(0, 499);
+      await db.insert(leads).values({
+        id,
+        date: today,
+        platform: lead.platform,
+        username: lead.username,
+        profileUrl: lead.profile_url || null,
+        postContent: lead.post_content || null,
+        postUrl: lead.post_url || null,
+        intentScore: lead.intent_score,
+        accountQuality: lead.account_quality,
+        contactOpportunity: lead.contact_opportunity || null,
+        status: "New",
+        subreddit: lead.subreddit || null,
+        followerCount: lead.follower_count || 0,
+        headline: lead.headline || null,
+        engagementStats: JSON.stringify({ engagement: lead.engagement, comments: lead.num_comments }),
+        suggestedReply: lead.suggested_reply || null,
+        autoEngaged: lead.auto_engaged,
+        engagementType: lead.engagement_type || null
+      }).onConflictDoNothing();
+      storedCount++;
+    } catch (e) {
+      console.log("[LeadHunter] Insert error: " + e.message);
+    }
+  }
+  try {
+    await db.update(leadHunterRuns).set({
+      status: "completed",
+      totalScraped: allLeads.length,
+      newLeads: newRaw.length,
+      highIntent: highIntent.length,
+      autoEngagedCount: autoEngagedLeads.length,
+      platformBreakdown: JSON.stringify(platformBreakdown),
+      errorLog: errors.length > 0 ? errors.join("\n") : null,
+      completedAt: /* @__PURE__ */ new Date()
+    }).where(sql6`id = ${runId}`);
+  } catch {
+  }
+  await sendDigest(
+    scored,
+    platformBreakdown,
+    { totalScraped: allLeads.length, duplicatesRemoved: dupeCount, newLeads: newRaw.length },
+    autoEngagedLeads,
+    errors
+  );
+  console.log(`[LeadHunter] Run complete. Stored ${storedCount} leads.`);
+  return {
+    runId,
+    totalScraped: allLeads.length,
+    newLeads: newRaw.length,
+    highIntent: highIntent.length,
+    autoEngaged: autoEngagedLeads.length,
+    platformBreakdown
+  };
+}
+function startLeadHunterScheduler() {
+  const scheduleNext = () => {
+    const now = /* @__PURE__ */ new Date();
+    const next = /* @__PURE__ */ new Date();
+    next.setUTCHours(8, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    console.log(`[LeadHunter] Next run scheduled in ${Math.round(delay / 6e4)}min`);
+    setTimeout(async () => {
+      try {
+        await runLeadHunter();
+      } catch (e) {
+        console.error("[LeadHunter] Scheduled run error:", e.message);
+      }
+      scheduleNext();
+    }, delay);
+  };
+  scheduleNext();
+}
+var DIGEST_TO, DIGEST_CC, FROM2, TWITTER_USER_ID, LINKEDIN_PERSON_ID, SKIP_USERNAMES;
+var init_lead_hunter = __esm({
+  "server/services/lead-hunter.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    DIGEST_TO = "donchismkos@gmail.com";
+    DIGEST_CC = "chris@madetomaximize.com";
+    FROM2 = "VEDD Lead Hunter <noreply@veddbuild.com>";
+    TWITTER_USER_ID = "1479666669366788098";
+    LINKEDIN_PERSON_ID = "tmH3fnyYMl";
+    SKIP_USERNAMES = /* @__PURE__ */ new Set(["donchism44", "christopherchism", "donchismkos"]);
+  }
+});
+
 // server/index.ts
 import express2 from "express";
 import { createServer as createServer2 } from "http";
@@ -33766,7 +34426,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq10, and as and6, sql as sql6 } from "drizzle-orm";
+import { eq as eq10, and as and6, sql as sql7 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -37077,8 +37737,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   let _usingGroq = false;
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
-      const OpenAI5 = (await import("openai")).default;
-      const groq = new OpenAI5({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      const OpenAI6 = (await import("openai")).default;
+      const groq = new OpenAI6({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
       groq.defaultModel = "openai/gpt-oss-120b";
       openai2 = groq;
       _usingGroq = true;
@@ -49312,7 +49972,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : "";
       if (!selectedRisk) {
         try {
-          const [_gpRow] = await db.execute(sql6`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+          const [_gpRow] = await db.execute(sql7`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
           if (_gpRow && _gpRow.risk_profile) {
             const _gpProfile = _gpRow.risk_profile.toLowerCase();
             if (riskInstructions[_gpProfile]) {
@@ -54106,7 +54766,7 @@ Respond with ONLY valid JSON:
     const recordType = req.query.type || "best_daily_pnl";
     try {
       const rows = await db.execute(
-        sql6`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+        sql7`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
       const row = rows[0]?.[0] ?? rows.rows?.[0];
       if (!row) return res.json({ value: null, achievedAt: null });
@@ -54122,12 +54782,12 @@ Respond with ONLY valid JSON:
     if (typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
     try {
       const rows = await db.execute(
-        sql6`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+        sql7`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
       const existing = rows[0]?.[0] ?? rows.rows?.[0];
       const currentVal = existing ? parseFloat(existing.value) : null;
       if (currentVal === null || value > currentVal) {
-        await db.execute(sql6`
+        await db.execute(sql7`
           INSERT INTO all_time_records (user_id, record_type, value, achieved_at, updated_at)
           VALUES (${userId}, ${recordType}, ${value}, now(), now())
           ON CONFLICT (user_id, record_type)
@@ -54157,8 +54817,8 @@ Respond with ONLY valid JSON:
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
       const eq12 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const [todayDbTrades, weekDbTrades] = await Promise.all([
-        db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
-        db.execute(sql6`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
+        db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
+        db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
       ]);
       const dailyPnl = parseFloat(todayDbTrades[0]?.[0]?.pnl ?? 0);
       const weeklyPnl = parseFloat(weekDbTrades[0]?.[0]?.pnl ?? 0);
@@ -54843,8 +55503,8 @@ Format your response as JSON with exactly these keys:
         if (!lesson) {
           return res.status(404).json({ error: "Lesson not found" });
         }
-        const OpenAI5 = (await import("openai")).default;
-        const openai2 = new OpenAI5({ apiKey: process.env.OPENAI_API_KEY });
+        const OpenAI6 = (await import("openai")).default;
+        const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
         const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
         for (const platform of platforms) {
           const completion = await openai2.chat.completions.create({
@@ -54953,8 +55613,8 @@ Generate a JSON object with these fields:
       });
     }
     if (weekChallenges.length === 0) {
-      const OpenAI5 = (await import("openai")).default;
-      const openai2 = new OpenAI5({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI6 = (await import("openai")).default;
+      const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
       const challengeTypes = [
         { type: "content", title: "Content Creator Challenge" },
         { type: "engagement", title: "Community Engagement Challenge" },
@@ -55217,8 +55877,8 @@ Generate a JSON object with:
       });
     }
     if (weekEvents.length === 0) {
-      const OpenAI5 = (await import("openai")).default;
-      const openai2 = new OpenAI5({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI6 = (await import("openai")).default;
+      const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
       const eventTypes = [
         { type: "live_session", title: "Weekly Live Trading Session" },
         { type: "ama", title: "Ask Me Anything Session" },
@@ -55797,8 +56457,8 @@ Generate a JSON object with:
           const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
           const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
           if (lesson) {
-            const OpenAI5 = (await import("openai")).default;
-            const openai2 = new OpenAI5({ apiKey: process.env.OPENAI_API_KEY });
+            const OpenAI6 = (await import("openai")).default;
+            const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
             const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
             for (const platform of platforms) {
               try {
@@ -58134,7 +58794,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql, eq: eq12, and: and7, desc: desc5 } = await import("drizzle-orm");
+    const { sql: drizzleSql, eq: eq12, and: and7, desc: desc6 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -58378,7 +59038,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     try {
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT
           a.id, a.chip_uid AS "chipUid", a.garment_name AS "garmentName",
           a.activated_at AS "activatedAt", a.total_taps AS "totalTaps",
@@ -58409,7 +59069,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const garmentId = parseInt(req.params.id);
     const { icon, dropName, sizeInfo, garmentCode } = req.body;
     try {
-      await db.execute(sql6`
+      await db.execute(sql7`
         UPDATE nfc_activations SET
           icon = COALESCE(${icon ?? null}, icon),
           drop_name = COALESCE(${dropName ?? null}, drop_name),
@@ -58429,7 +59089,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (typeof lat !== "number" || typeof lon !== "number") return res.status(400).json({ error: "lat and lon required" });
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return res.status(400).json({ error: "Invalid coordinates" });
     try {
-      await db.execute(sql6`
+      await db.execute(sql7`
         UPDATE users SET home_lat = ${lat}, home_lon = ${lon}, home_set_at = NOW()
         WHERE id = ${userId}
       `);
@@ -58442,7 +59102,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
     const userId = req.user.id;
     try {
-      const [row] = await db.execute(sql6`
+      const [row] = await db.execute(sql7`
         SELECT home_lat AS lat, home_lon AS lon, home_set_at AS "setAt"
         FROM users WHERE id = ${userId} LIMIT 1
       `).then((r) => r.rows ?? r);
@@ -58465,14 +59125,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const tapLat = typeof req.body?.lat === "number" ? req.body.lat : null;
     const tapLon = typeof req.body?.lon === "number" ? req.body.lon : null;
     try {
-      const [activation] = await db.execute(sql6`
+      const [activation] = await db.execute(sql7`
         SELECT * FROM nfc_activations
         WHERE user_id = ${userId} AND (chip_uid = ${uid2} OR garment_code = ${uid2})
         LIMIT 1
       `).then((r) => r.rows ?? r);
       if (!activation) return res.status(403).json({ error: "Garment not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const [alreadyTapped] = await db.execute(sql6`
+      const [alreadyTapped] = await db.execute(sql7`
         SELECT id FROM nfc_daily_taps
         WHERE user_id = ${userId} AND chip_uid = ${activation.chip_uid} AND day_string = ${today}
         LIMIT 1
@@ -58480,7 +59140,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
       }
-      const [userRow] = await db.execute(sql6`
+      const [userRow] = await db.execute(sql7`
         SELECT home_lat, home_lon FROM users WHERE id = ${userId} LIMIT 1
       `).then((r) => r.rows ?? r);
       let distanceMiles = null;
@@ -58488,7 +59148,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
       }
       const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
         VALUES (${userId}, ${activation.chip_uid}, ${reward}, ${today})
       `);
@@ -58497,7 +59157,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const wasYesterday = activation.last_tap_at && new Date(activation.last_tap_at).toISOString().slice(0, 10) === yesterday.toISOString().slice(0, 10);
       const newStreak = wasYesterday ? activation.current_streak + 1 : 1;
       const newBest = Math.max(newStreak, activation.best_streak || 0);
-      await db.execute(sql6`
+      await db.execute(sql7`
         UPDATE nfc_activations SET
           total_taps = total_taps + 1,
           total_earned = total_earned + ${reward},
@@ -58507,7 +59167,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         WHERE id = ${activation.id}
       `);
       await storage.addToWalletBalance(userId, reward, false);
-      const [insertedEvent] = await db.execute(sql6`
+      const [insertedEvent] = await db.execute(sql7`
         INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
         VALUES (
           ${userId}, 'nfc_tap', ${reward},
@@ -58522,7 +59182,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         reverseGeocode(tapLat, tapLon).then(async (city) => {
           if (city) {
             try {
-              await db.execute(sql6`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
+              await db.execute(sql7`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
             } catch {
             }
           }
@@ -58549,7 +59209,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const since = /* @__PURE__ */ new Date();
       since.setDate(since.getDate() - days);
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT id, type, amount, label, location,
                distance_miles AS "distanceMiles",
                created_at AS "createdAt"
@@ -58567,7 +59227,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT sequence_index AS "sequenceIndex"
         FROM vedd_popup_sequence
         WHERE user_id = ${userId}
@@ -58583,7 +59243,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const idx = parseInt(req.body?.sequence_index ?? req.body?.sequenceIndex ?? -1);
     if (isNaN(idx) || idx < 0) return res.status(400).json({ error: "Invalid sequence_index" });
     try {
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO vedd_popup_sequence(user_id, sequence_index)
         VALUES (${userId}, ${idx})
         ON CONFLICT (user_id, sequence_index) DO NOTHING
@@ -59104,8 +59764,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (req.query.status) filters.status = String(req.query.status);
       if (req.query.source) filters.source = String(req.query.source);
       if (req.query.quality) filters.leadQuality = String(req.query.quality);
-      const leads = await storage.getLeadsByAmbassador(req.user.id, filters);
-      res.json(leads);
+      const leads2 = await storage.getLeadsByAmbassador(req.user.id, filters);
+      res.json(leads2);
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -59151,8 +59811,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.user.isAmbassador && !req.user.isAdmin) return res.status(403).json({ message: "Ambassador access required" });
     try {
       const id = parseInt(req.params.id);
-      const leads = await storage.getLeadsByAmbassador(req.user.id);
-      const lead = leads.find((l) => l.id === id);
+      const leads2 = await storage.getLeadsByAmbassador(req.user.id);
+      const lead = leads2.find((l) => l.id === id);
       if (!lead) return res.status(404).json({ message: "Lead not found" });
       const insights = await enrichLeadWithAI({
         firstName: lead.firstName,
@@ -59372,10 +60032,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   async function insertDevotional(d) {
     const prayerJson = JSON.stringify(d.prayerPoints);
     const result = await db.execute(
-      sql6`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+      sql7`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
           VALUES (
             ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
-            ${d.reflection}, ${sql6.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
+            ${d.reflection}, ${sql7.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
             ${d.affirmation}, ${d.tradingTieIn}, 5, true, true
           )
           ON CONFLICT (date) DO UPDATE SET
@@ -59391,7 +60051,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const existingRaw = await db.execute(
-        sql6`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
+        sql7`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
@@ -59408,7 +60068,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql6`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
+        sql7`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
       );
       const rows = Array.isArray(raw) ? raw : raw.rows || [];
       res.json(rows);
@@ -59437,7 +60097,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { devotionalId, groupId } = req.body;
       if (!devotionalId) return res.status(400).json({ error: "devotionalId required" });
       const existingRaw = await db.execute(
-        sql6`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
+        sql7`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
@@ -59445,7 +60105,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const isGroupSession = !!groupId;
       const insertedRaw = await db.execute(
-        sql6`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
+        sql7`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
             VALUES (${userId}, ${devotionalId}, ${groupId || null}, ${isGroupSession}, NOW())
             RETURNING *`
       );
@@ -59453,7 +60113,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const session3 = inserted[0];
       if (groupId) {
         await db.execute(
-          sql6`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
+          sql7`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
         );
       }
       res.json({ sessionId: session3.id, resumed: false });
@@ -59470,7 +60130,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { sessionId } = req.params;
       const { durationSeconds } = req.body;
       const sessionRaw = await db.execute(
-        sql6`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
+        sql7`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
       );
       const sessionRows = Array.isArray(sessionRaw) ? sessionRaw : sessionRaw.rows || [];
       if (!sessionRows.length) return res.status(404).json({ error: "Session not found" });
@@ -59497,13 +60157,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         }
       }
       await db.execute(
-        sql6`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
+        sql7`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
             reward_earned = ${rewardEarned}, reward_amount = ${rewardAmount}
             WHERE id = ${parseInt(sessionId)}`
       );
       if (session3.group_id) {
         await db.execute(
-          sql6`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
+          sql7`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
         );
       }
       res.json({ completed: true, rewardEarned, rewardAmount, actionType });
@@ -59524,7 +60184,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let inviteCode = "";
       for (let i = 0; i < 6; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
       const insertedRaw = await db.execute(
-        sql6`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
+        sql7`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
             VALUES (${devotionalId}, ${userId}, ${inviteCode}, ${city || null}, true, 1)
             RETURNING *`
       );
@@ -59537,7 +60197,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals/groups/:inviteCode", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql6`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
+        sql7`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
             FROM devotional_groups dg
             JOIN devotionals d ON dg.devotional_id = d.id
             JOIN users u ON dg.created_by = u.id
@@ -59556,7 +60216,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const userId = req.user.id;
       const statsRaw = await db.execute(
-        sql6`SELECT
+        sql7`SELECT
               COUNT(*) FILTER (WHERE is_completed = true) as total_completed,
               COUNT(*) FILTER (WHERE is_completed = true AND is_group_session = true) as group_completed,
               COALESCE(SUM(reward_amount) FILTER (WHERE is_completed = true), 0) as total_vedd_earned,
@@ -59566,7 +60226,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const statsRows = Array.isArray(statsRaw) ? statsRaw : statsRaw.rows || [];
       const row = statsRows[0] || {};
       const datesRaw = await db.execute(
-        sql6`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
+        sql7`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
             WHERE user_id = ${userId} AND is_completed = true AND completed_at IS NOT NULL
             ORDER BY d DESC LIMIT 60`
       );
@@ -59583,7 +60243,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const todaySessionRaw = await db.execute(
-        sql6`SELECT ds.*, dg.invite_code as group_invite_code
+        sql7`SELECT ds.*, dg.invite_code as group_invite_code
             FROM devotional_sessions ds
             LEFT JOIN devotional_groups dg ON ds.group_id = dg.id
             WHERE ds.user_id = ${userId} AND DATE(ds.created_at) = ${todayStr}::date
@@ -59605,7 +60265,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/devotionals/leaderboard", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql6`SELECT u.username, u.id as user_id,
+        sql7`SELECT u.username, u.id as user_id,
               COUNT(*) FILTER (WHERE ds.is_completed = true) as completions,
               COALESCE(SUM(ds.reward_amount), 0) as vedd_earned,
               COUNT(*) FILTER (WHERE ds.is_group_session = true AND ds.is_completed = true) as group_completions
@@ -60287,10 +60947,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      const [plan] = await db.execute(sql6`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [plan] = await db.execute(sql7`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = plan.rows ?? plan;
       if (!rows || rows.length === 0) return res.json({ plan: null });
-      const trades = await db.execute(sql6`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
+      const trades = await db.execute(sql7`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
       const tradeRows = trades.rows ?? trades;
       res.json({ plan: rows[0], trades: tradeRows });
     } catch (err) {
@@ -60328,7 +60988,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const bal = Number(startingBalance);
       const phase = _gpPhaseFromBal(bal);
       const profile = riskProfile || "conservative";
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
         VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || "day"}, ${phase}, ${Number(weeklyTargetPct) || 3})
         ON CONFLICT (user_id) DO UPDATE SET
@@ -60341,7 +61001,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           weekly_target_pct = EXCLUDED.weekly_target_pct,
           updated_at = now()
       `);
-      const [updated] = await db.execute(sql6`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [updated] = await db.execute(sql7`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = updated.rows ?? updated;
       await _syncGrowthPlanToEngine(userId, phase, profile);
       res.json({ success: true, plan: rows[0], currentPhase: phase });
@@ -60355,13 +61015,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { currentBalance } = req.body;
     if (currentBalance === void 0) return res.status(400).json({ error: "currentBalance required" });
     try {
-      const [before] = await db.execute(sql6`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [before] = await db.execute(sql7`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const beforeRows = before.rows ?? before;
       const oldPhase = beforeRows[0]?.current_phase ?? 1;
       const riskProfile = beforeRows[0]?.risk_profile ?? "conservative";
       const bal = Number(currentBalance);
       const newPhase = _gpPhaseFromBal(bal);
-      await db.execute(sql6`
+      await db.execute(sql7`
         UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${newPhase}, updated_at = now()
         WHERE user_id = ${userId}
       `);
@@ -60380,19 +61040,19 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     try {
-      const [planResult] = await db.execute(sql6`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [planResult] = await db.execute(sql7`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const planRows = planResult.rows ?? planResult;
       const planId = planRows[0]?.id || null;
       const oldPhase = planRows[0]?.current_phase || 1;
       const riskProfile = planRows[0]?.risk_profile || "conservative";
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
         VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
       `);
       let phaseChanged = false;
       let newPhase = oldPhase;
       if (pnlUsd) {
-        const [afterUpdate] = await db.execute(sql6`
+        const [afterUpdate] = await db.execute(sql7`
           UPDATE account_growth_plans
           SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
           WHERE user_id = ${userId}
@@ -60403,7 +61063,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         if (newBal !== null) {
           newPhase = _gpPhaseFromBal(Number(newBal));
           if (newPhase !== oldPhase && newPhase > oldPhase) {
-            await db.execute(sql6`
+            await db.execute(sql7`
               UPDATE account_growth_plans SET current_phase = ${newPhase}, updated_at = now()
               WHERE user_id = ${userId}
             `);
@@ -60422,7 +61082,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      await db.execute(sql6`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
+      await db.execute(sql7`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -60676,7 +61336,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT id, balance, initial_balance, is_enabled, updated_at
         FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
       `);
@@ -60684,7 +61344,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!row) {
         return res.json({ balance: 1e4, initialBalance: 1e4, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
       }
-      const statsRows = await db.execute(sql6`
+      const statsRows = await db.execute(sql7`
         SELECT
           COUNT(*) FILTER (WHERE status='open') AS open_trades,
           COUNT(*) FILTER (WHERE status='closed') AS closed_trades,
@@ -60709,20 +61369,20 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     const { balance, isEnabled } = req.body;
     try {
-      const existing = await db.execute(sql6`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const existing = await db.execute(sql7`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
       const row = existing[0]?.[0] ?? existing.rows?.[0];
       if (!row) {
         const initBalance = typeof balance === "number" ? balance : 1e4;
-        await db.execute(sql6`
+        await db.execute(sql7`
           INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at)
           VALUES (${userId}, ${initBalance}, ${initBalance}, ${!!isEnabled}, now())
         `);
       } else {
         if (typeof balance === "number") {
-          await db.execute(sql6`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
+          await db.execute(sql7`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
         }
         if (typeof isEnabled === "boolean") {
-          await db.execute(sql6`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
+          await db.execute(sql7`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
         }
       }
       res.json({ success: true });
@@ -60737,11 +61397,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       let rows;
       if (status === "open") {
-        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
+        rows = await db.execute(sql7`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
       } else if (status === "closed") {
-        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
+        rows = await db.execute(sql7`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
       } else {
-        rows = await db.execute(sql6`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
+        rows = await db.execute(sql7`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
       }
       const trades = rows[0] ?? rows.rows ?? [];
       res.json(trades);
@@ -60757,12 +61417,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ error: "pair, direction, and entryPrice are required" });
     }
     try {
-      const acctRows = await db.execute(sql6`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const acctRows = await db.execute(sql7`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
       const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
       if (!acct) {
-        await db.execute(sql6`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
+        await db.execute(sql7`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
       }
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
         VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
       `);
@@ -60780,13 +61440,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ error: "tradeId and exitPrice required" });
     }
     try {
-      await db.execute(sql6`
+      await db.execute(sql7`
         UPDATE fx_paper_trades
         SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
         WHERE id=${tradeId} AND user_id=${userId}
       `);
       if (typeof pnl === "number") {
-        await db.execute(sql6`
+        await db.execute(sql7`
           UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
         `);
       }
@@ -60799,7 +61459,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      await db.execute(sql6`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
+      await db.execute(sql7`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -60808,7 +61468,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/copy/leaderboard", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT
           u.id AS user_id,
           u.username,
@@ -60842,7 +61502,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT cr.id, cr.source_user_id, cr.account_type, cr.max_lot_size, cr.is_active, cr.created_at,
                u.username AS source_username
         FROM copy_relationships cr
@@ -60864,7 +61524,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ error: "Invalid sourceUserId" });
     }
     try {
-      await db.execute(sql6`
+      await db.execute(sql7`
         INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, is_active, created_at)
         VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, true, now())
         ON CONFLICT (copier_id, source_user_id)
@@ -60882,10 +61542,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { maxLotSize, accountType } = req.body;
     try {
       if (typeof maxLotSize === "number") {
-        await db.execute(sql6`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
+        await db.execute(sql7`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
       }
       if (accountType) {
-        await db.execute(sql6`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+        await db.execute(sql7`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
       }
       res.json({ success: true });
     } catch (e) {
@@ -60897,7 +61557,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     const relId = parseInt(req.params.id);
     try {
-      await db.execute(sql6`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
+      await db.execute(sql7`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -60907,7 +61567,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql6`
+      const rows = await db.execute(sql7`
         SELECT ctl.*, u.username AS source_username
         FROM copy_trade_logs ctl
         JOIN users u ON u.id = ctl.source_user_id
@@ -60995,6 +61655,53 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const ok = closeSportsTrade2(req.user.id, req.params.id);
       if (!ok) return res.status(404).json({ error: "Trade not found" });
       res.json(getSportsEngineState2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/lead-hunter/run", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { runLeadHunter: runLeadHunter2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
+      runLeadHunter2().catch((e) => console.error("[LeadHunter] Manual run error:", e.message));
+      res.json({ ok: true, message: "Lead hunter started \u2014 check email for digest when complete" });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/lead-hunter/leads", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { desc: desc6 } = await import("drizzle-orm");
+      const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
+      const rows = await db2.select().from(leads2).orderBy(desc6(leads2.createdAt)).limit(limit);
+      res.json(rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/lead-hunter/runs", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { desc: desc6 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc6(leadHunterRuns2.createdAt)).limit(20);
+      res.json(rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.patch("/api/lead-hunter/leads/:id/status", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq12 } = await import("drizzle-orm");
+      await db2.update(leads2).set({ status: req.body.status }).where(eq12(leads2.id, req.params.id));
+      res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -61920,7 +62627,7 @@ async function seedVeddRewardConfig() {
 // server/blog-seed.ts
 init_db();
 init_schema();
-import { sql as sql7 } from "drizzle-orm";
+import { sql as sql8 } from "drizzle-orm";
 var staticArticles = [
   {
     title: "Master Chart Pattern Recognition with AI",
@@ -62008,7 +62715,7 @@ var staticArticles = [
 ];
 async function seedBlogPosts() {
   try {
-    const result = await db.execute(sql7`SELECT COUNT(*) as count FROM blog_posts`);
+    const result = await db.execute(sql8`SELECT COUNT(*) as count FROM blog_posts`);
     const rows = result;
     const count = Number(rows[0]?.count ?? 0);
     if (count > 0) {
@@ -62041,7 +62748,7 @@ async function seedBlogPosts() {
 init_market_data();
 init_db();
 import { execSync } from "child_process";
-import { sql as sql8 } from "drizzle-orm";
+import { sql as sql9 } from "drizzle-orm";
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });
@@ -62302,14 +63009,14 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         )`
       ];
       for (const m of migrations) {
-        await db.execute(sql8.raw(m));
+        await db.execute(sql9.raw(m));
       }
       console.log("[startup] Schema check complete.");
     } catch (err) {
       console.error("[startup] Schema migration check failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8.raw(`
+      await db.execute(sql9.raw(`
         CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
@@ -62329,7 +63036,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] ai_model_configs table creation failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8.raw(`
+      await db.execute(sql9.raw(`
         CREATE TABLE IF NOT EXISTS stop_orders (
           id              SERIAL PRIMARY KEY,
           user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -62348,7 +63055,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `));
-      await db.execute(sql8.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      await db.execute(sql9.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
       console.log("[startup] stop_orders table ready.");
     } catch (err) {
       console.error("[startup] stop_orders table creation failed (non-fatal):", err.message);
@@ -62361,23 +63068,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Full schema sync failed (non-fatal, critical columns already added above):", err.message?.slice(0, 200));
     }
     try {
-      await db.execute(sql8`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
-      await db.execute(sql8`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
-      await db.execute(sql8`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
-      await db.execute(sql8`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
+      await db.execute(sql9`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+      await db.execute(sql9`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql9`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql9`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error("[startup] Lifetime\u2192Yearly migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
     } catch (err) {
       console.error("[startup] AI settings columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS referral_visits (
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS referral_visits (
         id serial PRIMARY KEY,
         referral_code text NOT NULL,
         referrer_id integer REFERENCES users(id),
@@ -62392,7 +63099,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reminder_sent boolean DEFAULT false,
         reminder_sent_at timestamp
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS dm_keywords (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS dm_keywords (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         keyword text NOT NULL,
@@ -62409,7 +63116,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Referral/DM tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS investment_pools (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS investment_pools (
         id serial PRIMARY KEY,
         name text NOT NULL,
         slug text NOT NULL UNIQUE,
@@ -62429,7 +63136,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS token_investments (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS token_investments (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         pool_id integer REFERENCES investment_pools(id) NOT NULL,
@@ -62449,7 +63156,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Investment pool tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grants (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -62471,7 +63178,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grant_applications (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS grant_applications (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id),
         grant_id integer REFERENCES grants(id),
@@ -62488,7 +63195,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
         id serial PRIMARY KEY,
         triggered_by integer REFERENCES users(id),
         scan_type text NOT NULL,
@@ -62505,7 +63212,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Grants tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
@@ -62521,7 +63228,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS quiz_leads (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS quiz_leads (
         id SERIAL PRIMARY KEY,
         quiz_id INTEGER REFERENCES landing_page_quizzes(id),
         ambassador_id INTEGER REFERENCES users(id) NOT NULL,
@@ -62543,7 +63250,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS social_lead_scans (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS social_lead_scans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         platform TEXT NOT NULL,
@@ -62558,7 +63265,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador lead generation tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS blog_posts (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -62584,7 +63291,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_journey (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS ambassador_journey (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
         current_day INTEGER DEFAULT 1 NOT NULL,
@@ -62605,7 +63312,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         day INTEGER NOT NULL,
@@ -62622,7 +63329,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador journey tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         public_key TEXT NOT NULL UNIQUE,
@@ -62633,7 +63340,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         last_sync_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_reward_config (
         id SERIAL PRIMARY KEY,
         action_type TEXT NOT NULL UNIQUE,
         base_amount REAL NOT NULL DEFAULT 0,
@@ -62645,7 +63352,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         action_type TEXT NOT NULL,
@@ -62661,7 +63368,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         security_flag TEXT,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
@@ -62678,7 +63385,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         processed_at TIMESTAMP
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
@@ -62692,7 +63399,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] VEDD token tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotionals (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS devotionals (
         id SERIAL PRIMARY KEY,
         date TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
@@ -62708,7 +63415,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         is_published BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotional_groups (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS devotional_groups (
         id SERIAL PRIMARY KEY,
         devotional_id INTEGER REFERENCES devotionals(id),
         created_by INTEGER REFERENCES users(id),
@@ -62719,7 +63426,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         completed_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS devotional_sessions (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS devotional_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
@@ -62733,7 +63440,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reward_amount INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql8`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+      await db.execute(sql9`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
           ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
           ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
@@ -62751,7 +63458,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Devotional tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS sol_engine_settings (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         active_strategy text DEFAULT 'momentum_surfer',
@@ -62770,7 +63477,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         token_address text NOT NULL,
@@ -62791,7 +63498,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS account_growth_plans (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS account_growth_plans (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         starting_balance real NOT NULL DEFAULT 0,
@@ -62806,7 +63513,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS growth_plan_trades (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         plan_id integer REFERENCES account_growth_plans(id),
@@ -62830,7 +63537,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Account Growth Plan tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS nfc_activations (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS nfc_activations (
         id serial PRIMARY KEY,
         chip_uid text NOT NULL UNIQUE,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -62842,7 +63549,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         current_streak integer NOT NULL DEFAULT 0,
         best_streak integer NOT NULL DEFAULT 0
       )`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         chip_uid text NOT NULL,
@@ -62850,18 +63557,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         tapped_at timestamp DEFAULT now() NOT NULL,
         day_string text NOT NULL
       )`);
-      await db.execute(sql8`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
-      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
-      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
-      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
-      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
-      await db.execute(sql8`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
+      await db.execute(sql9`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql9`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql9`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql9`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql9`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql9`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_earn_events (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         type text NOT NULL,
@@ -62874,26 +63581,26 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
-      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
-      await db.execute(sql8`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
-      await db.execute(sql8`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+      await db.execute(sql9`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql9`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql9`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
+      await db.execute(sql9`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         sequence_index integer NOT NULL,
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
-      await db.execute(sql8`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql9`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
     } catch (err) {
       console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS daily_checkins (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS daily_checkins (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -62907,7 +63614,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily check-in table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql8`CREATE TABLE IF NOT EXISTS engine_run_state (
+      await db.execute(sql9`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         engine text NOT NULL,
@@ -62923,9 +63630,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");
     try {
-      const existing = await db.execute(sql8`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      const existing = await db.execute(sql9`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
       if ((existing.rows ?? existing).length === 0) {
-        await db.execute(sql8`
+        await db.execute(sql9`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
         `);
@@ -62940,6 +63647,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     initializeMarketDataService();
     const { startBreakoutMonitor: startBreakoutMonitor2 } = await Promise.resolve().then(() => (init_breakout_monitor(), breakout_monitor_exports));
     startBreakoutMonitor2();
+    const { startLeadHunterScheduler: startLeadHunterScheduler2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
+    startLeadHunterScheduler2();
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
   });

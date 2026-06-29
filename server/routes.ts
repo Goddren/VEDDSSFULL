@@ -26542,6 +26542,52 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Lead Hunter ───────────────────────────────────────────────────────────────
+
+  app.post("/api/lead-hunter/run", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { runLeadHunter } = await import("./services/lead-hunter");
+      // Run async so the response returns immediately
+      runLeadHunter().catch(e => console.error('[LeadHunter] Manual run error:', e.message));
+      res.json({ ok: true, message: "Lead hunter started — check email for digest when complete" });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/lead-hunter/leads", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import("./db");
+      const { leads } = await import("../shared/schema");
+      const { desc } = await import("drizzle-orm");
+      const limit = Math.min(parseInt(String(req.query.limit || '100')), 500);
+      const rows = await db.select().from(leads).orderBy(desc(leads.createdAt)).limit(limit);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/lead-hunter/runs", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import("./db");
+      const { leadHunterRuns } = await import("../shared/schema");
+      const { desc } = await import("drizzle-orm");
+      const rows = await db.select().from(leadHunterRuns).orderBy(desc(leadHunterRuns.createdAt)).limit(20);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.patch("/api/lead-hunter/leads/:id/status", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import("./db");
+      const { leads } = await import("../shared/schema");
+      const { eq } = await import("drizzle-orm");
+      await db.update(leads).set({ status: req.body.status }).where(eq(leads.id, req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

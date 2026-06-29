@@ -2117,6 +2117,46 @@ export const insertSocialLeadScanSchema = createInsertSchema(socialLeadScans).om
 export type SocialLeadScan = typeof socialLeadScans.$inferSelect;
 export type InsertSocialLeadScan = z.infer<typeof insertSocialLeadScanSchema>;
 
+// ── Lead Hunter ───────────────────────────────────────────────────────────────
+export const leads = pgTable("leads", {
+  id: varchar("id", { length: 500 }).primaryKey(),
+  date: varchar("date", { length: 20 }).notNull(),
+  platform: varchar("platform", { length: 50 }).notNull(),
+  username: varchar("username", { length: 255 }).notNull(),
+  profileUrl: text("profile_url"),
+  postContent: text("post_content"),
+  postUrl: text("post_url"),
+  intentScore: integer("intent_score").default(0),
+  accountQuality: integer("account_quality").default(0),
+  contactOpportunity: text("contact_opportunity"),
+  status: varchar("status", { length: 50 }).default('New'),
+  subreddit: varchar("subreddit", { length: 100 }),
+  followerCount: integer("follower_count").default(0),
+  headline: text("headline"),
+  engagementStats: text("engagement_stats"),
+  suggestedReply: text("suggested_reply"),
+  autoEngaged: boolean("auto_engaged").default(false),
+  engagementType: varchar("engagement_type", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const leadHunterRuns = pgTable("lead_hunter_runs", {
+  id: serial("id").primaryKey(),
+  date: varchar("date", { length: 20 }).notNull(),
+  status: varchar("status", { length: 50 }).default('running'),
+  totalScraped: integer("total_scraped").default(0),
+  newLeads: integer("new_leads").default(0),
+  highIntent: integer("high_intent").default(0),
+  autoEngagedCount: integer("auto_engaged_count").default(0),
+  platformBreakdown: text("platform_breakdown"),
+  errorLog: text("error_log"),
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type Lead = typeof leads.$inferSelect;
+export type LeadHunterRun = typeof leadHunterRuns.$inferSelect;
+
 // ─── BLOG POSTS ────────────────────────────────────────────────
 
 export const blogPosts = pgTable("blog_posts", {

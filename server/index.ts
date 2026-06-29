@@ -1015,6 +1015,10 @@ async function withRetry<T>(
     // Start independent breakout monitor (M15 polling during session windows)
     const { startBreakoutMonitor } = await import('./services/breakout-monitor');
     startBreakoutMonitor();
+
+    // Start daily lead hunter (runs at 08:00 UTC)
+    const { startLeadHunterScheduler } = await import('./services/lead-hunter');
+    startLeadHunterScheduler();
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });
