@@ -303,7 +303,21 @@ async function getExistingKeys(): Promise<Set<string>> {
   }
 }
 
-// ── AI scoring (Layer 2 + 3) ──────────────────────────────────────────────────
+// ── VEDD feature map (pain point → feature + URL) ────────────────────────────
+
+const VEDD_FEATURES = [
+  { id: 'chart_analysis', name: 'AI Chart Analysis', url: 'https://veddbuild.com/analysis', triggers: ['chart', 'analysis', 'signal', 'entry', 'exit', 'when to buy', 'when to sell', 'reading charts', 'technical'] },
+  { id: 'ss_engine', name: 'SS AI Engine (Auto-Trading)', url: 'https://veddbuild.com/weekly-strategy', triggers: ['automated', 'autopilot', 'bot', 'EA', 'algorithm', 'auto', 'passive', 'while I sleep', 'hands-free', 'too busy'] },
+  { id: 'weekly_strategy', name: 'Weekly AI Strategy Plan', url: 'https://veddbuild.com/weekly-strategy', triggers: ['strategy', 'plan', 'weekly', 'what pairs', 'which pairs', 'confused', 'don\'t know what to trade'] },
+  { id: 'copy_trading', name: 'Copy Trading', url: 'https://veddbuild.com/copy-trading', triggers: ['copy', 'follow', 'mirror', 'beginner', 'learning', 'new to trading', 'just started'] },
+  { id: 'sol_scanner', name: 'SOL Scanner', url: 'https://veddbuild.com/solana-scanner', triggers: ['solana', 'sol', 'crypto', 'token', 'memecoin', 'defi', 'blockchain'] },
+  { id: 'orb_breakout', name: 'ORB Breakout System', url: 'https://veddbuild.com/orb-breakout', triggers: ['breakout', 'range', 'opening range', 'morning', 'session', 'momentum'] },
+  { id: 'prop_firm', name: 'Prop Firm Challenge Mode', url: 'https://veddbuild.com/prop-firm-challenge', triggers: ['prop firm', 'FTMO', 'funded', 'challenge', 'drawdown', 'prop'] },
+  { id: 'growth_plan', name: 'Account Growth Plan', url: 'https://veddbuild.com/account-growth-plan', triggers: ['grow', 'compound', 'small account', 'double', 'percentage', 'consistent'] },
+  { id: 'platform', name: 'VEDDBuild Platform', url: 'https://veddbuild.com', triggers: ['platform', 'tool', 'software', 'app', 'recommend', 'suggestion', 'looking for'] },
+];
+
+// ── AI scoring (Layer 2 + 3) with ambassador brief ────────────────────────────
 
 async function scoreLeads(rawLeads: RawLead[]): Promise<ScoredLead[]> {
   if (rawLeads.length === 0) return [];
@@ -313,7 +327,7 @@ async function scoreLeads(rawLeads: RawLead[]): Promise<ScoredLead[]> {
       ...l,
       intent_score: 5,
       account_quality: 5,
-      contact_opportunity: 'Unknown',
+      contact_opportunity: JSON.stringify({ pain_point: 'Unknown', vedd_feature: 'VEDDBuild Platform', vedd_url: 'https://veddbuild.com', opener: 'Hey, saw your post and thought VEDDBuild might help.', talking_points: ['AI-powered trading platform', 'Auto-execution engine', 'Free to start'] }),
       suggested_reply: '',
       auto_engaged: false,
       engagement_type: '',
@@ -321,24 +335,34 @@ async function scoreLeads(rawLeads: RawLead[]): Promise<ScoredLead[]> {
   }
 
   const scored: ScoredLead[] = [];
-  const batch = rawLeads.slice(0, 50); // cap at 50 for cost
+  const batch = rawLeads.slice(0, 50);
   for (const lead of batch) {
     try {
-      const prompt = `You are a lead qualification AI for VEDDBuild (veddbuild.com) — an AI trading platform.
+      const prompt = `You are an ambassador coach for VEDDBuild (veddbuild.com) — an AI trading platform with these features:
+- AI Chart Analysis (/analysis): reads charts, gives buy/sell signals
+- SS AI Engine (/weekly-strategy): auto-executes trades while you sleep, MT5 integration
+- Weekly Strategy Plan (/weekly-strategy): AI-generated weekly trading plan by pair
+- Copy Trading (/copy-trading): follow top traders automatically
+- SOL Scanner (/solana-scanner): finds Solana crypto opportunities
+- ORB Breakout (/orb-breakout): morning range breakout system
+- Prop Firm Challenge Mode (/prop-firm-challenge): pass FTMO/funded challenges
+- Account Growth Plan (/account-growth-plan): compound small accounts systematically
 
-Analyze this social media post and return JSON only:
-Platform: ${lead.platform}
+Analyze this ${lead.platform} post and return a JSON ambassador brief:
 Username: ${lead.username}
 Content: ${lead.post_content}
 Followers: ${lead.follower_count || 'N/A'}
-Engagement: ${lead.engagement || 0}
 
-Return ONLY valid JSON (no markdown):
+Return ONLY valid JSON (no markdown, no explanation):
 {
-  "account_quality": <1-10, 10=definitely real active person>,
-  "intent_score": <1-10: 10=actively asking for tool recommendations, 7-9=frustrated with current tools, 4-6=discussing trading generally, 1-3=generic trading interest>,
-  "contact_opportunity": "<one sentence on why/how to reach them>",
-  "suggested_reply": "<platform-appropriate reply. For score 1-3: genuine engagement no VEDD mention. For 4-6: subtle. For 7+: mention VEDDBuild or veddbuild.com naturally. Under 250 chars for Twitter. NEVER say 'check this out' or 'DM me'.>"
+  "account_quality": <1-10>,
+  "intent_score": <1-10: 10=actively asking for tool/solution, 7-9=frustrated with current tools, 4-6=general trading discussion, 1-3=generic interest>,
+  "pain_point": "<one sentence: what specific problem or frustration is this person expressing?>",
+  "vedd_feature": "<name of the ONE VEDDBuild feature that most directly solves their problem>",
+  "vedd_url": "<full URL to that feature, e.g. https://veddbuild.com/analysis>",
+  "opener": "<natural first message to send — address their specific pain, sound human not salesy, 1-2 sentences. For score <4: no VEDD mention. For 4-6: subtle bridge. For 7+: reference VEDDBuild naturally>",
+  "talking_points": ["<point 1 connecting their pain to the VEDD feature>", "<point 2>", "<point 3>"],
+  "suggested_reply": "<full outreach message that flows: acknowledge their pain → introduce the solution → invite them. ${lead.platform === 'X/Twitter' ? 'Under 250 chars.' : '3-5 sentences.'} Never say DM me or check this out.>"
 }`;
 
       const raw = await aiChat([{ role: 'user', content: prompt }]);
@@ -348,11 +372,19 @@ Return ONLY valid JSON (no markdown):
         parsed = match ? JSON.parse(match[0]) : {};
       } catch { /* ignore parse errors */ }
 
+      const brief = {
+        pain_point: parsed.pain_point || '',
+        vedd_feature: parsed.vedd_feature || 'VEDDBuild Platform',
+        vedd_url: parsed.vedd_url || 'https://veddbuild.com',
+        opener: parsed.opener || '',
+        talking_points: Array.isArray(parsed.talking_points) ? parsed.talking_points : [],
+      };
+
       scored.push({
         ...lead,
         intent_score: Math.min(10, Math.max(1, parseInt(parsed.intent_score) || 5)),
         account_quality: Math.min(10, Math.max(1, parseInt(parsed.account_quality) || 5)),
-        contact_opportunity: parsed.contact_opportunity || '',
+        contact_opportunity: JSON.stringify(brief),
         suggested_reply: parsed.suggested_reply || '',
         auto_engaged: false,
         engagement_type: '',
@@ -362,7 +394,7 @@ Return ONLY valid JSON (no markdown):
         ...lead,
         intent_score: 5,
         account_quality: 5,
-        contact_opportunity: '',
+        contact_opportunity: JSON.stringify({ pain_point: '', vedd_feature: 'VEDDBuild Platform', vedd_url: 'https://veddbuild.com', opener: '', talking_points: [] }),
         suggested_reply: '',
         auto_engaged: false,
         engagement_type: '',
@@ -424,7 +456,6 @@ async function sendDigest(
   scored: ScoredLead[],
   platformBreakdown: Record<string, number>,
   dedupStats: { totalScraped: number; duplicatesRemoved: number; newLeads: number },
-  autoEngagedLeads: ScoredLead[],
   errors: string[]
 ) {
   const key = process.env.SENDGRID_API_KEY;
@@ -440,22 +471,29 @@ async function sendDigest(
     return `<span style="background:${bg};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700;">${score}/10</span>`;
   };
 
-  const leadsTable = top10.map(l => `
-    <tr style="border-bottom:1px solid #1a1f2e;">
-      <td style="padding:8px 6px;font-size:12px;color:#9ca3af;">${l.platform}</td>
-      <td style="padding:8px 6px;font-size:12px;color:#fff;">${l.username}</td>
-      <td style="padding:8px 6px;">${intentBadge(l.intent_score)}</td>
-      <td style="padding:8px 6px;font-size:11px;color:#d1d5db;max-width:280px;">${(l.post_content || '').substring(0, 120)}…</td>
-      <td style="padding:8px 6px;font-size:11px;color:#F0D269;">${(l.suggested_reply || '').substring(0, 100)}${l.suggested_reply?.length > 100 ? '…' : ''}</td>
-    </tr>`).join('');
+  const parseBrief = (l: ScoredLead) => {
+    try { return JSON.parse(l.contact_opportunity || '{}'); } catch { return {}; }
+  };
 
-  const engageTable = autoEngagedLeads.length > 0 ? autoEngagedLeads.map(l => `
-    <tr style="border-bottom:1px solid #1a1f2e;">
-      <td style="padding:6px;font-size:12px;color:#9ca3af;">${l.platform}</td>
-      <td style="padding:6px;font-size:12px;color:#fff;">${l.username}</td>
-      <td style="padding:6px;font-size:12px;color:#F0D269;">${l.engagement_type}</td>
-      <td style="padding:6px;">${intentBadge(l.intent_score)}</td>
-    </tr>`).join('') : '<tr><td colspan="4" style="padding:12px;color:#6b7280;font-size:12px;text-align:center;">No auto-engagements this run</td></tr>';
+  const leadsCards = top10.map(l => {
+    const brief = parseBrief(l);
+    const points = (brief.talking_points || []).map((p: string) => `<li style="margin-bottom:4px;color:#d1d5db;">${p}</li>`).join('');
+    return `
+    <div style="background:#0a0f1a;border:1px solid #1a1f2e;border-radius:12px;padding:16px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <span style="font-size:12px;font-weight:700;color:#9ca3af;background:#1a1f2e;padding:3px 10px;border-radius:20px;">${l.platform}</span>
+        <span style="font-size:13px;font-weight:700;color:#fff;">${l.username}</span>
+        ${l.post_url ? `<a href="${l.post_url}" style="margin-left:auto;color:#60a5fa;font-size:11px;">View post →</a>` : ''}
+        <span style="margin-left:${l.post_url ? '0' : 'auto'};">${intentBadge(l.intent_score)}</span>
+      </div>
+      <p style="margin:0 0 10px;font-size:12px;color:#9ca3af;font-style:italic;">"${(l.post_content || '').substring(0, 140)}…"</p>
+      ${brief.pain_point ? `<p style="margin:0 0 8px;font-size:12px;"><span style="color:#F0D269;font-weight:700;">Pain: </span><span style="color:#d1d5db;">${brief.pain_point}</span></p>` : ''}
+      ${brief.vedd_feature ? `<p style="margin:0 0 8px;font-size:12px;"><span style="color:#F0D269;font-weight:700;">Send to: </span><a href="${brief.vedd_url || 'https://veddbuild.com'}" style="color:#60a5fa;">${brief.vedd_feature}</a></p>` : ''}
+      ${brief.opener ? `<div style="background:#0f1a2e;border-left:3px solid #F0D269;padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:8px;"><p style="margin:0 0 4px;font-size:10px;color:#F0D269;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Opener</p><p style="margin:0;font-size:12px;color:#e5e7eb;">${brief.opener}</p></div>` : ''}
+      ${points ? `<ul style="margin:0 0 8px;padding-left:16px;font-size:12px;">${points}</ul>` : ''}
+      ${l.suggested_reply ? `<div style="background:#0f2010;border-left:3px solid #16a34a;padding:8px 12px;border-radius:0 6px 6px 0;"><p style="margin:0 0 4px;font-size:10px;color:#6ee7b7;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Full Outreach Message</p><p style="margin:0;font-size:12px;color:#e5e7eb;">${l.suggested_reply}</p></div>` : ''}
+    </div>`;
+  }).join('');
 
   const breakdown = Object.entries(platformBreakdown).map(
     ([p, c]) => `<span style="margin-right:12px;font-size:13px;color:#d1d5db;"><strong style="color:#F0D269;">${c}</strong> ${p}</span>`
@@ -467,16 +505,15 @@ async function sendDigest(
     <div style="width:40px;height:40px;background:linear-gradient(135deg,#F0D269,#d4a800);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;">🎯</div>
     <div>
       <h1 style="color:#fff;font-size:20px;font-weight:900;margin:0;">VEDD Lead Hunter</h1>
-      <p style="color:#6b7280;font-size:13px;margin:0;">Daily digest — ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+      <p style="color:#6b7280;font-size:13px;margin:0;">Ambassador brief — ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px;">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px;">
     ${[
       ['Scraped', dedupStats.totalScraped, '#6b7280'],
       ['New Leads', dedupStats.newLeads, '#3b82f6'],
       ['High Intent', highIntent.length, '#16a34a'],
-      ['Auto-Engaged', autoEngagedLeads.length, '#F0D269'],
     ].map(([label, val, color]) => `
       <div style="background:#0f1420;border:1px solid #1a1f2e;border-radius:12px;padding:16px;text-align:center;">
         <div style="font-size:26px;font-weight:900;color:${color};">${val}</div>
@@ -492,37 +529,14 @@ async function sendDigest(
     </div>
   </div>
 
-  <h3 style="color:#fff;font-size:14px;font-weight:700;margin:0 0 12px;">Auto-Engagements</h3>
-  <div style="overflow-x:auto;margin-bottom:24px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <thead><tr style="border-bottom:2px solid #1a1f2e;">
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Platform</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">User</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Action</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Score</th>
-      </tr></thead>
-      <tbody>${engageTable}</tbody>
-    </table>
-  </div>
-
-  <h3 style="color:#fff;font-size:14px;font-weight:700;margin:0 0 12px;">Top Leads + Suggested Replies</h3>
-  <div style="overflow-x:auto;margin-bottom:24px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <thead><tr style="border-bottom:2px solid #1a1f2e;">
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Platform</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Username</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Intent</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Post</th>
-        <th style="padding:8px 6px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">Suggested Reply</th>
-      </tr></thead>
-      <tbody>${leadsTable}</tbody>
-    </table>
-  </div>
+  <h3 style="color:#fff;font-size:14px;font-weight:700;margin:0 0 4px;">Ambassador Briefs — Top ${top10.length} Leads</h3>
+  <p style="color:#6b7280;font-size:12px;margin:0 0 16px;">Each card shows the lead's pain, which VEDD feature solves it, your opener, and the full outreach message.</p>
+  ${leadsCards}
 
   ${errors.length > 0 ? `<div style="background:#1a0a0a;border:1px solid #7f1d1d;border-radius:8px;padding:12px;margin-bottom:24px;font-size:12px;color:#fca5a5;">${errors.join('<br/>')}</div>` : ''}
 
   <hr style="border:none;border-top:1px solid #1a1f2e;margin:24px 0;"/>
-  <p style="color:#4b5563;font-size:12px;margin:0;">VEDD Lead Hunter · veddbuild.com · Powered by AI</p>
+  <p style="color:#4b5563;font-size:12px;margin:0;">VEDD Lead Hunter · veddbuild.com · View all leads at <a href="https://veddbuild.com/lead-hunter" style="color:#F0D269;">veddbuild.com/lead-hunter</a></p>
 </div>`;
 
   try {
@@ -596,21 +610,7 @@ export async function runLeadHunter(): Promise<RunResult> {
   const highIntent = scored.filter(l => l.intent_score >= 7);
   console.log(`[LeadHunter] ${highIntent.length} high-intent leads`);
 
-  // Auto-engage high-intent leads
-  const autoEngagedLeads: ScoredLead[] = [];
-  for (const lead of highIntent.slice(0, 10)) {
-    let engType = '';
-    if (lead.platform === 'X/Twitter' && lead.tweet_id) {
-      engType = await engageTwitter(lead);
-    } else if (lead.platform === 'LinkedIn' && lead.activity_id) {
-      engType = await engageLinkedIn(lead);
-    }
-    if (engType) {
-      lead.auto_engaged = true;
-      lead.engagement_type = engType;
-      autoEngagedLeads.push(lead);
-    }
-  }
+  // No auto-engagement — ambassadors use the brief to engage personally
 
   // Store in DB
   let storedCount = 0;
@@ -650,7 +650,7 @@ export async function runLeadHunter(): Promise<RunResult> {
       totalScraped: allLeads.length,
       newLeads: newRaw.length,
       highIntent: highIntent.length,
-      autoEngagedCount: autoEngagedLeads.length,
+      autoEngagedCount: 0,
       platformBreakdown: JSON.stringify(platformBreakdown),
       errorLog: errors.length > 0 ? errors.join('\n') : null,
       completedAt: new Date(),
@@ -662,7 +662,6 @@ export async function runLeadHunter(): Promise<RunResult> {
     scored,
     platformBreakdown,
     { totalScraped: allLeads.length, duplicatesRemoved: dupeCount, newLeads: newRaw.length },
-    autoEngagedLeads,
     errors
   );
 
@@ -672,7 +671,7 @@ export async function runLeadHunter(): Promise<RunResult> {
     totalScraped: allLeads.length,
     newLeads: newRaw.length,
     highIntent: highIntent.length,
-    autoEngaged: autoEngagedLeads.length,
+    autoEngaged: 0,
     platformBreakdown,
   };
 }

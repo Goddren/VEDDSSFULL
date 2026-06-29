@@ -528,6 +528,7 @@ export default function AmbassadorRecruitmentPage() {
           <TabsTrigger value="scripts" className="text-xs">Scripts</TabsTrigger>
           <TabsTrigger value="leadpages" className="text-xs">Lead Pages</TabsTrigger>
           <TabsTrigger value="social" className="text-xs">Social Scanner</TabsTrigger>
+          <TabsTrigger value="leadfeed" className="text-xs">🎯 Lead Feed</TabsTrigger>
         </TabsList>
 
         {/* ── TRAINING MODULES ── */}
@@ -1450,7 +1451,237 @@ And honestly? The free tier exists so you don't have to take my word for it. You
             )}
           </div>
         </TabsContent>
+
+        {/* ── LEAD FEED ── */}
+        <TabsContent value="leadfeed">
+          <LeadFeedTab />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Lead Feed component ───────────────────────────────────────────────────────
+
+type HunterLead = {
+  id: string;
+  date: string;
+  platform: string;
+  username: string;
+  postContent?: string;
+  postUrl?: string;
+  intentScore?: number;
+  contactOpportunity?: string;
+  suggestedReply?: string;
+  status?: string;
+  createdAt?: string;
+};
+
+const LEAD_PLATFORM_COLORS: Record<string, string> = {
+  Reddit: '#ff4500', 'X/Twitter': '#1d9bf0',
+  Instagram: '#e1306c', LinkedIn: '#0a66c2', Facebook: '#1877f2',
+};
+
+function LeadFeedTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [filter, setFilter] = useState<'all' | 'high' | 'medium'>('high');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: rawLeads = [], isFetching, refetch } = useQuery<HunterLead[]>({
+    queryKey: ['/api/lead-hunter/leads'],
+    refetchInterval: false,
+  });
+
+  const runMutation = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/lead-hunter/run'); return r.json(); },
+    onSuccess: () => {
+      toast({ title: 'Lead Hunter started', description: 'New briefs arrive in ~3–5 min.' });
+      setTimeout(() => refetch(), 8000);
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      const r = await apiRequest('PATCH', `/api/lead-hunter/leads/${id}/status`, { status });
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/leads'] }),
+  });
+
+  const parseBrief = (lead: HunterLead) => {
+    try { return JSON.parse(lead.contactOpportunity || '{}'); } catch { return {}; }
+  };
+
+  const filtered = rawLeads.filter(l => {
+    const s = l.intentScore || 0;
+    if (filter === 'high') return s >= 7;
+    if (filter === 'medium') return s >= 4;
+    return true;
+  });
+
+  const highCount = rawLeads.filter(l => (l.intentScore || 0) >= 7).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-bold text-base">Lead Hunter Feed</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            AI-hunted leads with your ambassador brief — pain point, what to say, where to send them.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button size="sm" onClick={() => runMutation.mutate()} disabled={runMutation.isPending}
+            className="bg-amber-500 hover:bg-amber-600 text-black font-bold">
+            <Zap className="w-3.5 h-3.5 mr-1.5" />
+            {runMutation.isPending ? 'Starting…' : 'Run Now'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter pills */}
+      <div className="flex gap-2">
+        {([['high', `High Intent (${highCount})`, '#16a34a'], ['medium', 'Medium+', '#d97706'], ['all', 'All', '#6b7280']] as const).map(([val, label, color]) => (
+          <button key={val} onClick={() => setFilter(val as any)}
+            style={{ background: filter === val ? color : undefined }}
+            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filter === val ? 'text-white border-transparent' : 'border-border text-muted-foreground hover:border-amber-500'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground">
+          <Target className="w-8 h-8 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">{rawLeads.length === 0 ? 'No leads yet — hit Run Now to hunt.' : 'No leads match this filter.'}</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {filtered.map(lead => {
+          const brief = parseBrief(lead);
+          const score = lead.intentScore || 0;
+          const isOpen = expanded === lead.id;
+          const scoreColor = score >= 7 ? '#16a34a' : score >= 4 ? '#d97706' : '#6b7280';
+          const platColor = LEAD_PLATFORM_COLORS[lead.platform] || '#6b7280';
+
+          return (
+            <Card key={lead.id} className={`border-border/50 cursor-pointer transition-all ${isOpen ? 'border-amber-500/50' : 'hover:border-border'}`}
+              onClick={() => setExpanded(isOpen ? null : lead.id)}>
+              <CardContent className="p-4">
+                {/* Header row */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: platColor + '22', color: platColor, border: `1px solid ${platColor}44` }}>
+                    {lead.platform}
+                  </span>
+                  <span className="text-sm font-bold">{lead.username}</span>
+                  <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: scoreColor + '22', color: scoreColor }}>
+                    {score}/10 intent
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </div>
+
+                {/* Post snippet */}
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {(lead.postContent || '').substring(0, isOpen ? 300 : 140)}{!isOpen && (lead.postContent || '').length > 140 ? '…' : ''}
+                </p>
+
+                {/* Expanded brief */}
+                {isOpen && (
+                  <div className="mt-4 space-y-3" onClick={e => e.stopPropagation()}>
+                    {brief.pain_point && (
+                      <div className="bg-muted/40 rounded-lg p-3">
+                        <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wide mb-1">Their Pain</p>
+                        <p className="text-sm">{brief.pain_point}</p>
+                      </div>
+                    )}
+
+                    {brief.vedd_feature && (
+                      <div className="bg-muted/40 rounded-lg p-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wide mb-1">Send Them To</p>
+                          <p className="text-sm font-semibold">{brief.vedd_feature}</p>
+                        </div>
+                        {brief.vedd_url && (
+                          <a href={brief.vedd_url} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                            onClick={e => e.stopPropagation()}>
+                            Open <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {brief.opener && (
+                      <div>
+                        <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wide mb-1">Opener</p>
+                        <div className="bg-blue-950/40 border border-blue-800/40 rounded-lg p-3 relative">
+                          <p className="text-sm text-blue-100 pr-8">{brief.opener}</p>
+                          <Button size="icon" variant="ghost" className="absolute top-2 right-2 h-6 w-6"
+                            onClick={() => { navigator.clipboard.writeText(brief.opener); toast({ title: 'Copied!' }); }}>
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {Array.isArray(brief.talking_points) && brief.talking_points.length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wide mb-1">Talking Points</p>
+                        <ul className="space-y-1">
+                          {brief.talking_points.map((pt: string, i: number) => (
+                            <li key={i} className="flex items-start gap-2 text-sm">
+                              <span className="text-amber-400 mt-0.5">•</span>
+                              <span className="text-muted-foreground">{pt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {lead.suggestedReply && (
+                      <div>
+                        <p className="text-[10px] text-green-400 font-bold uppercase tracking-wide mb-1">Full Outreach Message</p>
+                        <div className="bg-green-950/30 border border-green-800/30 rounded-lg p-3 relative">
+                          <p className="text-sm text-green-100 pr-8 leading-relaxed">{lead.suggestedReply}</p>
+                          <Button size="icon" variant="ghost" className="absolute top-2 right-2 h-6 w-6"
+                            onClick={() => { navigator.clipboard.writeText(lead.suggestedReply || ''); toast({ title: 'Message copied!' }); }}>
+                            <Copy className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      {lead.postUrl && (
+                        <a href={lead.postUrl} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-blue-400">
+                          <ExternalLink className="w-3 h-3" /> View post
+                        </a>
+                      )}
+                      <div className="ml-auto flex gap-1">
+                        {(['New', 'Contacted', 'Converted'] as const).map(s => (
+                          <button key={s} onClick={() => statusMutation.mutate({ id: lead.id, status: s })}
+                            className={`text-[11px] px-2 py-1 rounded font-semibold transition-colors ${lead.status === s ? 'bg-blue-700 text-white' : 'bg-muted text-muted-foreground hover:text-foreground'}`}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
