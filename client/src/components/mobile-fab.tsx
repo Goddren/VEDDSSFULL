@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings, GraduationCap, Home } from "lucide-react";
+import { Camera, Briefcase, Plus, X, TrendingUp, BarChart3, Bell, Settings, GraduationCap, Home, Target, Zap } from "lucide-react";
 import { useLocation } from "wouter";
 import { isMobileDevice } from "@/lib/pwa";
 import { triggerHaptic, useLongPress } from "@/hooks/use-gestures";
@@ -107,6 +107,20 @@ export function MobileFAB() {
       path: "/ambassador-training",
       color: "bg-amber-500/20 hover:bg-amber-500/30",
       testId: "fab-ambassador"
+    },
+    {
+      icon: <Target className="w-6 h-6" />,
+      label: "Lead Hunter",
+      path: "/lead-hunter",
+      color: "bg-yellow-500/20 hover:bg-yellow-500/30",
+      testId: "fab-lead-hunter"
+    },
+    {
+      icon: <Zap className="w-6 h-6" />,
+      label: "Ambassador Prime",
+      path: "/ambassador-prime",
+      color: "bg-orange-500/20 hover:bg-orange-500/30",
+      testId: "fab-ambassador-prime"
     },
     {
       icon: <Bell className="w-6 h-6" />,
