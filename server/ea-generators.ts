@@ -3587,17 +3587,21 @@ void PlacePendingBuyOrder(double sl, double tp, double lot_size = 0)
    double entry_price;
    ENUM_ORDER_TYPE order_type;
    
+   // Pip multiplier: forex/metals have ≥2 digits (pip = 10 × point), indices have 0-1 digits (pip = 1 × point)
+   int _buy_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double _buy_pip_mult = (_buy_digits <= 1) ? 1.0 : 10.0;
+
    // Determine order type and entry price based on UseLimitOrders setting
    if(UseLimitOrders)
    {
       // Buy Limit: Entry below current price (wait for pullback)
-      entry_price = current_price - PendingOrderDistance * point * 10;
+      entry_price = current_price - PendingOrderDistance * point * _buy_pip_mult;
       order_type = ORDER_TYPE_BUY_LIMIT;
    }
    else
    {
       // Buy Stop: Entry above current price (breakout confirmation)
-      entry_price = current_price + PendingOrderDistance * point * 10;
+      entry_price = current_price + PendingOrderDistance * point * _buy_pip_mult;
       order_type = ORDER_TYPE_BUY_STOP;
    }
    
@@ -3655,17 +3659,21 @@ void PlacePendingSellOrder(double sl, double tp, double lot_size = 0)
    double entry_price;
    ENUM_ORDER_TYPE order_type;
    
+   // Pip multiplier: forex/metals have ≥2 digits (pip = 10 × point), indices have 0-1 digits (pip = 1 × point)
+   int _sell_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double _sell_pip_mult = (_sell_digits <= 1) ? 1.0 : 10.0;
+
    // Determine order type and entry price based on UseLimitOrders setting
    if(UseLimitOrders)
    {
       // Sell Limit: Entry above current price (wait for rally)
-      entry_price = current_price + PendingOrderDistance * point * 10;
+      entry_price = current_price + PendingOrderDistance * point * _sell_pip_mult;
       order_type = ORDER_TYPE_SELL_LIMIT;
    }
    else
    {
       // Sell Stop: Entry below current price (breakdown confirmation)
-      entry_price = current_price - PendingOrderDistance * point * 10;
+      entry_price = current_price - PendingOrderDistance * point * _sell_pip_mult;
       order_type = ORDER_TYPE_SELL_STOP;
    }
    

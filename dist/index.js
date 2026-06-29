@@ -6425,6 +6425,28 @@ function getAssetSpecificConfig(symbol) {
       ]
     };
   }
+  const INDEX_SYMBOLS = ["US30", "NAS100", "SPX500", "UK100", "GER40", "DAX", "AUS200", "HK50", "JP225", "FRA40", "NASDAQ", "DOW", "SP500", "WALLST", "DJ30", "USTEC"];
+  if (INDEX_SYMBOLS.some((idx) => cleanSymbol.includes(idx))) {
+    return {
+      assetType: "index",
+      volatilityMultiplier: 1.2,
+      atrMultiplier: 1.5,
+      minimumConfirmations: 2,
+      sessionBias: ["New York Session (09:30\u201316:00 EST)", "London Session (08:00\u201317:00 GMT)"],
+      correlationAssets: ["VIX (inverse)", "USD strength", "Treasury yields", "SPX leads NAS100/US30"],
+      specialConsiderations: [
+        "Entry prices must be within 15\u201350 points of current price \u2014 not hundreds of points away",
+        "Stop loss: 50\u2013150 points from entry depending on ATR",
+        "Take profit: 100\u2013400 points targeting key levels",
+        "US30 moves 200\u2013500 points on a typical day \u2014 scale entries accordingly",
+        "Avoid entries more than 100 points from current price \u2014 they will never fill",
+        "NY open (09:30 EST) and EU open (08:00 GMT) are highest probability windows",
+        "VIX above 25 = elevated volatility, widen SL by 1.5x",
+        "SPX500 direction often leads US30 and NAS100",
+        "Psychological round numbers (e.g., 40000, 44500) act as magnets and resistance"
+      ]
+    };
+  }
   return {
     assetType: "forex",
     volatilityMultiplier: 1,
@@ -6519,6 +6541,46 @@ function getAssetSpecificPrompt(symbol) {
        - Be MORE CONSERVATIVE with confidence ratings
        - "High" confidence requires 4+ confirmations
        - Single indicator signals should be "Low" confidence maximum`;
+  }
+  if (config.assetType === "index") {
+    return `
+
+    EQUITY INDEX SPECIFIC ANALYSIS (CRITICAL FOR ACCURACY \u2014 US30/NAS100/SPX500/UK100/GER40):
+
+    Equity indices move in POINTS, not forex pips. Entry prices MUST be realistic:
+
+    1. ENTRY PRICE RULES (MOST IMPORTANT):
+       - Entry must be within 15\u201350 points of CURRENT price for US30/NAS100
+       - NEVER suggest an entry more than 100 points from current price \u2014 it will NEVER trigger
+       - For limit orders: entry 10\u201330 points from current price (pullback to key level)
+       - For stop orders: entry 10\u201325 points beyond current price (breakout confirmation)
+       - US30 typical daily range: 200\u2013500 points \u2014 calibrate entries to this scale
+
+    2. STOP LOSS RULES:
+       - US30/NAS100: Stop loss 50\u2013150 points from entry
+       - SPX500: Stop loss 15\u201350 points from entry
+       - Place stops below/above the nearest swing high/low or session open
+       - Avoid stops tighter than 30 points on US30 (noise will stop you out)
+
+    3. TAKE PROFIT RULES:
+       - Minimum 1.5:1 R:R required
+       - US30: TP targets 100\u2013400 points from entry
+       - Target the nearest round number (e.g., 44000, 44500, 45000)
+       - Multi-target: partial at 100 pts, full at 200\u2013300 pts
+
+    4. SESSION TIMING:
+       - Best: NY open 09:30\u201311:00 EST, EU open 08:00\u201310:00 GMT
+       - Avoid: 12:00\u201314:00 EST lunch lull (low liquidity, choppy)
+       - Watch: Fed speeches, CPI, NFP cause 200\u2013500 pt spikes
+
+    5. CORRELATION:
+       - Check SPX direction before US30 entries (SPX leads)
+       - VIX rising = bearish pressure; VIX falling = bullish confirmation
+       - Strong USD often weighs on indices
+
+    6. ALL PRICE LEVELS IN YOUR RESPONSE must be realistic index values:
+       - US30 is currently near ${symbol.includes("US30") || symbol.includes("DOW") ? "~44,000\u201345,000" : "check current price"} \u2014 use real nearby levels
+       - Return entry/SL/TP as actual price values, NOT pip distances`;
   }
   return "";
 }
@@ -13431,17 +13493,21 @@ void PlacePendingBuyOrder(double sl, double tp, double lot_size = 0)
    double entry_price;
    ENUM_ORDER_TYPE order_type;
    
+   // Pip multiplier: forex/metals have \u22652 digits (pip = 10 \xD7 point), indices have 0-1 digits (pip = 1 \xD7 point)
+   int _buy_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double _buy_pip_mult = (_buy_digits <= 1) ? 1.0 : 10.0;
+
    // Determine order type and entry price based on UseLimitOrders setting
    if(UseLimitOrders)
    {
       // Buy Limit: Entry below current price (wait for pullback)
-      entry_price = current_price - PendingOrderDistance * point * 10;
+      entry_price = current_price - PendingOrderDistance * point * _buy_pip_mult;
       order_type = ORDER_TYPE_BUY_LIMIT;
    }
    else
    {
       // Buy Stop: Entry above current price (breakout confirmation)
-      entry_price = current_price + PendingOrderDistance * point * 10;
+      entry_price = current_price + PendingOrderDistance * point * _buy_pip_mult;
       order_type = ORDER_TYPE_BUY_STOP;
    }
    
@@ -13499,17 +13565,21 @@ void PlacePendingSellOrder(double sl, double tp, double lot_size = 0)
    double entry_price;
    ENUM_ORDER_TYPE order_type;
    
+   // Pip multiplier: forex/metals have \u22652 digits (pip = 10 \xD7 point), indices have 0-1 digits (pip = 1 \xD7 point)
+   int _sell_digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double _sell_pip_mult = (_sell_digits <= 1) ? 1.0 : 10.0;
+
    // Determine order type and entry price based on UseLimitOrders setting
    if(UseLimitOrders)
    {
       // Sell Limit: Entry above current price (wait for rally)
-      entry_price = current_price + PendingOrderDistance * point * 10;
+      entry_price = current_price + PendingOrderDistance * point * _sell_pip_mult;
       order_type = ORDER_TYPE_SELL_LIMIT;
    }
    else
    {
       // Sell Stop: Entry below current price (breakdown confirmation)
-      entry_price = current_price - PendingOrderDistance * point * 10;
+      entry_price = current_price - PendingOrderDistance * point * _sell_pip_mult;
       order_type = ORDER_TYPE_SELL_STOP;
    }
    
