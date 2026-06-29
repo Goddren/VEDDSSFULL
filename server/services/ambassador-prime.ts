@@ -191,32 +191,71 @@ async function generateDalleImage(prompt: string): Promise<string | null> {
 }
 
 // ── Reddit research ──────────────────────────────────────────────────────────
+// ── Free Reddit JSON API (no key required) ───────────────────────────────────
 async function scrapeRedditInsights(theme: string): Promise<{ posts: any[]; error?: string }> {
-  const token = process.env.APIFY_API_TOKEN;
-  if (!token) return { posts: [], error: 'No APIFY_API_TOKEN' };
-
   const subreddits = ['Forex', 'Daytrading', 'algotrading', 'Trading', 'stocks'];
-  const searchQuery = theme.split(' ').slice(0, 3).join(' ');
+  const posts: any[] = [];
+  const headers = { 'User-Agent': 'VEDD-Ambassador-Prime/1.0 (trading research bot)' };
 
-  try {
-    const res = await fetch(
-      `https://api.apify.com/v2/acts/apify~reddit-scraper/run-sync-get-dataset-items?token=${token}&timeout=60&memory=256`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startUrls: subreddits.map(s => ({ url: `https://www.reddit.com/r/${s}/search/?q=${encodeURIComponent(searchQuery)}&sort=hot&limit=5` })),
-          maxItems: 25,
-          proxy: { useApifyProxy: true },
-        }),
+  for (const sub of subreddits) {
+    try {
+      // Reddit's free public JSON API — no token needed
+      const url = `https://www.reddit.com/r/${sub}/hot.json?limit=8&raw_json=1`;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const data = await res.json() as any;
+      const children = data?.data?.children ?? [];
+      for (const child of children) {
+        const p = child.data;
+        if (!p || p.stickied) continue;
+        posts.push({
+          subreddit: sub,
+          title: p.title,
+          score: p.score,
+          num_comments: p.num_comments,
+          selftext: (p.selftext ?? '').slice(0, 300),
+          url: `https://reddit.com${p.permalink}`,
+          dataType: 'post',
+        });
       }
-    );
-    if (!res.ok) return { posts: [], error: `Apify ${res.status}` };
-    const items = await res.json() as any[];
-    return { posts: items.filter((i: any) => i.dataType === 'post') };
-  } catch (e: any) {
-    return { posts: [], error: e.message };
+    } catch {
+      // skip this subreddit on timeout/error
+    }
   }
+  return { posts };
+}
+
+// ── Free RSS news feed scraper (no key required) ─────────────────────────────
+async function scrapeNewsRSS(theme: string): Promise<string[]> {
+  const headlines: string[] = [];
+  const keywords = encodeURIComponent(`trading ${theme.split(' ').slice(0, 2).join(' ')}`);
+
+  const feeds = [
+    // Google News RSS — completely free
+    `https://news.google.com/rss/search?q=${keywords}+trading+forex&hl=en-US&gl=US&ceid=US:en`,
+    // Yahoo Finance RSS
+    `https://finance.yahoo.com/news/rssindex`,
+  ];
+
+  const headers = { 'User-Agent': 'VEDD-Ambassador-Prime/1.0' };
+
+  for (const feed of feeds) {
+    try {
+      const res = await fetch(feed, { headers, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      // Extract <title> tags from RSS — simple regex, no XML parser dependency
+      const titles = [...xml.matchAll(/<title><!\[CDATA\[(.+?)\]\]><\/title>|<title>([^<]+)<\/title>/g)]
+        .map(m => (m[1] || m[2] || '').trim())
+        .filter(t => t && t.length > 20 && !t.toLowerCase().includes('google news'))
+        .slice(0, 6);
+      headlines.push(...titles);
+      if (headlines.length >= 10) break;
+    } catch {
+      // skip
+    }
+  }
+  return headlines.slice(0, 10);
 }
 
 // ── AI helper ────────────────────────────────────────────────────────────────
@@ -397,37 +436,44 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   let batch1: Awaited<ReturnType<typeof generateBatch1>> | null = null;
   let batch2: Awaited<ReturnType<typeof generateBatch2>> | null = null;
 
-  // ── Step 1: Reddit Research ───────────────────────────────────────────────
-  let redditContext = 'No Reddit data.';
+  // ── Step 1: Free Research (Reddit JSON + News RSS — no API keys needed) ─────
+  let redditContext = 'No community data available.';
   let redditPosts: any[] = [];
+  let newsHeadlines: string[] = [];
   try {
-    const { posts, error } = await scrapeRedditInsights(theme.angle);
-    if (error) {
-      errors.push(`Reddit scrape: ${error}`);
-      await logStep(runDate, 'Reddit Research', 'skipped', error);
-      skippedSteps.push('Reddit Research');
-    } else {
-      redditPosts = posts;
-      const analysis = await analyzeRedditInsights(posts, theme.angle);
-      redditContext = analysis.context;
-      redditInsightsCount = analysis.insights.length;
-      engagementOpportunities = posts.length;
+    // Run Reddit and news scraping in parallel — both free, no keys
+    const [redditResult, headlines] = await Promise.all([
+      scrapeRedditInsights(theme.angle),
+      scrapeNewsRSS(theme.angle),
+    ]);
 
-      for (const insight of analysis.insights) {
-        await db.insert(ambassadorRedditInsights).values({
-          runDate,
-          subreddit: 'aggregated',
-          insight,
-          engagementOpportunity: redditContext.slice(0, 200),
-        });
-      }
-      completedSteps.push('Reddit Research');
-      await logStep(runDate, 'Reddit Research', 'completed');
+    redditPosts = redditResult.posts;
+    newsHeadlines = headlines;
+
+    const analysis = await analyzeRedditInsights(redditPosts, theme.angle);
+    redditInsightsCount = analysis.insights.length;
+    engagementOpportunities = redditPosts.length;
+
+    // Build combined context: Reddit + news headlines
+    const newsSnippet = newsHeadlines.length
+      ? `\nToday's market headlines: ${newsHeadlines.slice(0, 5).join(' | ')}`
+      : '';
+    redditContext = analysis.context + newsSnippet;
+
+    for (const insight of analysis.insights) {
+      await db.insert(ambassadorRedditInsights).values({
+        runDate,
+        subreddit: 'aggregated',
+        insight,
+        engagementOpportunity: redditContext.slice(0, 200),
+      });
     }
+    completedSteps.push('Free Research (Reddit + News RSS)');
+    await logStep(runDate, 'Free Research (Reddit + News RSS)', 'completed');
   } catch (e: any) {
-    errors.push(`Reddit: ${e.message}`);
-    skippedSteps.push('Reddit Research');
-    await logStep(runDate, 'Reddit Research', 'failed', e.message);
+    errors.push(`Research: ${e.message}`);
+    skippedSteps.push('Free Research');
+    await logStep(runDate, 'Free Research (Reddit + News RSS)', 'failed', e.message);
   }
 
   // ── Step 2: Batch 1 AI Content Generation ─────────────────────────────────
@@ -470,12 +516,13 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     await logStep(runDate, 'DALL-E Image Generation', 'failed', e.message);
   }
 
-  // ── Step 5: Twitter Posting ───────────────────────────────────────────────
+  // ── Step 5: Twitter (auto-post if keys set, otherwise save as ready-to-post) ─
   if (batch1?.tweets.length) {
+    const hasTwitterKeys = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
     for (const tweet of batch1.tweets) {
       try {
-        const postId = await postTweet(tweet);
-        const status = postId ? 'posted' : 'generated';
+        const postId = hasTwitterKeys ? await postTweet(tweet) : null;
+        const status = postId ? 'posted' : 'ready_to_post';
         if (postId) tweetsPosted++;
         await db.insert(ambassadorDailyContent).values({
           runDate, platform: 'twitter', postType: 'tweet',
@@ -483,13 +530,19 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
         });
       } catch (e: any) {
         errors.push(`Tweet: ${e.message}`);
+        // Still save content even if posting failed
+        await db.insert(ambassadorDailyContent).values({
+          runDate, platform: 'twitter', postType: 'tweet',
+          contentText: tweet, status: 'ready_to_post', referralLink: REFERRAL_LINK,
+        }).catch(() => {});
       }
     }
-    completedSteps.push('Twitter Posting');
-    await logStep(runDate, 'Twitter Posting', 'completed');
+    const label = hasTwitterKeys ? 'Twitter Posting' : 'Twitter Content (ready to post)';
+    completedSteps.push(label);
+    await logStep(runDate, label, 'completed');
   } else {
-    skippedSteps.push('Twitter Posting');
-    await logStep(runDate, 'Twitter Posting', 'skipped', 'No tweets generated');
+    skippedSteps.push('Twitter Content');
+    await logStep(runDate, 'Twitter Content', 'skipped', 'No tweets generated');
   }
 
   // ── Step 6: Hook Variations DB Save ──────────────────────────────────────
@@ -524,8 +577,9 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   if (batch2) {
     for (const [idx, post] of [[1, batch2.linkedinPost1], [2, batch2.linkedinPost2]] as [number, string][]) {
       try {
-        const postId = await postLinkedIn(post);
-        const status = postId ? 'posted' : 'generated';
+        const hasLinkedIn = !!process.env.LINKEDIN_ACCESS_TOKEN;
+        const postId = hasLinkedIn ? await postLinkedIn(post) : null;
+        const status = postId ? 'posted' : 'ready_to_post';
         if (postId) linkedinPosts++;
         await db.insert(ambassadorDailyContent).values({
           runDate, platform: 'linkedin', postType: `post_${idx}`,
@@ -533,10 +587,16 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
         });
       } catch (e: any) {
         errors.push(`LinkedIn post ${idx}: ${e.message}`);
+        await db.insert(ambassadorDailyContent).values({
+          runDate, platform: 'linkedin', postType: `post_${idx}`,
+          contentText: post, status: 'ready_to_post', referralLink: REFERRAL_LINK,
+        }).catch(() => {});
       }
     }
-    completedSteps.push('LinkedIn Posting');
-    await logStep(runDate, 'LinkedIn Posting', 'completed');
+    const hasLinkedIn = !!process.env.LINKEDIN_ACCESS_TOKEN;
+    const liLabel = hasLinkedIn ? 'LinkedIn Posting' : 'LinkedIn Content (ready to post)';
+    completedSteps.push(liLabel);
+    await logStep(runDate, liLabel, 'completed');
   }
 
   // ── Step 8: Instagram Captions & Batch 2 content ─────────────────────────
@@ -622,10 +682,14 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   }
 
   // ── Step 11: Email Report ─────────────────────────────────────────────────
+  const hasTwitterKeys = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
+  const hasLinkedInKey = !!process.env.LINKEDIN_ACCESS_TOKEN;
   const emailSuccess = await sendAmbassadorPrimeReport({
     runDate, dayName, theme,
     tweetsPosted, linkedinPosts, igCaptionsGenerated,
     redditInsightsCount, engagementOpportunities, imageGenerated, imageUrl,
+    newsHeadlines,
+    hasTwitterKeys, hasLinkedInKey,
     tweets: batch1?.tweets ?? [],
     linkedinPost1: batch2?.linkedinPost1 ?? '',
     linkedinPost2: batch2?.linkedinPost2 ?? '',
@@ -659,6 +723,8 @@ async function sendAmbassadorPrimeReport(data: {
   tweetsPosted: number; linkedinPosts: number; igCaptionsGenerated: number;
   redditInsightsCount: number; engagementOpportunities: number;
   imageGenerated: boolean; imageUrl: string | null;
+  newsHeadlines: string[];
+  hasTwitterKeys: boolean; hasLinkedInKey: boolean;
   tweets: string[]; linkedinPost1: string; linkedinPost2: string;
   igCaptions: string[]; hooks: { A: string; B: string; C: string };
   reelScript: string; storyIdea: string; bonusContent: string; communityPrompt: string;
@@ -667,9 +733,12 @@ async function sendAmbassadorPrimeReport(data: {
   const sgKey = process.env.SENDGRID_API_KEY;
   if (!sgKey) return false;
 
+  const noApiMode = !data.hasTwitterKeys && !data.hasLinkedInKey;
+  const tweetLabel = data.hasTwitterKeys ? 'Tweet' : '🐦 Copy & post to Twitter';
+
   const tweetRows = data.tweets.map((t, i) => `
     <tr>
-      <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">Tweet ${i + 1}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">${tweetLabel} ${i + 1}</td>
       <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml(t)}</td>
     </tr>`).join('');
 
@@ -692,14 +761,28 @@ async function sendAmbassadorPrimeReport(data: {
     <div style="font-size:13px;color:#888;">${data.dayName}, ${data.runDate} — Daily Growth Report</div>
   </div>
 
+  <!-- No-API mode banner -->
+  ${noApiMode ? `
+  <div style="background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.3);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+    <div style="font-size:12px;font-weight:700;color:#f97316;margin-bottom:4px;">📋 Copy-Paste Mode — All content ready to post manually</div>
+    <div style="font-size:12px;color:#aaa;">No Twitter/LinkedIn API keys detected. Content is generated and emailed to you — just copy each section below and paste directly into the platform.</div>
+  </div>` : ''}
+
+  <!-- News headlines -->
+  ${data.newsHeadlines.length ? `
+  <div style="background:#111;border:1px solid #1a2a1a;border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#3fb950;margin-bottom:8px;">📰 Today's Market Headlines (Free RSS)</div>
+    ${data.newsHeadlines.map(h => `<div style="font-size:12px;color:#ccc;padding:4px 0;border-bottom:1px solid #1a1a1a;">${escHtml(h)}</div>`).join('')}
+  </div>` : ''}
+
   <!-- KPI Row -->
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
     ${[
-      ['🐦', 'Tweets Posted', data.tweetsPosted],
-      ['💼', 'LinkedIn Posts', data.linkedinPosts],
+      ['🐦', data.hasTwitterKeys ? 'Tweets Posted' : 'Tweets Generated', data.hasTwitterKeys ? data.tweetsPosted : data.tweets?.length ?? 0],
+      ['💼', data.hasLinkedInKey ? 'LinkedIn Posted' : 'LinkedIn Generated', data.hasLinkedInKey ? data.linkedinPosts : 2],
       ['📸', 'IG Captions', data.igCaptionsGenerated],
-      ['🔍', 'Reddit Insights', data.redditInsightsCount],
-      ['🎯', 'Opportunities', data.engagementOpportunities],
+      ['🔍', 'Reddit Posts', data.engagementOpportunities],
+      ['📰', 'News Headlines', data.newsHeadlines.length],
       ['🖼️', 'Image Generated', data.imageGenerated ? 'Yes' : 'No'],
     ].map(([icon, label, val]) => `
     <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;text-align:center;">
