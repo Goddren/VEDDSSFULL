@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc6) => {
+var __copyProps = (to, from, except, desc7) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc6 = __getOwnPropDesc(from, key)) || desc6.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc7 = __getOwnPropDesc(from, key)) || desc7.enumerable });
   }
   return to;
 };
@@ -35,22 +35,31 @@ __export(schema_exports, {
   aiTradeResults: () => aiTradeResults,
   allTimeRecords: () => allTimeRecords,
   ambassadorActionRewards: () => ambassadorActionRewards,
+  ambassadorBonusContent: () => ambassadorBonusContent,
   ambassadorCertifications: () => ambassadorCertifications,
   ambassadorChallengeParticipants: () => ambassadorChallengeParticipants,
   ambassadorChallengeSessions: () => ambassadorChallengeSessions,
   ambassadorChallenges: () => ambassadorChallenges,
   ambassadorCommunityComments: () => ambassadorCommunityComments,
+  ambassadorCommunityContent: () => ambassadorCommunityContent,
   ambassadorContentProgress: () => ambassadorContentProgress,
   ambassadorContentStats: () => ambassadorContentStats,
   ambassadorDailyActions: () => ambassadorDailyActions,
+  ambassadorDailyContent: () => ambassadorDailyContent,
+  ambassadorDailyKpis: () => ambassadorDailyKpis,
   ambassadorDailyLessons: () => ambassadorDailyLessons,
   ambassadorEventRegistrations: () => ambassadorEventRegistrations,
   ambassadorEventSchedules: () => ambassadorEventSchedules,
   ambassadorEvents: () => ambassadorEvents,
+  ambassadorHookVariations: () => ambassadorHookVariations,
   ambassadorJourney: () => ambassadorJourney,
+  ambassadorRedditInsights: () => ambassadorRedditInsights,
+  ambassadorRunStepLog: () => ambassadorRunStepLog,
+  ambassadorRunSummary: () => ambassadorRunSummary,
   ambassadorScheduleRegistrations: () => ambassadorScheduleRegistrations,
   ambassadorSocialDirections: () => ambassadorSocialDirections,
   ambassadorTrainingProgress: () => ambassadorTrainingProgress,
+  ambassadorWeeklyCalendar: () => ambassadorWeeklyCalendar,
   analysisFeedback: () => analysisFeedback,
   analysisViews: () => analysisViews,
   auditLogs: () => auditLogs,
@@ -237,7 +246,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2291,6 +2300,87 @@ var init_schema = __esm({
       errorLog: text("error_log"),
       createdAt: timestamp("created_at").defaultNow(),
       completedAt: timestamp("completed_at")
+    });
+    ambassadorDailyContent = pgTable("ambassador_daily_content", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      platform: varchar("platform", { length: 50 }).notNull(),
+      postType: varchar("post_type", { length: 50 }),
+      contentText: text("content_text"),
+      postId: varchar("post_id", { length: 255 }),
+      status: varchar("status", { length: 50 }).default("generated"),
+      referralLink: text("referral_link"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorRedditInsights = pgTable("ambassador_reddit_insights", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      subreddit: varchar("subreddit", { length: 100 }),
+      insight: text("insight"),
+      engagementOpportunity: text("engagement_opportunity"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorRunSummary = pgTable("ambassador_run_summary", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull().unique(),
+      tweetsPosted: integer("tweets_posted").default(0),
+      linkedinPosts: integer("linkedin_posts").default(0),
+      igCaptionsGenerated: integer("ig_captions_generated").default(0),
+      redditPostsScraped: integer("reddit_posts_scraped").default(0),
+      emailSent: boolean("email_sent").default(false),
+      imageGenerated: boolean("image_generated").default(false),
+      dayTheme: varchar("day_theme", { length: 100 }),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorWeeklyCalendar = pgTable("ambassador_weekly_calendar", {
+      id: serial("id").primaryKey(),
+      currentWeekNumber: integer("current_week_number").default(1),
+      lastRunDate: varchar("last_run_date", { length: 20 }),
+      lastRunDayOfWeek: varchar("last_run_day_of_week", { length: 20 }),
+      totalRuns: integer("total_runs").default(0)
+    });
+    ambassadorDailyKpis = pgTable("ambassador_daily_kpis", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull().unique(),
+      subscriberGrowthPosts: integer("subscriber_growth_posts").default(0),
+      referralLinksIncluded: integer("referral_links_included").default(0),
+      totalPostsPublished: integer("total_posts_published").default(0),
+      estimatedReach: integer("estimated_reach").default(0),
+      redditInsightsCount: integer("reddit_insights_count").default(0),
+      engagementOpportunities: integer("engagement_opportunities").default(0),
+      moduleTopic: text("module_topic"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorHookVariations = pgTable("ambassador_hook_variations", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      variation: varchar("variation", { length: 5 }),
+      hookText: text("hook_text"),
+      ctaText: text("cta_text"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorBonusContent = pgTable("ambassador_bonus_content", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      dayOfWeek: varchar("day_of_week", { length: 20 }),
+      contentType: varchar("content_type", { length: 50 }),
+      contentText: text("content_text"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorCommunityContent = pgTable("ambassador_community_content", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      contentType: varchar("content_type", { length: 50 }),
+      contentText: text("content_text"),
+      createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorRunStepLog = pgTable("ambassador_run_step_log", {
+      id: serial("id").primaryKey(),
+      runDate: varchar("run_date", { length: 20 }).notNull(),
+      stepName: varchar("step_name", { length: 100 }).notNull(),
+      status: varchar("status", { length: 20 }).default("completed"),
+      errorMessage: text("error_message"),
+      createdAt: timestamp("created_at").defaultNow()
     });
     blogPosts = pgTable("blog_posts", {
       id: serial("id").primaryKey(),
@@ -8819,7 +8909,7 @@ DIFFERENTIATORS (use these to stand out):
   const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
   const client2 = aiClient || openai;
   const model = aiClient ? aiClient.defaultModel : "gpt-4o";
-  const callAI = async (systemMsg, userMsg, maxTokens = 4500) => {
+  const callAI2 = async (systemMsg, userMsg, maxTokens = 4500) => {
     const response = await client2.chat.completions.create({
       model,
       messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
@@ -8829,7 +8919,7 @@ DIFFERENTIATORS (use these to stand out):
     return response.choices[0]?.message?.content || "";
   };
   if (mode === "auto") {
-    const content = await callAI(
+    const content = await callAI2(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write a complete, competition-winning grant proposal for VEDD AI Trading to submit to ${grant.funder} for the "${grant.title}" grant.
 
@@ -8969,7 +9059,7 @@ End with a confident, forward-looking sentence that makes approving this proposa
       }
     };
     const section = sectionInstructions[sectionKey] || sectionInstructions.executiveSummary;
-    const content = await callAI(
+    const content = await callAI2(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write the "${section.title}" section (${section.words} words) for a grant proposal from VEDD AI Trading to ${grant.funder} for "${grant.title}".
 
@@ -9002,7 +9092,7 @@ This proposal emphasizes VEDD's faith-based community trust networks, inter-city
 Lead with the racial wealth gap and the specific barriers that VEDD is dismantling. Show how VEDD's community-embedded model works where traditional fintech cannot reach.
 Key metrics: household income impact, new investor accounts opened, community GDP contribution, ambassador business development outcomes, generational wealth indicators.`
     };
-    const content = await callAI(
+    const content = await callAI2(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write a complete, ready-to-submit grant proposal (2,000\u20132,500 words) for VEDD AI Trading applying to ${grant.funder} for "${grant.title}."
 
@@ -16080,13 +16170,13 @@ async function getTLAccountValue(userId, conn) {
     const svc = await getOrCreateService(conn);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
-    const eq12 = info.equity || bal;
+    const eq13 = info.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq12;
+      g.tlAccountEquity[userId][acctId] = eq13;
       g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq12} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq12 };
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq13} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq13 };
     }
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
@@ -21866,8 +21956,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq12 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq12(uak.userId, userId), eq12(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq13 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq13(uak.userId, userId), eq13(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -23373,8 +23463,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     let _usingGroq = false;
     if (aiMode === "economy" && process.env.GROQ_API_KEY) {
       try {
-        const OpenAI6 = (await import("openai")).default;
-        const groqClient = new OpenAI6({
+        const OpenAI7 = (await import("openai")).default;
+        const groqClient = new OpenAI7({
           apiKey: process.env.GROQ_API_KEY,
           baseURL: "https://api.groq.com/openai/v1",
           maxRetries: 4,
@@ -24147,8 +24237,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq12 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq12(uak.userId, userId), eq12(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq13 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq13(uak.userId, userId), eq13(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -26823,8 +26913,8 @@ async function restoreEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq12, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq12(engineRunState2.userId, userId), eq12(engineRunState2.engine, "polymarket")));
+    const { eq: eq13, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq13(engineRunState2.userId, userId), eq13(engineRunState2.engine, "polymarket")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Polymarket] Restoring engine for user ${userId}`);
@@ -27974,8 +28064,8 @@ async function restoreKalshiEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq12, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq12(engineRunState2.userId, userId), eq12(engineRunState2.engine, "kalshi")));
+    const { eq: eq13, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq13(engineRunState2.userId, userId), eq13(engineRunState2.engine, "kalshi")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
@@ -29538,8 +29628,8 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     if (useEconomy) {
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
-        const OpenAI6 = (await import("openai")).default;
-        openai2 = new OpenAI6({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        const OpenAI7 = (await import("openai")).default;
+        openai2 = new OpenAI7({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         openai2.defaultModel = "openai/gpt-oss-120b";
         modelLabel = "Groq Llama";
         addActivity3(state, {
@@ -34347,6 +34437,743 @@ var init_lead_hunter = __esm({
   }
 });
 
+// server/services/ambassador-prime.ts
+var ambassador_prime_exports = {};
+__export(ambassador_prime_exports, {
+  runAmbassadorPrime: () => runAmbassadorPrime,
+  startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
+});
+import crypto9 from "crypto";
+import { eq as eq10 } from "drizzle-orm";
+import { OpenAI as OpenAI6 } from "openai";
+async function logStep(runDate, stepName, status, error) {
+  try {
+    await db.insert(ambassadorRunStepLog).values({ runDate, stepName, status, errorMessage: error ?? null });
+  } catch {
+  }
+}
+function buildOAuthHeader(method, url, params) {
+  const apiKey = process.env.TWITTER_API_KEY;
+  const apiSecret = process.env.TWITTER_API_SECRET;
+  const accessToken = process.env.TWITTER_ACCESS_TOKEN;
+  const accessSecret = process.env.TWITTER_ACCESS_TOKEN_SECRET;
+  if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
+  const oauthParams = {
+    oauth_consumer_key: apiKey,
+    oauth_nonce: crypto9.randomBytes(16).toString("hex"),
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
+    oauth_token: accessToken,
+    oauth_version: "1.0"
+  };
+  const allParams = { ...params, ...oauthParams };
+  const sortedKeys = Object.keys(allParams).sort();
+  const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
+  const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
+  const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
+  const signature = crypto9.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  oauthParams["oauth_signature"] = signature;
+  const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
+  return `OAuth ${headerValue}`;
+}
+async function postTweet(text2) {
+  try {
+    const url = "https://api.twitter.com/2/tweets";
+    const oauthHeader = buildOAuthHeader("POST", url, {});
+    if (!oauthHeader) return null;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: oauthHeader,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ text: text2 })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[ambassador-prime] Twitter post failed:", err);
+      return null;
+    }
+    const data = await res.json();
+    return data?.data?.id ?? null;
+  } catch (e) {
+    console.error("[ambassador-prime] Twitter error:", e.message);
+    return null;
+  }
+}
+async function postLinkedIn(text2) {
+  const token = process.env.LINKEDIN_ACCESS_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Restli-Protocol-Version": "2.0.0"
+      },
+      body: JSON.stringify({
+        author: LINKEDIN_AUTHOR_URN,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": {
+            shareCommentary: { text: text2 },
+            shareMediaCategory: "NONE"
+          }
+        },
+        visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" }
+      })
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[ambassador-prime] LinkedIn post failed:", err);
+      return null;
+    }
+    const data = await res.json();
+    return data?.id ?? "posted";
+  } catch (e) {
+    console.error("[ambassador-prime] LinkedIn error:", e.message);
+    return null;
+  }
+}
+async function generateDalleImage(prompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const openai2 = new OpenAI6({ apiKey, maxRetries: 2, timeout: 6e4 });
+    const res = await openai2.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard"
+    });
+    return res.data[0]?.url ?? null;
+  } catch (e) {
+    console.error("[ambassador-prime] DALL-E error:", e.message);
+    return null;
+  }
+}
+async function scrapeRedditInsights(theme) {
+  const token = process.env.APIFY_API_TOKEN;
+  if (!token) return { posts: [], error: "No APIFY_API_TOKEN" };
+  const subreddits = ["Forex", "Daytrading", "algotrading", "Trading", "stocks"];
+  const searchQuery = theme.split(" ").slice(0, 3).join(" ");
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/apify~reddit-scraper/run-sync-get-dataset-items?token=${token}&timeout=60&memory=256`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startUrls: subreddits.map((s) => ({ url: `https://www.reddit.com/r/${s}/search/?q=${encodeURIComponent(searchQuery)}&sort=hot&limit=5` })),
+          maxItems: 25,
+          proxy: { useApifyProxy: true }
+        })
+      }
+    );
+    if (!res.ok) return { posts: [], error: `Apify ${res.status}` };
+    const items = await res.json();
+    return { posts: items.filter((i) => i.dataType === "post") };
+  } catch (e) {
+    return { posts: [], error: e.message };
+  }
+}
+async function callAI(systemPrompt, userPrompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = apiKey ? "gpt-4o" : "gpt-4o";
+  const client2 = new OpenAI6({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
+  const res = await client2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    temperature: 0.7,
+    max_tokens: 2e3
+  });
+  return res.choices[0]?.message?.content?.trim() ?? "";
+}
+async function generateBatch1(theme, redditContext, dayOfWeek) {
+  const sys = `You are VEDD's daily growth ambassador. VEDD (veddbuild.com) is an AI-powered trading analysis platform. Your job is to generate high-converting social media content that drives traders to sign up.
+Always include the referral link: ${REFERRAL_LINK}
+Theme today: ${theme.name} \u2014 ${theme.angle}`;
+  const raw = await callAI(sys, `Generate today's Batch 1 content as valid JSON:
+Reddit context: ${redditContext}
+
+Return this exact JSON structure (no markdown, raw JSON only):
+{
+  "tweet1": "engaging tweet under 270 chars with referral link",
+  "tweet2": "different angle tweet under 270 chars with referral link",
+  "tweet3": "data/stat tweet under 270 chars with referral link",
+  "hookA": "curiosity hook variation A (1 punchy line)",
+  "hookB": "pain-point hook variation B (1 punchy line)",
+  "hookC": "social proof hook variation C (1 punchy line)",
+  "ctaA": "CTA for hook A",
+  "ctaB": "CTA for hook B",
+  "ctaC": "CTA for hook C",
+  "reelScript": "30-second reel script 3-act: Hook / Value / CTA. Include referral link in CTA.",
+  "storyIdea": "IG story concept: what to show, what to say, swipe-up text",
+  "communityPrompt": "engaging question to post in trading communities to spark discussion + subtly mention VEDD",
+  "imagePrompt": "DALL-E prompt for a professional trading/finance themed image for today's theme: ${theme.name}"
+}`);
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      tweets: [parsed.tweet1, parsed.tweet2, parsed.tweet3].filter(Boolean),
+      hookA: parsed.hookA ?? "",
+      hookB: parsed.hookB ?? "",
+      hookC: parsed.hookC ?? "",
+      reelScript: parsed.reelScript ?? "",
+      storyIdea: parsed.storyIdea ?? "",
+      communityPrompt: parsed.communityPrompt ?? "",
+      imagePrompt: parsed.imagePrompt ?? `Professional trading dashboard with AI charts, theme: ${theme.name}`
+    };
+  } catch {
+    return {
+      tweets: [`\u{1F680} ${theme.angle} \u2014 VEDD makes it easy. ${REFERRAL_LINK}`],
+      hookA: `Are you trading blind?`,
+      hookB: `Most traders fail because of this one thing.`,
+      hookC: `10,000+ traders trust VEDD AI.`,
+      reelScript: `Hook: Are you leaving money on the table?
+Value: VEDD AI analyzes your trades in real-time.
+CTA: Start free at ${REFERRAL_LINK}`,
+      storyIdea: `Show a live VEDD chart \u2192 swipe up for free trial`,
+      communityPrompt: `What's your biggest challenge with trade timing? VEDD AI helped me solve this \u2014 ${REFERRAL_LINK}`,
+      imagePrompt: `Professional AI trading dashboard, dark theme, financial charts, futuristic`
+    };
+  }
+}
+async function generateBatch2(theme, redditContext) {
+  const sys = `You are VEDD's LinkedIn & Instagram content strategist. VEDD (veddbuild.com) is an AI-powered trading platform. Generate professional, high-engagement content.
+Always include the referral link: ${REFERRAL_LINK}
+Theme: ${theme.name} \u2014 ${theme.angle}`;
+  const raw = await callAI(sys, `Generate Batch 2 content as valid JSON (no markdown):
+Reddit insights: ${redditContext}
+
+{
+  "linkedinPost1": "LinkedIn article-style post 150-200 words professional tone with hook, value, referral link",
+  "linkedinPost2": "LinkedIn carousel teaser post: '5 things traders using AI get right...' format with referral link",
+  "igCaption1": "Instagram caption with emojis, hashtags (10-15 relevant ones), referral link in bio note",
+  "igCaption2": "Instagram caption motivational angle with hashtags and referral link",
+  "igCaption3": "Instagram caption educational tip with hashtags and referral link",
+  "bonusContent": "Day-specific bonus: ${theme.name} \u2014 a bonus tip, poll idea, or community challenge"
+}`);
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      linkedinPost1: parsed.linkedinPost1 ?? "",
+      linkedinPost2: parsed.linkedinPost2 ?? "",
+      igCaption1: parsed.igCaption1 ?? "",
+      igCaption2: parsed.igCaption2 ?? "",
+      igCaption3: parsed.igCaption3 ?? "",
+      bonusContent: parsed.bonusContent ?? ""
+    };
+  } catch {
+    const base = `${theme.angle}
+
+Discover how VEDD AI gives you the edge: ${REFERRAL_LINK}`;
+    return {
+      linkedinPost1: `${theme.name}: ${base}`,
+      linkedinPost2: `5 things top traders do differently \u2014 VEDD AI tracks them all. ${REFERRAL_LINK}`,
+      igCaption1: `\u{1F4C8} ${theme.angle}
+
+${REFERRAL_LINK}
+
+#trading #forex #daytrading #AI #VEDD`,
+      igCaption2: `\u{1F4AA} ${theme.name} energy. Let VEDD AI handle the analysis. ${REFERRAL_LINK}`,
+      igCaption3: `\u{1F3AF} Pro tip: ${theme.modules[0]}. VEDD makes this automatic. ${REFERRAL_LINK}`,
+      bonusContent: `Bonus: ${theme.name} challenge \u2014 post your trading goal for the week!`
+    };
+  }
+}
+async function analyzeRedditInsights(posts, theme) {
+  if (!posts.length) return { insights: [], context: "No Reddit data available." };
+  const sample = posts.slice(0, 10).map((p) => `[${p.subreddit}] "${p.title}" (${p.score} upvotes)`).join("\n");
+  const sys = "You are a trading community analyst extracting marketing insights.";
+  const raw = await callAI(sys, `Analyze these Reddit posts for a trading platform ambassador. Theme: ${theme}
+Posts:
+${sample}
+
+Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "2-sentence synthesis for content generation" }`);
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return { insights: parsed.insights ?? [], context: parsed.context ?? sample };
+  } catch {
+    return { insights: [], context: sample.slice(0, 500) };
+  }
+}
+async function runAmbassadorPrime(triggeredBy = "scheduler") {
+  const now = /* @__PURE__ */ new Date();
+  const runDate = now.toISOString().split("T")[0];
+  const dayOfWeek = now.getUTCDay();
+  const themeDayIndex = (dayOfWeek + 6) % 7;
+  const theme = WEEKLY_THEMES[themeDayIndex] ?? WEEKLY_THEMES[0];
+  const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek];
+  console.log(`[ambassador-prime] Starting run for ${runDate} (${dayName}) \u2014 theme: ${theme.name}`);
+  const completedSteps = [];
+  const skippedSteps = [];
+  const errors = [];
+  let tweetsPosted = 0;
+  let linkedinPosts = 0;
+  let igCaptionsGenerated = 0;
+  let imageGenerated = false;
+  let imageUrl = null;
+  let redditInsightsCount = 0;
+  let engagementOpportunities = 0;
+  let batch1 = null;
+  let batch2 = null;
+  let redditContext = "No Reddit data.";
+  let redditPosts = [];
+  try {
+    const { posts, error } = await scrapeRedditInsights(theme.angle);
+    if (error) {
+      errors.push(`Reddit scrape: ${error}`);
+      await logStep(runDate, "Reddit Research", "skipped", error);
+      skippedSteps.push("Reddit Research");
+    } else {
+      redditPosts = posts;
+      const analysis = await analyzeRedditInsights(posts, theme.angle);
+      redditContext = analysis.context;
+      redditInsightsCount = analysis.insights.length;
+      engagementOpportunities = posts.length;
+      for (const insight of analysis.insights) {
+        await db.insert(ambassadorRedditInsights).values({
+          runDate,
+          subreddit: "aggregated",
+          insight,
+          engagementOpportunity: redditContext.slice(0, 200)
+        });
+      }
+      completedSteps.push("Reddit Research");
+      await logStep(runDate, "Reddit Research", "completed");
+    }
+  } catch (e) {
+    errors.push(`Reddit: ${e.message}`);
+    skippedSteps.push("Reddit Research");
+    await logStep(runDate, "Reddit Research", "failed", e.message);
+  }
+  try {
+    batch1 = await generateBatch1(theme, redditContext, themeDayIndex);
+    completedSteps.push("Batch 1 AI Generation");
+    await logStep(runDate, "Batch 1 AI Generation", "completed");
+  } catch (e) {
+    errors.push(`Batch 1 AI: ${e.message}`);
+    skippedSteps.push("Batch 1 AI Generation");
+    await logStep(runDate, "Batch 1 AI Generation", "failed", e.message);
+  }
+  try {
+    batch2 = await generateBatch2(theme, redditContext);
+    completedSteps.push("Batch 2 AI Generation");
+    await logStep(runDate, "Batch 2 AI Generation", "completed");
+  } catch (e) {
+    errors.push(`Batch 2 AI: ${e.message}`);
+    skippedSteps.push("Batch 2 AI Generation");
+    await logStep(runDate, "Batch 2 AI Generation", "failed", e.message);
+  }
+  try {
+    const imagePrompt = batch1?.imagePrompt ?? `Professional trading AI dashboard, ${theme.name} theme, dark background`;
+    imageUrl = await generateDalleImage(imagePrompt);
+    if (imageUrl) {
+      imageGenerated = true;
+      completedSteps.push("DALL-E Image Generation");
+      await logStep(runDate, "DALL-E Image Generation", "completed");
+    } else {
+      skippedSteps.push("DALL-E Image Generation");
+      await logStep(runDate, "DALL-E Image Generation", "skipped", "No image URL returned");
+    }
+  } catch (e) {
+    errors.push(`DALL-E: ${e.message}`);
+    skippedSteps.push("DALL-E Image Generation");
+    await logStep(runDate, "DALL-E Image Generation", "failed", e.message);
+  }
+  if (batch1?.tweets.length) {
+    for (const tweet of batch1.tweets) {
+      try {
+        const postId = await postTweet(tweet);
+        const status = postId ? "posted" : "generated";
+        if (postId) tweetsPosted++;
+        await db.insert(ambassadorDailyContent).values({
+          runDate,
+          platform: "twitter",
+          postType: "tweet",
+          contentText: tweet,
+          postId: postId ?? void 0,
+          status,
+          referralLink: REFERRAL_LINK
+        });
+      } catch (e) {
+        errors.push(`Tweet: ${e.message}`);
+      }
+    }
+    completedSteps.push("Twitter Posting");
+    await logStep(runDate, "Twitter Posting", "completed");
+  } else {
+    skippedSteps.push("Twitter Posting");
+    await logStep(runDate, "Twitter Posting", "skipped", "No tweets generated");
+  }
+  if (batch1) {
+    try {
+      for (const [v, hook, cta] of [
+        ["A", batch1.hookA, ""],
+        ["B", batch1.hookB, ""],
+        ["C", batch1.hookC, ""]
+      ]) {
+        await db.insert(ambassadorHookVariations).values({ runDate, variation: v, hookText: hook, ctaText: cta });
+      }
+      await db.insert(ambassadorDailyContent).values({
+        runDate,
+        platform: "instagram",
+        postType: "reel_script",
+        contentText: batch1.reelScript,
+        status: "generated",
+        referralLink: REFERRAL_LINK
+      });
+      await db.insert(ambassadorDailyContent).values({
+        runDate,
+        platform: "instagram",
+        postType: "story",
+        contentText: batch1.storyIdea,
+        status: "generated",
+        referralLink: REFERRAL_LINK
+      });
+      completedSteps.push("Hook Variations & Reel");
+      await logStep(runDate, "Hook Variations & Reel", "completed");
+    } catch (e) {
+      errors.push(`Hook variations: ${e.message}`);
+      skippedSteps.push("Hook Variations & Reel");
+    }
+  }
+  if (batch2) {
+    for (const [idx, post] of [[1, batch2.linkedinPost1], [2, batch2.linkedinPost2]]) {
+      try {
+        const postId = await postLinkedIn(post);
+        const status = postId ? "posted" : "generated";
+        if (postId) linkedinPosts++;
+        await db.insert(ambassadorDailyContent).values({
+          runDate,
+          platform: "linkedin",
+          postType: `post_${idx}`,
+          contentText: post,
+          postId: postId ?? void 0,
+          status,
+          referralLink: REFERRAL_LINK
+        });
+      } catch (e) {
+        errors.push(`LinkedIn post ${idx}: ${e.message}`);
+      }
+    }
+    completedSteps.push("LinkedIn Posting");
+    await logStep(runDate, "LinkedIn Posting", "completed");
+  }
+  if (batch2) {
+    try {
+      for (const [idx, cap] of [
+        [1, batch2.igCaption1],
+        [2, batch2.igCaption2],
+        [3, batch2.igCaption3]
+      ]) {
+        await db.insert(ambassadorDailyContent).values({
+          runDate,
+          platform: "instagram",
+          postType: `caption_${idx}`,
+          contentText: cap,
+          status: "generated",
+          referralLink: REFERRAL_LINK
+        });
+        igCaptionsGenerated++;
+      }
+      await db.insert(ambassadorBonusContent).values({
+        runDate,
+        dayOfWeek: dayName,
+        contentType: "bonus_tip",
+        contentText: batch2.bonusContent
+      });
+      completedSteps.push("Instagram Captions");
+      await logStep(runDate, "Instagram Captions", "completed");
+    } catch (e) {
+      errors.push(`IG captions: ${e.message}`);
+      skippedSteps.push("Instagram Captions");
+      await logStep(runDate, "Instagram Captions", "failed", e.message);
+    }
+  }
+  if (batch1?.communityPrompt) {
+    try {
+      await db.insert(ambassadorCommunityContent).values({
+        runDate,
+        contentType: "community_prompt",
+        contentText: batch1.communityPrompt
+      });
+      completedSteps.push("Community Content");
+      await logStep(runDate, "Community Content", "completed");
+    } catch (e) {
+      errors.push(`Community content: ${e.message}`);
+    }
+  }
+  try {
+    await db.insert(ambassadorRunSummary).values({
+      runDate,
+      tweetsPosted,
+      linkedinPosts,
+      igCaptionsGenerated,
+      redditPostsScraped: redditPosts.length,
+      emailSent: false,
+      imageGenerated,
+      dayTheme: theme.name
+    }).onConflictDoNothing();
+    await db.insert(ambassadorDailyKpis).values({
+      runDate,
+      subscriberGrowthPosts: tweetsPosted + linkedinPosts,
+      referralLinksIncluded: tweetsPosted + linkedinPosts + igCaptionsGenerated,
+      totalPostsPublished: tweetsPosted + linkedinPosts,
+      estimatedReach: tweetsPosted * 500 + linkedinPosts * 800,
+      redditInsightsCount,
+      engagementOpportunities,
+      moduleTopic: theme.modules[0] ?? theme.name
+    }).onConflictDoNothing();
+    const calRows = await db.select().from(ambassadorWeeklyCalendar).limit(1);
+    if (calRows.length === 0) {
+      await db.insert(ambassadorWeeklyCalendar).values({
+        currentWeekNumber: 1,
+        lastRunDate: runDate,
+        lastRunDayOfWeek: dayName,
+        totalRuns: 1
+      });
+    } else {
+      await db.update(ambassadorWeeklyCalendar).set({ lastRunDate: runDate, lastRunDayOfWeek: dayName, totalRuns: (calRows[0].totalRuns ?? 0) + 1 });
+    }
+    completedSteps.push("DB Summary & KPIs");
+    await logStep(runDate, "DB Summary & KPIs", "completed");
+  } catch (e) {
+    errors.push(`DB writes: ${e.message}`);
+    skippedSteps.push("DB Summary & KPIs");
+    await logStep(runDate, "DB Summary & KPIs", "failed", e.message);
+  }
+  const emailSuccess = await sendAmbassadorPrimeReport({
+    runDate,
+    dayName,
+    theme,
+    tweetsPosted,
+    linkedinPosts,
+    igCaptionsGenerated,
+    redditInsightsCount,
+    engagementOpportunities,
+    imageGenerated,
+    imageUrl,
+    tweets: batch1?.tweets ?? [],
+    linkedinPost1: batch2?.linkedinPost1 ?? "",
+    linkedinPost2: batch2?.linkedinPost2 ?? "",
+    igCaptions: [batch2?.igCaption1 ?? "", batch2?.igCaption2 ?? "", batch2?.igCaption3 ?? ""],
+    hooks: { A: batch1?.hookA ?? "", B: batch1?.hookB ?? "", C: batch1?.hookC ?? "" },
+    reelScript: batch1?.reelScript ?? "",
+    storyIdea: batch1?.storyIdea ?? "",
+    bonusContent: batch2?.bonusContent ?? "",
+    communityPrompt: batch1?.communityPrompt ?? "",
+    completedSteps,
+    skippedSteps,
+    errors
+  });
+  if (emailSuccess) {
+    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq10(ambassadorRunSummary.runDate, runDate));
+    completedSteps.push("Email Report");
+    await logStep(runDate, "Email Report", "completed");
+  } else {
+    errors.push("Email report failed to send");
+    await logStep(runDate, "Email Report", "failed", "SendGrid error or missing key");
+  }
+  const success = emailSuccess;
+  const summary = `${theme.name} | ${tweetsPosted} tweets posted | ${linkedinPosts} LinkedIn | ${igCaptionsGenerated} IG captions | ${completedSteps.length} steps completed`;
+  console.log(`[ambassador-prime] Run complete: ${summary}`);
+  return { success, runDate, summary, completedSteps, skippedSteps, errors };
+}
+async function sendAmbassadorPrimeReport(data) {
+  const sgKey = process.env.SENDGRID_API_KEY;
+  if (!sgKey) return false;
+  const tweetRows = data.tweets.map((t, i) => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">Tweet ${i + 1}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml(t)}</td>
+    </tr>`).join("");
+  const igRows = data.igCaptions.map((c, i) => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#aaa;font-size:12px;">Caption ${i + 1}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;">${escHtml(c.slice(0, 200))}\u2026</td>
+    </tr>`).join("");
+  const stepsBadge = (steps, color) => steps.map((s) => `<span style="display:inline-block;margin:2px;padding:3px 8px;background:${color}22;border:1px solid ${color};border-radius:4px;font-size:11px;color:${color};">${s}</span>`).join(" ");
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VEDD Ambassador Prime \u2014 ${data.runDate}</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Segoe UI',Arial,sans-serif;color:#e0e0e0;">
+<div style="max-width:720px;margin:0 auto;padding:24px;">
+  <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #00d4ff33;border-radius:12px;padding:28px;margin-bottom:20px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#00d4ff;margin-bottom:8px;">VEDD Ambassador Prime</div>
+    <h1 style="margin:0 0 4px;font-size:26px;font-weight:700;color:#fff;">${data.theme.name}</h1>
+    <div style="font-size:13px;color:#888;">${data.dayName}, ${data.runDate} \u2014 Daily Growth Report</div>
+  </div>
+
+  <!-- KPI Row -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+    ${[
+    ["\u{1F426}", "Tweets Posted", data.tweetsPosted],
+    ["\u{1F4BC}", "LinkedIn Posts", data.linkedinPosts],
+    ["\u{1F4F8}", "IG Captions", data.igCaptionsGenerated],
+    ["\u{1F50D}", "Reddit Insights", data.redditInsightsCount],
+    ["\u{1F3AF}", "Opportunities", data.engagementOpportunities],
+    ["\u{1F5BC}\uFE0F", "Image Generated", data.imageGenerated ? "Yes" : "No"]
+  ].map(([icon, label, val]) => `
+    <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;text-align:center;">
+      <div style="font-size:22px;margin-bottom:6px;">${icon}</div>
+      <div style="font-size:22px;font-weight:700;color:#00d4ff;">${val}</div>
+      <div style="font-size:11px;color:#666;margin-top:4px;">${label}</div>
+    </div>`).join("")}
+  </div>
+
+  <!-- Steps -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:12px;color:#888;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Completed Steps</div>
+    <div>${stepsBadge(data.completedSteps, "#00d4ff")}</div>
+    ${data.skippedSteps.length ? `<div style="margin-top:8px;">${stepsBadge(data.skippedSteps, "#888")}</div>` : ""}
+    ${data.errors.length ? `<div style="margin-top:8px;font-size:11px;color:#ff4444;">Errors: ${data.errors.map(escHtml).join(" | ")}</div>` : ""}
+  </div>
+
+  ${data.imageUrl ? `<div style="margin-bottom:16px;"><img src="${data.imageUrl}" alt="Generated" style="width:100%;border-radius:8px;border:1px solid #333;"></div>` : ""}
+
+  <!-- Tweets -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F426} Tweets</div>
+    <table style="width:100%;border-collapse:collapse;">${tweetRows}</table>
+  </div>
+
+  <!-- LinkedIn -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F4BC} LinkedIn Posts</div>
+    <div style="font-size:13px;color:#ccc;margin-bottom:12px;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml(data.linkedinPost1.slice(0, 300))}\u2026</div>
+    <div style="font-size:13px;color:#ccc;padding:10px;background:#0a0a0a;border-radius:6px;white-space:pre-wrap;">${escHtml(data.linkedinPost2.slice(0, 300))}\u2026</div>
+  </div>
+
+  <!-- IG Captions -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F4F8} Instagram Captions</div>
+    <table style="width:100%;border-collapse:collapse;">${igRows}</table>
+  </div>
+
+  <!-- Hook Variations -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:12px;">\u{1F3A3} Hook Variations (A/B/C Test)</div>
+    ${["A", "B", "C"].map((v) => `<div style="margin-bottom:8px;padding:8px;background:#0a0a0a;border-left:3px solid #00d4ff;border-radius:4px;font-size:13px;"><strong style="color:#00d4ff;">${v}:</strong> ${escHtml(data.hooks[v])}</div>`).join("")}
+  </div>
+
+  <!-- Reel + Story -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">\u{1F3AC} Reel Script</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.reelScript)}</div>
+    <div style="font-size:13px;font-weight:600;color:#fff;margin:12px 0 8px;">\u{1F4F1} Story Idea</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.storyIdea)}</div>
+  </div>
+
+  <!-- Community + Bonus -->
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">\u{1F4AC} Community Prompt</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.communityPrompt)}</div>
+    <div style="font-size:13px;font-weight:600;color:#fff;margin:12px 0 8px;">\u{1F381} Bonus Content (${data.dayName})</div>
+    <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.bonusContent)}</div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
+    <div>VEDD Ambassador Prime \u2022 ${data.runDate}</div>
+    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK}" style="color:#00d4ff;">${REFERRAL_LINK}</a></div>
+  </div>
+</div>
+</body></html>`;
+  try {
+    const { default: sgMail3 } = await import("@sendgrid/mail");
+    sgMail3.setApiKey(sgKey);
+    await sgMail3.send({
+      to: REPORT_EMAIL,
+      from: "noreply@veddbuild.com",
+      subject: `VEDD Ambassador Prime \u2014 ${data.theme.name} (${data.runDate})`,
+      html
+    });
+    return true;
+  } catch (e) {
+    console.error("[ambassador-prime] Email send error:", e.message);
+    return false;
+  }
+}
+function escHtml(s) {
+  return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function startAmbassadorPrimeScheduler() {
+  function scheduleNext() {
+    const now = /* @__PURE__ */ new Date();
+    const next = /* @__PURE__ */ new Date();
+    next.setUTCHours(9, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const delay = next.getTime() - now.getTime();
+    console.log(`[ambassador-prime] Next run at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
+    setTimeout(async () => {
+      try {
+        await runAmbassadorPrime("scheduler");
+      } catch (e) {
+        console.error("[ambassador-prime] Scheduler run error:", e.message);
+      }
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+var REFERRAL_LINK, REPORT_EMAIL, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
+var init_ambassador_prime = __esm({
+  "server/services/ambassador-prime.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
+    REPORT_EMAIL = "donchismkos@gmail.com";
+    LINKEDIN_AUTHOR_URN = "urn:li:person:tmH3fnyYMl";
+    WEEKLY_THEMES = {
+      0: {
+        name: "Monday Momentum",
+        angle: "Start the trading week with an edge \u2014 discipline, preparation, morning routines",
+        modules: ["Pre-market routine", "Weekly goal setting", "Mental priming"]
+      },
+      1: {
+        name: "Technical Tuesday",
+        angle: "Deep-dive chart patterns, indicators, AI analysis tools",
+        modules: ["Pattern recognition", "AI signal reading", "Confluence zones"]
+      },
+      2: {
+        name: "Wealth Wednesday",
+        angle: "Risk management, position sizing, compound growth mindset",
+        modules: ["Risk-per-trade sizing", "Portfolio allocation", "Drawdown recovery"]
+      },
+      3: {
+        name: "Throwback Thursday",
+        angle: "Real trade breakdowns, wins, losses, lessons from the trenches",
+        modules: ["Trade autopsy", "Loss to lesson", "Journal review"]
+      },
+      4: {
+        name: "Friday Insights",
+        angle: "Week wrap, data patterns, upcoming catalysts",
+        modules: ["Weekly review", "Upcoming events", "Data-driven edge"]
+      },
+      5: {
+        name: "Strategy Saturday",
+        angle: "Systems, back-tests, building a trading playbook",
+        modules: ["Backtesting", "Strategy building", "Rule sets"]
+      },
+      6: {
+        name: "Success Sunday",
+        angle: "Mindset, success stories, community highlights, week ahead planning",
+        modules: ["Success story", "Community spotlight", "Week-ahead prep"]
+      }
+    };
+  }
+});
+
 // server/index.ts
 import express2 from "express";
 import { createServer as createServer2 } from "http";
@@ -34369,7 +35196,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq10, and as and6, sql as sql7 } from "drizzle-orm";
+import { eq as eq11, and as and6, sql as sql7 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -37680,8 +38507,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   let _usingGroq = false;
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
-      const OpenAI6 = (await import("openai")).default;
-      const groq = new OpenAI6({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      const OpenAI7 = (await import("openai")).default;
+      const groq = new OpenAI7({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
       groq.defaultModel = "openai/gpt-oss-120b";
       openai2 = groq;
       _usingGroq = true;
@@ -41945,11 +42772,11 @@ Respond ONLY in valid JSON format with these exact keys:
               subscriptionPlanId: planId,
               subscriptionStatus: "active",
               stripeSubscriptionId: session3.subscription
-            }).where(eq10(users.id, userId));
+            }).where(eq11(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
             try {
-              const [updatedUser] = await db.select().from(users).where(eq10(users.id, userId));
-              const [plan] = await db.select().from(subscriptionPlans).where(eq10(subscriptionPlans.id, planId));
+              const [updatedUser] = await db.select().from(users).where(eq11(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq11(subscriptionPlans.id, planId));
               if (updatedUser?.email && plan?.name) {
                 sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
                 });
@@ -41970,7 +42797,7 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: sub.id,
               subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
               ...planId ? { subscriptionPlanId: planId } : {}
-            }).where(eq10(users.id, userId));
+            }).where(eq11(users.id, userId));
             console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
           }
           break;
@@ -41979,7 +42806,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const sub = event.data.object;
           const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
           if (userId) {
-            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq10(users.id, userId));
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq11(users.id, userId));
             console.log(`[Stripe] Subscription canceled for user ${userId}`);
           }
           break;
@@ -41987,7 +42814,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_succeeded": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "active" }).where(eq10(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq11(users.stripeSubscriptionId, invoice.subscription));
             console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
           }
           break;
@@ -41995,7 +42822,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_failed": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq10(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq11(users.stripeSubscriptionId, invoice.subscription));
             console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
           }
           break;
@@ -54758,14 +55585,14 @@ Respond with ONLY valid JSON:
       const cached2 = global.mt5AccountData?.[userId];
       const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
-      const eq12 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
+      const eq13 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const [todayDbTrades, weekDbTrades] = await Promise.all([
         db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
         db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
       ]);
       const dailyPnl = parseFloat(todayDbTrades[0]?.[0]?.pnl ?? 0);
       const weeklyPnl = parseFloat(weekDbTrades[0]?.[0]?.pnl ?? 0);
-      mt5 = { balance: bal, equity: eq12, dailyPnl, weeklyPnl, isOnline };
+      mt5 = { balance: bal, equity: eq13, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
     }
@@ -55446,8 +56273,8 @@ Format your response as JSON with exactly these keys:
         if (!lesson) {
           return res.status(404).json({ error: "Lesson not found" });
         }
-        const OpenAI6 = (await import("openai")).default;
-        const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
+        const OpenAI7 = (await import("openai")).default;
+        const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
         const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
         for (const platform of platforms) {
           const completion = await openai2.chat.completions.create({
@@ -55556,8 +56383,8 @@ Generate a JSON object with these fields:
       });
     }
     if (weekChallenges.length === 0) {
-      const OpenAI6 = (await import("openai")).default;
-      const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI7 = (await import("openai")).default;
+      const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
       const challengeTypes = [
         { type: "content", title: "Content Creator Challenge" },
         { type: "engagement", title: "Community Engagement Challenge" },
@@ -55820,8 +56647,8 @@ Generate a JSON object with:
       });
     }
     if (weekEvents.length === 0) {
-      const OpenAI6 = (await import("openai")).default;
-      const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI7 = (await import("openai")).default;
+      const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
       const eventTypes = [
         { type: "live_session", title: "Weekly Live Trading Session" },
         { type: "ama", title: "Ask Me Anything Session" },
@@ -56400,8 +57227,8 @@ Generate a JSON object with:
           const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
           const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
           if (lesson) {
-            const OpenAI6 = (await import("openai")).default;
-            const openai2 = new OpenAI6({ apiKey: process.env.OPENAI_API_KEY });
+            const OpenAI7 = (await import("openai")).default;
+            const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
             const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
             for (const platform of platforms) {
               try {
@@ -58132,7 +58959,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -58192,7 +59019,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -58204,7 +59031,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq10(userApiKeys.userId, req.user.id), eq10(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -58679,7 +59506,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq12, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq13, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -58692,7 +59519,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq12(wearToEarnClaims2.userId, userId), eq12(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq13(wearToEarnClaims2.userId, userId), eq13(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -58719,7 +59546,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq12(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq13(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -58728,7 +59555,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq12(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq13(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -58737,7 +59564,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql, eq: eq12, and: and7, desc: desc6 } = await import("drizzle-orm");
+    const { sql: drizzleSql, eq: eq13, and: and7, desc: desc7 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -58831,7 +59658,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq12, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq13, and: and7, sql: drizzleSql } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -58846,16 +59673,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
         ownedByMe: drizzleSql`false`
-      }).from(nfcActivations2).where(eq12(nfcActivations2.chipUid, uid2)).limit(1);
+      }).from(nfcActivations2).where(eq13(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq12(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq13(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq12(nfcDailyTaps2.userId, userId), eq12(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq13(nfcDailyTaps2.userId, userId), eq13(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -58866,7 +59693,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq12(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq13(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -58899,13 +59726,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq12(nfcActivations2.chipUid, uid2), eq12(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq13(nfcActivations2.chipUid, uid2), eq13(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and7(
-        eq12(nfcDailyTaps2.userId, userId),
-        eq12(nfcDailyTaps2.chipUid, uid2),
-        eq12(nfcDailyTaps2.dayString, today)
+        eq13(nfcDailyTaps2.userId, userId),
+        eq13(nfcDailyTaps2.chipUid, uid2),
+        eq13(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -58932,7 +59759,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq12(nfcActivations2.id, activation.id));
+      }).where(eq13(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -61617,9 +62444,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc6 } = await import("drizzle-orm");
+      const { desc: desc7 } = await import("drizzle-orm");
       const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
-      const rows = await db2.select().from(leads2).orderBy(desc6(leads2.createdAt)).limit(limit);
+      const rows = await db2.select().from(leads2).orderBy(desc7(leads2.createdAt)).limit(limit);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -61630,8 +62457,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc6 } = await import("drizzle-orm");
-      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc6(leadHunterRuns2.createdAt)).limit(20);
+      const { desc: desc7 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc7(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -61642,9 +62469,59 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq12 } = await import("drizzle-orm");
-      await db2.update(leads2).set({ status: req.body.status }).where(eq12(leads2.id, req.params.id));
+      const { eq: eq13 } = await import("drizzle-orm");
+      await db2.update(leads2).set({ status: req.body.status }).where(eq13(leads2.id, req.params.id));
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/ambassador-prime/run", async (_req, res) => {
+    try {
+      const { runAmbassadorPrime: runAmbassadorPrime2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
+      res.json({ ok: true, message: "Ambassador Prime run started" });
+      runAmbassadorPrime2("manual").catch((e) => console.error("[ambassador-prime] Manual run error:", e.message));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/ambassador-prime/today", async (_req, res) => {
+    try {
+      const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await import("../../shared/schema");
+      const { desc: desc7 } = await import("drizzle-orm");
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq11(ambassadorRunSummary2.runDate, today)).limit(1);
+      const content = await db.select().from(ambassadorDailyContent2).where(eq11(ambassadorDailyContent2.runDate, today)).orderBy(desc7(ambassadorDailyContent2.createdAt));
+      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq11(ambassadorDailyKpis2.runDate, today)).limit(1);
+      res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/ambassador-prime/history", async (_req, res) => {
+    try {
+      const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await import("../../shared/schema");
+      const { desc: desc7 } = await import("drizzle-orm");
+      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc7(ambassadorRunSummary2.createdAt)).limit(30);
+      res.json({ runs });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/ambassador-prime/content/:date", async (req, res) => {
+    try {
+      const { ambassadorDailyContent: ambassadorDailyContent2, ambassadorHookVariations: ambassadorHookVariations2, ambassadorBonusContent: ambassadorBonusContent2, ambassadorCommunityContent: ambassadorCommunityContent2, ambassadorRedditInsights: ambassadorRedditInsights2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await import("../../shared/schema");
+      const { desc: desc7 } = await import("drizzle-orm");
+      const { date: date2 } = req.params;
+      const [content, hooks, bonus, community, insights, steps] = await Promise.all([
+        db.select().from(ambassadorDailyContent2).where(eq11(ambassadorDailyContent2.runDate, date2)),
+        db.select().from(ambassadorHookVariations2).where(eq11(ambassadorHookVariations2.runDate, date2)),
+        db.select().from(ambassadorBonusContent2).where(eq11(ambassadorBonusContent2.runDate, date2)),
+        db.select().from(ambassadorCommunityContent2).where(eq11(ambassadorCommunityContent2.runDate, date2)),
+        db.select().from(ambassadorRedditInsights2).where(eq11(ambassadorRedditInsights2.runDate, date2)),
+        db.select().from(ambassadorRunStepLog2).where(eq11(ambassadorRunStepLog2.runDate, date2)).orderBy(desc7(ambassadorRunStepLog2.createdAt))
+      ]);
+      res.json({ content, hooks, bonus, community, insights, steps });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -62304,7 +63181,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq11 } from "drizzle-orm";
+import { eq as eq12 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -62438,7 +63315,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq11(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq12(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -62794,8 +63671,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq12 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq12(engineRunState2.isRunning, true));
+    const { eq: eq13 } = await import("drizzle-orm");
+    const runningRows = await db2.select().from(engineRunState2).where(eq13(engineRunState2.isRunning, true));
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -63592,6 +64469,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startBreakoutMonitor2();
     const { startLeadHunterScheduler: startLeadHunterScheduler2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
     startLeadHunterScheduler2();
+    const { startAmbassadorPrimeScheduler: startAmbassadorPrimeScheduler2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
+    startAmbassadorPrimeScheduler2();
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
   });

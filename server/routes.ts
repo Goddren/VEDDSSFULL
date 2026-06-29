@@ -26588,6 +26588,53 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Ambassador Prime routes ────────────────────────────────────────────────
+  app.post("/api/ambassador-prime/run", async (_req: Request, res: Response) => {
+    try {
+      const { runAmbassadorPrime } = await import('./services/ambassador-prime');
+      res.json({ ok: true, message: 'Ambassador Prime run started' });
+      runAmbassadorPrime('manual').catch((e: any) => console.error('[ambassador-prime] Manual run error:', e.message));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/ambassador-prime/today", async (_req: Request, res: Response) => {
+    try {
+      const { ambassadorRunSummary, ambassadorDailyContent, ambassadorDailyKpis } = await import('../../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const today = new Date().toISOString().split('T')[0];
+      const [summary] = await db.select().from(ambassadorRunSummary).where(eq(ambassadorRunSummary.runDate, today)).limit(1);
+      const content = await db.select().from(ambassadorDailyContent).where(eq(ambassadorDailyContent.runDate, today)).orderBy(desc(ambassadorDailyContent.createdAt));
+      const [kpis] = await db.select().from(ambassadorDailyKpis).where(eq(ambassadorDailyKpis.runDate, today)).limit(1);
+      res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/ambassador-prime/history", async (_req: Request, res: Response) => {
+    try {
+      const { ambassadorRunSummary, ambassadorRunStepLog } = await import('../../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const runs = await db.select().from(ambassadorRunSummary).orderBy(desc(ambassadorRunSummary.createdAt)).limit(30);
+      res.json({ runs });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/ambassador-prime/content/:date", async (req: Request, res: Response) => {
+    try {
+      const { ambassadorDailyContent, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRedditInsights, ambassadorRunStepLog } = await import('../../shared/schema');
+      const { desc } = await import('drizzle-orm');
+      const { date } = req.params;
+      const [content, hooks, bonus, community, insights, steps] = await Promise.all([
+        db.select().from(ambassadorDailyContent).where(eq(ambassadorDailyContent.runDate, date)),
+        db.select().from(ambassadorHookVariations).where(eq(ambassadorHookVariations.runDate, date)),
+        db.select().from(ambassadorBonusContent).where(eq(ambassadorBonusContent.runDate, date)),
+        db.select().from(ambassadorCommunityContent).where(eq(ambassadorCommunityContent.runDate, date)),
+        db.select().from(ambassadorRedditInsights).where(eq(ambassadorRedditInsights.runDate, date)),
+        db.select().from(ambassadorRunStepLog).where(eq(ambassadorRunStepLog.runDate, date)).orderBy(desc(ambassadorRunStepLog.createdAt)),
+      ]);
+      res.json({ content, hooks, bonus, community, insights, steps });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   // Use the pre-created server if provided (port already bound), otherwise create one

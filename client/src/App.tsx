@@ -95,6 +95,7 @@ import PropFirmChallengePage from "@/pages/prop-firm-challenge";
 import ORBBreakoutPage from "@/pages/orb-breakout";
 import ContentStudioPage from "@/pages/content-studio";
 import LeadHunterPage from "@/pages/lead-hunter";
+import AmbassadorPrimePage from "@/pages/ambassador-prime";
 import ReferralHubPage from "@/pages/referral-hub";
 import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
@@ -224,6 +225,7 @@ function AppLayout() {
             <ProtectedRoute path="/ambassador/free-path" component={AmbassadorFreePathPage} />
             <ProtectedRoute path="/ambassador/content-studio" component={ContentStudioPage} />
             <ProtectedRoute path="/lead-hunter" component={LeadHunterPage} />
+            <ProtectedRoute path="/ambassador-prime" component={AmbassadorPrimePage} />
             <Route path="/devotional" component={DevotionalPage} />
             
             {/* Public event page (no auth required) */}

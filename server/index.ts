@@ -1019,6 +1019,10 @@ async function withRetry<T>(
     // Start daily lead hunter (runs at 08:00 UTC)
     const { startLeadHunterScheduler } = await import('./services/lead-hunter');
     startLeadHunterScheduler();
+
+    // Start Ambassador Prime daily content engine (runs at 09:00 UTC)
+    const { startAmbassadorPrimeScheduler } = await import('./services/ambassador-prime');
+    startAmbassadorPrimeScheduler();
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });

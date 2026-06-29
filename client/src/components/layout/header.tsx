@@ -662,6 +662,14 @@ const Header: React.FC = () => {
                         </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem className="cursor-pointer" asChild>
+                        <Link href="/ambassador-prime">
+                          <div className="flex items-center w-full text-orange-400">
+                            <Zap className="mr-2 h-4 w-4" />
+                            <span>Ambassador Prime</span>
+                          </div>
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" asChild>
                         <Link href="/grants">
                           <div className="flex items-center w-full text-green-400">
                             <DollarSign className="mr-2 h-4 w-4" />

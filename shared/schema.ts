@@ -2157,6 +2157,97 @@ export const leadHunterRuns = pgTable("lead_hunter_runs", {
 export type Lead = typeof leads.$inferSelect;
 export type LeadHunterRun = typeof leadHunterRuns.$inferSelect;
 
+// ── Ambassador Prime ──────────────────────────────────────────────────────────
+export const ambassadorDailyContent = pgTable("ambassador_daily_content", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  platform: varchar("platform", { length: 50 }).notNull(),
+  postType: varchar("post_type", { length: 50 }),
+  contentText: text("content_text"),
+  postId: varchar("post_id", { length: 255 }),
+  status: varchar("status", { length: 50 }).default('generated'),
+  referralLink: text("referral_link"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorRedditInsights = pgTable("ambassador_reddit_insights", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  subreddit: varchar("subreddit", { length: 100 }),
+  insight: text("insight"),
+  engagementOpportunity: text("engagement_opportunity"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorRunSummary = pgTable("ambassador_run_summary", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull().unique(),
+  tweetsPosted: integer("tweets_posted").default(0),
+  linkedinPosts: integer("linkedin_posts").default(0),
+  igCaptionsGenerated: integer("ig_captions_generated").default(0),
+  redditPostsScraped: integer("reddit_posts_scraped").default(0),
+  emailSent: boolean("email_sent").default(false),
+  imageGenerated: boolean("image_generated").default(false),
+  dayTheme: varchar("day_theme", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorWeeklyCalendar = pgTable("ambassador_weekly_calendar", {
+  id: serial("id").primaryKey(),
+  currentWeekNumber: integer("current_week_number").default(1),
+  lastRunDate: varchar("last_run_date", { length: 20 }),
+  lastRunDayOfWeek: varchar("last_run_day_of_week", { length: 20 }),
+  totalRuns: integer("total_runs").default(0),
+});
+
+export const ambassadorDailyKpis = pgTable("ambassador_daily_kpis", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull().unique(),
+  subscriberGrowthPosts: integer("subscriber_growth_posts").default(0),
+  referralLinksIncluded: integer("referral_links_included").default(0),
+  totalPostsPublished: integer("total_posts_published").default(0),
+  estimatedReach: integer("estimated_reach").default(0),
+  redditInsightsCount: integer("reddit_insights_count").default(0),
+  engagementOpportunities: integer("engagement_opportunities").default(0),
+  moduleTopic: text("module_topic"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorHookVariations = pgTable("ambassador_hook_variations", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  variation: varchar("variation", { length: 5 }),
+  hookText: text("hook_text"),
+  ctaText: text("cta_text"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorBonusContent = pgTable("ambassador_bonus_content", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  dayOfWeek: varchar("day_of_week", { length: 20 }),
+  contentType: varchar("content_type", { length: 50 }),
+  contentText: text("content_text"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorCommunityContent = pgTable("ambassador_community_content", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  contentType: varchar("content_type", { length: 50 }),
+  contentText: text("content_text"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const ambassadorRunStepLog = pgTable("ambassador_run_step_log", {
+  id: serial("id").primaryKey(),
+  runDate: varchar("run_date", { length: 20 }).notNull(),
+  stepName: varchar("step_name", { length: 100 }).notNull(),
+  status: varchar("status", { length: 20 }).default('completed'),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // ─── BLOG POSTS ────────────────────────────────────────────────
 
 export const blogPosts = pgTable("blog_posts", {
