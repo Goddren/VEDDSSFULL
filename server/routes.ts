@@ -10608,9 +10608,23 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
-      } else if (useRiskPercent) {
-        console.log(`[WISDOM] No trade plan yet - using fixed lots: ${fixedVolumeSetting}. Patience builds POWER.`);
-        mt5Volume = fixedVolumeSetting;
+      } else if (useRiskPercent && _acctBalKnown && riskAmount > 0) {
+        // Risk% is on but AI didn't return a full tradePlan with entry+SL.
+        // Use ATR×1.5 as a fallback SL distance so sizing stays proportional
+        // to account balance instead of defaulting to the tiny fixed lot.
+        const symPipSizeFb = getPipSize(sanitizedSymbol);
+        const symPipValueFb = getPipValue(sanitizedSymbol);
+        const fallbackAtr = (typeof atr === 'number' && atr > 0) ? atr : symPipSizeFb * 20; // 20 pips if no ATR
+        const fallbackSlPips = (fallbackAtr * 1.5) / symPipSizeFb;
+        if (fallbackSlPips > 0 && symPipValueFb > 0) {
+          const calculatedLotsFb = riskAmount / (fallbackSlPips * symPipValueFb);
+          const engineMaxLotFb = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, Math.round(calculatedLotsFb * 100) / 100));
+          console.log(`[LOT FALLBACK] ${sanitizedSymbol}: ATR=${fallbackAtr.toFixed(5)}, fallback SL=${fallbackSlPips.toFixed(1)} pips, risk=$${riskAmount.toFixed(2)}, lots=${mt5Volume}`);
+        } else {
+          mt5Volume = fixedVolumeSetting;
+          console.log(`[WISDOM] No trade plan, ATR unavailable - fixed lots: ${fixedVolumeSetting}`);
+        }
       } else {
         console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
         mt5Volume = fixedVolumeSetting;

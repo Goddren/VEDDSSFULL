@@ -6268,16 +6268,16 @@ async function computeBreakoutScore(currentPrice, m1Candles = [], m5Candles = []
     grade = "PASS";
   }
   const atrCandles = h1Candles.length >= 14 ? h1Candles : m15Candles.length >= 14 ? m15Candles : m5Candles;
-  const atr = calcATR(atrCandles, 14);
+  const atr2 = calcATR(atrCandles, 14);
   const sign3 = direction === "BUY" ? 1 : -1;
-  const tp1 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr : 0;
-  const tp2 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr * 2 : 0;
-  const tp3 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr * 3 : 0;
+  const tp1 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr2 : 0;
+  const tp2 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr2 * 2 : 0;
+  const tp3 = direction !== "NEUTRAL" ? currentPrice + sign3 * atr2 * 3 : 0;
   const breakoutCandle = [...m15Candles, ...h1Candles][0];
-  const slDistance = atr * 1.5;
+  const slDistance = atr2 * 1.5;
   const summary = `Breakout Score: ${score}/${maxScore} fired | ${alignedVotes} aligned (${alignedPct}%) \u2014 Grade ${grade} \u2014 ${direction}
 ` + strategies.map((s) => `${s.fired ? "\u2705" : "\u274C"} ${s.name}: ${s.reason}`).join("\n");
-  return { score, maxScore, percentage, alignedVotes, alignedPct, grade, direction, strategies, atr, tp1, tp2, tp3, slDistance, breakoutCandle, summary };
+  return { score, maxScore, percentage, alignedVotes, alignedPct, grade, direction, strategies, atr: atr2, tp1, tp2, tp3, slDistance, breakoutCandle, summary };
 }
 var init_breakoutEngine = __esm({
   "server/utils/breakoutEngine.ts"() {
@@ -18538,16 +18538,16 @@ function calculateADX(candles, period = 14) {
     minusDMList.push(minusDM);
   }
   if (trList.length < period) return void 0;
-  let atr = trList.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let atr2 = trList.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let smoothPlusDM = plusDMList.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let smoothMinusDM = minusDMList.slice(0, period).reduce((a, b) => a + b, 0) / period;
   for (let i = period; i < trList.length; i++) {
-    atr = (atr * (period - 1) + trList[i]) / period;
+    atr2 = (atr2 * (period - 1) + trList[i]) / period;
     smoothPlusDM = (smoothPlusDM * (period - 1) + plusDMList[i]) / period;
     smoothMinusDM = (smoothMinusDM * (period - 1) + minusDMList[i]) / period;
   }
-  const plusDI = atr > 0 ? smoothPlusDM / atr * 100 : 0;
-  const minusDI = atr > 0 ? smoothMinusDM / atr * 100 : 0;
+  const plusDI = atr2 > 0 ? smoothPlusDM / atr2 * 100 : 0;
+  const minusDI = atr2 > 0 ? smoothMinusDM / atr2 * 100 : 0;
   const dx = plusDI + minusDI > 0 ? Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100 : 0;
   const dxList = [];
   let tempATR = trList.slice(0, period).reduce((a, b) => a + b, 0) / period;
@@ -19154,17 +19154,17 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
     trValues.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
   }
   const atrSlice = trValues.slice(-atrPeriod);
-  const atr = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
-  if (atr === 0) return void 0;
-  const upper = ema3 + multiplier * atr;
-  const lower = ema3 - multiplier * atr;
+  const atr2 = atrSlice.length > 0 ? atrSlice.reduce((s, v) => s + v, 0) / atrSlice.length : 0;
+  if (atr2 === 0) return void 0;
+  const upper = ema3 + multiplier * atr2;
+  const lower = ema3 - multiplier * atr2;
   const currentPrice = chronological[chronological.length - 1].c;
   const bandwidth = (upper - lower) / ema3 * 100;
   const prevBandwidths = [];
   let prevEma = chronological.slice(0, emaPeriod).reduce((s, c) => s + c.c, 0) / emaPeriod;
   for (let i = emaPeriod; i < chronological.length - 5; i++) {
     prevEma = chronological[i].c * k + prevEma * (1 - k);
-    const tr = trValues[i - 1] ?? atr;
+    const tr = trValues[i - 1] ?? atr2;
     const bw = (prevEma + multiplier * tr - (prevEma - multiplier * tr)) / prevEma * 100;
     prevBandwidths.push(bw);
   }
@@ -19179,7 +19179,7 @@ function computeKeltnerChannels(candles, emaPeriod = 20, atrPeriod = 10, multipl
     const bbLower = bbMid - 2 * std;
     squeeze = bbUpper < upper && bbLower > lower;
   }
-  const nearBand = atr * 0.3;
+  const nearBand = atr2 * 0.3;
   let position;
   if (currentPrice > upper) position = "ABOVE_UPPER";
   else if (currentPrice >= upper - nearBand) position = "NEAR_UPPER";
@@ -22572,14 +22572,14 @@ async function scanMarkets(userId) {
           trend = plusDI > minusDI ? "BULLISH" : "BEARISH";
         }
         const rsi3 = indicators.stochastic?.k || 50;
-        const atr = indicators.volatilityContext?.currentATR || 0;
+        const atr2 = indicators.volatilityContext?.currentATR || 0;
         const volumeMetrics = computeVolumeMetrics(confirmedBars);
         state.marketSnapshot[symbol] = {
           price: currentPrice,
           change: Math.round(change * 100) / 100,
           trend,
           rsi: Math.round(rsi3),
-          atr: Math.round(atr * 1e5) / 1e5,
+          atr: Math.round(atr2 * 1e5) / 1e5,
           adx: adxStrength,
           // stored so processDecision can access it directly
           plusDI,
@@ -22595,8 +22595,8 @@ async function scanMarkets(userId) {
           lastConfirmedCandle: confirmedBars.length > 0 ? { open: confirmedBars[confirmedBars.length - 1].open, close: confirmedBars[confirmedBars.length - 1].close } : null
         };
         if (!state._lastATR) state._lastATR = {};
-        state._lastATR[symbol] = atr;
-        const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr, void 0);
+        state._lastATR[symbol] = atr2;
+        const preScanEnforcement = applyBrainEnforcement(userId, symbol, null, atr2, void 0);
         if (!preScanEnforcement.allowed) {
           addActivity2(userId, { type: "info", symbol, message: preScanEnforcement.reason });
           await new Promise((r) => setTimeout(r, 8500));
@@ -22791,10 +22791,10 @@ function computeStagedVolumeSL(position, config) {
   else return 0;
   return isBuy ? position.openPrice + lockPips * pipSize : position.openPrice - lockPips * pipSize;
 }
-function computeChandelierSL(position, atr, multiplier, trailState) {
+function computeChandelierSL(position, atr2, multiplier, trailState) {
   const price = position.currentPrice;
   if (!price || price <= 0) return position.sl || 0;
-  const effectiveATR = atr > 0 ? atr : position.symbol?.includes("JPY") ? 0.5 : 5e-3;
+  const effectiveATR = atr2 > 0 ? atr2 : position.symbol?.includes("JPY") ? 0.5 : 5e-3;
   if (position.direction === "BUY") {
     if (price > (trailState.highestHigh || 0)) trailState.highestHigh = price;
     return (trailState.highestHigh || price) - effectiveATR * multiplier;
@@ -22948,7 +22948,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       if (pipsInProfit < activationPips) continue;
     }
     const symData = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
-    const atr = symData.atr?.value ?? symData.atr ?? 0;
+    const atr2 = symData.atr?.value ?? symData.atr ?? 0;
     const multiplier = config.trailingStopATRMultiplier || 3;
     let newSL = 0;
     switch (config.trailMethod) {
@@ -22956,7 +22956,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
         newSL = computeStagedVolumeSL(pos, config);
         break;
       case "chandelier":
-        newSL = computeChandelierSL(pos, atr, multiplier, ts);
+        newSL = computeChandelierSL(pos, atr2, multiplier, ts);
         break;
       case "r_multiple": {
         const prevSL = pos.sl || 0;
@@ -23173,7 +23173,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     votes.push(`Bearish candle: ${patterns.filter((p) => bearishPatterns.includes(p)).join(",")}`);
   }
   const currentPrice = indicators.currentPrice ?? 0;
-  const atr = indicators.atr?.value ?? indicators.atr ?? currentPrice * 5e-4;
+  const atr2 = indicators.atr?.value ?? indicators.atr ?? currentPrice * 5e-4;
   if (bull < 4 && bear < 4) {
     return { newTrades: [], positionUpdates: [], marketOverview: `Rule-based (${symbol}): insufficient confluence \u2014 bull=${bull} bear=${bear} (need 4+)`, nextScanFocus: "Waiting for 4+ indicator alignment" };
   }
@@ -23188,9 +23188,9 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const minSlDist = minSlPips * pipSize;
   const slMult = confidence2 >= 86 ? 2 : 1.8;
   const tpMult = confidence2 >= 86 ? 4 : 3.6;
-  const rawSlDist = atr * slMult;
+  const rawSlDist = atr2 * slMult;
   const effectiveSlDist = Math.max(rawSlDist, minSlDist);
-  const effectiveTpDist = Math.max(atr * tpMult, effectiveSlDist * 2);
+  const effectiveTpDist = Math.max(atr2 * tpMult, effectiveSlDist * 2);
   const sl = direction === "BUY" ? entry - effectiveSlDist : entry + effectiveSlDist;
   const tp = direction === "BUY" ? entry + effectiveTpDist : entry - effectiveTpDist;
   let lotSize = config.baseLotSize;
@@ -38629,8 +38629,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       }
       const minConf = getAdjustedMinConfidence(userId, symbol);
       if (!direction || confidence2 < minConf) continue;
-      const atr = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
-      const slTicks = Math.max(4, Math.round(atr / inst.tickSize * 0.5));
+      const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
+      const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
       const tpTicks = slTicks * 2;
       const entryPrice = data.currentPrice;
       const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
@@ -38687,8 +38687,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
     const inst = getInstrument(sym);
     const vol = data.volatilityContext;
     const sr = data.supportResistance;
-    const atr = vol?.currentATR || 0;
-    const atrTicks = inst ? Math.round(atr / inst.tickSize) : 0;
+    const atr2 = vol?.currentATR || 0;
+    const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
     const candles = data.candles || [];
     const perfNote = (() => {
       const perf = state.symbolPerformance[sym];
@@ -38725,7 +38725,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
       return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
     })();
-    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
+    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
   }).join("\n");
   const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
   const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
@@ -47348,12 +47348,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const bbUpper = indicators.bollingerBands?.upper;
           const bbMiddle = indicators.bollingerBands?.middle;
           const bbLower = indicators.bollingerBands?.lower;
-          let atr = indicators.atr;
+          let atr2 = indicators.atr;
           const currentPrice = indicators.price?.bid || candles[0]?.c;
           if (currentPrice && currentPrice > 0) {
             checkBreakoutTriggers(sanitizedSymbol, currentPrice).catch((err) => console.error("[StopOrders] trigger scan error:", err.message));
           }
-          if (!atr && candles.length >= 14) {
+          if (!atr2 && candles.length >= 14) {
             let atrSum = 0;
             for (let i = 0; i < 14 && i < candles.length - 1; i++) {
               const high = candles[i]?.h || 0;
@@ -47366,8 +47366,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               );
               atrSum += tr;
             }
-            atr = atrSum / 14;
-            console.log("[MT5 Chart Data] Calculated fallback ATR:", atr);
+            atr2 = atrSum / 14;
+            console.log("[MT5 Chart Data] Calculated fallback ATR:", atr2);
           }
           let rsiSignal = "NEUTRAL";
           let rsiStatus = "";
@@ -47469,12 +47469,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               signal: bbSignal
             };
           }
-          if (atr) {
-            const volatility = atr > currentPrice * 0.02 ? "HIGH" : atr > currentPrice * 0.01 ? "MEDIUM" : "LOW";
-            analysis.indicators.atr = { value: atr, volatility };
+          if (atr2) {
+            const volatility = atr2 > currentPrice * 0.02 ? "HIGH" : atr2 > currentPrice * 0.01 ? "MEDIUM" : "LOW";
+            analysis.indicators.atr = { value: atr2, volatility };
           }
           const { computeAllAdvancedIndicators: computeAllAdvancedIndicators2 } = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
-          advanced = computeAllAdvancedIndicators2(candles, atr || 0, sanitizedSymbol, sanitizedTimeframe);
+          advanced = computeAllAdvancedIndicators2(candles, atr2 || 0, sanitizedSymbol, sanitizedTimeframe);
           if (advanced.adx) {
             analysis.indicators.adx = advanced.adx;
             if (advanced.adx.trend === "WEAK") {
@@ -47828,16 +47828,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           }
           analysis.trend = maTrend;
-          if (analysis.signal !== "NEUTRAL" && currentPrice && atr) {
-            const stopDistance = atr * 1.5;
-            const targetDistance = atr * 2.5;
+          if (analysis.signal !== "NEUTRAL" && currentPrice && atr2) {
+            const stopDistance = atr2 * 1.5;
+            const targetDistance = atr2 * 2.5;
             const sr = advanced.supportResistance;
             const pp = advanced.pivotPoints;
             if (analysis.signal === "BUY") {
               let sl = currentPrice - stopDistance;
               let tp = currentPrice + targetDistance;
               if (sr?.nearestSupport && sr.nearestSupport > sl && sr.nearestSupport < currentPrice) {
-                sl = sr.nearestSupport - atr * 0.3;
+                sl = sr.nearestSupport - atr2 * 0.3;
               }
               if (sr?.nearestResistance && sr.nearestResistance > currentPrice) {
                 tp = Math.max(tp, sr.nearestResistance);
@@ -47857,7 +47857,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               let sl = currentPrice + stopDistance;
               let tp = currentPrice - targetDistance;
               if (sr?.nearestResistance && sr.nearestResistance > currentPrice && sr.nearestResistance < sl) {
-                sl = sr.nearestResistance + atr * 0.3;
+                sl = sr.nearestResistance + atr2 * 0.3;
               }
               if (sr?.nearestSupport && sr.nearestSupport < currentPrice) {
                 tp = Math.min(tp, sr.nearestSupport);
@@ -47885,17 +47885,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             console.log("[MT5 Chart Data] No trade plan - missing data:", {
               signal: analysis.signal,
               hasCurrentPrice: !!currentPrice,
-              hasAtr: !!atr
+              hasAtr: !!atr2
             });
           }
-          if (analysis.tradePlan && currentPrice && atr && atr > 0) {
+          if (analysis.tradePlan && currentPrice && atr2 && atr2 > 0) {
             const stopDistance = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss);
             const targetDistance = Math.abs(analysis.tradePlan.takeProfit - analysis.tradePlan.entry);
             if (stopDistance <= 0 || targetDistance <= 0) {
             } else {
               let slScore = 50;
               const slFactors = [];
-              const slAtrRatio = stopDistance / atr;
+              const slAtrRatio = stopDistance / atr2;
               if (slAtrRatio >= 1 && slAtrRatio <= 2) {
                 slScore += 15;
                 slFactors.push(`ATR distance optimal (${slAtrRatio.toFixed(1)}x ATR)`);
@@ -49137,9 +49137,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         }
         console.log(`[POWER] Balance CIPHER: $${accountBalance.toFixed(2)} | Risk ${riskPercentSetting}% = $${riskAmount.toFixed(2)} at stake`);
         console.log(`[POWER] SL Distance: ${slDistance} | Pips: ${slPips.toFixed(1)} | Lots MANIFESTED: ${mt5Volume}`);
-      } else if (useRiskPercent) {
-        console.log(`[WISDOM] No trade plan yet - using fixed lots: ${fixedVolumeSetting}. Patience builds POWER.`);
-        mt5Volume = fixedVolumeSetting;
+      } else if (useRiskPercent && _acctBalKnown && riskAmount > 0) {
+        const symPipSizeFb = getPipSize(sanitizedSymbol);
+        const symPipValueFb = getPipValue(sanitizedSymbol);
+        const fallbackAtr = typeof atr === "number" && atr > 0 ? atr : symPipSizeFb * 20;
+        const fallbackSlPips = fallbackAtr * 1.5 / symPipSizeFb;
+        if (fallbackSlPips > 0 && symPipValueFb > 0) {
+          const calculatedLotsFb = riskAmount / (fallbackSlPips * symPipValueFb);
+          const engineMaxLotFb = effectiveMaxLot(_liveState?.config?.maxLotSize, accountBalance, sanitizedSymbol);
+          mt5Volume = Math.max(0.01, Math.min(engineMaxLotFb, Math.round(calculatedLotsFb * 100) / 100));
+          console.log(`[LOT FALLBACK] ${sanitizedSymbol}: ATR=${fallbackAtr.toFixed(5)}, fallback SL=${fallbackSlPips.toFixed(1)} pips, risk=$${riskAmount.toFixed(2)}, lots=${mt5Volume}`);
+        } else {
+          mt5Volume = fixedVolumeSetting;
+          console.log(`[WISDOM] No trade plan, ATR unavailable - fixed lots: ${fixedVolumeSetting}`);
+        }
       } else {
         console.log(`[EQUALITY] Fixed lot mode active - ${fixedVolumeSetting} lots. Word is BOND.`);
         mt5Volume = fixedVolumeSetting;
@@ -53670,7 +53681,7 @@ Format each recommendation as a clear, concise action item.`;
         );
         const candles = getBestCandles(sym);
         const latest = candles[0];
-        const atr = latest?.atr || null;
+        const atr2 = latest?.atr || null;
         const rsi3 = latest?.rsi || null;
         const trend = latest?.trend || null;
         const close = latest?.c || latest?.close || null;
@@ -53702,7 +53713,7 @@ Format each recommendation as a clear, concise action item.`;
         return {
           ...cleanKnowledge,
           currentPrice: pairData?.price || close || null,
-          atr,
+          atr: atr2,
           rsi: rsi3,
           trend,
           hasOpenPosition: hasOpenPos,
