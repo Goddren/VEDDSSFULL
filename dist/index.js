@@ -17165,6 +17165,29 @@ var init_tradelocker = __esm({
           return new Date(o.closeTime).getTime() >= fromTs * 1e3;
         });
       }
+      /**
+       * Fetch CLOSED positions (realized P&L) — tries multiple endpoint patterns.
+       * Returns normalized array: { id, symbol, side, profit, openPrice, closePrice, closeTime }
+       */
+      async getClosedPositions(fromTs) {
+        await this.ensureAuthenticated();
+        const base = `${this.baseUrl}/trade/accounts/${this.accountId}/positions`;
+        const tryFetch = async (url) => {
+          const r = await fetch(url, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (!r.ok) return null;
+          const d = await r.json();
+          return Array.isArray(d) ? d : d?.d?.positions || d?.positions || d?.data || null;
+        };
+        try {
+          const results = await tryFetch(`${base}?status=Closed`) ?? await tryFetch(`${base}?status=closed`) ?? await tryFetch(`${base}/history`) ?? await tryFetch(`${this.baseUrl}/trade/accounts/${this.accountId}/history`) ?? [];
+          return this._normaliseOrders(results, fromTs);
+        } catch (err) {
+          console.error("[TradeLocker] getClosedPositions error:", err.message);
+          return [];
+        }
+      }
       async getPositions() {
         await this.ensureAuthenticated();
         try {
@@ -46606,7 +46629,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       if (!token.isActive) {
         return res.status(403).json({ error: "API key is disabled" });
       }
-      const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform } = req.body;
+      const { action, symbol, direction, volume, entryPrice, stopLoss, takeProfit, ticket, magic, comment, openTime, platform, profit, exitPrice, closePrice } = req.body;
       if (!action || !symbol || !direction) {
         const missing = [];
         if (!action) missing.push("action");
@@ -46632,6 +46655,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         relayedToWebhooks: false
       });
       await storage.incrementMt5TokenSignalCount(token.id);
+      if (action === "CLOSE" && ticket) {
+        const ticketStr = ticket.toString();
+        const closePnl = typeof profit === "number" ? profit : parseFloat(profit || "0") || 0;
+        const closeExit = exitPrice || closePrice || 0;
+        const closeResult = closePnl > 0 ? "WIN" : closePnl < 0 ? "LOSS" : "BREAKEVEN";
+        try {
+          const existingResult = await storage.getAiTradeResultByTicket(token.userId, ticketStr);
+          if (existingResult) {
+            if (!existingResult.result || existingResult.result === "PENDING") {
+              await storage.updateAiTradeResult(existingResult.id, token.userId, {
+                result: closeResult,
+                exitPrice: closeExit || existingResult.exitPrice,
+                profitLoss: closePnl,
+                closedAt: /* @__PURE__ */ new Date()
+              });
+            }
+          } else if (closePnl !== 0) {
+            await storage.createAiTradeResult({
+              userId: token.userId,
+              symbol: (symbol || "UNKNOWN").toUpperCase(),
+              direction: direction || "BUY",
+              entryPrice: entryPrice || 0,
+              exitPrice: closeExit || 0,
+              stopLoss: stopLoss || null,
+              takeProfit: takeProfit || null,
+              aiConfidence: 0,
+              result: closeResult,
+              profitLoss: closePnl,
+              source: "mt5_ea",
+              mt5Ticket: ticketStr,
+              closedAt: /* @__PURE__ */ new Date(),
+              notes: "MT5 EA closed trade"
+            });
+          }
+        } catch (_closeErr) {
+        }
+      }
       const webhooks = await storage.getActiveWebhooksByTrigger(token.userId, "mt5_signal");
       if (webhooks.length > 0) {
         const payload2 = {
@@ -53311,34 +53371,60 @@ Format each recommendation as a clear, concise action item.`;
       const conns = await storage.getUserTradelockerConnections(userId);
       const active = conns.filter((c) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1e3) / 1e3);
+      const saveOrder = async (o) => {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+        if (!isFinite(p) || p === 0) return;
+        const tk = `tl_${o.id || o.positionId || o.orderId}`;
+        if (!tk || tk === "tl_undefined") return;
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          if (existing.result === "PENDING") {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: p > 0 ? "WIN" : "LOSS",
+              profitLoss: p,
+              closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
+            });
+            added++;
+          }
+          return;
+        }
+        await storage.createAiTradeResult({
+          userId,
+          symbol: (o.symbol || o.instrument || "UNKNOWN").toUpperCase().replace("/", ""),
+          direction: /sell|short/i.test(o.side || o.direction || "") ? "SELL" : "BUY",
+          entryPrice: o.openPrice || o.entryPrice || 0,
+          exitPrice: o.closePrice || o.exitPrice || 0,
+          aiConfidence: 0,
+          result: p > 0 ? "WIN" : "LOSS",
+          profitLoss: p,
+          source: "tradelocker",
+          mt5Ticket: tk,
+          notes: "TradeLocker closed position (synced)",
+          closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
+        });
+        added++;
+      };
       for (const conn of active) {
         try {
           const svc = await getOrCreateService(conn);
-          const orders = await svc.getFilledOrders(fromTs);
-          for (const o of orders) {
-            if (typeof o.profit !== "number" || o.profit === 0) continue;
-            const tk = `tl_${o.id}`;
-            const existing = await storage.getAiTradeResultByTicket(userId, tk);
-            if (existing) continue;
-            await storage.createAiTradeResult({
-              userId,
-              symbol: (o.symbol || "UNKNOWN").toUpperCase().replace("/", ""),
-              direction: /sell|short/i.test(o.side) ? "SELL" : "BUY",
-              entryPrice: 0,
-              aiConfidence: 0,
-              result: o.profit > 0 ? "WIN" : "LOSS",
-              profitLoss: o.profit,
-              source: "tradelocker",
-              mt5Ticket: tk,
-              notes: "TradeLocker filled order (synced)",
-              closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
-            });
-            added++;
+          const [closedPositions, filledOrders] = await Promise.allSettled([
+            svc.getClosedPositions ? svc.getClosedPositions(fromTs) : Promise.reject("no method"),
+            svc.getFilledOrders(fromTs)
+          ]);
+          const posResults = closedPositions.status === "fulfilled" ? closedPositions.value || [] : [];
+          const ordResults = filledOrders.status === "fulfilled" ? filledOrders.value || [] : [];
+          const seen = /* @__PURE__ */ new Set();
+          for (const o of [...posResults, ...ordResults]) {
+            const id = String(o.id || o.positionId || o.orderId || "");
+            if (id && seen.has(id)) continue;
+            if (id) seen.add(id);
+            await saveOrder(o);
           }
         } catch (_) {
         }
       }
-      if (added > 0) console.log(`[TL Outcome Sync] user ${userId}: +${added} TradeLocker trades fed into the brain`);
+      if (added > 0) console.log(`[TL Outcome Sync] user ${userId}: +${added} TradeLocker trades fed into results`);
     } catch (_) {
     }
     return added;
@@ -53439,6 +53525,18 @@ Format each recommendation as a clear, concise action item.`;
       });
     } catch (err) {
       console.error("[trade-performance]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/trade-sync/force", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const g = global;
+    if (g.tlOutcomeSyncAt) g.tlOutcomeSyncAt[userId] = 0;
+    try {
+      const added = await syncTradeLockerOutcomes(userId);
+      res.json({ success: true, synced: added, message: added > 0 ? `Synced ${added} new trade(s) from TradeLocker.` : "No new trades to sync." });
+    } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
@@ -55722,18 +55820,19 @@ Respond with ONLY valid JSON:
     weekStart.setHours(0, 0, 0, 0);
     const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
     const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
+    const _allClosed = await storage.getAiTradeResults(userId, 500).then(
+      (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt)
+    ).catch(() => []);
+    const _tlSources = /* @__PURE__ */ new Set(["tradelocker", "kalshi", "polymarket", "solana"]);
     let mt5 = null;
     try {
       const cached2 = global.mt5AccountData?.[userId];
       const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
       const eq13 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
-      const [todayDbTrades, weekDbTrades] = await Promise.all([
-        db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${todayStart.toISOString()}`).catch(() => [[{ pnl: 0 }]]),
-        db.execute(sql7`SELECT COALESCE(SUM(profit_loss),0) AS pnl FROM trades WHERE user_id=${userId} AND closed_at >= ${weekStart.toISOString()}`).catch(() => [[{ pnl: 0 }]])
-      ]);
-      const dailyPnl = parseFloat(todayDbTrades[0]?.[0]?.pnl ?? 0);
-      const weeklyPnl = parseFloat(weekDbTrades[0]?.[0]?.pnl ?? 0);
+      const mt5Results = _allClosed.filter((t) => !_tlSources.has(t.source || "manual"));
+      const dailyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       mt5 = { balance: bal, equity: eq13, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
@@ -55742,20 +55841,14 @@ Respond with ONLY valid JSON:
     try {
       const conns = await storage.getUserTradelockerConnections(userId);
       const active = conns.filter((c) => c.isActive);
+      const tlDbResults = _allClosed.filter((t) => t.source === "tradelocker");
+      const tlDbDailyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      const tlDbWeeklyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       await Promise.all(active.map(async (conn) => {
         try {
           const svc = await getOrCreateService(conn);
-          const [positions, filledOrders] = await Promise.all([
-            svc.getPositions().catch(() => []),
-            svc.getFilledOrders(weekStartTs).catch(() => [])
-          ]);
+          const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
-          let dailyPnl = 0, weeklyPnl = 0;
-          for (const o of filledOrders) {
-            const ct = o.closeTime ? new Date(o.closeTime).getTime() : 0;
-            if (ct >= weekStart.getTime()) weeklyPnl += o.profit || 0;
-            if (ct >= todayStart.getTime()) dailyPnl += o.profit || 0;
-          }
           let balance = 0, equity = 0;
           try {
             const balData = await svc.getAccountInfo().catch(() => null);
@@ -55773,8 +55866,8 @@ Respond with ONLY valid JSON:
             balance,
             equity,
             unrealizedPnl: unrealized,
-            dailyPnl,
-            weeklyPnl,
+            dailyPnl: tlDbDailyPnl,
+            weeklyPnl: tlDbWeeklyPnl,
             openTrades: positions.length
           });
         } catch (e) {
@@ -55788,8 +55881,8 @@ Respond with ONLY valid JSON:
             balance: 0,
             equity: 0,
             unrealizedPnl: 0,
-            dailyPnl: 0,
-            weeklyPnl: 0,
+            dailyPnl: tlDbDailyPnl,
+            weeklyPnl: tlDbWeeklyPnl,
             openTrades: 0
           });
         }
@@ -59349,7 +59442,63 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     const state = getLiveEngineState3(userId);
-    if (!state) return res.json({ active: false });
+    if (!state) {
+      try {
+        const dayStart = /* @__PURE__ */ new Date();
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1e3);
+        const allResults = await storage.getAiTradeResults(userId, 500);
+        const closed = allResults.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && new Date(t.closedAt) >= thirtyDaysAgo);
+        if (closed.length === 0) return res.json({ active: false });
+        const todayPnL2 = Math.round(closed.filter((t) => new Date(t.closedAt) >= dayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const todayTrades = closed.filter((t) => new Date(t.closedAt) >= dayStart);
+        const dailyPnLHistory = {};
+        for (const t of closed) {
+          const dk = new Date(t.closedAt).toISOString().split("T")[0];
+          dailyPnLHistory[dk] = Math.round(((dailyPnLHistory[dk] || 0) + (t.profitLoss || 0)) * 100) / 100;
+        }
+        const today2 = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+        dailyPnLHistory[today2] = todayPnL2;
+        const tlConns = await storage.getUserTradelockerConnections(userId).catch(() => []);
+        const bal = tlConns[0]?.accountBalance ?? 0;
+        const periodKeys2 = Object.keys(dailyPnLHistory).sort().slice(-15);
+        const profitableDays2 = periodKeys2.filter((k) => (dailyPnLHistory[k] ?? 0) > 0).length;
+        const utcHour2 = (/* @__PURE__ */ new Date()).getUTCHours();
+        return res.json({
+          active: true,
+          propFirmMode: false,
+          engineStatus: "stopped",
+          balance: bal,
+          todayPnL: todayPnL2,
+          todayPnLPct: bal > 0 ? Math.round(todayPnL2 / bal * 1e4) / 100 : 0,
+          dailyLossLimitPct: 4,
+          dailyLossLimitDollar: bal * 0.04,
+          dailyLossUsedPct: bal > 0 ? Math.abs(Math.min(0, todayPnL2)) / (bal * 0.04) * 100 : 0,
+          dailyLossHalted: false,
+          dailyProfitHalted: false,
+          dailyProfitTargetPct: 2,
+          dailyProfitTargetDollar: bal > 0 ? bal * 0.02 : null,
+          drawdownShieldActive: false,
+          sessionFilterEnabled: false,
+          inSessionWindow: utcHour2 >= 13 && utcHour2 < 17,
+          consistencyEnforcementEnabled: false,
+          consistencyMinProfitableDays: 10,
+          consistencyPeriodDays: 15,
+          profitableDays: profitableDays2,
+          totalTradingDays: periodKeys2.length,
+          daysRemaining: Math.max(0, 15 - periodKeys2.length),
+          daysNeeded: Math.max(0, 10 - profitableDays2),
+          riskMultiplier: 1,
+          dailyPnLHistory,
+          periodKeys: periodKeys2,
+          scanCount: 0,
+          tradesExecuted: todayTrades.length,
+          openPositionCount: 0
+        });
+      } catch (_) {
+        return res.json({ active: false });
+      }
+    }
     const cfg = state.config;
     const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     const todayPnL = state.pnlToday ?? 0;

@@ -1019,6 +1019,35 @@ export class TradeLockerService {
       });
   }
 
+  /**
+   * Fetch CLOSED positions (realized P&L) — tries multiple endpoint patterns.
+   * Returns normalized array: { id, symbol, side, profit, openPrice, closePrice, closeTime }
+   */
+  async getClosedPositions(fromTs?: number): Promise<any[]> {
+    await this.ensureAuthenticated();
+    const base = `${this.baseUrl}/trade/accounts/${this.accountId}/positions`;
+    const tryFetch = async (url: string) => {
+      const r = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+      });
+      if (!r.ok) return null;
+      const d = await r.json();
+      return Array.isArray(d) ? d : (d?.d?.positions || d?.positions || d?.data || null);
+    };
+    try {
+      // Try several common closed-positions endpoint patterns
+      const results = await tryFetch(`${base}?status=Closed`) ??
+                      await tryFetch(`${base}?status=closed`) ??
+                      await tryFetch(`${base}/history`) ??
+                      await tryFetch(`${this.baseUrl}/trade/accounts/${this.accountId}/history`) ??
+                      [];
+      return this._normaliseOrders(results as any[], fromTs);
+    } catch (err) {
+      console.error('[TradeLocker] getClosedPositions error:', (err as Error).message);
+      return [];
+    }
+  }
+
   async getPositions(): Promise<any[]> {
     await this.ensureAuthenticated();
 

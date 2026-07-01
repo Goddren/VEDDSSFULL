@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Activity } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { TrendingUp, TrendingDown, Activity, RefreshCw } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 
 export interface TradePerformance {
   overall: { trades: number; wins: number; losses: number; breakeven: number; winRate: number; totalPnl: number };
@@ -44,7 +45,12 @@ const wrColor = (wr: number) => (wr >= 55 ? "#34d399" : wr >= 45 ? "#fbbf24" : "
 
 /** Full card — for the dashboard and weekly-strategy page. */
 export function TradePerformanceCard({ className = "" }: { className?: string }) {
-  const { data, isLoading } = useTradePerformance();
+  const { data, isLoading, refetch } = useTradePerformance();
+  const qc = useQueryClient();
+  const syncMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/trade-sync/force').then(r => r.json()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['/api/trade-performance'] }); qc.invalidateQueries({ queryKey: ['/api/trade-review/today'] }); qc.invalidateQueries({ queryKey: ['/api/platform-monitors'] }); },
+  });
 
   if (isLoading && !data) {
     return (
@@ -73,12 +79,25 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
           <h3 className="text-sm font-bold text-emerald-300">Trade Performance</h3>
           <span className="text-[9px] text-gray-500">MT5 + TradeLocker · live</span>
         </div>
-        {data?.streak.type && data.streak.count > 0 && (
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${data.streak.type === "win" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
-            {data.streak.count} {data.streak.type === "win" ? "win" : "loss"} streak
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {data?.streak.type && data.streak.count > 0 && (
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${data.streak.type === "win" ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>
+              {data.streak.count} {data.streak.type === "win" ? "win" : "loss"} streak
+            </span>
+          )}
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            title="Force sync trades from TradeLocker"
+            className="p-1 rounded text-gray-500 hover:text-emerald-400 transition-colors disabled:opacity-40"
+          >
+            <RefreshCw className={`w-3 h-3 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
+      {syncMutation.data && (
+        <p className="text-[10px] text-emerald-400 mb-2">{syncMutation.data.message}</p>
+      )}
 
       {!hasData ? (
         <p className="text-[11px] text-gray-500 py-2">
