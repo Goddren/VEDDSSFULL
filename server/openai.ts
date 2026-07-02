@@ -315,7 +315,7 @@ export const AVAILABLE_VISION_MODELS = [
   { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (Groq)', description: 'Groq flagship open model — fast & reliable (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
   { id: 'qwen/qwen3.6-27b', name: 'Qwen 3.6 27B (Groq)', description: 'Strong reasoning, fast on Groq (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
   { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (Groq)', description: 'Fastest Groq model — ultra-low latency (text/confirmation)', tier: 'budget', provider: 'groq', textOnly: true },
-  { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen 3 VL (Vision, Groq)', description: 'Groq vision-language model for chart analysis', tier: 'budget', provider: 'groq' },
+  { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen 3 VL (Vision, Groq)', description: 'Groq vision model — use OpenAI/Anthropic for chart analysis', tier: 'budget', provider: 'groq', textOnly: true },
   { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
 ];
@@ -369,8 +369,9 @@ export function inferModelProvider(modelId: string): string {
 }
 
 // Text-only models cannot process chart images — auto-swap to a vision-capable model
+// Groq has no reliable vision model available; fall back to gpt-4o-mini via OpenAI platform key.
 const VISION_FALLBACK: Record<string, string> = {
-  'groq': 'qwen/qwen3-vl-32b-instruct',
+  'groq': 'gpt-4o-mini',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
 };
@@ -2488,10 +2489,8 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
           return c as UniversalAIClient;
         }
         if (provider === 'groq') {
-          const c = buildOpenAICompatClient('groq', apiKey) as any;
-          c.defaultModel = (preferredModel && selIsVision) ? preferredModel : 'qwen/qwen3-vl-32b-instruct';
-          c.provider = 'groq';
-          return c as UniversalAIClient;
+          // Groq has no reliable vision model — skip for vision tasks; fallthrough to OpenAI backstop.
+          return null;
         }
         return buildOpenAICompatClient(provider, apiKey);
       } catch (e) {
@@ -2509,7 +2508,8 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     }
 
     // 2. Remaining vision-capable providers as failover (skip the one already added)
-    const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral', 'groq'];
+    // Groq excluded — no reliable vision model available; Groq users fall through to OpenAI backstop.
+    const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral'];
     for (const provider of VISION_PROVIDERS) {
       if (provider === selProvider) continue; // already added above
       const key = activeKeys.find(k => k.provider === provider);
@@ -2518,22 +2518,12 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
       if (c) clients.push(c);
     }
 
-    // Platform backstop #1 — OpenAI gpt-4o-mini (vision-capable, high rate limits)
+    // Platform backstop — OpenAI gpt-4o-mini (vision-capable, high rate limits)
     if (process.env.OPENAI_API_KEY) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 90000 }) as any;
       plat.defaultModel = 'gpt-4o-mini';
       plat.provider = 'openai-platform';
       clients.push(plat as UniversalAIClient);
-    }
-
-    // Platform backstop #2 — Groq Qwen 3 VL (separate rate-limit pool; fires when OpenAI platform key is rate-limited)
-    if (process.env.GROQ_API_KEY) {
-      try {
-        const groqPlat = buildOpenAICompatClient('groq', process.env.GROQ_API_KEY) as any;
-        groqPlat.defaultModel = 'qwen/qwen3-vl-32b-instruct';
-        groqPlat.provider = 'groq-platform';
-        clients.push(groqPlat as UniversalAIClient);
-      } catch { /* ignore */ }
     }
 
     if (clients.length) {
@@ -2544,18 +2534,7 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
   } catch (e) {
     console.error('Error building vision client, falling back to platform key:', e);
   }
-  // Last resort: try Groq platform key first (separate pool from OpenAI), then OpenAI
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const groqPlat = buildOpenAICompatClient('groq', process.env.GROQ_API_KEY) as any;
-      groqPlat.defaultModel = 'qwen/qwen3-vl-32b-instruct';
-      groqPlat.provider = 'groq-platform';
-      const openaiPlat = getDefaultOpenAIClient() as any;
-      openaiPlat.defaultModel = 'gpt-4o-mini';
-      openaiPlat.provider = 'openai';
-      return makeFailoverClient([groqPlat as UniversalAIClient, openaiPlat as UniversalAIClient], userId);
-    } catch { /* fall through */ }
-  }
+  // Last resort: platform OpenAI key with gpt-4o-mini
   const platformClient = getDefaultOpenAIClient() as any;
   platformClient.defaultModel = 'gpt-4o-mini';
   platformClient.provider = 'openai';

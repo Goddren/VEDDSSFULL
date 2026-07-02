@@ -8198,10 +8198,7 @@ async function getUniversalVisionClientForUser(userId) {
           return c;
         }
         if (provider === "groq") {
-          const c = buildOpenAICompatClient("groq", apiKey);
-          c.defaultModel = preferredModel && selIsVision ? preferredModel : "qwen/qwen3-vl-32b-instruct";
-          c.provider = "groq";
-          return c;
+          return null;
         }
         return buildOpenAICompatClient(provider, apiKey);
       } catch (e) {
@@ -8227,7 +8224,7 @@ async function getUniversalVisionClientForUser(userId) {
       const c = buildProviderClient2(selProvider, preferredKey.apiKey, selModel);
       if (c) clients.push(c);
     }
-    const VISION_PROVIDERS = ["anthropic", "openai", "google", "mistral", "groq"];
+    const VISION_PROVIDERS = ["anthropic", "openai", "google", "mistral"];
     for (const provider of VISION_PROVIDERS) {
       if (provider === selProvider) continue;
       const key = activeKeys.find((k) => k.provider === provider);
@@ -8241,15 +8238,6 @@ async function getUniversalVisionClientForUser(userId) {
       plat.provider = "openai-platform";
       clients.push(plat);
     }
-    if (process.env.GROQ_API_KEY) {
-      try {
-        const groqPlat = buildOpenAICompatClient("groq", process.env.GROQ_API_KEY);
-        groqPlat.defaultModel = "qwen/qwen3-vl-32b-instruct";
-        groqPlat.provider = "groq-platform";
-        clients.push(groqPlat);
-      } catch {
-      }
-    }
     if (clients.length) {
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
@@ -8258,18 +8246,6 @@ async function getUniversalVisionClientForUser(userId) {
     }
   } catch (e) {
     console.error("Error building vision client, falling back to platform key:", e);
-  }
-  if (process.env.GROQ_API_KEY) {
-    try {
-      const groqPlat = buildOpenAICompatClient("groq", process.env.GROQ_API_KEY);
-      groqPlat.defaultModel = "qwen/qwen3-vl-32b-instruct";
-      groqPlat.provider = "groq-platform";
-      const openaiPlat = getDefaultOpenAIClient();
-      openaiPlat.defaultModel = "gpt-4o-mini";
-      openaiPlat.provider = "openai";
-      return makeFailoverClient([groqPlat, openaiPlat], userId);
-    } catch {
-    }
   }
   const platformClient = getDefaultOpenAIClient();
   platformClient.defaultModel = "gpt-4o-mini";
@@ -9688,7 +9664,7 @@ var init_openai = __esm({
       { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Groq)", description: "Groq flagship open model \u2014 fast & reliable (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
       { id: "qwen/qwen3.6-27b", name: "Qwen 3.6 27B (Groq)", description: "Strong reasoning, fast on Groq (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
       { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Groq)", description: "Fastest Groq model \u2014 ultra-low latency (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
-      { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision-language model for chart analysis", tier: "budget", provider: "groq" },
+      { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision model \u2014 use OpenAI/Anthropic for chart analysis", tier: "budget", provider: "groq", textOnly: true },
       { id: "mistral-large-latest", name: "Mistral Large", description: "Top-tier reasoning", tier: "premium", provider: "mistral" },
       { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" }
     ];
@@ -9705,7 +9681,7 @@ var init_openai = __esm({
       "qwen/qwen3-32b": "qwen/qwen3.6-27b"
     };
     VISION_FALLBACK = {
-      "groq": "qwen/qwen3-vl-32b-instruct",
+      "groq": "gpt-4o-mini",
       "openai": "gpt-4o-mini",
       "anthropic": "claude-sonnet-4-6"
     };
