@@ -2790,11 +2790,13 @@ IMPORTANT: All fields marked as REQUIRED must be included in your response with 
           ],
         },
       ],
-      max_tokens: 4000,
+      max_tokens: 8192,
     });
 
     // Log the raw response for debugging
-    console.log("OpenAI JSON Response:", visionResponse.choices[0].message.content);
+    const rawLen = visionResponse.choices[0].message.content?.length ?? 0;
+    const finishReason = visionResponse.choices[0].finish_reason;
+    console.log(`OpenAI JSON Response (${rawLen} chars, finish_reason=${finishReason}):`, visionResponse.choices[0].message.content?.slice(0, 300));
 
     // Extract and parse the response — strip markdown code blocks if the model wrapped output
     const rawContent = visionResponse.choices[0].message.content as string;
