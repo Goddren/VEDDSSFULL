@@ -49650,6 +49650,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                     connLot = Math.max(0.01, Math.round(tradeVolume * _ratio * 100) / 100);
                     _sizeLabel = `proportional ${_ratio.toFixed(2)}\xD7 ($${_tlEq.toLocaleString()}/$${accountBalance.toLocaleString()})`;
                     console.log(`[ProportionalSizing] ${tlConn.accountId}: base=${tradeVolume} \xD7 (${_tlEq}/${accountBalance}) = ${connLot} lots`);
+                  } else if (_eaCopyMode === "proportional" && _tlEq && _tlEq > 0) {
+                    const _fbPipSize = getPipSize(sanitizedSymbol);
+                    const _fbPipValue = getPipValue(sanitizedSymbol);
+                    const _fbRiskPct = _eaRisk.riskPercent > 0 ? _eaRisk.riskPercent : 1;
+                    const _fbRiskUsd = _tlEq * (_fbRiskPct / 100);
+                    const _fbSlDist = _entryPrice && analysis.tradePlan?.stopLoss ? Math.abs(_entryPrice - analysis.tradePlan.stopLoss) : 0;
+                    const _fbSlPips = _fbSlDist > 0 && _fbPipSize > 0 ? _fbSlDist / _fbPipSize : _fbPipSize > 0 ? 20 : 0;
+                    if (_fbSlPips > 0 && _fbPipValue > 0) {
+                      connLot = Math.max(0.01, Math.round(_fbRiskUsd / (_fbSlPips * _fbPipValue) * 100) / 100);
+                      _sizeLabel = `TL-direct risk ${_fbRiskPct}% of $${_tlEq.toLocaleString()} (no MT5 ref)`;
+                      console.log(`[ProportionalSizing] ${tlConn.accountId}: no MT5 ref \u2192 TL risk-based ${connLot} lots (${_fbRiskPct}% of $${_tlEq})`);
+                    } else {
+                      console.warn(`[ProportionalSizing] ${tlConn.accountId}: pip values unavailable \u2014 using base lot ${tradeVolume}`);
+                    }
                   } else if (_eaCopyMode === "proportional") {
                     console.warn(`[ProportionalSizing] ${tlConn.accountId}: could not size proportionally (TL value=${_tlEq}, MT5 ref=${accountBalance}) \u2014 using exact MT5 lot ${tradeVolume}`);
                   }
