@@ -1480,6 +1480,48 @@ const Dashboard: React.FC = () => {
                   </Link>
                 ))}
 
+                {/* TradeLocker recent trades — shown when TL is connected */}
+                {tlConnectionsAll.length > 0 && (
+                  <div className="smart-card px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-semibold text-purple-300 uppercase tracking-wide">TL Recent Trades</span>
+                      <span className="text-[9px] text-gray-500">{tlTrades?.length ?? 0} records</span>
+                    </div>
+                    {!tlTrades || tlTrades.length === 0 ? (
+                      <p className="text-[10px] text-gray-600 text-center py-1">No trades synced yet — trades appear within 30s of closing</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {tlTrades.slice(0, 8).map((t: any, i: number) => {
+                          const pnl = typeof t.profitLoss === 'number' ? t.profitLoss : parseFloat(t.profitLoss ?? '0');
+                          const dir = (t.action || t.direction || '').toUpperCase();
+                          const isBuy = dir.includes('BUY') || dir.includes('LONG') || dir.includes('buy');
+                          const result = t.result || t.status || '';
+                          const isWin = result === 'WIN' || pnl > 0;
+                          const isLoss = result === 'LOSS' || (pnl < 0 && result !== 'PENDING' && result !== 'open');
+                          const isPending = result === 'PENDING' || result === 'open' || result === 'executed';
+                          return (
+                            <div key={t.id || i} className="flex items-center justify-between text-[10px]">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`text-[9px] font-bold px-1 rounded flex-shrink-0 ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{isBuy ? 'B' : 'S'}</span>
+                                <span className="text-gray-300 font-medium truncate">{(t.symbol || 'UNKNOWN').toUpperCase()}</span>
+                                {isPending && <span className="text-[9px] text-amber-400">open</span>}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {!isPending && (
+                                  <span className={`font-semibold ${isWin ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
+                                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                                  </span>
+                                )}
+                                <span className="text-gray-600 text-[9px]">{t.closedAt || t.createdAt ? new Date(t.closedAt || t.createdAt).toLocaleDateString('en-US', {month:'numeric',day:'numeric'}) : ''}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Solana */}
                 {platformMonitors.solana && (
                   <Link href="/solana-scanner">

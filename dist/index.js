@@ -52612,8 +52612,47 @@ Rules:
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = req.user.id;
-    const trades = await storage.getTradelockerTradeLogs(userId, 100);
-    res.json(trades);
+    const _g = global;
+    if (_g.tlOutcomeSyncAt) _g.tlOutcomeSyncAt[userId] = 0;
+    try {
+      await syncTradeLockerOutcomes(userId);
+    } catch (_) {
+    }
+    const execLogs = await storage.getTradelockerTradeLogs(userId, 100).catch(() => []);
+    const syncedResults = await storage.getAiTradeResults(userId, 200).then(
+      (rows) => rows.filter((t) => t.source === "tradelocker").map((t) => ({
+        id: t.id,
+        symbol: t.symbol,
+        action: t.direction,
+        status: t.result === "PENDING" ? "open" : "closed",
+        result: t.result,
+        profitLoss: t.profitLoss,
+        entryPrice: t.entryPrice,
+        exitPrice: t.exitPrice,
+        closedAt: t.closedAt,
+        createdAt: t.createdAt || t.closedAt,
+        source: "tradelocker-sync",
+        mt5Ticket: t.mt5Ticket
+      }))
+    ).catch(() => []);
+    const seen = /* @__PURE__ */ new Set();
+    const merged = [];
+    for (const t of syncedResults) {
+      const key = t.mt5Ticket || `sr_${t.id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(t);
+      }
+    }
+    for (const t of execLogs) {
+      const key = t.id ? `log_${t.id}` : `log_${t.symbol}_${t.createdAt}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(t);
+      }
+    }
+    merged.sort((a, b) => new Date(b.createdAt || b.closedAt || 0).getTime() - new Date(a.createdAt || a.closedAt || 0).getTime());
+    res.json(merged.slice(0, 100));
   });
   app2.get("/api/tradelocker/instruments", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -55802,6 +55841,10 @@ Respond with ONLY valid JSON:
   app2.get("/api/platform-monitors", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
+    try {
+      await syncTradeLockerOutcomes(userId);
+    } catch (_) {
+    }
     const todayStart = /* @__PURE__ */ new Date();
     todayStart.setHours(0, 0, 0, 0);
     const weekStart = /* @__PURE__ */ new Date();

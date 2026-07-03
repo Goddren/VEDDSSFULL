@@ -14668,8 +14668,50 @@ Rules:
       return res.status(401).json({ error: "Authentication required" });
     }
     const userId = (req.user as User).id;
-    const trades = await storage.getTradelockerTradeLogs(userId, 100);
-    res.json(trades);
+
+    // Reset throttle then sync so this endpoint always returns fresh data
+    const _g = global as any;
+    if (_g.tlOutcomeSyncAt) _g.tlOutcomeSyncAt[userId] = 0;
+    try { await syncTradeLockerOutcomes(userId); } catch (_) {}
+
+    // Bot execution logs (trades placed via VEDD engine)
+    const execLogs = await storage.getTradelockerTradeLogs(userId, 100).catch(() => []);
+
+    // Closed trade outcomes synced from TL API (includes manually-placed trades)
+    const syncedResults = await storage.getAiTradeResults(userId, 200)
+      .then((rows: any[]) => rows
+        .filter((t: any) => t.source === 'tradelocker')
+        .map((t: any) => ({
+          id: t.id,
+          symbol: t.symbol,
+          action: t.direction,
+          status: t.result === 'PENDING' ? 'open' : 'closed',
+          result: t.result,
+          profitLoss: t.profitLoss,
+          entryPrice: t.entryPrice,
+          exitPrice: t.exitPrice,
+          closedAt: t.closedAt,
+          createdAt: t.createdAt || t.closedAt,
+          source: 'tradelocker-sync',
+          mt5Ticket: t.mt5Ticket,
+        }))
+      ).catch(() => [] as any[]);
+
+    // Merge: prefer syncedResults for closed trades (have P&L); keep exec logs for open/recent
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const t of syncedResults) {
+      const key = t.mt5Ticket || `sr_${t.id}`;
+      if (!seen.has(key)) { seen.add(key); merged.push(t); }
+    }
+    for (const t of execLogs) {
+      const key = t.id ? `log_${t.id}` : `log_${t.symbol}_${t.createdAt}`;
+      if (!seen.has(key)) { seen.add(key); merged.push(t); }
+    }
+
+    // Sort newest first
+    merged.sort((a, b) => new Date(b.createdAt || b.closedAt || 0).getTime() - new Date(a.createdAt || a.closedAt || 0).getTime());
+    res.json(merged.slice(0, 100));
   });
 
   app.get("/api/tradelocker/instruments", async (req: Request, res: Response) => {
@@ -18393,6 +18435,9 @@ Respond with ONLY valid JSON:
   app.get("/api/platform-monitors", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
+
+    // Sync TL closed trades so daily/weekly P&L reflects latest data (throttled internally to 30s)
+    try { await syncTradeLockerOutcomes(userId); } catch (_) {}
 
     const todayStart  = new Date(); todayStart.setHours(0,0,0,0);
     const weekStart   = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
