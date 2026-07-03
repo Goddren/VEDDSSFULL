@@ -983,6 +983,15 @@ export default function WeeklyStrategyPage() {
     staleTime: 0,
   });
 
+  // Live TL trade history — syncs closed positions + bot logs on every fetch
+  const { data: tlTrades = [] } = useQuery<any[]>({
+    queryKey: ['/api/tradelocker/trades'],
+    enabled: activeTLEngineConns.length > 0,
+    refetchInterval: 15000,
+    staleTime: 0,
+    select: (d) => (Array.isArray(d) ? d.slice(0, 20) : []),
+  });
+
   // Markov chain probability data — updated every scan cycle
   const { data: markovOverview } = useQuery<{ overview: any[]; count: number }>({
     queryKey: ['/api/markov/overview'],
@@ -6345,6 +6354,52 @@ export default function WeeklyStrategyPage() {
               <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5 text-center">
                 <p className="text-gray-500 text-sm">No active TradeLocker accounts connected.</p>
                 <a href="/webhooks" className="text-cyan-400 text-sm underline mt-1 inline-block">Connect a TradeLocker account →</a>
+              </div>
+            )}
+
+            {/* ── TL Recent Trade History ── */}
+            {activeTLEngineConns.length > 0 && (
+              <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-bold text-base flex items-center gap-2">
+                    📋 Recent TL Trades
+                    <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold">{tlTrades.length} records</span>
+                  </h3>
+                  <span className="text-[10px] text-gray-500">Auto-syncs every 15s</span>
+                </div>
+                {tlTrades.length === 0 ? (
+                  <p className="text-gray-500 text-sm text-center py-3">No trades synced yet — closed trades appear within 30 seconds</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {/* header row */}
+                    <div className="grid grid-cols-5 text-[10px] text-gray-500 uppercase tracking-wide px-2 pb-1 border-b border-gray-800">
+                      <span>Symbol</span><span>Dir</span><span>Entry</span><span className="text-right">P&amp;L</span><span className="text-right">Date</span>
+                    </div>
+                    {tlTrades.map((t: any, i: number) => {
+                      const pnl = typeof t.profitLoss === 'number' ? t.profitLoss : parseFloat(t.profitLoss ?? '0');
+                      const dir = (t.action || t.direction || '').toUpperCase();
+                      const isBuy = dir.includes('BUY') || dir.includes('LONG');
+                      const result = t.result || t.status || '';
+                      const isPending = result === 'PENDING' || result === 'open' || result === 'executed';
+                      const isWin = !isPending && pnl > 0;
+                      const isLoss = !isPending && pnl < 0;
+                      const dateStr = t.closedAt || t.createdAt
+                        ? new Date(t.closedAt || t.createdAt).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })
+                        : '—';
+                      return (
+                        <div key={t.id || i} className={`grid grid-cols-5 items-center text-[11px] px-2 py-1 rounded ${isPending ? 'bg-amber-500/5 border border-amber-500/20' : 'bg-gray-800/30'}`}>
+                          <span className="text-white font-medium">{(t.symbol || 'UNKNOWN').toUpperCase()}</span>
+                          <span className={`font-bold ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>{isBuy ? 'BUY' : 'SELL'}</span>
+                          <span className="text-gray-400">{t.entryPrice ? Number(t.entryPrice).toFixed(5) : '—'}</span>
+                          <span className={`text-right font-semibold ${isPending ? 'text-amber-400' : isWin ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
+                            {isPending ? 'Open' : `${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`}
+                          </span>
+                          <span className="text-right text-gray-500">{dateStr}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
