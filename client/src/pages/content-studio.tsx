@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { VeddReelPlayer } from '@/components/vedd-reel-player';
 import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
+import { VeddEduReel, EDU_REELS } from '@/components/vedd-edu-reels';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
@@ -412,12 +413,40 @@ function ContentBrowser({ type, selected, onSelect }: {
   return null;
 }
 
-// ── Share Buttons ─────────────────────────────────────────────────────────────
-function ShareButtons({ caption, referralCode, referralUrl }: { caption: string; referralCode: string | null; referralUrl?: string }) {
+// ── Share Buttons — per-platform formatted, one tap straight to each platform ──
+// Each platform gets a caption formatted for ITS style (length, hashtags, tone).
+// mode 'reel' adds reel-specific hooks/hashtags. The "Share to App" button uses
+// the native OS share sheet — no screen recording needed, pick any installed app.
+const HASHTAGS = '#trading #forex #AItrading #passiveincome #daytrader #veddbuild';
+function formatForPlatform(platform: string, caption: string, url: string, mode: 'post' | 'reel'): string {
+  const base = caption.trim();
+  const reelTag = mode === 'reel' ? '\n\n🎬 Full breakdown in the reel — sound ON.' : '';
+  switch (platform) {
+    case 'tw': { // X: hard 280-char budget incl. link (~24 chars)
+      const budget = 280 - 26 - 20;
+      const short = base.length > budget ? base.slice(0, budget - 1).replace(/\s+\S*$/, '') + '…' : base;
+      return `${short}\n${'#AItrading #forex'}`;
+    }
+    case 'ig': // Instagram: hook, spacing, heavy hashtags, link in bio note
+      return `${base}${reelTag}\n\n🔗 Link in bio or → ${url}\n.\n.\n.\n${HASHTAGS} #reels #fyp`;
+    case 'tt': // TikTok: punchy + fyp hashtags
+      return `${base}${reelTag}\n\n${HASHTAGS} #fyp #foryou #moneytok`;
+    case 'yt': // YouTube Shorts: title line + description
+      return `${base.split('\n')[0].slice(0, 90)}\n\n${base}${reelTag}\n\n▶ Start free: ${url}\n${HASHTAGS} #shorts`;
+    case 'li': // LinkedIn: professional, minimal hashtags
+      return `${base}\n\nI've been using VEDD's AI trading platform — worth a look if you're serious about systematic trading: ${url}\n\n#trading #fintech #AI`;
+    case 'fb':
+      return `${base}${reelTag}\n\n👉 ${url}`;
+    case 'wa': case 'tg':
+      return `${base}\n\n${url}`;
+    default:
+      return `${base}\n\n${url}`;
+  }
+}
+
+function ShareButtons({ caption, referralCode, referralUrl, mode = 'post' }: { caption: string; referralCode: string | null; referralUrl?: string; mode?: 'post' | 'reel' }) {
   const [copied, setCopied] = useState<string | null>(null);
   const url = referralUrl ?? (referralCode ? `https://veddbuild.com/auth?ref=${referralCode}` : 'https://veddbuild.com');
-  const encCaption = encodeURIComponent(caption);
-  const encUrl = encodeURIComponent(url);
 
   const doCopy = async (text: string, key: string) => {
     await copyText(text);
@@ -425,15 +454,51 @@ function ShareButtons({ caption, referralCode, referralUrl }: { caption: string;
     setTimeout(() => setCopied(null), 2200);
   };
 
+  // Direct share targets — caption is FORMATTED for each platform before opening
   const platforms = [
-    { key: 'wa',  label: 'WhatsApp',  color: '#16a34a', url: `https://wa.me/?text=${encCaption}` },
-    { key: 'tw',  label: 'X / Twitter', color: '#1d4ed8', url: `https://twitter.com/intent/tweet?text=${encCaption}&url=${encUrl}` },
-    { key: 'fb',  label: 'Facebook',  color: '#1d4ed8', url: `https://www.facebook.com/sharer/sharer.php?u=${encUrl}&quote=${encCaption}` },
-    { key: 'li',  label: 'LinkedIn',  color: '#0369a1', url: `https://www.linkedin.com/sharing/share-offsite/?url=${encUrl}&summary=${encCaption}` },
+    { key: 'tw', label: 'X / Twitter', color: '#111827', compose: (t: string) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}&url=${encodeURIComponent(url)}` },
+    { key: 'wa', label: 'WhatsApp',   color: '#16a34a', compose: (t: string) => `https://wa.me/?text=${encodeURIComponent(t)}` },
+    { key: 'tg', label: 'Telegram',   color: '#0284c7', compose: (t: string) => `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(t)}` },
+    { key: 'fb', label: 'Facebook',   color: '#1d4ed8', compose: (t: string) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}&quote=${encodeURIComponent(t)}` },
+    { key: 'li', label: 'LinkedIn',   color: '#0369a1', compose: (t: string) => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}&summary=${encodeURIComponent(t)}` },
+    { key: 'yt', label: 'YT Shorts',  color: '#dc2626', compose: () => 'https://studio.youtube.com/channel/upload' },
+    { key: 'ig', label: 'Instagram',  color: '#a855f7', compose: () => 'https://www.instagram.com/' },
+    { key: 'tt', label: 'TikTok',     color: '#0f766e', compose: () => 'https://www.tiktok.com/upload' },
   ];
+
+  const sharePlatform = async (p: typeof platforms[number]) => {
+    const formatted = formatForPlatform(p.key, caption, url, mode);
+    // Copy the platform-formatted caption first so paste-to-post works everywhere
+    await copyText(formatted);
+    setCopied(p.key);
+    setTimeout(() => setCopied(null), 2200);
+    window.open(p.compose(formatted), '_blank');
+  };
+
+  // Native OS share sheet — the real "straight to the platform" on mobile
+  const nativeShare = async () => {
+    const formatted = formatForPlatform('ig', caption, url, mode);
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'VEDDBuild', text: formatted, url });
+        return;
+      }
+    } catch { /* user cancelled or unsupported */ }
+    await doCopy(formatted, 'native');
+  };
 
   return (
     <div className="space-y-3">
+      {/* Native share — opens the phone's share sheet (TikTok, IG, anything installed) */}
+      <button
+        onClick={nativeShare}
+        className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-xs font-black transition-all"
+        style={{ background: 'linear-gradient(135deg,#ef4444,#a855f7)', color: '#fff' }}
+      >
+        <Share2 className="h-4 w-4" />
+        {copied === 'native' ? 'Copied! (share sheet unavailable)' : '📲 Share Straight to App'}
+      </button>
+
       {/* Copy caption */}
       <button
         onClick={() => doCopy(caption, 'caption')}
@@ -444,25 +509,16 @@ function ShareButtons({ caption, referralCode, referralUrl }: { caption: string;
         {copied === 'caption' ? 'Caption Copied!' : 'Copy Full Caption'}
       </button>
 
-      {/* Instagram copy (no direct share) */}
-      <button
-        onClick={() => doCopy(caption, 'ig')}
-        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all"
-        style={{ background: copied === 'ig' ? 'rgba(168,85,247,.15)' : 'rgba(168,85,247,.08)', border: `1px solid ${copied === 'ig' ? 'rgba(168,85,247,.5)' : 'rgba(168,85,247,.25)'}`, color: copied === 'ig' ? '#c084fc' : '#a78bfa' }}
-      >
-        {copied === 'ig' ? <Check className="h-3.5 w-3.5" /> : <Instagram className="h-3.5 w-3.5" />}
-        {copied === 'ig' ? 'Copied for Instagram!' : 'Copy for Instagram'}
-        <span className="ml-auto text-[9px] text-gray-500">then screenshot card ↑</span>
-      </button>
-
-      {/* Social share buttons */}
+      {/* Per-platform share — formats the caption for that platform, copies it, opens compose */}
+      <p className="text-[9px] text-gray-500 -mb-1">Tap a platform — caption auto-formats for it, copies, and the compose page opens:</p>
       <div className="grid grid-cols-2 gap-2">
         {platforms.map(p => (
-          <a key={p.key} href={p.url} target="_blank" rel="noopener noreferrer"
+          <button key={p.key} onClick={() => sharePlatform(p)}
             className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-[11px] font-bold text-white transition-opacity hover:opacity-80"
             style={{ background: `${p.color}cc` }}>
-            <Share2 className="h-3 w-3" />{p.label}
-          </a>
+            {copied === p.key ? <Check className="h-3 w-3" /> : <Share2 className="h-3 w-3" />}
+            {copied === p.key ? 'Copied!' : p.label}
+          </button>
         ))}
       </div>
 
@@ -493,7 +549,7 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const [view, setView] = useState<'studio' | 'reels'>('studio');
-  const [reelId, setReelId] = useState<'correction' | 'whatisveddbuild'>('correction');
+  const [reelId, setReelId] = useState<string>('correction');
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [caption, setCaption] = useState('');
@@ -568,7 +624,7 @@ export default function ContentStudioPage() {
         {view === 'reels' && (
           <div>
             {/* Reel selector */}
-            <div className="flex gap-2 mb-5">
+            <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
               <button
                 onClick={() => setReelId('correction')}
                 className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
@@ -591,6 +647,20 @@ export default function ContentStudioPage() {
               >
                 What Is VEDDBuild? · :55
               </button>
+              {EDU_REELS.map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => setReelId(r.id)}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                  style={{
+                    background: reelId === r.id ? `${r.accent}1f` : 'rgba(255,255,255,.04)',
+                    border: `1px solid ${reelId === r.id ? `${r.accent}66` : 'rgba(255,255,255,.08)'}`,
+                    color: reelId === r.id ? r.accent : '#6b7280',
+                  }}
+                >
+                  {r.title} · :{r.duration}
+                </button>
+              ))}
             </div>
 
             <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)' }}>
@@ -653,6 +723,38 @@ export default function ContentStudioPage() {
                 </div>
               </div>
             )}
+
+            {/* ── 5 Educational reels — build interest in VEDDBuild ── */}
+            {EDU_REELS.filter(r => r.id === reelId).map(r => (
+              <div key={r.id} className="flex flex-col lg:flex-row gap-10 items-start">
+                <div className="flex flex-col items-center gap-4">
+                  <VeddEduReel reel={r} />
+                  {/* One-tap platform share, formatted per platform (reel mode) */}
+                  <div className="w-[270px]">
+                    <ShareButtons caption={r.shareCaption} referralCode={referralCode} mode="reel" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4">Script — {r.title}</h3>
+                  <div className="space-y-3 text-sm text-gray-400 leading-relaxed" style={{ maxWidth: 480 }}>
+                    {r.script.map((p, i) => (
+                      <p key={i}>
+                        {i === 0
+                          ? <><span className="font-bold" style={{ color: r.accent }}>HOOK: </span>{p.replace(/^HOOK:\s*/i, '')}</>
+                          : p}
+                      </p>
+                    ))}
+                    <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
+                    <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
+                      <div className="font-bold mb-1" style={{ color: r.accent }}># CLOSING TEXT CARD</div>
+                      {r.closing.map((l, i) => (
+                        <span key={i}>{i === r.closing.length - 1 ? <span style={{ color: r.accent }}>{l}</span> : l}<br /></span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

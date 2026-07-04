@@ -3083,14 +3083,14 @@ const Dashboard: React.FC = () => {
           FEATURES HUB OVERLAY — full app navigation in one place
       ══════════════════════════════════════════════════════════════════ */}
       {showFeaturesHub && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:justify-end" onClick={() => setShowFeaturesHub(false)}>
+        <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center md:justify-end" onClick={() => setShowFeaturesHub(false)}>
           {/* Backdrop */}
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-          {/* Drawer panel */}
+          {/* Drawer panel — drops from the TOP on mobile so it's thumb-reachable and never hidden behind the tab bar */}
           <div
-            className="relative z-10 w-full md:w-[420px] md:h-full md:max-h-screen overflow-y-auto rounded-t-3xl md:rounded-none md:rounded-l-3xl border-t md:border-t-0 md:border-l border-gray-700/60"
-            style={{ background: '#0D1117', maxHeight: '90vh' }}
+            className="relative z-10 w-full md:w-[420px] md:h-full md:max-h-screen overflow-y-auto rounded-b-3xl md:rounded-none md:rounded-l-3xl border-b md:border-b-0 md:border-l border-gray-700/60"
+            style={{ background: '#0D1117', maxHeight: '88vh' }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
@@ -3134,7 +3134,8 @@ const Dashboard: React.FC = () => {
                     { name: 'EA Marketplace', path: '/ea-marketplace', desc: 'Download community EAs', icon: '🛒' },
                     { name: 'AI Trading Models', path: '/ai-trading-models', desc: 'AI-generated strategies', icon: '🧮' },
                     { name: 'Live Monitor', path: '/live-monitor', desc: 'Real-time engine watch', icon: '📡' },
-                    { name: 'Webhooks', path: '/webhooks', desc: 'Signal automation', icon: '🔗' },
+                    { name: 'TradeLocker Accounts', path: '/webhooks#tradelocker', desc: 'Direct execution accounts', icon: '🔗' },
+                    { name: 'Webhooks', path: '/webhooks', desc: 'Signal automation', icon: '🪝' },
                     { name: 'Mobile Alerts', path: '/mobile-alerts', desc: 'Push notifications', icon: '🔔' },
                   ]
                 },
