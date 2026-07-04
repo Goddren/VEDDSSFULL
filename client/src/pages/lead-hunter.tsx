@@ -250,16 +250,36 @@ export default function LeadHunterPage() {
                       </div>
                     </div>
 
-                    {expanded && (
+                    {expanded && (() => {
+                      let brief: any = {};
+                      try { brief = JSON.parse(lead.contactOpportunity || '{}'); } catch { brief = {}; }
+                      return (
                       <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #1a1f2e' }}>
-                        {lead.contactOpportunity && (
-                          <p style={{ margin: '0 0 10px', fontSize: 12, color: '#d1d5db' }}>
-                            <span style={{ color: '#F0D269', fontWeight: 700 }}>Opportunity: </span>{lead.contactOpportunity}
+                        {brief.pain_point && (
+                          <p style={{ margin: '0 0 8px', fontSize: 12, color: '#d1d5db' }}>
+                            <span style={{ color: '#F0D269', fontWeight: 700 }}>Pain: </span>{brief.pain_point}
                           </p>
+                        )}
+                        {brief.vedd_feature && (
+                          <p style={{ margin: '0 0 8px', fontSize: 12, color: '#d1d5db' }}>
+                            <span style={{ color: '#F0D269', fontWeight: 700 }}>Feature: </span>
+                            <a href={brief.vedd_url || 'https://veddbuild.com'} target="_blank" rel="noopener noreferrer" style={{ color: '#60a5fa' }}>{brief.vedd_feature}</a>
+                          </p>
+                        )}
+                        {brief.opener && (
+                          <div style={{ background: '#0f1a2e', borderLeft: '3px solid #F0D269', padding: '8px 12px', borderRadius: '0 6px 6px 0', marginBottom: 10 }}>
+                            <p style={{ margin: '0 0 3px', fontSize: 10, color: '#F0D269', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Opener</p>
+                            <p style={{ margin: 0, fontSize: 12, color: '#e5e7eb', lineHeight: 1.5 }}>{brief.opener}</p>
+                          </div>
+                        )}
+                        {Array.isArray(brief.talking_points) && brief.talking_points.length > 0 && (
+                          <ul style={{ margin: '0 0 10px', paddingLeft: 16, fontSize: 12, color: '#d1d5db' }}>
+                            {brief.talking_points.map((pt: string, i: number) => <li key={i} style={{ marginBottom: 3 }}>{pt}</li>)}
+                          </ul>
                         )}
                         {lead.suggestedReply && (
                           <div style={{ background: '#0a1520', border: '1px solid #1e3a5f', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-                            <p style={{ margin: '0 0 4px', fontSize: 11, color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Suggested Reply</p>
+                            <p style={{ margin: '0 0 4px', fontSize: 11, color: '#60a5fa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Full Outreach Message</p>
                             <p style={{ margin: 0, fontSize: 12, color: '#e5e7eb', lineHeight: 1.6 }}>{lead.suggestedReply}</p>
                           </div>
                         )}
@@ -293,7 +313,8 @@ export default function LeadHunterPage() {
                           ))}
                         </div>
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 );
               })}

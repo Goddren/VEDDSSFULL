@@ -60,9 +60,11 @@ function getAI(): OpenAI | null {
 async function aiChat(messages: { role: 'system' | 'user'; content: string }[]): Promise<string> {
   const ai = getAI();
   if (!ai) return '';
+  // Groq: use current fast model. OpenAI: use gpt-4o-mini.
+  const model = process.env.GROQ_API_KEY ? 'openai/gpt-oss-20b' : 'gpt-4o-mini';
   try {
     const res = await ai.chat.completions.create({
-      model: (ai as any).defaultModel || 'llama-3.1-8b-instant',
+      model,
       messages,
       max_tokens: 1000,
       temperature: 0.3,

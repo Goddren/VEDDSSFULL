@@ -33960,9 +33960,10 @@ function getAI() {
 async function aiChat(messages) {
   const ai = getAI();
   if (!ai) return "";
+  const model = process.env.GROQ_API_KEY ? "openai/gpt-oss-20b" : "gpt-4o-mini";
   try {
     const res = await ai.chat.completions.create({
-      model: ai.defaultModel || "llama-3.1-8b-instant",
+      model,
       messages,
       max_tokens: 1e3,
       temperature: 0.3
