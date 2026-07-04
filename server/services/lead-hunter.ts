@@ -225,6 +225,60 @@ async function scrapeTwitter(): Promise<RawLead[]> {
   return all;
 }
 
+// ── StockTwits (free, no API key) ────────────────────────────────────────────
+
+async function scrapeStockTwits(): Promise<RawLead[]> {
+  // StockTwits public API — no authentication needed for public streams.
+  const streams = [
+    'https://api.stocktwits.com/api/2/streams/trending.json?limit=30',
+    'https://api.stocktwits.com/api/2/streams/symbol/EURUSD.json?limit=20',
+    'https://api.stocktwits.com/api/2/streams/symbol/BTCUSD.json?limit=20',
+    'https://api.stocktwits.com/api/2/streams/symbol/DJI.json?limit=20',
+    'https://api.stocktwits.com/api/2/streams/symbol/SPY.json?limit=20',
+  ];
+  const all: RawLead[] = [];
+  const seen = new Set<string>();
+
+  for (const url of streams) {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'VEDDBuild-LeadHunter/1.0' },
+        signal: AbortSignal.timeout(12000),
+      });
+      if (!res.ok) {
+        console.log(`[LeadHunter] StockTwits ${url} HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const messages = data?.messages || [];
+      for (const m of messages) {
+        const body = (m.body || '').trim();
+        if (body.length < 20) continue;
+        const key = String(m.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const username = m.user?.username || 'unknown';
+        const followers = m.user?.followers || 0;
+        const sentiment = m.entities?.sentiment?.basic || '';
+        all.push({
+          platform: 'StockTwits',
+          username,
+          post_content: `[${sentiment || 'Neutral'}] ${body}`.substring(0, 500),
+          post_url: `https://stocktwits.com/${username}/message/${m.id}`,
+          follower_count: followers,
+          engagement: m.likes?.total || 0,
+          num_comments: m.reshares?.reshared_count || 0,
+          date: (m.created_at || '').substring(0, 10),
+        });
+      }
+    } catch (e: any) {
+      console.log('[LeadHunter] StockTwits stream error: ' + e.message);
+    }
+  }
+  console.log(`[LeadHunter] StockTwits: ${all.length} messages`);
+  return all;
+}
+
 async function scrapeInstagram(): Promise<RawLead[]> {
   try {
     const raw = await apifyScrape('apify/instagram-scraper', {
@@ -610,25 +664,25 @@ export async function runLeadHunter(): Promise<RunResult> {
   }
 
   // Scrape all platforms in parallel
-  const [redditLeads, twitterLeads, igLeads, liLeads, fbLeads] = await Promise.all([
+  const [redditLeads, twitterLeads, stocktwitsLeads, igLeads, liLeads, fbLeads] = await Promise.all([
     scrapeReddit().catch(e => { errors.push('Reddit: ' + e.message); return [] as RawLead[]; }),
     scrapeTwitter().catch(e => { errors.push('Twitter: ' + e.message); return [] as RawLead[]; }),
+    scrapeStockTwits().catch(e => { errors.push('StockTwits: ' + e.message); return [] as RawLead[]; }),
     scrapeInstagram().catch(e => { errors.push('Instagram: ' + e.message); return [] as RawLead[]; }),
     scrapeLinkedIn().catch(e => { errors.push('LinkedIn: ' + e.message); return [] as RawLead[]; }),
     scrapeFacebook().catch(e => { errors.push('Facebook: ' + e.message); return [] as RawLead[]; }),
   ]);
 
-  if (fbLeads.length === 0) errors.push('Facebook: no data (expected — most pages are private)');
-
   const platformBreakdown: Record<string, number> = {
     Reddit: redditLeads.length,
     'X/Twitter': twitterLeads.length,
+    StockTwits: stocktwitsLeads.length,
     Instagram: igLeads.length,
     LinkedIn: liLeads.length,
     Facebook: fbLeads.length,
   };
 
-  const allLeads = [...redditLeads, ...twitterLeads, ...igLeads, ...liLeads, ...fbLeads];
+  const allLeads = [...redditLeads, ...twitterLeads, ...stocktwitsLeads, ...igLeads, ...liLeads, ...fbLeads];
   console.log(`[LeadHunter] Scraped ${allLeads.length} total leads`);
 
   // Dedup against DB

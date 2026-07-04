@@ -18,6 +18,21 @@ const FUTURES_TD_SYMBOL_MAP: Record<string, string> = {
   CL: 'CL1!:NYMEX', MCL: 'MCL1!:NYMEX', NG: 'NG1!:NYMEX', ZN: 'ZN1!:CBOT', ZB: 'ZB1!:CBOT',
 };
 
+// CFD broker index names → Twelvedata index symbols
+const INDEX_TD_SYMBOL_MAP: Record<string, string> = {
+  US30: 'DJI',      // Dow Jones Industrial Average
+  US500: 'SPX',     // S&P 500
+  US100: 'NDX',     // Nasdaq 100
+  UK100: 'FTSE',    // FTSE 100
+  GER40: 'DAX',     // DAX 40
+  DE40: 'DAX',
+  FRA40: 'CAC40',   // CAC 40
+  JP225: 'N225',    // Nikkei 225
+  JPN225: 'N225',
+  AU200: 'AS51',    // ASX 200
+  HK50: 'HSI',      // Hang Seng
+};
+
 export class TwelveDataProvider implements MarketDataProvider {
   name = 'twelvedata';
   supportedAssets: AssetType[] = ['forex', 'stock', 'crypto', 'index', 'futures'];
@@ -37,9 +52,13 @@ export class TwelveDataProvider implements MarketDataProvider {
     let normalized = symbol.toUpperCase().replace('_', '/');
 
     if (assetType === 'futures') {
-      // Strip any existing exchange suffix or 1! before lookup
       const root = normalized.replace(/1!.*$/, '').replace(/:.*$/, '');
       return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
+    }
+
+    if (assetType === 'index') {
+      const root = normalized.replace(/1!.*$/, '').replace(/:.*$/, '');
+      return INDEX_TD_SYMBOL_MAP[root] || root;
     }
 
     if (!normalized.includes('/')) {

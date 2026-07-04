@@ -4241,6 +4241,25 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       return;
     }
 
+    // ── HARD BLOCK: Stale price guard ─────────────────────────────────────────
+    // If Twelvedata returned an error or cached data for this symbol (e.g. US30
+    // not recognised → wrong price from previous session), the AI entry price can
+    // be thousands of points off. Reject immediately if entry is >5% from live price.
+    if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+      const _stalePct = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+      if (_stalePct > 0.05) {
+        addActivity(userId, {
+          type: 'signal',
+          symbol: decision.symbol,
+          direction: decision.direction,
+          confidence: adjustedConfidence,
+          message: `🚫 STALE PRICE BLOCK: ${decision.symbol} ${decision.direction} rejected — AI entry ${entryPrice} is ${(_stalePct * 100).toFixed(1)}% away from live price ${snap.lastPrice}. Likely stale Twelvedata response. Trade blocked to prevent pending order thousands of pips from market.`,
+        });
+        state.signalsGenerated++;
+        return;
+      }
+    }
+
     // ── ATR-based minimum SL expansion (prevent premature stop-outs) ─────────
     // Scalps with 5-8 pip SLs on M15 data get wiped by normal candle noise.
     // Enforce a per-symbol floor so every trade has room to breathe.

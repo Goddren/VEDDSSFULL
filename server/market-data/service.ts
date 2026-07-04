@@ -130,7 +130,9 @@ class MarketDataService {
       return 'crypto';
     }
 
-    const indices = ['SPX', 'NDX', 'DJI', 'VIX', 'FTSE', 'DAX', 'NI225'];
+    // Include common CFD broker names (US30=Dow, US500=S&P, UK100=FTSE, etc.)
+    const indices = ['SPX', 'NDX', 'DJI', 'VIX', 'FTSE', 'DAX', 'NI225',
+      'US30', 'US500', 'US100', 'UK100', 'GER40', 'DE40', 'FRA40', 'JP225', 'JPN225', 'AU200', 'HK50'];
     if (indices.some(i => upper.includes(i))) {
       return 'index';
     }

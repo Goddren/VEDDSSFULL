@@ -18126,7 +18126,7 @@ var twelve_data_exports = {};
 __export(twelve_data_exports, {
   TwelveDataProvider: () => TwelveDataProvider
 });
-var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, TwelveDataProvider;
+var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, TwelveDataProvider;
 var init_twelve_data = __esm({
   "server/market-data/providers/twelve-data.ts"() {
     "use strict";
@@ -18183,6 +18183,28 @@ var init_twelve_data = __esm({
       ZN: "ZN1!:CBOT",
       ZB: "ZB1!:CBOT"
     };
+    INDEX_TD_SYMBOL_MAP = {
+      US30: "DJI",
+      // Dow Jones Industrial Average
+      US500: "SPX",
+      // S&P 500
+      US100: "NDX",
+      // Nasdaq 100
+      UK100: "FTSE",
+      // FTSE 100
+      GER40: "DAX",
+      // DAX 40
+      DE40: "DAX",
+      FRA40: "CAC40",
+      // CAC 40
+      JP225: "N225",
+      // Nikkei 225
+      JPN225: "N225",
+      AU200: "AS51",
+      // ASX 200
+      HK50: "HSI"
+      // Hang Seng
+    };
     TwelveDataProvider = class {
       name = "twelvedata";
       supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
@@ -18200,6 +18222,10 @@ var init_twelve_data = __esm({
         if (assetType === "futures") {
           const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
           return FUTURES_TD_SYMBOL_MAP[root] || `${root}1!:CME`;
+        }
+        if (assetType === "index") {
+          const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
+          return INDEX_TD_SYMBOL_MAP[root] || root;
         }
         if (!normalized.includes("/")) {
           if (assetType === "forex" && normalized.length === 6) {
@@ -18459,7 +18485,26 @@ var init_service = __esm({
         if (cryptoSymbols.some((c) => upper.startsWith(c))) {
           return "crypto";
         }
-        const indices = ["SPX", "NDX", "DJI", "VIX", "FTSE", "DAX", "NI225"];
+        const indices = [
+          "SPX",
+          "NDX",
+          "DJI",
+          "VIX",
+          "FTSE",
+          "DAX",
+          "NI225",
+          "US30",
+          "US500",
+          "US100",
+          "UK100",
+          "GER40",
+          "DE40",
+          "FRA40",
+          "JP225",
+          "JPN225",
+          "AU200",
+          "HK50"
+        ];
         if (indices.some((i) => upper.includes(i))) {
           return "index";
         }
@@ -24920,6 +24965,20 @@ async function processDecision(userId, decision, newsCtx) {
       });
       state.signalsGenerated++;
       return;
+    }
+    if (entryPrice && snap?.lastPrice && snap.lastPrice > 0) {
+      const _stalePct = Math.abs(entryPrice - snap.lastPrice) / snap.lastPrice;
+      if (_stalePct > 0.05) {
+        addActivity2(userId, {
+          type: "signal",
+          symbol: decision.symbol,
+          direction: decision.direction,
+          confidence: adjustedConfidence,
+          message: `\u{1F6AB} STALE PRICE BLOCK: ${decision.symbol} ${decision.direction} rejected \u2014 AI entry ${entryPrice} is ${(_stalePct * 100).toFixed(1)}% away from live price ${snap.lastPrice}. Likely stale Twelvedata response. Trade blocked to prevent pending order thousands of pips from market.`
+        });
+        state.signalsGenerated++;
+        return;
+      }
     }
     if (entryPrice && stopLoss) {
       const pipSize = getPipSize(decision.symbol || "");
@@ -34110,6 +34169,55 @@ async function scrapeTwitter() {
   console.log(`[LeadHunter] Twitter: ${all.length} tweets`);
   return all;
 }
+async function scrapeStockTwits() {
+  const streams = [
+    "https://api.stocktwits.com/api/2/streams/trending.json?limit=30",
+    "https://api.stocktwits.com/api/2/streams/symbol/EURUSD.json?limit=20",
+    "https://api.stocktwits.com/api/2/streams/symbol/BTCUSD.json?limit=20",
+    "https://api.stocktwits.com/api/2/streams/symbol/DJI.json?limit=20",
+    "https://api.stocktwits.com/api/2/streams/symbol/SPY.json?limit=20"
+  ];
+  const all = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const url of streams) {
+    try {
+      const res = await fetch(url, {
+        headers: { "User-Agent": "VEDDBuild-LeadHunter/1.0" },
+        signal: AbortSignal.timeout(12e3)
+      });
+      if (!res.ok) {
+        console.log(`[LeadHunter] StockTwits ${url} HTTP ${res.status}`);
+        continue;
+      }
+      const data = await res.json();
+      const messages = data?.messages || [];
+      for (const m of messages) {
+        const body = (m.body || "").trim();
+        if (body.length < 20) continue;
+        const key = String(m.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const username = m.user?.username || "unknown";
+        const followers = m.user?.followers || 0;
+        const sentiment = m.entities?.sentiment?.basic || "";
+        all.push({
+          platform: "StockTwits",
+          username,
+          post_content: `[${sentiment || "Neutral"}] ${body}`.substring(0, 500),
+          post_url: `https://stocktwits.com/${username}/message/${m.id}`,
+          follower_count: followers,
+          engagement: m.likes?.total || 0,
+          num_comments: m.reshares?.reshared_count || 0,
+          date: (m.created_at || "").substring(0, 10)
+        });
+      }
+    } catch (e) {
+      console.log("[LeadHunter] StockTwits stream error: " + e.message);
+    }
+  }
+  console.log(`[LeadHunter] StockTwits: ${all.length} messages`);
+  return all;
+}
 async function scrapeInstagram() {
   try {
     const raw = await apifyScrape("apify/instagram-scraper", {
@@ -34404,13 +34512,17 @@ async function runLeadHunter() {
     console.log("[LeadHunter] Could not create run record: " + e.message);
     errors.push("DB run record failed: " + e.message);
   }
-  const [redditLeads, twitterLeads, igLeads, liLeads, fbLeads] = await Promise.all([
+  const [redditLeads, twitterLeads, stocktwitsLeads, igLeads, liLeads, fbLeads] = await Promise.all([
     scrapeReddit().catch((e) => {
       errors.push("Reddit: " + e.message);
       return [];
     }),
     scrapeTwitter().catch((e) => {
       errors.push("Twitter: " + e.message);
+      return [];
+    }),
+    scrapeStockTwits().catch((e) => {
+      errors.push("StockTwits: " + e.message);
       return [];
     }),
     scrapeInstagram().catch((e) => {
@@ -34426,15 +34538,15 @@ async function runLeadHunter() {
       return [];
     })
   ]);
-  if (fbLeads.length === 0) errors.push("Facebook: no data (expected \u2014 most pages are private)");
   const platformBreakdown = {
     Reddit: redditLeads.length,
     "X/Twitter": twitterLeads.length,
+    StockTwits: stocktwitsLeads.length,
     Instagram: igLeads.length,
     LinkedIn: liLeads.length,
     Facebook: fbLeads.length
   };
-  const allLeads = [...redditLeads, ...twitterLeads, ...igLeads, ...liLeads, ...fbLeads];
+  const allLeads = [...redditLeads, ...twitterLeads, ...stocktwitsLeads, ...igLeads, ...liLeads, ...fbLeads];
   console.log(`[LeadHunter] Scraped ${allLeads.length} total leads`);
   const existingKeys = await getExistingKeys();
   const newRaw = allLeads.filter((l) => {
