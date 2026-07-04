@@ -39,8 +39,18 @@ type HunterRun = {
   highIntent?: number;
   autoEngagedCount?: number;
   platformBreakdown?: string;
+  errorLog?: string;
   createdAt?: string;
   completedAt?: string;
+};
+
+type EnvStatus = {
+  APIFY_API_TOKEN: boolean;
+  TWITTER_BEARER_TOKEN: boolean;
+  TWITTER_ACCESS_TOKEN: boolean;
+  LINKEDIN_ACCESS_TOKEN: boolean;
+  SENDGRID_API_KEY: boolean;
+  AI: boolean;
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -76,6 +86,11 @@ export default function LeadHunterPage() {
   const { data: runs = [] } = useQuery<HunterRun[]>({
     queryKey: ['/api/lead-hunter/runs'],
     refetchInterval: 30000,
+  });
+
+  const { data: envStatus } = useQuery<EnvStatus>({
+    queryKey: ['/api/lead-hunter/env-check'],
+    staleTime: 60000,
   });
 
   const runMutation = useMutation({
@@ -327,18 +342,19 @@ export default function LeadHunterPage() {
             <div style={{ background: '#0f1420', border: '1px solid #1a1f2e', borderRadius: 12, padding: 16 }}>
               <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent Runs</h3>
               {runs.length === 0 ? (
-                <p style={{ margin: 0, fontSize: 12, color: '#4b5563' }}>No runs yet</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#4b5563' }}>No runs yet — click Run Now</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {runs.slice(0, 5).map(run => (
+                  {runs.slice(0, 5).map(run => {
+                    let pb: Record<string, number> = {};
+                    try { pb = JSON.parse(run.platformBreakdown || '{}'); } catch { pb = {}; }
+                    const errors = (run.errorLog || '').split('\n').filter(Boolean);
+                    return (
                     <div key={run.id} style={{ background: '#080b14', borderRadius: 8, padding: '10px 12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                         <span style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>{run.date}</span>
                         <span style={{
-                          fontSize: 10,
-                          padding: '2px 7px',
-                          borderRadius: 10,
-                          fontWeight: 700,
+                          fontSize: 10, padding: '2px 7px', borderRadius: 10, fontWeight: 700,
                           background: run.status === 'completed' ? '#064e3b' : run.status === 'running' ? '#1e3a5f' : '#4b1010',
                           color: run.status === 'completed' ? '#6ee7b7' : run.status === 'running' ? '#60a5fa' : '#fca5a5',
                         }}>
@@ -346,37 +362,61 @@ export default function LeadHunterPage() {
                           {run.status}
                         </span>
                       </div>
-                      <div style={{ fontSize: 11, color: '#6b7280' }}>
-                        {run.newLeads ?? 0} new · {run.highIntent ?? 0} high-intent · {run.autoEngagedCount ?? 0} engaged
+                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4 }}>
+                        scraped {run.totalScraped ?? 0} · {run.newLeads ?? 0} new · {run.highIntent ?? 0} high-intent
                       </div>
+                      {Object.keys(pb).length > 0 && (
+                        <div style={{ fontSize: 10, color: '#4b5563', marginBottom: 4 }}>
+                          {Object.entries(pb).map(([p, c]) => `${p}: ${c}`).join(' · ')}
+                        </div>
+                      )}
+                      {errors.length > 0 && (
+                        <div style={{ marginTop: 6, background: '#1a0a0a', border: '1px solid #7f1d1d', borderRadius: 6, padding: '6px 8px' }}>
+                          {errors.map((e, i) => (
+                            <div key={i} style={{ fontSize: 10, color: '#fca5a5', lineHeight: 1.4 }}>⚠ {e}</div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* Setup checklist */}
+            {/* Live API key status */}
             <div style={{ background: '#0f1420', border: '1px solid #1a1f2e', borderRadius: 12, padding: 16 }}>
-              <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>API Keys Required</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: 13, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px' }}>API Key Status</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                 {[
-                  { key: 'APIFY_API_TOKEN', label: 'Apify (Reddit/IG/LI/FB)', url: 'https://apify.com' },
-                  { key: 'TWITTER_BEARER_TOKEN', label: 'Twitter Bearer Token', url: 'https://developer.twitter.com' },
-                  { key: 'TWITTER_ACCESS_TOKEN', label: 'Twitter Access Token (auto-engage)', url: 'https://developer.twitter.com' },
-                  { key: 'LINKEDIN_ACCESS_TOKEN', label: 'LinkedIn Access Token', url: 'https://www.linkedin.com/developers' },
-                ].map(item => (
-                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#374151', flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{item.label}</span>
-                    <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: '#F0D269', fontSize: 10 }}>
-                      <ExternalLink size={10} />
-                    </a>
-                  </div>
-                ))}
+                  { key: 'APIFY_API_TOKEN' as keyof EnvStatus, label: 'Apify (Reddit/IG/LI/FB)', url: 'https://apify.com' },
+                  { key: 'TWITTER_BEARER_TOKEN' as keyof EnvStatus, label: 'Twitter Bearer Token', url: 'https://developer.twitter.com' },
+                  { key: 'TWITTER_ACCESS_TOKEN' as keyof EnvStatus, label: 'Twitter Access (engage)', url: 'https://developer.twitter.com' },
+                  { key: 'LINKEDIN_ACCESS_TOKEN' as keyof EnvStatus, label: 'LinkedIn Access Token', url: 'https://www.linkedin.com/developers' },
+                  { key: 'SENDGRID_API_KEY' as keyof EnvStatus, label: 'SendGrid (email digest)', url: 'https://sendgrid.com' },
+                  { key: 'AI' as keyof EnvStatus, label: 'AI (Groq/OpenAI)', url: '' },
+                ].map(item => {
+                  const ok = envStatus ? envStatus[item.key] : null;
+                  return (
+                    <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: ok === null ? '#374151' : ok ? '#16a34a' : '#dc2626' }} />
+                      <span style={{ fontSize: 11, color: ok === null ? '#6b7280' : ok ? '#d1d5db' : '#fca5a5', flex: 1 }}>{item.label}</span>
+                      {ok === false && item.url && (
+                        <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color: '#F0D269', fontSize: 10 }}>
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                      {ok === true && <span style={{ fontSize: 9, color: '#16a34a', fontWeight: 700 }}>✓</span>}
+                      {ok === false && <span style={{ fontSize: 9, color: '#dc2626', fontWeight: 700 }}>✗</span>}
+                    </div>
+                  );
+                })}
               </div>
-              <p style={{ margin: '12px 0 0', fontSize: 11, color: '#4b5563', lineHeight: 1.5 }}>
-                Add these to your Render environment variables. Missing tokens skip that platform gracefully.
-              </p>
+              {envStatus && !envStatus.APIFY_API_TOKEN && (
+                <p style={{ margin: '10px 0 0', fontSize: 11, color: '#dc2626', lineHeight: 1.5 }}>
+                  ⚠ APIFY_API_TOKEN missing — no leads can be scraped without it.
+                </p>
+              )}
             </div>
 
             {/* Schedule info */}

@@ -26748,6 +26748,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ── Lead Hunter ───────────────────────────────────────────────────────────────
 
+  app.get("/api/lead-hunter/env-check", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    res.json({
+      APIFY_API_TOKEN: !!process.env.APIFY_API_TOKEN,
+      TWITTER_BEARER_TOKEN: !!process.env.TWITTER_BEARER_TOKEN,
+      TWITTER_ACCESS_TOKEN: !!process.env.TWITTER_ACCESS_TOKEN,
+      LINKEDIN_ACCESS_TOKEN: !!process.env.LINKEDIN_ACCESS_TOKEN,
+      SENDGRID_API_KEY: !!process.env.SENDGRID_API_KEY,
+      AI: !!(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY),
+    });
+  });
+
   app.post("/api/lead-hunter/run", async (req: Request, res: Response) => {
     if (!req.user) return res.status(401).json({ error: "Not authenticated" });
     try {
