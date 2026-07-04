@@ -608,6 +608,46 @@ async function withRetry<T>(
     }
 
     try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS leads (
+        id VARCHAR(500) PRIMARY KEY,
+        date VARCHAR(20) NOT NULL,
+        platform VARCHAR(50) NOT NULL,
+        username VARCHAR(255) NOT NULL,
+        profile_url TEXT,
+        post_content TEXT,
+        post_url TEXT,
+        intent_score INTEGER DEFAULT 0,
+        account_quality INTEGER DEFAULT 0,
+        contact_opportunity TEXT,
+        status VARCHAR(50) DEFAULT 'New',
+        subreddit VARCHAR(100),
+        follower_count INTEGER DEFAULT 0,
+        headline TEXT,
+        engagement_stats TEXT,
+        suggested_reply TEXT,
+        auto_engaged BOOLEAN DEFAULT FALSE,
+        engagement_type VARCHAR(100),
+        created_at TIMESTAMP DEFAULT NOW()
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
+        id SERIAL PRIMARY KEY,
+        date VARCHAR(20) NOT NULL,
+        status VARCHAR(50) DEFAULT 'running',
+        total_scraped INTEGER DEFAULT 0,
+        new_leads INTEGER DEFAULT 0,
+        high_intent INTEGER DEFAULT 0,
+        auto_engaged_count INTEGER DEFAULT 0,
+        platform_breakdown TEXT,
+        error_log TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        completed_at TIMESTAMP
+      )`);
+      console.log('[startup] Lead Hunter tables created/verified.');
+    } catch (err) {
+      console.error('[startup] Lead Hunter tables migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
