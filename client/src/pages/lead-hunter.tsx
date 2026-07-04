@@ -93,6 +93,8 @@ export default function LeadHunterPage() {
     staleTime: 60000,
   });
 
+  const [diagResult, setDiagResult] = useState<any>(null);
+
   const runMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest('POST', '/api/lead-hunter/run');
@@ -106,6 +108,15 @@ export default function LeadHunterPage() {
       }, 5000);
     },
     onError: () => toast({ title: 'Error', description: 'Failed to start lead hunter', variant: 'destructive' }),
+  });
+
+  const diagMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('GET', '/api/lead-hunter/diagnostic');
+      return res.json();
+    },
+    onSuccess: (data) => setDiagResult(data),
+    onError: () => toast({ title: 'Diagnostic failed', variant: 'destructive' }),
   });
 
   const statusMutation = useMutation({
@@ -157,6 +168,16 @@ export default function LeadHunterPage() {
               Refresh
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => diagMutation.mutate()}
+              disabled={diagMutation.isPending}
+              style={{ borderColor: '#374151', color: '#60a5fa' }}
+            >
+              <AlertCircle size={14} style={{ marginRight: 6 }} />
+              {diagMutation.isPending ? 'Testing…' : 'Diagnose'}
+            </Button>
+            <Button
               size="sm"
               onClick={() => runMutation.mutate()}
               disabled={runMutation.isPending}
@@ -167,6 +188,32 @@ export default function LeadHunterPage() {
             </Button>
           </div>
         </div>
+
+        {/* Diagnostic result */}
+        {diagResult && (
+          <div style={{ background: '#0a0f1a', border: '1px solid #1e3a5f', borderRadius: 12, padding: 16, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <AlertCircle size={14} color="#60a5fa" />
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#60a5fa' }}>Diagnostic Results</span>
+              <button onClick={() => setDiagResult(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', fontSize: 16 }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {Object.entries(diagResult.platforms || {}).map(([platform, info]: [string, any]) => (
+                <div key={platform} style={{ background: '#0f1420', borderRadius: 10, padding: '10px 14px', minWidth: 180 }}>
+                  <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase' }}>{platform.replace('_', ' ')}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: info.error ? '#ef4444' : '#10b981' }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: info.error ? '#ef4444' : '#10b981' }}>
+                      {info.error ? 'Error' : `${info.count} results`}
+                    </span>
+                    <span style={{ fontSize: 10, color: '#6b7280' }}>HTTP {info.status || '—'}</span>
+                  </div>
+                  {info.error && <div style={{ fontSize: 10, color: '#fca5a5', marginTop: 4, wordBreak: 'break-word' }}>{info.error}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Stats row */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>

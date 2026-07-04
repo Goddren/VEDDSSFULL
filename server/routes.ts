@@ -26765,6 +26765,50 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   });
 
+  // Diagnostic: runs Twitter + Apify scrape synchronously and returns raw counts before any filtering
+  app.get("/api/lead-hunter/diagnostic", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    const results: Record<string, any> = {
+      env: {
+        APIFY_API_TOKEN: !!process.env.APIFY_API_TOKEN,
+        TWITTER_BEARER_TOKEN: !!process.env.TWITTER_BEARER_TOKEN,
+        AI: !!(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY),
+      },
+      platforms: {},
+      errors: [],
+    };
+    // Quick Twitter test
+    if (process.env.TWITTER_BEARER_TOKEN) {
+      try {
+        const url = new URL('https://api.twitter.com/2/tweets/search/recent');
+        url.searchParams.set('query', '("AI trading" OR "chart analysis") -is:retweet lang:en');
+        url.searchParams.set('max_results', '10');
+        url.searchParams.set('tweet.fields', 'author_id,text');
+        url.searchParams.set('expansions', 'author_id');
+        url.searchParams.set('user.fields', 'username,public_metrics');
+        const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${process.env.TWITTER_BEARER_TOKEN}` } });
+        const d = await r.json();
+        results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: d.errors?.[0]?.message || d.title || null };
+      } catch (e: any) { results.platforms.twitter = { status: 0, count: 0, error: e.message }; }
+    } else {
+      results.platforms.twitter = { status: 0, count: 0, error: 'TWITTER_BEARER_TOKEN not set' };
+    }
+    // Quick Apify test (Reddit only, 5 items)
+    if (process.env.APIFY_API_TOKEN) {
+      try {
+        const r = await fetch(
+          `https://api.apify.com/v2/acts/apify~reddit-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}&timeout=30&memory=256`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ searches: ['AI trading tools'], maxItems: 5, sort: 'new', time: 'day' }), signal: AbortSignal.timeout(40000) }
+        );
+        const d = await r.json();
+        results.platforms.apify_reddit = { status: r.status, count: Array.isArray(d) ? d.length : 0, error: r.ok ? null : JSON.stringify(d).substring(0, 200) };
+      } catch (e: any) { results.platforms.apify_reddit = { status: 0, count: 0, error: e.message }; }
+    } else {
+      results.platforms.apify_reddit = { status: 0, count: 0, error: 'APIFY_API_TOKEN not set' };
+    }
+    res.json(results);
+  });
+
   app.post("/api/lead-hunter/run", async (req: Request, res: Response) => {
     if (!req.user) return res.status(401).json({ error: "Not authenticated" });
     try {

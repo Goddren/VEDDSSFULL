@@ -278,8 +278,9 @@ async function scrapeFacebook(): Promise<RawLead[]> {
 
 function isBotOrSpam(lead: RawLead): boolean {
   if (lead.platform === 'X/Twitter') {
-    const fc = lead.follower_count || 0;
-    if (fc === 0) return true;
+    // Only filter if we KNOW the follower count and it's explicitly 0.
+    // undefined/null means the API didn't return user expansion data — don't filter those out.
+    if (lead.follower_count !== undefined && lead.follower_count !== null && lead.follower_count === 0) return true;
   }
   if (lead.platform === 'Reddit') {
     if ((lead.post_content || '').length < 20) return true;
