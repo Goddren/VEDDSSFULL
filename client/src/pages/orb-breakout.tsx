@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   TrendingUp, TrendingDown, Clock, Target, Shield, Zap, AlertTriangle,
@@ -688,7 +688,7 @@ function SetupCard({
               {/* Price inputs */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Step 1 — Enter the Opening Range</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
                     <Label className="text-[9px] text-amber-400 mb-1 block font-bold">ORB HIGH ↑</Label>
                     <Input value={form.orbHigh} onChange={e => setForm(f => ({ ...f, orbHigh: e.target.value }))}
@@ -713,7 +713,7 @@ function SetupCard({
               {/* Context inputs */}
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Step 2 — Add Context</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <Label className="text-[9px] text-gray-400 mb-1 block">PRE-MARKET BIAS</Label>
                     <select value={form.preMarketBias} onChange={e => setForm(f => ({ ...f, preMarketBias: e.target.value as 'bullish' | 'bearish' | 'neutral' }))}
@@ -762,7 +762,7 @@ function SetupCard({
               {/* Phase legend */}
               <div className="p-3 rounded-lg" style={{ background: "rgba(99,102,241,0.07)", border: "1px solid rgba(99,102,241,0.2)" }}>
                 <p className="text-[9px] font-bold text-indigo-400 uppercase tracking-wider mb-1.5">What the system auto-detects from your prices:</p>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px] text-gray-400">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[9px] text-gray-400">
                   <span><span className="text-amber-400">●</span> Price inside range → Range Set</span>
                   <span><span className="text-green-400">●</span> Price above ORB High → Breakout Long</span>
                   <span><span className="text-red-400">●</span> Price below ORB Low → Breakout Short</span>
@@ -777,7 +777,7 @@ function SetupCard({
       {/* Level Grid */}
       {setup.orbHigh > 0 && (
         <div className="px-4 pb-3 mt-2">
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             {[
               { label: "ORB H", value: setup.orbHigh, color: "#f59e0b" },
               { label: "ORB L", value: setup.orbLow, color: "#f59e0b" },
@@ -1184,7 +1184,7 @@ function ORBEducation() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {[
           { title: "ORB Range Sweet Spot", color: "#f59e0b", points: ["0.3%–2.0% of price (stocks)", "150–600 pts (US30/NAS100)", "Too narrow = false breaks", "Too wide = risk too large"] },
           { title: "Best Trading Windows", color: "#22c55e", points: ["9:45–11:30 AM EST — peak", "11:30 AM–12:00 PM — ok", "12:00–2:00 PM — marginal", "After 2 PM — skip"] },
@@ -1256,7 +1256,7 @@ function DailyLog({ trades }: { trades: DailyTrade[] }) {
                     }}>{t.result}</span>
                   )}
                 </div>
-                <div className="grid grid-cols-4 gap-2 text-center">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                   {[
                     { l: "Entry", v: t.entry, c: "#e5e7eb" },
                     { l: "Stop", v: t.stop, c: "#f87171" },
@@ -1298,8 +1298,9 @@ function ORBLiveStatusPanel({ setups }: { setups: ORBSetup[] }) {
         <span className="ml-auto text-[9px] text-gray-600">{setups.length} instrument{setups.length !== 1 ? "s" : ""}</span>
       </div>
 
-      {/* Status rows */}
-      <div className="divide-y divide-white/[0.04]">
+      {/* Status rows — horizontal scroll on mobile so columns stay legible */}
+      <div className="overflow-x-auto">
+      <div className="divide-y divide-white/[0.04] min-w-[680px]">
         {setups.map(s => {
           const cfg = PHASE_CONFIG[s.phase];
           const isBreakoutLong = s.phase === "BREAKOUT_LONG" || s.phase === "RETEST_LONG";
@@ -1359,6 +1360,7 @@ function ORBLiveStatusPanel({ setups }: { setups: ORBSetup[] }) {
           );
         })}
       </div>
+      </div>
     </div>
   );
 }
@@ -1392,6 +1394,45 @@ export default function ORBBreakoutPage() {
   const [dataSource, setDataSource] = useState<"mt5" | "tradelocker">(() => {
     return (localStorage.getItem('orb_data_source') as "mt5" | "tradelocker") || "mt5";
   });
+
+  // Live broker account sync — so the TradeLocker side shows connection + balance
+  // just like MT5 (fed by the server background sync cache).
+  const { data: mt5AccountData } = useQuery<any>({
+    queryKey: ['/api/mt5/account-data'],
+    enabled: !!user,
+    refetchInterval: 30000,
+  });
+  const { data: tlAccountData } = useQuery<any>({
+    queryKey: ['/api/tradelocker/account-data'],
+    enabled: !!user,
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
+  // Normalised account status for whichever data source is selected
+  const brokerStatus = useMemo(() => {
+    if (dataSource === "tradelocker") {
+      const accts = tlAccountData?.accounts ?? [];
+      const connected = tlAccountData?.connected ?? false;
+      return {
+        connected,
+        balance: tlAccountData?.totalBalance ?? 0,
+        equity: tlAccountData?.totalEquity ?? 0,
+        count: accts.length,
+        label: accts.length > 1 ? `${accts.length} TradeLocker accounts` : (accts[0]?.accountType ? `TradeLocker (${accts[0].accountType})` : "TradeLocker"),
+      };
+    }
+    const mt5Accts = Array.isArray(mt5AccountData?.accounts) ? mt5AccountData.accounts : [];
+    const primary = mt5Accts[0] ?? (mt5AccountData?.balance != null ? mt5AccountData : null);
+    const connected = mt5AccountData?.connected ?? mt5Accts.length > 0;
+    return {
+      connected,
+      balance: primary?.balance ?? 0,
+      equity: primary?.equity ?? primary?.balance ?? 0,
+      count: mt5Accts.length,
+      label: mt5Accts.length > 1 ? `${mt5Accts.length} MT5 accounts` : (primary?.broker || "MT5"),
+    };
+  }, [dataSource, mt5AccountData, tlAccountData]);
 
   // Multi-Setup Mode — allow a symbol to re-arm after each trade, requiring full SS AI sequence each time
   const [multiSetupMode, setMultiSetupMode] = useState<boolean>(() => {
@@ -1897,6 +1938,21 @@ export default function ORBBreakoutPage() {
                   }}
                 >TradeLocker</button>
               </div>
+              {/* Live broker account status — shows connection + balance for the selected source */}
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold"
+                style={{
+                  background: brokerStatus.connected ? "rgba(34,197,94,0.10)" : "rgba(239,68,68,0.08)",
+                  borderColor: brokerStatus.connected ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.3)",
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: brokerStatus.connected ? "#22c55e" : "#ef4444" }} />
+                {brokerStatus.connected ? (
+                  <span className="text-gray-200">
+                    {brokerStatus.label} · <span className="text-white">${(brokerStatus.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                  </span>
+                ) : (
+                  <span className="text-gray-400">{dataSource === "tradelocker" ? "TradeLocker not connected" : "MT5 not connected"}</span>
+                )}
+              </div>
               <Button onClick={() => setShowAddModal(true)}
                 className="bg-green-600 hover:bg-green-700"
                 size="sm">
@@ -1912,7 +1968,7 @@ export default function ORBBreakoutPage() {
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
           {[
             { label: "Instruments Tracked", value: setups.length, color: "#6366f1", icon: BarChart3 },
             { label: "Active Setups", value: activeSetups.length, color: "#06b6d4", icon: Activity },

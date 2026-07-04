@@ -1,5 +1,6 @@
 import { marketDataService } from '../market-data/service';
 import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue } from '../tradelocker';
+import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
 import { newsService } from '../news-service';
@@ -4890,6 +4891,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         state.tradesExecuted++;
         state.tradesOpenedToday++;
         state.openPositionCount++;
+        // Refresh live TL balance cache so the dashboard reflects the new position immediately
+        refreshTlAfterTrade(userId);
         // Mark the queued MT5 signal as already executed so the MT5 EA
         // does NOT pick it up and fire the same trade a second time.
         mt5Signal.status = 'executed';
@@ -5004,6 +5007,8 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
               });
               if (tradeResult.success) {
                 addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+                // Refresh live TL balance cache so the dashboard reflects the realised P&L immediately
+                refreshTlAfterTrade(userId);
               } else {
                 addActivity(userId, { type: 'error', symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
               }

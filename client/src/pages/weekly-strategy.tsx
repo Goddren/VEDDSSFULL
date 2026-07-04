@@ -968,9 +968,10 @@ export default function WeeklyStrategyPage() {
   });
   const activeTLEngineConns = tlConnectionsEngine.filter((c: any) => c.isActive);
 
-  // Live TL account balance — fetches real equity from all active TL connections
+  // Live TL account balance — served from the server background-sync cache
+  // (kept fresh like MT5), so totals update live including on trade open/close.
   const { data: tlAccountBalance } = useQuery<any>({
-    queryKey: ['/api/tradelocker/account-balance'],
+    queryKey: ['/api/tradelocker/account-data'],
     enabled: !!user,
     refetchInterval: 15000,
     staleTime: 10000,

@@ -14254,11 +14254,18 @@ Rules:
       }
     }
 
-    // ── TradeLocker (from DB connections, balance is cached) ────────────────
+    // ── TradeLocker (live balances from the background-sync cache) ──────────
     try {
+      const { getTlAccountData, markTlUserActive } = await import('./services/tradelocker-sync');
+      markTlUserActive(userId);
+      const tlLive = getTlAccountData(userId);
+      const liveByAccountId: Record<string, any> = {};
+      for (const a of tlLive.accounts) liveByAccountId[a.accountId] = a;
+
       const tlConns = await storage.getUserTradelockerConnections(userId);
       for (const c of tlConns) {
         if (!c.isActive) continue;
+        const live = liveByAccountId[c.accountId];
         const lastConnAgo = c.lastConnectedAt
           ? Math.floor((Date.now() - new Date(c.lastConnectedAt).getTime()) / 1000)
           : Infinity;
@@ -14267,15 +14274,17 @@ Rules:
           key: `tl_${c.id}`,
           id: String(c.id),
           label: `TradeLocker – ${c.email} (${c.accountType})`,
-          broker: 'TradeLocker',
-          balance: 0,      // fetched live via /balance endpoint
-          equity: 0,
-          currency: 'USD',
+          broker: (c as any).brokerName || 'TradeLocker',
+          balance: live?.balance ?? 0,
+          equity: live?.equity ?? 0,
+          profit: live ? (live.equity - live.balance) : 0,
+          currency: live?.currency || 'USD',
           server: c.serverId,
           accountNumber: c.accNum || c.accountId,
           accountType: c.accountType,
           email: c.email,
-          isConnected: lastConnAgo < 86400,
+          isConnected: live ? live.isConnected : lastConnAgo < 86400,
+          ageSeconds: live?.secondsAgo,
           lastConnectedAt: c.lastConnectedAt,
         });
       }
@@ -14455,6 +14464,29 @@ Rules:
     }
   });
 
+  // Live TradeLocker account data — mirrors /api/mt5/account-data. Served from the
+  // in-memory cache kept fresh by the background sync loop, so balances update
+  // live (like MT5) without a network round-trip on every poll.
+  app.get("/api/tradelocker/account-data", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getTlAccountData, syncUserTradeLocker, markTlUserActive } = await import('./services/tradelocker-sync');
+      markTlUserActive(userId);
+      let data = getTlAccountData(userId);
+      // If cache is empty or all entries are stale (>90s), do a blocking sync once
+      const stale = data.accounts.length === 0 || data.accounts.every(a => a.secondsAgo > 90);
+      if (stale) {
+        await syncUserTradeLocker(userId, true).catch(() => {});
+        data = getTlAccountData(userId);
+      }
+      res.json(data);
+    } catch (err: any) {
+      console.error('[TL account-data]', err);
+      res.status(500).json({ error: 'Failed to fetch TL account data' });
+    }
+  });
+
   // GET single connection (legacy / backward-compat — returns first active)
   app.get("/api/tradelocker/connection", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
@@ -14537,7 +14569,8 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
 
-    const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent } = req.body;
+    const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent,
+            isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
@@ -14547,6 +14580,13 @@ Rules:
     }
     if (gateMode !== undefined && (gateMode === 'full' || gateMode === 'basic')) {
       updateDataById.gateMode = gateMode;
+    }
+    // Prop-firm account tagging — surfaces this account in Trade Performance
+    if (isPropFirmAccount !== undefined) updateDataById.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== undefined) updateDataById.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== undefined) {
+      const size = parseFloat(propFirmAccountSize);
+      updateDataById.propFirmAccountSize = isNaN(size) ? null : size;
     }
 
     // Per-account risk-% sizing — save to DB (survives redeployment) + JSON sidecar for backward compat
@@ -15606,7 +15646,7 @@ Format each recommendation as a clear, concise action item.`;
       const active = conns.filter((c: any) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000); // last 7 days
 
-      const saveOrder = async (o: any) => {
+      const saveOrder = async (o: any, connId: number) => {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
         if (!isFinite(p) || p === 0) return; // skip entries (zero P&L = position not yet closed)
@@ -15619,9 +15659,13 @@ Format each recommendation as a clear, concise action item.`;
             await storage.updateAiTradeResult(existing.id, userId, {
               result: p > 0 ? 'WIN' : 'LOSS',
               profitLoss: p,
+              connectionId: connId,
               closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
-            });
+            } as any);
             added++;
+          } else if ((existing as any).connectionId == null) {
+            // Backfill connectionId on already-closed trades so per-account stats work
+            await storage.updateAiTradeResult(existing.id, userId, { connectionId: connId } as any).catch(() => {});
           }
           return;
         }
@@ -15635,6 +15679,7 @@ Format each recommendation as a clear, concise action item.`;
           result: p > 0 ? 'WIN' : 'LOSS',
           profitLoss: p,
           source: 'tradelocker',
+          connectionId: connId,
           mt5Ticket: tk,
           notes: 'TradeLocker closed position (synced)',
           closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
@@ -15658,7 +15703,7 @@ Format each recommendation as a clear, concise action item.`;
             const id = String(o.id || o.positionId || o.orderId || '');
             if (id && seen.has(id)) continue;
             if (id) seen.add(id);
-            await saveOrder(o);
+            await saveOrder(o, conn.id);
           }
         } catch (_) { /* per-connection, non-fatal */ }
       }
@@ -15737,6 +15782,43 @@ Format each recommendation as a clear, concise action item.`;
       const mt5Rows = closed.filter((t: any) => t.source !== 'tradelocker');
       const tlRows  = closed.filter((t: any) => t.source === 'tradelocker');
 
+      // ── Per-account TradeLocker breakdown (tied to prop-firm accounts) ────────
+      let tradelockerAccounts: any[] = [];
+      try {
+        const tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c: any) => c.isActive);
+        const tlLiveCache = (global as any).tlAccountData?.[userId] || {};
+        const singleConn = tlConns.length === 1 ? tlConns[0] : null;
+        tradelockerAccounts = tlConns.map((c: any) => {
+          // Match trades by connectionId; if there's only one TL account, also
+          // fold in legacy tradelocker trades that predate connectionId tagging.
+          const rows = tlRows.filter((t: any) =>
+            (t.connectionId != null && t.connectionId === c.id) ||
+            (singleConn && t.connectionId == null)
+          );
+          const live = tlLiveCache[c.accountId];
+          return {
+            connectionId: c.id,
+            email: c.email,
+            accountId: c.accountId,
+            accountType: c.accountType,
+            brokerName: c.brokerName || c.serverId || 'TradeLocker',
+            isPropFirm: !!c.isPropFirmAccount,
+            propFirmName: c.propFirmName || null,
+            propFirmAccountSize: c.propFirmAccountSize || null,
+            balance: live?.balance ?? 0,
+            equity: live?.equity ?? 0,
+            currency: live?.currency || 'USD',
+            isConnected: live ? (Date.now() - new Date(live.lastUpdated).getTime() < 120_000 && !live.error) : false,
+            ...tally(rows),
+          };
+        });
+      } catch (_) { /* non-fatal */ }
+      const propFirmAccounts = tradelockerAccounts.filter(a => a.isPropFirm);
+      const propFirmTally = tally(tlRows.filter((t: any) => {
+        const acct = tradelockerAccounts.find(a => a.connectionId === t.connectionId && a.isPropFirm);
+        return !!acct;
+      }));
+
       // Current streak (most-recent consecutive same result, ignoring breakeven)
       let streakType: 'win' | 'loss' | null = null, streakCount = 0;
       for (const t of closed) {
@@ -15754,6 +15836,8 @@ Format each recommendation as a clear, concise action item.`;
       res.json({
         overall: tally(closed),
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
+        tradelockerAccounts,
+        propFirm: { accounts: propFirmAccounts, ...propFirmTally },
         today: tally(todayRows),
         streak: { type: streakType, count: streakCount },
         recentTrades: closed.slice(0, 12).map((t: any) => ({
@@ -18494,19 +18578,28 @@ Respond with ONLY valid JSON:
       const tlDbResults = _allClosed.filter((t: any) => t.source === 'tradelocker');
       const tlDbDailyPnl  = Math.round(tlDbResults.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const tlDbWeeklyPnl = Math.round(tlDbResults.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      // Prefer the background-sync cache for balances to avoid an API round-trip per poll
+      const _tlCache = (global as any).tlAccountData?.[userId] || {};
       await Promise.all(active.map(async (conn: any) => {
         try {
           const svc = await tlGetOrCreateService(conn);
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s: number, p: any) =>
             s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
-          // Try to fetch live balance
+          // Use fresh cached balance if available (<120s old); otherwise fetch live
           let balance = 0, equity = 0;
-          try {
-            const balData = await svc.getAccountInfo().catch(() => null);
-            balance = balData?.balance ?? 0;
-            equity  = balData?.equity  ?? balance;
-          } catch {}
+          const cached = _tlCache[conn.accountId];
+          const cacheFresh = cached && !cached.error && (Date.now() - new Date(cached.lastUpdated).getTime()) < 120_000;
+          if (cacheFresh) {
+            balance = cached.balance ?? 0;
+            equity  = cached.equity ?? balance;
+          } else {
+            try {
+              const balData = await svc.getAccountInfo().catch(() => null);
+              balance = balData?.balance ?? 0;
+              equity  = balData?.equity  ?? balance;
+            } catch {}
+          }
           tlAccounts.push({
             id: conn.id, email: conn.email, accountId: conn.accountId,
             accountType: conn.accountType, accountName: conn.accountName,

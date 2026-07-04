@@ -683,6 +683,19 @@ const Dashboard: React.FC = () => {
   // Legacy single alias for components that still use tlConnection
   const tlConnection = tlConnectionsAll[0] ?? null;
 
+  // Live TradeLocker balances (kept fresh by the server background sync, like MT5)
+  const { data: tlLive } = useQuery<{
+    connected: boolean;
+    totalBalance: number;
+    totalEquity: number;
+    accounts: Array<{ accountId: string; connectionId: number; accountType: string; balance: number; equity: number; currency: string; secondsAgo: number; isConnected: boolean; error?: string }>;
+  }>({
+    queryKey: ['/api/tradelocker/account-data'],
+    enabled: !!user,
+    refetchInterval: 15000,
+    staleTime: 0,
+  });
+
   // TradeLocker recent trade results
   const { data: tlTrades } = useQuery<any[]>({
     queryKey: ['/api/tradelocker/trades'],
@@ -722,13 +735,16 @@ const Dashboard: React.FC = () => {
   }, [mt5AccountData]);
 
   const tlBalance: number | null = React.useMemo(() => {
+    // Prefer live totals from the background-sync cache; fall back to stale DB value
+    if (tlLive && tlLive.totalBalance > 0) return tlLive.totalBalance;
     const b = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
     return b && b > 0 ? b : null;
-  }, [tlConnection]);
+  }, [tlLive, tlConnection]);
 
   const tlEquity: number | null = React.useMemo(() => {
+    if (tlLive && tlLive.totalEquity > 0) return tlLive.totalEquity;
     return (tlConnection as any)?.equity ?? null;
-  }, [tlConnection]);
+  }, [tlLive, tlConnection]);
 
   // Derive AI tool states
   const ssEngineRunning = ssEngineStatus?.status === 'running';

@@ -713,6 +713,9 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   brokerName: text("broker_name"), // Human-readable broker name derived from serverId (e.g. "Atlas", "FTUK")
   useRiskPercent: boolean("use_risk_percent").notNull().default(false), // Size by % of this account's equity instead of copying source lot
   riskPercent: doublePrecision("risk_percent").notNull().default(1.0), // % of equity to risk per trade when useRiskPercent=true
+  isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false), // Mark this TL account as a prop-firm/funded account
+  propFirmName: text("prop_firm_name"), // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
+  propFirmAccountSize: doublePrecision("prop_firm_account_size"), // Funded account size in $ (for drawdown/target math)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -834,6 +837,7 @@ export const aiTradeResults = pgTable("ai_trade_results", {
   profitLossPips: real("profit_loss_pips"), // P/L in pips
   closedAt: timestamp("closed_at"), // When trade was closed
   source: text("source").default('manual'), // 'manual', 'auto', 'mt5_copier'
+  connectionId: integer("connection_id"), // TradeLocker connection this trade belongs to (ties trades → specific account)
   mt5Ticket: text("mt5_ticket"), // MT5 trade ticket number for sync
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

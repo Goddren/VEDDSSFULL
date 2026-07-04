@@ -2,12 +2,34 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TrendingUp, TrendingDown, Activity, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
+export interface TlAccountPerf {
+  connectionId: number;
+  email: string;
+  accountId: string;
+  accountType: string;
+  brokerName: string;
+  isPropFirm: boolean;
+  propFirmName: string | null;
+  propFirmAccountSize: number | null;
+  balance: number;
+  equity: number;
+  currency: string;
+  isConnected: boolean;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnl: number;
+}
+
 export interface TradePerformance {
   overall: { trades: number; wins: number; losses: number; breakeven: number; winRate: number; totalPnl: number };
   bySource: {
     mt5: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
     tradelocker: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
   };
+  tradelockerAccounts?: TlAccountPerf[];
+  propFirm?: { accounts: TlAccountPerf[]; trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
   today: { trades: number; wins: number; losses: number; winRate: number; totalPnl: number };
   streak: { type: "win" | "loss" | null; count: number };
   recentTrades: Array<{ symbol: string; direction: string; result: string; profitLoss: number; source: string; closedAt: string }>;
@@ -175,6 +197,42 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
               })}
             </div>
           </div>
+
+          {/* TradeLocker accounts — tied to prop firm accounts, live balance + per-account P&L */}
+          {(data!.tradelockerAccounts?.length ?? 0) > 0 && (
+            <div className="mb-3">
+              <p className="text-[9px] text-gray-500 mb-1 uppercase tracking-wide">TradeLocker Accounts {(data!.propFirm?.accounts.length ?? 0) > 0 ? "· Prop Firm" : ""}</p>
+              <div className="space-y-1.5">
+                {data!.tradelockerAccounts!.map((a) => (
+                  <div key={a.connectionId} className="bg-black/25 rounded-lg px-2.5 py-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: a.isConnected ? "#34d399" : "#6b7280" }} />
+                        <span className="text-[10px] font-bold text-cyan-300 truncate">{a.brokerName}</span>
+                        {a.isPropFirm && (
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 flex-shrink-0">
+                            {a.propFirmName || "PROP FIRM"}
+                          </span>
+                        )}
+                        <span className="text-[8px] px-1 rounded bg-gray-800/60 text-gray-500 flex-shrink-0">{a.accountType}</span>
+                      </div>
+                      <span className="text-[10px] font-black text-gray-100 flex-shrink-0">
+                        ${(a.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        {a.propFirmAccountSize ? <span className="text-[8px] text-gray-500"> / ${(a.propFirmAccountSize).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> : null}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] text-gray-500">{a.trades} trades · {a.wins}W/{a.losses}L</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-bold" style={{ color: wrColor(a.winRate) }}>{a.trades > 0 ? `${a.winRate}%` : "—"}</span>
+                        <span className="text-[10px] font-bold" style={{ color: pnlColor(a.totalPnl) }}>{usd(a.totalPnl)}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Last 5 recent trades mini-list */}
           {data!.recentTrades.length > 0 && (

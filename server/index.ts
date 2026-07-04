@@ -656,6 +656,18 @@ async function withRetry<T>(
     } catch (err) {
     }
 
+    // Prop-firm linkage columns (idempotent) — ties TradeLocker accounts + trades
+    // to prop-firm accounts for Trade Performance.
+    try {
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
+      console.log('[startup] Prop-firm linkage columns verified.');
+    } catch (err) {
+      console.error('[startup] Prop-firm linkage migration (non-fatal):', (err as Error).message);
+    }
+
     try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
@@ -1072,6 +1084,10 @@ async function withRetry<T>(
     // Start Ambassador Prime daily content engine (runs at 09:00 UTC)
     const { startAmbassadorPrimeScheduler } = await import('./services/ambassador-prime');
     startAmbassadorPrimeScheduler();
+
+    // Start live TradeLocker balance sync (keeps balances fresh like MT5)
+    const { startTradeLockerSync } = await import('./services/tradelocker-sync');
+    startTradeLockerSync();
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });

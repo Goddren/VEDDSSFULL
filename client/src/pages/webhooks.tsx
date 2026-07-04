@@ -197,6 +197,9 @@ type TradelockerConnection = {
   lotMultiplier: number;
   useRiskPercent?: boolean; // size by % risk of this account's balance instead of copying source lot
   riskPercent?: number;     // % of balance to risk per trade
+  isPropFirmAccount?: boolean; // mark as prop-firm/funded account
+  propFirmName?: string | null;
+  propFirmAccountSize?: number | null;
   gateMode: string; // 'full' = strict live-engine gates | 'basic' = original EA permissive mode
   lastConnectedAt: string | null;
   lastError: string | null;
@@ -486,7 +489,7 @@ export default function WebhooksPage() {
   });
 
   const updateTLConnectionMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean; lotMultiplier?: number; gateMode?: string; useRiskPercent?: boolean; riskPercent?: number } }) => {
+    mutationFn: async ({ id, data }: { id: number; data: { isActive?: boolean; autoExecute?: boolean; lotMultiplier?: number; gateMode?: string; useRiskPercent?: boolean; riskPercent?: number; isPropFirmAccount?: boolean; propFirmName?: string | null; propFirmAccountSize?: number | null } }) => {
       const res = await apiRequest('PATCH', `/api/tradelocker/connection/${id}`, data);
       return res.json();
     },
@@ -1751,6 +1754,51 @@ export default function WebhooksPage() {
                                     }}
                                   />
                                   <span className="text-[10px] font-semibold text-emerald-400">%</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Prop-firm account tagging — surfaces this account in Trade Performance */}
+                          <div className="p-2 bg-gray-900/50 rounded text-xs mt-2 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-gray-300 font-medium">Prop Firm Account</span>
+                                <p className="text-gray-500 text-[10px]">Tag this as a funded/prop-firm account so it shows in Trade Performance</p>
+                              </div>
+                              <button
+                                onClick={() => updateTLConnectionMutation.mutate({ id: conn.id, data: { isPropFirmAccount: !conn.isPropFirmAccount } })}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${conn.isPropFirmAccount ? 'bg-amber-500' : 'bg-gray-700'}`}
+                              >
+                                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${conn.isPropFirmAccount ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
+                              </button>
+                            </div>
+                            {conn.isPropFirmAccount && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400 text-[10px]">Prop firm name</span>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. Topstep, FTMO"
+                                    className="w-36 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs text-right focus:outline-none focus:border-amber-500"
+                                    defaultValue={conn.propFirmName ?? ''}
+                                    onBlur={(e) => updateTLConnectionMutation.mutate({ id: conn.id, data: { propFirmName: e.target.value.trim() || null } })}
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-400 text-[10px]">Account size ($)</span>
+                                  <input
+                                    type="number"
+                                    step="1000"
+                                    min="0"
+                                    placeholder="e.g. 50000"
+                                    className="w-28 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-white text-xs text-right focus:outline-none focus:border-amber-500"
+                                    defaultValue={conn.propFirmAccountSize ?? ''}
+                                    onBlur={(e) => {
+                                      const v = parseFloat(e.target.value);
+                                      updateTLConnectionMutation.mutate({ id: conn.id, data: { propFirmAccountSize: isNaN(v) ? null : v } });
+                                    }}
+                                  />
                                 </div>
                               </div>
                             )}

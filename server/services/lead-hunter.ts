@@ -434,23 +434,34 @@ const VEDD_FEATURES = [
 
 // ── AI scoring (Layer 2 + 3) with ambassador brief ────────────────────────────
 
+// Number of leads to run through full AI scoring per run. Leads beyond this
+// are still STORED and SHOWN (with neutral default scores) so nothing scanned
+// is ever silently dropped from the UI.
+const AI_SCORE_LIMIT = 120;
+
+function defaultScored(l: RawLead): ScoredLead {
+  return {
+    ...l,
+    intent_score: 5,
+    account_quality: 5,
+    contact_opportunity: JSON.stringify({ pain_point: 'Not yet AI-analyzed', vedd_feature: 'VEDDBuild Platform', vedd_url: 'https://veddbuild.com', opener: '', talking_points: [] }),
+    suggested_reply: '',
+    auto_engaged: false,
+    engagement_type: '',
+  };
+}
+
 async function scoreLeads(rawLeads: RawLead[]): Promise<ScoredLead[]> {
   if (rawLeads.length === 0) return [];
   const ai = getAI();
   if (!ai) {
-    return rawLeads.map(l => ({
-      ...l,
-      intent_score: 5,
-      account_quality: 5,
-      contact_opportunity: JSON.stringify({ pain_point: 'Unknown', vedd_feature: 'VEDDBuild Platform', vedd_url: 'https://veddbuild.com', opener: 'Hey, saw your post and thought VEDDBuild might help.', talking_points: ['AI-powered trading platform', 'Auto-execution engine', 'Free to start'] }),
-      suggested_reply: '',
-      auto_engaged: false,
-      engagement_type: '',
-    }));
+    // No AI configured — still return ALL leads with default scoring so they show up.
+    return rawLeads.map(defaultScored);
   }
 
   const scored: ScoredLead[] = [];
-  const batch = rawLeads.slice(0, 50);
+  const batch = rawLeads.slice(0, AI_SCORE_LIMIT);
+  const remainder = rawLeads.slice(AI_SCORE_LIMIT); // stored with defaults, never dropped
   for (const lead of batch) {
     try {
       const prompt = `You are an ambassador coach for VEDDBuild (veddbuild.com) — an AI trading platform with these features:
@@ -505,16 +516,13 @@ Return ONLY valid JSON (no markdown, no explanation):
         engagement_type: '',
       });
     } catch {
-      scored.push({
-        ...lead,
-        intent_score: 5,
-        account_quality: 5,
-        contact_opportunity: JSON.stringify({ pain_point: '', vedd_feature: 'VEDDBuild Platform', vedd_url: 'https://veddbuild.com', opener: '', talking_points: [] }),
-        suggested_reply: '',
-        auto_engaged: false,
-        engagement_type: '',
-      });
+      scored.push(defaultScored(lead));
     }
+  }
+  // Append everything beyond the AI scoring limit with default scores so
+  // ALL scanned leads are stored and visible in the UI (never dropped).
+  for (const lead of remainder) {
+    scored.push(defaultScored(lead));
   }
   return scored;
 }
