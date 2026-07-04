@@ -26548,13 +26548,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/copy/leaderboard", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      // Rank users by win rate from fx_paper_trades (closed trades only)
       const rows = await db.execute(sql`
         SELECT
           u.id AS user_id,
           u.username,
           COUNT(t.id) FILTER (WHERE t.status = 'closed') AS total_trades,
           COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.pnl > 0) AS wins,
+          COUNT(t.id) FILTER (WHERE t.status = 'open') AS open_trades,
           ROUND(
             CASE WHEN COUNT(t.id) FILTER (WHERE t.status='closed') > 0
               THEN (COUNT(t.id) FILTER (WHERE t.status='closed' AND t.pnl > 0)::numeric /
@@ -26563,6 +26563,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             END, 1
           ) AS win_rate,
           COALESCE(SUM(t.pnl) FILTER (WHERE t.status='closed'), 0) AS total_pnl,
+          COALESCE(AVG(t.pnl) FILTER (WHERE t.status='closed'), 0) AS avg_pnl,
+          COALESCE(MAX(t.pnl) FILTER (WHERE t.status='closed'), 0) AS best_trade,
+          COALESCE(MIN(t.pnl) FILTER (WHERE t.status='closed'), 0) AS worst_trade,
+          COALESCE(SUM(t.pnl_pips) FILTER (WHERE t.status='closed'), 0) AS total_pips,
+          MAX(t.opened_at) AS last_trade_at,
           CASE WHEN pa.is_enabled THEN 'paper' ELSE 'inactive' END AS account_type
         FROM users u
         LEFT JOIN fx_paper_trades t ON t.user_id = u.id
@@ -26570,7 +26575,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         WHERE pa.is_enabled = true
         GROUP BY u.id, u.username, pa.is_enabled
         HAVING COUNT(t.id) FILTER (WHERE t.status='closed') >= 1
-        ORDER BY win_rate DESC, total_trades DESC
+        ORDER BY win_rate DESC, total_pnl DESC
         LIMIT 50
       `);
       const traders = (rows as any)[0] ?? (rows as any).rows ?? [];
