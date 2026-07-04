@@ -34001,38 +34001,59 @@ async function apifyScrape(actorId, input) {
   }
 }
 async function scrapeReddit() {
-  try {
-    const raw = await apifyScrape("apify/reddit-scraper", {
-      searches: ["AI trading tools", "chart analysis", "Solana trading", "MT5 trading"],
-      startUrls: [
-        { url: "https://www.reddit.com/r/algotrading/" },
-        { url: "https://www.reddit.com/r/Forex/" },
-        { url: "https://www.reddit.com/r/CryptoCurrency/" },
-        { url: "https://www.reddit.com/r/Solana/" },
-        { url: "https://www.reddit.com/r/Daytrading/" }
-      ],
-      sort: "new",
-      time: "day",
-      maxItems: 50,
-      maxPostCount: 50,
-      maxComments: 2,
-      skipComments: false
-    });
-    const posts = raw.filter((item) => item.dataType === "post");
-    return posts.map((p) => ({
-      platform: "Reddit",
-      username: "r/" + (p.parsedCommunityName || "unknown") + "_" + (p.parsedId || p.id || "post"),
-      post_content: ((p.title || "") + ": " + (p.body || "")).substring(0, 500),
-      post_url: p.url || p.link || "",
-      subreddit: p.communityName || p.parsedCommunityName || "",
-      engagement: p.upVotes || 0,
-      num_comments: p.numberOfComments || 0,
-      date: (p.createdAt || "").substring(0, 10)
-    }));
-  } catch (e) {
-    console.log("[LeadHunter] Reddit error: " + e.message);
-    return [];
+  const subreddits = ["algotrading", "Forex", "CryptoCurrency", "Solana", "Daytrading", "stocks"];
+  const searches = ["AI+trading+tools", "chart+analysis+tool", "trading+software"];
+  const all = [];
+  const headers = { "User-Agent": "VEDDBuild-LeadHunter/1.0" };
+  for (const sub of subreddits) {
+    try {
+      const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`, { headers, signal: AbortSignal.timeout(15e3) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const posts = data?.data?.children || [];
+      for (const { data: p } of posts) {
+        if (!p || !p.selftext || p.selftext.length < 30) continue;
+        const created = new Date(p.created_utc * 1e3);
+        const ageHours = (Date.now() - created.getTime()) / 36e5;
+        if (ageHours > 48) continue;
+        all.push({
+          platform: "Reddit",
+          username: p.author || "unknown",
+          post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
+          post_url: `https://www.reddit.com${p.permalink}`,
+          subreddit: sub,
+          engagement: p.ups || 0,
+          num_comments: p.num_comments || 0,
+          date: created.toISOString().substring(0, 10)
+        });
+      }
+    } catch {
+    }
   }
+  for (const q of searches) {
+    try {
+      const res = await fetch(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, { headers, signal: AbortSignal.timeout(15e3) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const posts = data?.data?.children || [];
+      for (const { data: p } of posts) {
+        if (!p || (p.selftext || "").length < 20) continue;
+        all.push({
+          platform: "Reddit",
+          username: p.author || "unknown",
+          post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
+          post_url: `https://www.reddit.com${p.permalink}`,
+          subreddit: p.subreddit || "",
+          engagement: p.ups || 0,
+          num_comments: p.num_comments || 0,
+          date: new Date(p.created_utc * 1e3).toISOString().substring(0, 10)
+        });
+      }
+    } catch {
+    }
+  }
+  console.log(`[LeadHunter] Reddit (free API): ${all.length} posts`);
+  return all;
 }
 async function scrapeTwitter() {
   const token = process.env.TWITTER_BEARER_TOKEN;
@@ -34041,20 +34062,28 @@ async function scrapeTwitter() {
     return [];
   }
   const queries = [
-    '("AI trading tools" OR "chart analysis tool" OR "trading platform" OR "best trading app") -is:retweet lang:en',
-    '("Solana trading" OR "trading signals AI" OR "MT5 trading" OR "algo trading") -is:retweet lang:en'
+    '("AI trading" OR "chart analysis" OR "algo trading") -is:retweet lang:en',
+    '("Solana trading" OR "MT5" OR "forex signals") -is:retweet lang:en'
   ];
   const all = [];
   for (const query of queries) {
     try {
       const url = new URL("https://api.twitter.com/2/tweets/search/recent");
       url.searchParams.set("query", query);
-      url.searchParams.set("max_results", "20");
+      url.searchParams.set("max_results", "10");
       url.searchParams.set("tweet.fields", "created_at,public_metrics,author_id,text");
       url.searchParams.set("expansions", "author_id");
       url.searchParams.set("user.fields", "username,name,public_metrics");
       const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) continue;
+      if (res.status === 402) {
+        console.log("[LeadHunter] Twitter search requires paid plan (402) \u2014 skipping");
+        break;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.log(`[LeadHunter] Twitter HTTP ${res.status}: ${JSON.stringify(err).substring(0, 200)}`);
+        continue;
+      }
       const data = await res.json();
       const tweets = data.data || [];
       const users2 = data.includes?.users || [];
@@ -34068,7 +34097,7 @@ async function scrapeTwitter() {
           post_content: t.text || "",
           post_url: `https://x.com/${u.username || "_"}/status/${t.id}`,
           tweet_id: t.id,
-          follower_count: u.public_metrics?.followers_count || 0,
+          follower_count: u.public_metrics?.followers_count ?? void 0,
           engagement: (t.public_metrics?.like_count || 0) + (t.public_metrics?.retweet_count || 0),
           num_comments: t.public_metrics?.reply_count || 0,
           date: (t.created_at || "").substring(0, 10)
@@ -34078,6 +34107,7 @@ async function scrapeTwitter() {
       console.log("[LeadHunter] Twitter query error: " + e.message);
     }
   }
+  console.log(`[LeadHunter] Twitter: ${all.length} tweets`);
   return all;
 }
 async function scrapeInstagram() {
@@ -62794,17 +62824,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       platforms: {},
       errors: []
     };
+    try {
+      const r = await fetch("https://www.reddit.com/r/algotrading/new.json?limit=5", { headers: { "User-Agent": "VEDDBuild-LeadHunter/1.0" }, signal: AbortSignal.timeout(1e4) });
+      const d = await r.json();
+      const count = (d?.data?.children || []).filter((c) => (c.data?.selftext || "").length > 30).length;
+      results.platforms.reddit_free = { status: r.status, count, error: r.ok ? null : "HTTP " + r.status };
+    } catch (e) {
+      results.platforms.reddit_free = { status: 0, count: 0, error: e.message };
+    }
     if (process.env.TWITTER_BEARER_TOKEN) {
       try {
         const url = new URL("https://api.twitter.com/2/tweets/search/recent");
-        url.searchParams.set("query", '("AI trading" OR "chart analysis") -is:retweet lang:en');
+        url.searchParams.set("query", '("AI trading") -is:retweet lang:en');
         url.searchParams.set("max_results", "10");
-        url.searchParams.set("tweet.fields", "author_id,text");
-        url.searchParams.set("expansions", "author_id");
-        url.searchParams.set("user.fields", "username,public_metrics");
         const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${process.env.TWITTER_BEARER_TOKEN}` } });
         const d = await r.json();
-        results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: d.errors?.[0]?.message || d.title || null };
+        results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: r.status === 402 ? "Requires paid Twitter plan ($100/mo Basic)" : d.errors?.[0]?.message || d.title || (r.ok ? null : "HTTP " + r.status) };
       } catch (e) {
         results.platforms.twitter = { status: 0, count: 0, error: e.message };
       }
@@ -62814,16 +62849,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (process.env.APIFY_API_TOKEN) {
       try {
         const r = await fetch(
-          `https://api.apify.com/v2/acts/apify~reddit-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}&timeout=30&memory=256`,
-          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ searches: ["AI trading tools"], maxItems: 5, sort: "new", time: "day" }), signal: AbortSignal.timeout(4e4) }
+          `https://api.apify.com/v2/acts/apify~instagram-hashtag-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}&timeout=20&memory=256`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hashtags: ["aitrading"], resultsLimit: 3 }), signal: AbortSignal.timeout(35e3) }
         );
         const d = await r.json();
-        results.platforms.apify_reddit = { status: r.status, count: Array.isArray(d) ? d.length : 0, error: r.ok ? null : JSON.stringify(d).substring(0, 200) };
+        results.platforms.apify = { status: r.status, count: Array.isArray(d) ? d.length : 0, error: r.status === 402 ? "Apify compute units exhausted or paid plan required" : r.ok ? null : JSON.stringify(d).substring(0, 150) };
       } catch (e) {
-        results.platforms.apify_reddit = { status: 0, count: 0, error: e.message };
+        results.platforms.apify = { status: 0, count: 0, error: e.message };
       }
     } else {
-      results.platforms.apify_reddit = { status: 0, count: 0, error: "APIFY_API_TOKEN not set" };
+      results.platforms.apify = { status: 0, count: 0, error: "APIFY_API_TOKEN not set \u2014 Instagram/LinkedIn/Facebook will be skipped" };
     }
     res.json(results);
   });

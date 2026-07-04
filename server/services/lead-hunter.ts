@@ -108,38 +108,63 @@ async function apifyScrape(actorId: string, input: object): Promise<any[]> {
 // ── Platform scrapers ────────────────────────────────────────────────────────
 
 async function scrapeReddit(): Promise<RawLead[]> {
-  try {
-    const raw = await apifyScrape('apify/reddit-scraper', {
-      searches: ['AI trading tools', 'chart analysis', 'Solana trading', 'MT5 trading'],
-      startUrls: [
-        { url: 'https://www.reddit.com/r/algotrading/' },
-        { url: 'https://www.reddit.com/r/Forex/' },
-        { url: 'https://www.reddit.com/r/CryptoCurrency/' },
-        { url: 'https://www.reddit.com/r/Solana/' },
-        { url: 'https://www.reddit.com/r/Daytrading/' },
-      ],
-      sort: 'new',
-      time: 'day',
-      maxItems: 50,
-      maxPostCount: 50,
-      maxComments: 2,
-      skipComments: false,
-    });
-    const posts = raw.filter(item => item.dataType === 'post');
-    return posts.map(p => ({
-      platform: 'Reddit',
-      username: 'r/' + (p.parsedCommunityName || 'unknown') + '_' + (p.parsedId || p.id || 'post'),
-      post_content: ((p.title || '') + ': ' + (p.body || '')).substring(0, 500),
-      post_url: p.url || p.link || '',
-      subreddit: p.communityName || p.parsedCommunityName || '',
-      engagement: p.upVotes || 0,
-      num_comments: p.numberOfComments || 0,
-      date: (p.createdAt || '').substring(0, 10),
-    }));
-  } catch (e: any) {
-    console.log('[LeadHunter] Reddit error: ' + e.message);
-    return [];
+  // Uses Reddit's free public JSON API — no API key or Apify needed.
+  const subreddits = ['algotrading', 'Forex', 'CryptoCurrency', 'Solana', 'Daytrading', 'stocks'];
+  const searches = ['AI+trading+tools', 'chart+analysis+tool', 'trading+software'];
+  const all: RawLead[] = [];
+  const headers = { 'User-Agent': 'VEDDBuild-LeadHunter/1.0' };
+
+  // Scrape new posts from each subreddit
+  for (const sub of subreddits) {
+    try {
+      const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`, { headers, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const posts = data?.data?.children || [];
+      for (const { data: p } of posts) {
+        if (!p || !p.selftext || p.selftext.length < 30) continue;
+        const created = new Date(p.created_utc * 1000);
+        const ageHours = (Date.now() - created.getTime()) / 3600000;
+        if (ageHours > 48) continue; // only last 48h
+        all.push({
+          platform: 'Reddit',
+          username: p.author || 'unknown',
+          post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
+          post_url: `https://www.reddit.com${p.permalink}`,
+          subreddit: sub,
+          engagement: p.ups || 0,
+          num_comments: p.num_comments || 0,
+          date: created.toISOString().substring(0, 10),
+        });
+      }
+    } catch { /* skip on timeout */ }
   }
+
+  // Search Reddit for specific trading keywords
+  for (const q of searches) {
+    try {
+      const res = await fetch(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, { headers, signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const posts = data?.data?.children || [];
+      for (const { data: p } of posts) {
+        if (!p || (p.selftext || '').length < 20) continue;
+        all.push({
+          platform: 'Reddit',
+          username: p.author || 'unknown',
+          post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
+          post_url: `https://www.reddit.com${p.permalink}`,
+          subreddit: p.subreddit || '',
+          engagement: p.ups || 0,
+          num_comments: p.num_comments || 0,
+          date: new Date(p.created_utc * 1000).toISOString().substring(0, 10),
+        });
+      }
+    } catch { /* skip */ }
+  }
+
+  console.log(`[LeadHunter] Reddit (free API): ${all.length} posts`);
+  return all;
 }
 
 async function scrapeTwitter(): Promise<RawLead[]> {
@@ -148,21 +173,31 @@ async function scrapeTwitter(): Promise<RawLead[]> {
     console.log('[LeadHunter] TWITTER_BEARER_TOKEN not set — skipping Twitter');
     return [];
   }
+  // Note: /2/tweets/search/recent requires Twitter Basic plan ($100/mo).
+  // On free tier we get a 402. Try it and fall back gracefully.
   const queries = [
-    '("AI trading tools" OR "chart analysis tool" OR "trading platform" OR "best trading app") -is:retweet lang:en',
-    '("Solana trading" OR "trading signals AI" OR "MT5 trading" OR "algo trading") -is:retweet lang:en',
+    '("AI trading" OR "chart analysis" OR "algo trading") -is:retweet lang:en',
+    '("Solana trading" OR "MT5" OR "forex signals") -is:retweet lang:en',
   ];
   const all: RawLead[] = [];
   for (const query of queries) {
     try {
       const url = new URL('https://api.twitter.com/2/tweets/search/recent');
       url.searchParams.set('query', query);
-      url.searchParams.set('max_results', '20');
+      url.searchParams.set('max_results', '10');
       url.searchParams.set('tweet.fields', 'created_at,public_metrics,author_id,text');
       url.searchParams.set('expansions', 'author_id');
       url.searchParams.set('user.fields', 'username,name,public_metrics');
       const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) continue;
+      if (res.status === 402) {
+        console.log('[LeadHunter] Twitter search requires paid plan (402) — skipping');
+        break;
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        console.log(`[LeadHunter] Twitter HTTP ${res.status}: ${JSON.stringify(err).substring(0, 200)}`);
+        continue;
+      }
       const data = await res.json();
       const tweets = data.data || [];
       const users = data.includes?.users || [];
@@ -176,7 +211,7 @@ async function scrapeTwitter(): Promise<RawLead[]> {
           post_content: t.text || '',
           post_url: `https://x.com/${u.username || '_'}/status/${t.id}`,
           tweet_id: t.id,
-          follower_count: u.public_metrics?.followers_count || 0,
+          follower_count: u.public_metrics?.followers_count ?? undefined,
           engagement: (t.public_metrics?.like_count || 0) + (t.public_metrics?.retweet_count || 0),
           num_comments: t.public_metrics?.reply_count || 0,
           date: (t.created_at || '').substring(0, 10),
@@ -186,6 +221,7 @@ async function scrapeTwitter(): Promise<RawLead[]> {
       console.log('[LeadHunter] Twitter query error: ' + e.message);
     }
   }
+  console.log(`[LeadHunter] Twitter: ${all.length} tweets`);
   return all;
 }
 

@@ -26777,34 +26777,37 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       platforms: {},
       errors: [],
     };
-    // Quick Twitter test
+    // Free Reddit API test (no key needed)
+    try {
+      const r = await fetch('https://www.reddit.com/r/algotrading/new.json?limit=5', { headers: { 'User-Agent': 'VEDDBuild-LeadHunter/1.0' }, signal: AbortSignal.timeout(10000) });
+      const d = await r.json();
+      const count = (d?.data?.children || []).filter((c: any) => (c.data?.selftext || '').length > 30).length;
+      results.platforms.reddit_free = { status: r.status, count, error: r.ok ? null : 'HTTP ' + r.status };
+    } catch (e: any) { results.platforms.reddit_free = { status: 0, count: 0, error: e.message }; }
+    // Twitter test
     if (process.env.TWITTER_BEARER_TOKEN) {
       try {
         const url = new URL('https://api.twitter.com/2/tweets/search/recent');
-        url.searchParams.set('query', '("AI trading" OR "chart analysis") -is:retweet lang:en');
+        url.searchParams.set('query', '("AI trading") -is:retweet lang:en');
         url.searchParams.set('max_results', '10');
-        url.searchParams.set('tweet.fields', 'author_id,text');
-        url.searchParams.set('expansions', 'author_id');
-        url.searchParams.set('user.fields', 'username,public_metrics');
         const r = await fetch(url.toString(), { headers: { Authorization: `Bearer ${process.env.TWITTER_BEARER_TOKEN}` } });
         const d = await r.json();
-        results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: d.errors?.[0]?.message || d.title || null };
+        results.platforms.twitter = { status: r.status, count: (d.data || []).length, error: r.status === 402 ? 'Requires paid Twitter plan ($100/mo Basic)' : d.errors?.[0]?.message || d.title || (r.ok ? null : 'HTTP ' + r.status) };
       } catch (e: any) { results.platforms.twitter = { status: 0, count: 0, error: e.message }; }
     } else {
       results.platforms.twitter = { status: 0, count: 0, error: 'TWITTER_BEARER_TOKEN not set' };
     }
-    // Quick Apify test (Reddit only, 5 items)
+    // Apify test (optional)
     if (process.env.APIFY_API_TOKEN) {
       try {
-        const r = await fetch(
-          `https://api.apify.com/v2/acts/apify~reddit-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}&timeout=30&memory=256`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ searches: ['AI trading tools'], maxItems: 5, sort: 'new', time: 'day' }), signal: AbortSignal.timeout(40000) }
+        const r = await fetch(`https://api.apify.com/v2/acts/apify~instagram-hashtag-scraper/run-sync-get-dataset-items?token=${process.env.APIFY_API_TOKEN}&timeout=20&memory=256`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hashtags: ['aitrading'], resultsLimit: 3 }), signal: AbortSignal.timeout(35000) }
         );
         const d = await r.json();
-        results.platforms.apify_reddit = { status: r.status, count: Array.isArray(d) ? d.length : 0, error: r.ok ? null : JSON.stringify(d).substring(0, 200) };
-      } catch (e: any) { results.platforms.apify_reddit = { status: 0, count: 0, error: e.message }; }
+        results.platforms.apify = { status: r.status, count: Array.isArray(d) ? d.length : 0, error: r.status === 402 ? 'Apify compute units exhausted or paid plan required' : r.ok ? null : JSON.stringify(d).substring(0, 150) };
+      } catch (e: any) { results.platforms.apify = { status: 0, count: 0, error: e.message }; }
     } else {
-      results.platforms.apify_reddit = { status: 0, count: 0, error: 'APIFY_API_TOKEN not set' };
+      results.platforms.apify = { status: 0, count: 0, error: 'APIFY_API_TOKEN not set — Instagram/LinkedIn/Facebook will be skipped' };
     }
     res.json(results);
   });
