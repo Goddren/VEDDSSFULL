@@ -981,7 +981,7 @@ export default function ContentFlowDay() {
                                   </div>
                                   
                                   {carouselPreviews[direction.id] && carouselPreviews[direction.id].length > 0 && (
-                                    <div className="grid grid-cols-5 gap-2">
+                                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                       {carouselPreviews[direction.id].map((previewUrl, idx) => (
                                         <div key={idx} className="relative group">
                                           <img

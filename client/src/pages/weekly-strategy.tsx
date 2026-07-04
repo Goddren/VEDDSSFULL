@@ -2792,7 +2792,7 @@ export default function WeeklyStrategyPage() {
                           {/* Firm preset selector */}
                           <div className="mb-3">
                             <p className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Select your firm</p>
-                            <div className="grid grid-cols-5 gap-1">
+                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1">
                               {(['FTMO','MFF','THE5ERS','FUNDED_NEXT','CUSTOM'] as const).map(f => (
                                 <button
                                   key={f}
@@ -4161,7 +4161,7 @@ export default function WeeklyStrategyPage() {
                         </div>
                       </CardHeader>
                       {showCompound && <CardContent>
-                        <div className="grid grid-cols-5 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                           {dayNames.map(day => {
                             const cg = plan.compoundGrowth[day.toLowerCase()];
                             if (!cg) return null;

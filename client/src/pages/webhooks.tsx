@@ -1527,7 +1527,7 @@ export default function WebhooksPage() {
         </Card>
 
         {/* TradeLocker Direct Connection Section */}
-        <Card className="mt-8 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-cyan-700/50">
+        <Card id="tradelocker" className="mt-8 scroll-mt-20 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 border-cyan-700/50">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>

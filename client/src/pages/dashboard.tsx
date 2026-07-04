@@ -1406,7 +1406,7 @@ const Dashboard: React.FC = () => {
                   </Link>
                 ))}
                 {tlConnectionsAll.filter((c: any) => c.isActive).map((c: any) => (
-                  <Link key={c.id} href="/webhooks">
+                  <Link key={c.id} href="/webhooks#tradelocker">
                     <div className="flex-shrink-0 smart-card px-3 py-2 flex items-center gap-2 cursor-pointer hover:border-cyan-500/30 transition-colors min-w-[140px]">
                       <div className="icon-box-sm icon-box-purple">
                         <Building2 className="h-3.5 w-3.5" />
@@ -1467,7 +1467,7 @@ const Dashboard: React.FC = () => {
 
                 {/* TradeLocker — one card per account */}
                 {platformMonitors.tradelocker.map((acc) => (
-                  <Link key={acc.id} href="/webhooks">
+                  <Link key={acc.id} href="/webhooks#tradelocker">
                     <div className="smart-card px-3 py-2.5 cursor-pointer hover:border-purple-500/30 transition-colors">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 min-w-0">

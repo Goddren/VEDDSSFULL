@@ -216,7 +216,7 @@ export default function LeadHunterPage() {
         )}
 
         {/* Stats row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 24 }}>
           {[
             { label: 'Total Leads', value: leads.length, icon: <Users size={18} />, color: '#3b82f6' },
             { label: 'High Intent', value: highCount, icon: <Zap size={18} />, color: '#16a34a' },
@@ -231,7 +231,7 @@ export default function LeadHunterPage() {
           ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 20 }}>
           {/* Leads table */}
           <div>
             {/* Filter tabs */}

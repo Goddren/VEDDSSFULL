@@ -158,8 +158,19 @@ function AppLayout() {
   const [location] = useLocation();
   const { user } = useAuth();
   
-  // Scroll to top on location change
+  // Scroll to top on location change — unless a #hash anchor is present,
+  // in which case scroll to that section (e.g. /webhooks#tradelocker).
   useEffect(() => {
+    const hash = window.location.hash;
+    if (hash) {
+      // Delay so the target page has rendered before we look up the element
+      const t = setTimeout(() => {
+        const el = document.getElementById(hash.slice(1));
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        else window.scrollTo(0, 0);
+      }, 200);
+      return () => clearTimeout(t);
+    }
     window.scrollTo(0, 0);
   }, [location]);
   

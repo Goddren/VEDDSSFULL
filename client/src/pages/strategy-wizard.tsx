@@ -1696,8 +1696,8 @@ export default function StrategyWizard() {
                       </TabsContent>
                       
                       <TabsContent value="trades" className="pt-4">
-                        <div className="border rounded-lg overflow-hidden">
-                          <table className="w-full">
+                        <div className="border rounded-lg overflow-hidden overflow-x-auto">
+                          <table className="w-full min-w-[560px]">
                             <thead>
                               <tr className="bg-muted/50">
                                 <th className="text-left p-3 font-medium">Date</th>

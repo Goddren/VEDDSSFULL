@@ -726,7 +726,7 @@ export default function AbbaBotPage() {
                     <span className="text-sm font-bold text-blue-200">Send This Report</span>
                   </div>
                   {/* Channel picker */}
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                     {([
                       { id: "gmail",    label: "Gmail",    emoji: "📧", free: true },
                       { id: "resend",   label: "Resend",   emoji: "✉️",  free: true },
@@ -840,7 +840,7 @@ export default function AbbaBotPage() {
             {/* Target */}
             <div>
               <p className="text-[11px] text-gray-500 mb-2">Sending to:</p>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(["user", "ambassador", "admin", "lead"] as const).map(t => (
                   <button key={t} onClick={() => setOutTarget(t)}
                     className={`py-2 rounded-lg text-[11px] font-semibold border capitalize transition-all ${outTarget === t ? "bg-purple-600/40 border-purple-500/60 text-purple-100" : "bg-gray-800 border-gray-700 text-gray-400 hover:text-white"}`}>

@@ -180,7 +180,7 @@ export default function CopyTradingPage() {
         </div>
 
         {/* Stats bar — always visible */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(105px, 1fr))", gap: 10, marginBottom: 20 }}>
           {[
             { label: "Copying", value: activeRels.length, color: "#a855f7", icon: <Users size={14} /> },
             { label: "Open Trades", value: openCopyTrades.length, color: "#f59e0b", icon: <Zap size={14} /> },
@@ -270,7 +270,7 @@ export default function CopyTradingPage() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))", gap: 20 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
 
             {/* Leaderboard */}

@@ -119,7 +119,7 @@ const Home = () => {
               </p>
               
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <Link href="/multi-timeframe-analysis">
+                <Link href="/multi-timeframe">
                   <Button size="lg" className="bg-[#E64A4A] hover:bg-[#E64A4A]/90 text-white px-8 py-6 text-lg group" data-testid="button-analyze-chart">
                     Start Analyzing
                     <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -415,7 +415,7 @@ const Home = () => {
                 Join thousands of traders using AI-powered analysis to make smarter decisions. Start your free analysis today.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link href="/multi-timeframe-analysis">
+                <Link href="/multi-timeframe">
                   <Button size="lg" className="bg-[#E64A4A] hover:bg-[#E64A4A]/90 text-white px-10 py-6 text-lg" data-testid="button-cta-start">
                     Start Free Analysis
                     <Sparkles className="ml-2 w-5 h-5" />
@@ -588,7 +588,7 @@ const Home = () => {
 
             {/* CTA */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4 border-t border-gray-700">
-              <Link href="/multi-timeframe-analysis">
+              <Link href="/multi-timeframe">
                 <Button size="lg" className="bg-[#E64A4A] hover:bg-[#E64A4A]/90 w-full sm:w-auto" data-testid="button-analyze-own-chart">
                   <Zap className="w-4 h-4 mr-2" />
                   Analyze Your Own Chart

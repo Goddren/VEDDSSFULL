@@ -261,7 +261,7 @@ export default function AdminVeddPool() {
 
         {/* ── Main tabs ──────────────────────────────────────────────────── */}
         <Tabs defaultValue="pools">
-          <TabsList className="bg-zinc-900 border border-zinc-800 w-full grid grid-cols-5">
+          <TabsList className="bg-zinc-900 border border-zinc-800 w-full grid grid-cols-2 sm:grid-cols-5 h-auto">
             <TabsTrigger value="pools">Pools</TabsTrigger>
             <TabsTrigger value="referrals">
               Referrals {referralTransfers.length > 0 && <span className="ml-1 text-purple-400 text-[10px]">{referralTransfers.length}</span>}

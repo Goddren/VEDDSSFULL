@@ -511,7 +511,7 @@ export default function VeddTokenomics() {
         </div>
         
         <Tabs defaultValue="allocation" className="mb-12">
-          <TabsList className="grid grid-cols-5 w-full max-w-3xl mx-auto mb-8">
+          <TabsList className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 h-auto w-full max-w-3xl mx-auto mb-8">
             <TabsTrigger value="allocation">Allocation</TabsTrigger>
             <TabsTrigger value="roadmap">Price Roadmap</TabsTrigger>
             <TabsTrigger value="rewards">Earn VEDD</TabsTrigger>

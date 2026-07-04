@@ -264,7 +264,7 @@ const Header: React.FC = () => {
     { name: 'ABBA', path: '/abba', active: location === '/abba', icon: <Brain className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
     { name: 'Predictions', path: '/polymarket-engine', active: location === '/polymarket-engine', icon: <DollarSign className="h-4 w-4 mr-2" /> },
-    { name: 'TradeLocker', path: '/webhooks', active: location === '/webhooks', icon: <LinkIcon className="h-4 w-4 mr-2" /> },
+    { name: 'TradeLocker', path: '/webhooks#tradelocker', active: location === '/webhooks', icon: <LinkIcon className="h-4 w-4 mr-2" /> },
   ];
 
   // Secondary nav items shown in "More" dropdown
@@ -331,6 +331,17 @@ const Header: React.FC = () => {
               <Link
                 key={item.path}
                 href={item.path}
+                onClick={() => {
+                  const [basePath, hash] = item.path.split('#');
+                  if (location === basePath) {
+                    // Already on this page → jump to the anchored section, or the top
+                    if (hash) {
+                      setTimeout(() => document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+                    } else {
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                  }
+                }}
                 className={`rounded-2xl px-3 py-1.5 text-sm font-medium transition-all ${item.active ? 'bg-red-500/10 text-red-400' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
               >
                 {item.name}
@@ -383,7 +394,7 @@ const Header: React.FC = () => {
                 {/* TradeLocker Accounts shortcut */}
                 {activeTLNavConns.length > 0 ? (
                   <DropdownMenuItem className="cursor-pointer" asChild>
-                    <Link href="/webhooks">
+                    <Link href="/webhooks#tradelocker">
                       <div className="flex items-center justify-between w-full">
                         <div className="flex items-center text-cyan-400">
                           <LinkIcon className="h-4 w-4 mr-2" />
@@ -397,7 +408,7 @@ const Header: React.FC = () => {
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem className="cursor-pointer" asChild>
-                    <Link href="/webhooks">
+                    <Link href="/webhooks#tradelocker">
                       <div className="flex items-center text-cyan-400/60 w-full">
                         <LinkIcon className="h-4 w-4 mr-2" />
                         <span>Connect TradeLocker</span>
@@ -1032,7 +1043,7 @@ const Header: React.FC = () => {
                         })}
                       </div>
                       <Link
-                        href="/webhooks"
+                        href="/webhooks#tradelocker"
                         onClick={handleMobileNavClick}
                         className="text-sm font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5"
                       >
@@ -1044,7 +1055,7 @@ const Header: React.FC = () => {
                   {activeTLNavConns.length === 0 && (
                     <div className="border-t border-gray-700 pt-3 mt-1">
                       <Link
-                        href="/webhooks"
+                        href="/webhooks#tradelocker"
                         onClick={handleMobileNavClick}
                         className="text-base font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-2"
                       >

@@ -386,7 +386,11 @@ export function MobileBottomNav() {
           ].map(({ label, path, color, Icon }) => (
             <Link key={path} href={path}>
               <button
-                onClick={close}
+                onClick={() => {
+                  close();
+                  // Already on this page → jump straight to the top
+                  if (location === path) window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
                 className="flex flex-col items-center gap-1 flex-1 px-2 py-2 rounded-xl active:scale-90 transition-transform"
                 style={{ background: `${color}14`, border: `1px solid ${color}30`, minWidth: 58 }}
               >
@@ -539,7 +543,7 @@ export function MobileBottomNav() {
 
           {/* TradeLocker card(s) */}
           {activeTL.length === 0 ? (
-            <Link href="/webhooks">
+            <Link href="/webhooks#tradelocker">
               <button
                 onClick={close}
                 className="w-full text-left px-4 py-3 rounded-2xl mb-2 transition-all active:scale-[0.97]"
@@ -560,7 +564,7 @@ export function MobileBottomNav() {
             activeTL.map((conn: any) => {
               const bal = tlBals[conn.id];
               return (
-                <Link href="/webhooks" key={conn.id}>
+                <Link href="/webhooks#tradelocker" key={conn.id}>
                   <button
                     onClick={close}
                     className="w-full text-left px-4 py-3 rounded-2xl mb-2 transition-all active:scale-[0.97]"
@@ -873,7 +877,13 @@ export function MobileBottomNav() {
           const isLive = liveKey === 'ss' ? ssLive : liveKey === 'poly' ? polyLive : false;
           return (
             <Link key={path} href={path}>
-              <button className={`tab-item ${active ? 'active' : ''}`}>
+              <button
+                className={`tab-item ${active ? 'active' : ''}`}
+                onClick={() => {
+                  // Already on this page → jump straight to the top
+                  if (active) window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              >
                 <span className="tab-icon-wrap">
                   <Icon className="h-[18px] w-[18px]" />
                   {isLive && <span className="tab-live-dot" />}
