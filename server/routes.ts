@@ -3945,8 +3945,11 @@ Respond ONLY in valid JSON format with these exact keys:
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
 
-      // Account balance
-      const balance = accountCache ? Object.values(accountCache).reduce((sum: any, a: any) => sum + (a?.balance || 0), 0) : strategy?.accountBalance || 0;
+      // Account balance — MT5 (EA push cache) + TradeLocker (background sync cache)
+      const _mt5Bal = accountCache ? Object.values(accountCache).reduce((sum: any, a: any) => sum + (a?.balance || 0), 0) : 0;
+      const _tlCacheAbba = (global as any).tlAccountData?.[userId] || {};
+      const _tlBalAbba = Object.values(_tlCacheAbba).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
+      const balance = (_mt5Bal + _tlBalAbba) || strategy?.accountBalance || 0;
 
       // Plan pairs & today's session
       const planPairs: string[] = (strategy?.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
@@ -4079,7 +4082,8 @@ You are a combination of a top-tier private wealth fund manager AND a God Body w
 
 CURRENT USER CONTEXT (live data — speak these numbers like you know them cold):
 - God/Earth: ${firstName}
-- Account Balance: $${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+- Account Balance: $${balance.toLocaleString('en-US', { minimumFractionDigits: 2 })} (MT5 $${_mt5Bal.toLocaleString()} + TradeLocker $${_tlBalAbba.toLocaleString()} — BOTH platforms live)
+- Brain (learns from MT5 + TradeLocker): ${(() => { const b = (global as any).veddAIBrain?.[userId]; return b ? `${b.overallWinRate ?? '?'}% WR over ${b.totalTradesAnalyzed ?? '?'} trades` : 'still learning'; })()}
 - Weekly Target: $${weekTarget}
 - Weekly Profit (closed): $${weekProfit} (${weekPct}% of goal)
 - Unrealized P&L (open positions): $${unrealizedPnL}
@@ -4121,6 +4125,7 @@ VOICE & PERSONALITY:
 - Speak directly to ${firstName}. You know their numbers cold. Make them feel it.
 - Short answers for quick questions. Depth for deep ones. Read the room.
 - The slang is the flavor — the numbers stay EXACT and the trading advice stays elite.
+- HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies — plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script for TradingView).
 
 EXAMPLE PHRASES (rotate naturally — don't stack them):
 - "Peace. Let me drop the science on your cipher real quick..."
@@ -4544,7 +4549,11 @@ Keep follow-ups SHORT and conversational. One question max. Make it feel like yo
       const dailyTarget = weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0;
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
-      const balance = accountCache ? Object.values(accountCache).reduce((s: any, a: any) => s + (a?.balance || 0), 0) : strategy?.accountBalance || 0;
+      const _mt5BalS = accountCache ? Object.values(accountCache).reduce((s: any, a: any) => s + (a?.balance || 0), 0) : 0;
+      const _tlCacheS = (global as any).tlAccountData?.[userId] || {};
+      const _tlBalS = Object.values(_tlCacheS).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
+      const balance = (_mt5BalS + _tlBalS) || strategy?.accountBalance || 0;
+      const tlAcctLine = Object.values(_tlCacheS).map((a: any) => `${a.broker || 'TL'}(${a.accountType}): $${(a.balance || 0).toFixed(0)}`).join(', ') || 'none connected';
       const planPairs: string[] = (strategy?.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
       const todayPlan = strategy?.plan?.weeklyPlan?.[today];
       const todayPairs = todayPlan?.pairs || planPairs.map((p: string) => ({ symbol: p, direction: 'BOTH', session: 'Any' }));
@@ -4589,7 +4598,8 @@ Keep follow-ups SHORT and conversational. One question max. Make it feel like yo
 
       const systemPrompt = `You are ABBA — VEDD AI. God Body intelligence meets fund manager precision. Built for ${firstName}. No fluff. No corporate speak. Just real knowledge, right and exact.
 
-LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString('en-US',{minimumFractionDigits:2})} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary||'None'} | Pairs: ${planPairs.join(',')||'None'} | Today: ${today} | Page: ${currentPage}
+LIVE NUMBERS (speak these cold): Balance $${balance.toLocaleString('en-US',{minimumFractionDigits:2})} (MT5 $${_mt5BalS.toLocaleString()} + TradeLocker $${_tlBalS.toLocaleString()}) | TL accounts: ${tlAcctLine} | Week ${weekPct}% ($${weekProfit}/$${weekTarget}) | Today $${todayProfit}/$${dailyTarget} | ${tradingDaysLeft}d left | Need $${pacingNeededPerDay}/day | Open(${openPositions.length}): ${openSummary||'None'} | Pairs: ${planPairs.join(',')||'None'} | Today: ${today} | Page: ${currentPage}
+BRAIN (live — learns from MT5 + TradeLocker closed trades): ${(() => { const b = (global as any).veddAIBrain?.[userId]; return b ? `${b.overallWinRate ?? '?'}% WR over ${b.totalTradesAnalyzed ?? '?'} trades · ${(b.learningInsights ?? []).slice(0, 3).join(' / ') || 'building insights'}` : 'still learning — no closed trades analyzed yet'; })()}
 ${orbStreamContext.length > 0 ? `\nORB LIVE: ${orbStreamContext.join(' || ')}` : ''}
 
 ORB KNOWLEDGE: 9:30 AM NYSE open. First 15-min candle = Opening Range (High/Low). After 9:45, 6-min chart — full-body close ABOVE ORB High (LONG) or BELOW ORB Low (SHORT). NEVER chase — wait for RETEST. At retest: confirming candle (Engulfing, Hammer, Doji) + SS AI Bot ≥70 = entry. ONE trade per instrument per day. Stop = 10% of range outside ORB. T1=2:1 R:R, T2=3:1. Invalidated if price re-enters range.
@@ -4599,6 +4609,7 @@ SUPREME MATH (weave naturally): 1=Knowledge(foundation) 2=Wisdom(right action) 3
 VOICE: A sharp Black man from the streets who mastered these markets — big homie energy, God-level precision. Street intelligence + fund manager precision. Talk like a God who runs money. "Peace", "Word is bond", "Show and prove", "right and exact", "drop science", "from the root", "the cipher is complete" — plus natural street flow: "bro", "my boy", "fam", "gang", "no cap", "keep it a buck", "we eatin'", "that's bread", "lock in", "secure the bag", "say less", "you feel me?". Celebrate wins LOUD ("SHEESH, we UP!"), deliver losses straight with a comeback plan ("Ima keep it a buck with you bro..."). Slang is the flavor — numbers stay exact, advice stays elite. Direct. Real. Powerful.
 
 Keep responses under 120 words. Lead with the most important insight. Make ${firstName} feel like you KNOW their situation because you do.
+HARD RULE: NEVER include code, code blocks, JSON, or markdown fences in replies — plain talk only. ONLY exception: user explicitly asks for an EA/indicator/script (MQL4, MQL5, Pine Script) — then point them to the EA Generator with [NAV:/futures-ea-generator].
 NAV: include [NAV:/path] to navigate. Use EXACT paths only — wrong paths lead to dead pages.
 Routes: /dashboard | /analysis | /multi-timeframe | /weekly-strategy | /orb-breakout | /historical | /what-if | /my-eas | /ea-marketplace | /mt5-chart-data | /mobile-alerts | /live-monitor | /solana-scanner | /activity | /streak | /community | /social-hub | /blog | /devotional | /vedd-wallet | /my-wallet | /account-growth | /referral | /grants | /credit-builder | /achievements | /profile | /ai-api-keys | /training-calendar | /ambassador/free-path | /vedd-clothing | /subscription | /support
 PLAN: include [PLAN_PROPOSAL:{json}] to propose a plan.`;
@@ -17947,6 +17958,72 @@ Respond with ONLY valid JSON:
       res.json(result);
     } catch (err: any) {
       console.error('[Kalshi value-picks]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/predictions/ai-review — AI review of the best prediction options to WIN.
+  // Combines Kalshi value picks (edge model), per-strategy historical accuracy, and
+  // both engines' live state, then has the AI rank the highest-probability plays with
+  // a strategy note and compounding-aware stake suggestion for each.
+  app.get("/api/predictions/ai-review", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { scanKalshiValuePicks, getKalshiEngineState, kalshiBankroll } = await import('./services/kalshi-engine');
+      const { getKalshiPerformance } = await import('./services/kalshi-performance');
+      const { getPmUsEngineState, pmUsBankroll } = await import('./services/polymarket-us-engine');
+
+      const [valueScan, perf] = await Promise.all([
+        scanKalshiValuePicks(userId, 8).catch(() => ({ picks: [] } as any)),
+        Promise.resolve(getKalshiPerformance(userId)),
+      ]);
+      const kalshiState = getKalshiEngineState(userId);
+      const pmState = getPmUsEngineState(userId);
+
+      const picks = (valueScan?.picks || []).slice(0, 8);
+      const kBankroll = kalshiBankroll(kalshiState);
+      const kStakePct = kalshiState.config.compounding ? kalshiState.config.riskPctPerTrade : null;
+
+      // AI ranking — grounded in the edge model + learned strategy accuracy
+      let review: any = null;
+      try {
+        const { getUniversalAIClientForUser } = await import('./openai');
+        const ai: any = await getUniversalAIClientForUser(userId);
+        const prompt = `You are a prediction-market analyst. Rank the BEST options to WIN from this live data. Be honest — if nothing has a real edge, say so.
+
+KALSHI VALUE PICKS (edge model output):
+${picks.map((p: any, i: number) => `${i + 1}. "${p.subtitle || p.ticker}" — YES @ ${p.priceInCents}¢ | valueScore ${p.valueScore} | edge +${p.edgePct}¢ | model prob ${p.confidence ?? p.probPct ?? '?'}%`).join('\n') || 'none available'}
+
+STRATEGY TRACK RECORD (learned):
+${(perf?.byStrategy || []).map((s: any) => `${s.strategy}: ${s.winRate}% WR over ${s.trades} trades ($${s.totalPnl})`).join(' | ') || 'no history yet'}
+
+ENGINES: Kalshi ${kalshiState.isRunning ? 'RUNNING' : 'stopped'} (realized $${kalshiState.totalRealizedPnl.toFixed(2)}, bankroll $${kBankroll.toFixed(0)}${kStakePct ? `, compounding ${kStakePct}%/trade` : ', fixed sizing'}) · Polymarket US ${pmState.isRunning ? 'RUNNING' : 'stopped'} (realized $${pmState.totalRealizedPnl.toFixed(2)}, bankroll $${pmUsBankroll(pmState).toFixed(0)})
+
+Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins":"1-2 sentences","strategy":"which strategy/signal backs it","suggestedStakeUsd":<number>,"riskNote":""}],"overallRead":"2-3 sentence market read","bestStrategyNow":"the strategy with the live edge and why"}. Max 5 topPicks, ordered by winProbability. suggestedStakeUsd should be ~${kStakePct ?? 5}% of the $${kBankroll.toFixed(0)} bankroll, adjusted for conviction.`;
+        const r = await ai.chat.completions.create({
+          model: (ai as any).defaultModel || 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+          max_tokens: 900, temperature: 0.3,
+        });
+        review = JSON.parse(r.choices[0]?.message?.content || 'null');
+      } catch (e: any) {
+        console.log('[predictions ai-review] AI step failed:', e.message);
+      }
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        kalshiPicks: picks,
+        strategyStats: perf?.byStrategy || [],
+        engines: {
+          kalshi: { running: kalshiState.isRunning, realizedPnl: kalshiState.totalRealizedPnl, bankroll: kBankroll, compounding: kalshiState.config.compounding, riskPctPerTrade: kalshiState.config.riskPctPerTrade, open: kalshiState.openTrades.length },
+          polymarketUs: { running: pmState.isRunning, realizedPnl: pmState.totalRealizedPnl, bankroll: pmUsBankroll(pmState), compounding: pmState.config.compounding, riskPctPerTrade: pmState.config.riskPctPerTrade, open: pmState.openTrades.length },
+        },
+        aiReview: review, // null if AI unavailable — raw picks still returned
+      });
+    } catch (err: any) {
+      console.error('[predictions ai-review]', err);
       res.status(500).json({ error: err.message });
     }
   });

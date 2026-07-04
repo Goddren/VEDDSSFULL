@@ -27,6 +27,10 @@ export interface PmUsEngineConfig {
   takeProfitCents: number;
   stopLossCents: number;
   asset: 'bitcoin' | 'ethereum';
+  // Compounding — stake a % of the growing bankroll instead of a fixed count
+  compounding: boolean;
+  riskPctPerTrade: number;
+  startingBankroll: number;
 }
 
 export interface PmUsTrade {
@@ -66,6 +70,7 @@ const DEFAULT_CONFIG: PmUsEngineConfig = {
   requireAlignedHourly: true, requireConfluence: true, strategy: 'ensemble',
   autoTradeValuePicks: false, minValueScore: 8, takeProfitCents: 90, stopLossCents: 25,
   asset: 'bitcoin',
+  compounding: false, riskPctPerTrade: 5, startingBankroll: 100,
 };
 
 const STRATEGY_LABELS: Record<string, string> = {
@@ -97,7 +102,20 @@ export function updatePmUsEngineConfig(userId: number, patch: Partial<PmUsEngine
   if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
   if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
+  if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
+  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1_000_000, clean.startingBankroll));
   s.config = { ...s.config, ...clean };
+}
+
+// Compounding sizing — bankroll grows with realized P&L so stakes scale up automatically
+export function pmUsBankroll(s: PmUsEngineState): number {
+  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
+}
+export function pmUsContractsFor(s: PmUsEngineState, priceInCents: number): number {
+  if (!s.config.compounding) return s.config.contractsPerTrade;
+  const stakeTarget = pmUsBankroll(s) * ((s.config.riskPctPerTrade || 5) / 100);
+  const perContract = Math.max(0.01, priceInCents / 100);
+  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
 }
 
 export function startPmUsEngine(userId: number): void {
@@ -213,12 +231,13 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
     // Map direction → outcome: BUY → buy YES (long), SELL → buy NO (short)
     const side: 'yes' | 'no' = pred.direction === 'BUY' ? 'yes' : 'no';
     const intent = pred.direction === 'BUY' ? 'ORDER_INTENT_BUY_LONG' : 'ORDER_INTENT_BUY_SHORT';
-    const stake = (askCents / 100) * s.config.contractsPerTrade;
+    const contracts = pmUsContractsFor(s, askCents);
+    const stake = (askCents / 100) * contracts;
 
     if (!s.isPaperMode) {
       const r = await placePmUsOrder(userId, {
         marketSlug: market.slug, intent: intent as any, type: 'ORDER_TYPE_MARKET',
-        quantity: s.config.contractsPerTrade,
+        quantity: contracts,
       });
       if (!r.ok) { const msg = `Order failed (HTTP ${r.status}): ${JSON.stringify(r.data).slice(0, 160)}`; s.lastScanResult = msg; return { fired: false, reason: msg }; }
     }
@@ -226,7 +245,7 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
     const trade: PmUsTrade = {
       id: `pmus-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       marketSlug: market.slug, title: market.title || market.question || market.slug,
-      side, count: s.config.contractsPerTrade, entryPriceCents: askCents, currentPriceCents: askCents,
+      side, count: contracts, entryPriceCents: askCents, currentPriceCents: askCents,
       stake, unrealizedPnl: 0,
       signal: { direction: pred.direction, confidence: pred.confidence, strategy: strat },
       openedAt: new Date().toISOString(), status: 'open', paper: s.isPaperMode,
@@ -235,7 +254,8 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
     s.lastTradeAt = new Date().toISOString();
     _recalc(s);
 
-    const r = `${s.isPaperMode ? '[PAPER]' : '[LIVE]'} ${label}: ${side.toUpperCase()} × ${s.config.contractsPerTrade} on "${trade.title}" @ ${askCents}¢ (stake $${stake.toFixed(2)})`;
+    const compNote = s.config.compounding ? ` · compounding ${s.config.riskPctPerTrade}% of $${pmUsBankroll(s).toFixed(0)}` : '';
+    const r = `${s.isPaperMode ? '[PAPER]' : '[LIVE]'} ${label}: ${side.toUpperCase()} × ${contracts} on "${trade.title}" @ ${askCents}¢ (stake $${stake.toFixed(2)})${compNote}`;
     s.lastScanResult = r;
     return { fired: true, reason: r };
   } catch (err: any) {

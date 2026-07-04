@@ -258,6 +258,32 @@ export default function AbbaBotPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
 
+  // ── Voice — same as the floating ABBA assistant (browser speechSynthesis) ──
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => localStorage.getItem('abba_voice') !== 'off');
+  const toggleVoice = () => {
+    setVoiceOn(v => {
+      const nv = !v;
+      localStorage.setItem('abba_voice', nv ? 'on' : 'off');
+      if (!nv) window.speechSynthesis?.cancel();
+      return nv;
+    });
+  };
+  const speak = (text: string) => {
+    if (!voiceOn || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+      // Strip nav tags / markdown so the voice reads clean
+      const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim();
+      if (!clean) return;
+      const u = new SpeechSynthesisUtterance(clean.slice(0, 900));
+      const voices = window.speechSynthesis.getVoices();
+      const deep = voices.find(v => /male|david|guy|daniel/i.test(v.name) && v.lang.startsWith('en'));
+      if (deep) u.voice = deep;
+      u.rate = 1.02; u.pitch = 0.85;
+      window.speechSynthesis.speak(u);
+    } catch { /* voice is best-effort */ }
+  };
+
   const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     if (!text || sending) return;
@@ -268,7 +294,9 @@ export default function AbbaBotPage() {
     try {
       const res = await apiRequest("POST", "/api/abba/chat", { message: text, history: next.slice(-9, -1) });
       const data = await res.json();
-      setMessages(m => [...m, { role: "assistant", content: data.reply || data.error || "No response." }]);
+      const reply = data.reply || data.error || "No response.";
+      setMessages(m => [...m, { role: "assistant", content: reply }]);
+      speak(reply);
     } catch {
       setMessages(m => [...m, { role: "assistant", content: "Connection issue — try again in a moment." }]);
     } finally {
@@ -494,6 +522,13 @@ export default function AbbaBotPage() {
                 )}
               </div>
               <div className="p-2 border-t border-gray-800 flex gap-2">
+                <button
+                  onClick={toggleVoice}
+                  title={voiceOn ? "Voice on — Abba speaks replies (tap to mute)" : "Voice off (tap to unmute)"}
+                  className={`rounded-xl px-2.5 border text-sm ${voiceOn ? "bg-emerald-600/30 border-emerald-500/50" : "bg-gray-800 border-gray-700 opacity-60"}`}
+                >
+                  {voiceOn ? "🔊" : "🔇"}
+                </button>
                 <input
                   value={input}
                   onChange={e => setInput(e.target.value)}

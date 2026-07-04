@@ -10,7 +10,7 @@ import {
   ChevronDown, ChevronUp, Wallet, ExternalLink,
   TrendingUp, TrendingDown, Activity, Zap, Clock,
   BarChart2, BarChart3, Info, Shield, Eye, EyeOff,
-  AlertTriangle, KeyRound,
+  AlertTriangle, KeyRound, Brain,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -219,6 +219,79 @@ function findNearestBracket(brackets: KalshiBracket[], btcPrice: number): Kalshi
       : best.floorStrike ?? best.capStrike ?? 0;
     return Math.abs(mid - btcPrice) < Math.abs(bestMid - btcPrice) ? b : best;
   });
+}
+
+// ── AI Prediction Review panel — best options to WIN, ranked by the AI ─────────
+function AiPredictionReviewPanel() {
+  const { data, refetch, isFetching } = useQuery<{
+    kalshiPicks: any[];
+    strategyStats: Array<{ strategy: string; winRate: number; trades: number; totalPnl: number }>;
+    engines: { kalshi: any; polymarketUs: any };
+    aiReview: null | {
+      topPicks: Array<{ market: string; winProbability: number; whyItWins: string; strategy: string; suggestedStakeUsd: number; riskNote: string }>;
+      overallRead: string;
+      bestStrategyNow: string;
+    };
+  }>({
+    queryKey: ["/api/predictions/ai-review"],
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const review = data?.aiReview;
+  return (
+    <div className="mb-3 bg-violet-950/30 border border-violet-700/40 rounded-lg p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Brain className="w-3.5 h-3.5 text-violet-400" />
+          <span className="text-[11px] font-bold text-violet-300">AI Review — Best Options to Win</span>
+          <span className="text-[8px] text-gray-500">Kalshi + Polymarket · edge + track record</span>
+        </div>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="text-[9px] text-violet-300 hover:text-violet-100 px-2 py-0.5 bg-violet-500/10 border border-violet-500/25 rounded disabled:opacity-50"
+        >
+          {isFetching ? "Reviewing…" : "↻ Review"}
+        </button>
+      </div>
+
+      {!data ? (
+        <p className="text-[9px] text-gray-500">Running AI review of live markets…</p>
+      ) : !review || !review.topPicks?.length ? (
+        <p className="text-[9px] text-gray-500">
+          {data.kalshiPicks?.length
+            ? "No high-probability edge right now — the AI recommends waiting rather than forcing a trade. Picks refresh every 5 min."
+            : "No live picks available yet — start the Kalshi engine or wait for the next market window."}
+        </p>
+      ) : (
+        <>
+          {review.overallRead && <p className="text-[9px] text-gray-400 mb-2 leading-snug">{review.overallRead}</p>}
+          <div className="space-y-1.5">
+            {review.topPicks.slice(0, 5).map((p, i) => (
+              <div key={i} className="bg-black/30 rounded-lg px-2.5 py-2 border border-violet-800/30">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-gray-100 truncate">{p.market}</span>
+                  <span className={`text-[10px] font-black flex-shrink-0 ${p.winProbability >= 75 ? "text-emerald-400" : p.winProbability >= 60 ? "text-amber-400" : "text-gray-400"}`}>
+                    {p.winProbability}% win
+                  </span>
+                </div>
+                <p className="text-[8px] text-gray-400 leading-snug mt-0.5">{p.whyItWins}</p>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">{p.strategy}</span>
+                  {p.suggestedStakeUsd > 0 && <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">stake ~${Math.round(p.suggestedStakeUsd)}</span>}
+                  {p.riskNote && <span className="text-[8px] text-gray-500">{p.riskNote}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          {review.bestStrategyNow && (
+            <p className="text-[8px] text-violet-300/80 mt-2">⚡ Strategy with the edge right now: {review.bestStrategyNow}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -1102,6 +1175,9 @@ export default function PolymarketEnginePage() {
             </button>
           </div>
 
+          {/* ── AI Review — best options to WIN (Kalshi + Polymarket) ────────── */}
+          <AiPredictionReviewPanel />
+
           {/* ── High-Value Picks (all strategies + value model) ─────────────── */}
           <div className="mb-3 bg-emerald-950/30 border border-emerald-800/40 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
@@ -1376,6 +1452,43 @@ export default function PolymarketEnginePage() {
                       className="accent-emerald-500 w-4 h-4 flex-shrink-0 ml-2"
                     />
                   </label>
+
+                  {/* Compounding growth mode */}
+                  <div className="mb-3 bg-black/20 rounded-lg px-2.5 py-2 border border-amber-500/20">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div>
+                        <span className="text-[10px] font-bold text-amber-300">📈 Compounding Growth Mode</span>
+                        <p className="text-[8px] text-gray-500 leading-snug mt-0.5">Stake a % of your growing bankroll instead of a fixed contract count — wins automatically raise the next stake to grow the account fast.</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={(kalshiEngineState?.config as any)?.compounding ?? false}
+                        onChange={e => saveKalshiConfigMutation.mutate({ compounding: e.target.checked })}
+                        className="accent-amber-500 w-4 h-4 flex-shrink-0 ml-2"
+                      />
+                    </label>
+                    {(kalshiEngineState?.config as any)?.compounding && (
+                      <div className="flex items-center gap-3 mt-2">
+                        <label className="text-[9px] text-gray-400">Risk per trade
+                          <select
+                            value={(kalshiEngineState?.config as any)?.riskPctPerTrade ?? 5}
+                            onChange={e => saveKalshiConfigMutation.mutate({ riskPctPerTrade: parseInt(e.target.value) })}
+                            className="ml-1.5 bg-gray-800 border border-gray-700 text-white rounded px-1.5 py-0.5 text-[9px]"
+                          >
+                            {[2, 3, 5, 8, 10, 15, 20].map(p => <option key={p} value={p}>{p}%</option>)}
+                          </select>
+                        </label>
+                        <label className="text-[9px] text-gray-400">Starting bankroll $
+                          <input
+                            type="number" min={10} step={10}
+                            defaultValue={(kalshiEngineState?.config as any)?.startingBankroll ?? 100}
+                            onBlur={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 10) saveKalshiConfigMutation.mutate({ startingBankroll: v }); }}
+                            className="ml-1.5 w-16 bg-gray-800 border border-gray-700 text-white rounded px-1.5 py-0.5 text-[9px]"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Live strategy scan — the "column of scans per strategy" comparison */}
                   <div className="mb-3 bg-black/30 border border-gray-800/60 rounded-lg p-2.5">

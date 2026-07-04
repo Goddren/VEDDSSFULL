@@ -21,6 +21,11 @@ interface AbbaContext {
   };
   recentTrades: Array<{ symbol: string; direction: string; result: string; pnl: number; conf: number; source: string; session: string; when: string }>;
   brain: any;
+  liveAccounts: {
+    mt5: Array<{ broker: string; balance: number; equity: number; connected: boolean }>;
+    tradelocker: Array<{ label: string; balance: number; equity: number; connected: boolean }>;
+    totalBalance: number;
+  };
 }
 
 const sessionOf = (d: Date) => { const h = d.getUTCHours(); return h < 7 ? 'Asian' : h < 13 ? 'London' : h < 20 ? 'New York' : 'Late NY'; };
@@ -92,12 +97,48 @@ export async function buildAbbaContext(userId: number): Promise<AbbaContext> {
         session: sessionOf(new Date(t.closedAt)), when: t.closedAt,
       })),
     brain: (global as any).veddAIBrain?.[userId] ?? null,
+    liveAccounts: await getLiveAccounts(userId),
   };
+}
+
+// Live balances from BOTH platforms — MT5 (EA push cache) + TradeLocker (background sync cache)
+async function getLiveAccounts(userId: number): Promise<AbbaContext['liveAccounts']> {
+  const mt5: AbbaContext['liveAccounts']['mt5'] = [];
+  const tradelocker: AbbaContext['liveAccounts']['tradelocker'] = [];
+  try {
+    const cache = (global as any).mt5AccountData?.[userId];
+    const entries = cache?.lastUpdated ? [cache] : Object.values(cache || {});
+    for (const a of entries as any[]) {
+      if (!a?.lastUpdated) continue;
+      const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1000;
+      mt5.push({ broker: a.broker || 'MT5', balance: a.balance || 0, equity: a.equity || 0, connected: age < 600 });
+    }
+  } catch { /* optional */ }
+  try {
+    const { getTlAccountData, syncUserTradeLocker } = await import('./services/tradelocker-sync');
+    let tl = getTlAccountData(userId);
+    if (tl.accounts.length === 0) {
+      // Cold cache — do one blocking sync so ABBA never reports $0 wrongly
+      await syncUserTradeLocker(userId, true).catch(() => {});
+      tl = getTlAccountData(userId);
+    }
+    for (const a of tl.accounts) {
+      tradelocker.push({ label: `${a.broker} (${a.accountType})`, balance: a.balance, equity: a.equity, connected: a.isConnected });
+    }
+  } catch { /* optional */ }
+  const totalBalance = [...mt5, ...tradelocker].reduce((s, a) => s + (a.balance || 0), 0);
+  return { mt5, tradelocker, totalBalance };
 }
 
 function contextSummary(ctx: AbbaContext): string {
   const p = ctx.performance;
+  const la = ctx.liveAccounts;
+  const acctLine = [
+    ...la.mt5.map(a => `MT5 ${a.broker}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? 'LIVE' : 'offline'}`),
+    ...la.tradelocker.map(a => `TL ${a.label}: $${a.balance.toFixed(2)} (eq $${a.equity.toFixed(2)}) ${a.connected ? 'LIVE' : 'offline'}`),
+  ].join(' | ') || 'no broker accounts connected';
   return [
+    `LIVE ACCOUNTS (real-time balances): ${acctLine}. TOTAL: $${la.totalBalance.toFixed(2)}.`,
     `GOAL: weekly target $${ctx.goal.weeklyTarget}, current $${ctx.goal.currentProfit} (${ctx.goal.progressPct}% there). Pairs: ${ctx.goal.tradingPairs.join(', ')}.`,
     `OVERALL: ${p.overall.trades} trades, ${p.overall.winRate}% WR (${p.overall.wins}W/${p.overall.losses}L), net $${p.overall.totalPnl}.`,
     `TODAY: ${p.today.trades} trades, ${p.today.winRate}% WR, net $${p.today.totalPnl}.`,
@@ -150,15 +191,45 @@ You SEE all their real trade data. Be specific, honest, and numbers-driven — r
   "narrative": "a warm, clear 1-paragraph plain-English briefing the trader can read to understand the full picture and the plan."
 }`;
 
-    const r = await ai.client.chat.completions.create({
-      model: ai.model,
-      messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-      max_tokens: 1400,
-      temperature: 0.4,
-    });
+    const parsePlan = (raw: string): any => {
+      try { return JSON.parse(raw); } catch { /* try to extract embedded JSON */ }
+      try { const m = raw.match(/\{[\s\S]*\}/); return m ? JSON.parse(m[0]) : {}; } catch { return {}; }
+    };
+    const isValidPlan = (p: any) => p && typeof p === 'object' && p.diagnosis && p.nextDayPlan && (p.narrative || p.goalAssessment);
+
     let plan: any = {};
-    try { plan = JSON.parse(r.choices[0]?.message?.content || '{}'); } catch { plan = {}; }
+    // Attempt 1: strict JSON mode
+    try {
+      const r = await ai.client.chat.completions.create({
+        model: ai.model,
+        messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+        max_tokens: 1400,
+        temperature: 0.4,
+      });
+      plan = parsePlan(r.choices[0]?.message?.content || '{}');
+    } catch (e: any) {
+      console.log('[Abba strategist] JSON-mode attempt failed:', e.message);
+    }
+    // Attempt 2: retry without response_format (some providers reject json_object)
+    if (!isValidPlan(plan)) {
+      try {
+        const r2 = await ai.client.chat.completions.create({
+          model: ai.model,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: prompt + '\n\nIMPORTANT: reply with ONLY the JSON object, nothing else.' }],
+          max_tokens: 1400,
+          temperature: 0.3,
+        });
+        plan = parsePlan(r2.choices[0]?.message?.content || '{}');
+      } catch (e: any) {
+        console.log('[Abba strategist] retry attempt failed:', e.message);
+      }
+    }
+    // Never claim "ready" with an empty plan — that's the bug where the UI
+    // said a plan was ready but nothing showed.
+    if (!isValidPlan(plan)) {
+      return res.json({ ready: false, message: "Abba couldn't build the plan this run (AI response was incomplete). Hit refresh to run it back — your trade data is all here." });
+    }
 
     res.json({ ready: true, generatedAt: new Date().toISOString(), context: { goal: ctx.goal, performance: ctx.performance }, ...plan });
   } catch (err: any) {
@@ -266,6 +337,11 @@ OUTREACH & AUTOMATION:
 
 Keep answers under 300 words unless asked for depth. Stay in your street-smart voice — warm, specific, actionable, keepin' it a buck. You are not a licensed financial advisor — drop a quick "protect the bag" style risk reminder where it fits.
 
+=== HARD RULES ===
+- NEVER include code, code blocks, JSON, or markdown fences in your replies. Plain conversation only. THE ONLY EXCEPTION: the user explicitly asks you to generate an EA, indicator, or script for a trading platform (MQL4/MQL5 for MT4/MT5, Pine Script for TradingView, etc.) — then and only then provide the code.
+- When asked about account balances or connections, use the LIVE ACCOUNTS data above — it includes BOTH MT5 and TradeLocker in real time. Never say you can't see TradeLocker.
+- The BRAIN line shows the live VEDD AI Brain (learning from both MT5 + TradeLocker closed trades) — reference its win rate and insights when discussing performance.
+
 === TRADER'S LIVE DATA ===
 ${contextSummary(ctx)}`;
 
@@ -280,7 +356,15 @@ ${contextSummary(ctx)}`;
     const r = await ai.client.chat.completions.create({
       model: ai.model, messages: msgs, max_tokens: 700, temperature: 0.6,
     });
-    res.json({ reply: r.choices[0]?.message?.content || "I couldn't generate a reply right now — try again." });
+    let reply = r.choices[0]?.message?.content || "I couldn't generate a reply right now — try again.";
+    // Hard guarantee: no code blocks in chat unless the user explicitly asked for
+    // an EA/indicator/script (MQL/Pine). Model instructions alone aren't reliable.
+    const wantsCode = /\b(ea|expert advisor|mql[45]?|pine\s?script|indicator code|script for (mt[45]|tradingview))\b/i.test(message);
+    if (!wantsCode) {
+      reply = reply.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
+      if (!reply) reply = "Run that by me one more time, fam — I got you.";
+    }
+    res.json({ reply });
   } catch (err: any) {
     console.error('[Abba chat]', err);
     res.status(500).json({ error: err.message });

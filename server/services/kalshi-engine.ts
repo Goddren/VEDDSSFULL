@@ -75,6 +75,11 @@ export interface KalshiEngineConfig {
   // Auto-exit (take-profit / stop-loss on the contract price, in cents; 0 = disabled)
   takeProfitCents: number;      // close early when YES bid ≥ this (default 90)
   stopLossCents: number;        // close early when YES bid ≤ this (default 25)
+  // Compounding — size stakes as a % of the growing bankroll instead of a fixed
+  // contract count, so winners increase the next stake automatically.
+  compounding: boolean;         // if true, contracts derive from bankroll % (default false)
+  riskPctPerTrade: number;      // % of bankroll to stake per trade when compounding (default 5)
+  startingBankroll: number;     // bankroll baseline in $ (paper mode / fallback, default 100)
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -94,6 +99,9 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   minValueScore:        8,
   takeProfitCents:      90,
   stopLossCents:        25,
+  compounding:          false,
+  riskPctPerTrade:      5,
+  startingBankroll:     100,
 };
 
 const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
@@ -135,7 +143,25 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
   if (clean.stopLossCents   != null) clean.stopLossCents   = Math.max(0, Math.min(95, clean.stopLossCents));
+  if (clean.riskPctPerTrade  != null) clean.riskPctPerTrade  = Math.max(1, Math.min(25, clean.riskPctPerTrade));
+  if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1_000_000, clean.startingBankroll));
   s.config = { ...s.config, ...clean };
+}
+
+// ── Compounding sizing ─────────────────────────────────────────────────────────
+// Bankroll grows with realized P&L, so each winning streak automatically raises
+// the next stake — the fast-growth compounding curve. Capital-preservation floor:
+// never fewer than 1 contract, never more than 200.
+export function kalshiBankroll(s: KalshiEngineState): number {
+  return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
+}
+
+export function kalshiContractsFor(s: KalshiEngineState, priceInCents: number): number {
+  if (!s.config.compounding) return s.config.contractsPerTrade;
+  const bankroll = kalshiBankroll(s);
+  const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
+  const perContract = Math.max(0.01, priceInCents / 100);
+  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
 }
 
 export function startKalshiEngine(userId: number): void {
@@ -198,13 +224,15 @@ async function _placeKalshiYes(
   s: KalshiEngineState,
   p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
 ): Promise<{ fired: boolean; reason: string }> {
-  const stakeUsd = (p.priceInCents / 100) * s.config.contractsPerTrade;
+  // Compounding mode sizes the stake from the growing bankroll; otherwise fixed count
+  const contracts = kalshiContractsFor(s, p.priceInCents);
+  const stakeUsd = (p.priceInCents / 100) * contracts;
 
   let kalshiOrderId: string | undefined;
   if (!s.isPaperMode) {
     try {
       const result: KalshiOrderResult = await placeKalshiOrder(
-        userId, p.ticker, 'yes', 'buy', s.config.contractsPerTrade, p.priceInCents,
+        userId, p.ticker, 'yes', 'buy', contracts, p.priceInCents,
       );
       kalshiOrderId = result.orderId;
     } catch (err: any) {
@@ -220,7 +248,7 @@ async function _placeKalshiYes(
     subtitle:          p.subtitle,
     side:              'yes',
     action:            'buy',
-    count:             s.config.contractsPerTrade,
+    count:             contracts,
     entryPriceCents:   p.priceInCents,
     currentPriceCents: p.priceInCents,
     stake:             stakeUsd,
@@ -242,7 +270,8 @@ async function _placeKalshiYes(
   const exitNote = (s.config.takeProfitCents > 0 || s.config.stopLossCents > 0)
     ? ` · auto-exit TP ${s.config.takeProfitCents}¢/SL ${s.config.stopLossCents}¢`
     : '';
-  const r = `${modeStr} ${p.label}: bought YES × ${s.config.contractsPerTrade} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${exitNote}`;
+  const compNote = s.config.compounding ? ` · compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : '';
+  const r = `${modeStr} ${p.label}: bought YES × ${contracts} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}`;
   s.lastScanResult = r;
   return { fired: true, reason: r };
 }
