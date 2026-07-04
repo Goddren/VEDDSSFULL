@@ -23216,11 +23216,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const effectiveTpDist = Math.max(atr2 * tpMult, effectiveSlDist * 2);
   const sl = direction === "BUY" ? entry - effectiveSlDist : entry + effectiveSlDist;
   const tp = direction === "BUY" ? entry + effectiveTpDist : entry - effectiveTpDist;
-  let lotSize = config.baseLotSize;
+  let lotSize2 = config.baseLotSize;
   if (config.useKellyCriterion && !config.lockSettings) {
     const pct2 = winningScore / 7;
     const fractionalKelly = pct2 * 0.25;
-    lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
+    lotSize2 = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
   }
   const trade = {
     action: "OPEN_TRADE",
@@ -23233,7 +23233,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     entryPrice: entry,
     stopLoss: sl,
     takeProfit: tp,
-    lotSize,
+    lotSize: lotSize2,
     holdTime: "30min",
     urgency: "IMMEDIATE"
   };
@@ -25231,12 +25231,12 @@ async function processDecision(userId, decision, newsCtx) {
       });
     }
     const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
-    const lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
-    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
+    const lotSize2 = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize2) {
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`
+        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize2} lots (user set ${_pairHardLot} max for ${decision.symbol})`
       });
     }
     {
@@ -25247,9 +25247,9 @@ async function processDecision(userId, decision, newsCtx) {
         const _pipVal = getPipValue(decision.symbol);
         if (_pipSz > 0 && _pipVal > 0 && _slDist > 0) {
           const _slPips = _slDist / _pipSz;
-          const _potentialLoss = lotSize * _slPips * _pipVal;
+          const _potentialLoss = lotSize2 * _slPips * _pipVal;
           if (_potentialLoss > _riskBal * 0.05) {
-            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize} lots \xD7 ${_slPips.toFixed(0)} pips) \u2014 trade skipped` });
+            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize2} lots \xD7 ${_slPips.toFixed(0)} pips) \u2014 trade skipped` });
             return;
           }
         }
@@ -25257,8 +25257,8 @@ async function processDecision(userId, decision, newsCtx) {
       const _posAgg = global.mt5OpenPositions?.[userId]?.positions ?? [];
       const _openLots = _posAgg.reduce((s, p) => s + (p.lots || p.volume || p.size || 0), 0);
       const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
-      if (_openLots + lotSize > _aggCap) {
-        addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
+      if (_openLots + lotSize2 > _aggCap) {
+        addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize2).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
         return;
       }
     }
@@ -25268,7 +25268,7 @@ async function processDecision(userId, decision, newsCtx) {
       symbol: decision.symbol,
       direction: decision.direction,
       action: "OPEN",
-      lotSize,
+      lotSize: lotSize2,
       entryPrice: entryPrice || null,
       stopLoss: stopLoss || null,
       takeProfit: takeProfit || null,
@@ -25337,7 +25337,7 @@ async function processDecision(userId, decision, newsCtx) {
         symbol: decision.symbol,
         direction: decision.direction,
         action: "OPEN",
-        volume: lotSize,
+        volume: lotSize2,
         entryPrice: entryPrice || null,
         stopLoss: stopLoss || null,
         takeProfit: takeProfit || null,
@@ -25369,15 +25369,15 @@ async function processDecision(userId, decision, newsCtx) {
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
             } else if (_refBal > 0) {
               const ratio = _tlAcctEq / _refBal;
-              acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+              acctLot = Math.max(0.01, Math.round(lotSize2 * ratio * 100) / 100);
               acctSizeLabel = ` (risk% fallback\u2192proportional ${ratio.toFixed(2)}\xD7)`;
             } else {
-              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
+              acctLot = Math.max(0.01, Math.round(lotSize2 * 100) / 100);
               acctSizeLabel = ` (risk% \u2014 no SL or reference balance, copying MT5 lot)`;
             }
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             const ratio = _tlAcctEq / _refBal;
-            acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
+            acctLot = Math.max(0.01, Math.round(lotSize2 * ratio * 100) / 100);
             acctSizeLabel = ` (proportional ${ratio.toFixed(2)}\xD7 \u2014 $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal <= 0 && _slPips > 0 && _pipValue > 0) {
             const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1;
@@ -25386,7 +25386,7 @@ async function processDecision(userId, decision, newsCtx) {
             acctSizeLabel = ` (\u26A0\uFE0F auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} \u2014 set Reference Balance to enable proportional copy)`;
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
-            acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
+            acctLot = Math.max(0.01, Math.round(lotSize2 * acctMult * 100) / 100);
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
@@ -25433,7 +25433,7 @@ async function processDecision(userId, decision, newsCtx) {
               direction: decision.direction,
               confidence: adjustedConfidence,
               message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
-              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
+              details: { orderId: tradeResult.orderId, lotSize: lotSize2, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
             });
           } else {
             addActivity2(userId, {
@@ -34059,57 +34059,73 @@ async function apifyScrape(actorId, input) {
     return [];
   }
 }
+async function redditFetchJSON(url, headers) {
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15e3) });
+    if (!res.ok) {
+      console.log(`[LeadHunter] Reddit HTTP ${res.status} for ${url}`);
+      return null;
+    }
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("application/json")) {
+      const preview = (await res.text()).substring(0, 80);
+      console.log(`[LeadHunter] Reddit returned non-JSON (${ct}): ${preview}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.log(`[LeadHunter] Reddit fetch error: ${e.message}`);
+    return null;
+  }
+}
 async function scrapeReddit() {
   const subreddits = ["algotrading", "Forex", "CryptoCurrency", "Solana", "Daytrading", "stocks"];
   const searches = ["AI+trading+tools", "chart+analysis+tool", "trading+software"];
   const all = [];
-  const headers = { "User-Agent": "VEDDBuild-LeadHunter/1.0" };
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (compatible; VEDDBuild-LeadHunter/1.0; +https://veddbuild.com)",
+    "Accept": "application/json"
+  };
   for (const sub of subreddits) {
-    try {
-      const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`, { headers, signal: AbortSignal.timeout(15e3) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const posts = data?.data?.children || [];
-      for (const { data: p } of posts) {
-        if (!p || !p.selftext || p.selftext.length < 30) continue;
-        const created = new Date(p.created_utc * 1e3);
-        const ageHours = (Date.now() - created.getTime()) / 36e5;
-        if (ageHours > 48) continue;
-        all.push({
-          platform: "Reddit",
-          username: p.author || "unknown",
-          post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
-          post_url: `https://www.reddit.com${p.permalink}`,
-          subreddit: sub,
-          engagement: p.ups || 0,
-          num_comments: p.num_comments || 0,
-          date: created.toISOString().substring(0, 10)
-        });
-      }
-    } catch {
+    const data = await redditFetchJSON(`https://www.reddit.com/r/${sub}/new.json?limit=25`, headers);
+    if (!data) continue;
+    const posts = data?.data?.children || [];
+    for (const { data: p } of posts) {
+      if (!p || !p.selftext || p.selftext.length < 30) continue;
+      const created = new Date(p.created_utc * 1e3);
+      const ageHours = (Date.now() - created.getTime()) / 36e5;
+      if (ageHours > 48) continue;
+      all.push({
+        platform: "Reddit",
+        username: p.author || "unknown",
+        post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
+        post_url: `https://www.reddit.com${p.permalink}`,
+        subreddit: sub,
+        engagement: p.ups || 0,
+        num_comments: p.num_comments || 0,
+        date: created.toISOString().substring(0, 10)
+      });
     }
+    await new Promise((r) => setTimeout(r, 800));
   }
   for (const q of searches) {
-    try {
-      const res = await fetch(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, { headers, signal: AbortSignal.timeout(15e3) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const posts = data?.data?.children || [];
-      for (const { data: p } of posts) {
-        if (!p || (p.selftext || "").length < 20) continue;
-        all.push({
-          platform: "Reddit",
-          username: p.author || "unknown",
-          post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
-          post_url: `https://www.reddit.com${p.permalink}`,
-          subreddit: p.subreddit || "",
-          engagement: p.ups || 0,
-          num_comments: p.num_comments || 0,
-          date: new Date(p.created_utc * 1e3).toISOString().substring(0, 10)
-        });
-      }
-    } catch {
+    const data = await redditFetchJSON(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, headers);
+    if (!data) continue;
+    const posts = data?.data?.children || [];
+    for (const { data: p } of posts) {
+      if (!p || (p.selftext || "").length < 20) continue;
+      all.push({
+        platform: "Reddit",
+        username: p.author || "unknown",
+        post_content: ((p.title || "") + ": " + (p.selftext || "")).substring(0, 500),
+        post_url: `https://www.reddit.com${p.permalink}`,
+        subreddit: p.subreddit || "",
+        engagement: p.ups || 0,
+        num_comments: p.num_comments || 0,
+        date: new Date(p.created_utc * 1e3).toISOString().substring(0, 10)
+      });
     }
+    await new Promise((r) => setTimeout(r, 800));
   }
   console.log(`[LeadHunter] Reddit (free API): ${all.length} posts`);
   return all;
@@ -44263,7 +44279,7 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       sessions,
       direction,
       strategyType,
-      lotSize,
+      lotSize: lotSize2,
       riskLevel,
       tradingDays,
       maxTradesPerDay
@@ -44304,7 +44320,7 @@ USER SPECIFICATIONS (follow these EXACTLY):
 - Account balance: $${accountBalance}
 - Daily target: $${dailyTarget}
 - Trading days: ${planDays.join(", ")}
-- Lot size: ${lotSize || "AI-calculated based on risk"}
+- Lot size: ${lotSize2 || "AI-calculated based on risk"}
 - Risk level: ${riskLevel || "moderate"}
 ${maxTradesPerDay ? `- Max trades per day: ${maxTradesPerDay}` : ""}
 
@@ -44330,7 +44346,7 @@ IMPORTANT:
 - Set skip:true for days NOT in the trading days list
 - Direction should match user's preference (${direction || "BOTH"})
 - entryCondition must describe a ${strategyType || "breakout"} setup specifically
-- Keep lotSize at ${lotSize || "calculate: risk 1-2% of $" + accountBalance} per trade`;
+- Keep lotSize at ${lotSize2 || "calculate: risk 1-2% of $" + accountBalance} per trade`;
       const planCompletion = await aiClient.chat.completions.create({
         model: aiClient.defaultModel || "gpt-4o",
         messages: [
@@ -44376,7 +44392,7 @@ IMPORTANT:
           accountBalance: parseFloat(accountBalance),
           pairs: mergedPairs,
           riskLevel: riskLevel || existingStrategy.riskLevel || "moderate",
-          lotSize: lotSize ? parseFloat(lotSize) : existingStrategy.lotSize ?? null,
+          lotSize: lotSize2 ? parseFloat(lotSize2) : existingStrategy.lotSize ?? null,
           plan: mergedPlan,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
@@ -44396,7 +44412,7 @@ IMPORTANT:
           accountBalance: parseFloat(accountBalance),
           pairs: cleanPairs,
           riskLevel: riskLevel || "moderate",
-          lotSize: lotSize ? parseFloat(lotSize) : null,
+          lotSize: lotSize2 ? parseFloat(lotSize2) : null,
           plan: planData,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
@@ -44417,7 +44433,7 @@ IMPORTANT:
         accountBalance: savedStrategy?.accountBalance ?? parseFloat(accountBalance),
         pairs: savedStrategy?.pairs || cleanPairs,
         riskLevel: savedStrategy?.riskLevel || riskLevel || "moderate",
-        lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
+        lotSize: savedStrategy?.lotSize ?? (lotSize2 ? parseFloat(lotSize2) : null),
         plan: savedStrategy?.plan || planData,
         strategyMode: hftMode || savedStrategy?.strategyType || "aggressive",
         pairStats,
@@ -50986,7 +51002,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app2.post("/api/weekly-strategy/generate", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode, tradingDays, pairDayAssignments, smartEscalation, highConfidenceOverride } = req.body;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize: lotSize2, strategyMode, tradingDays, pairDayAssignments, smartEscalation, highConfidenceOverride } = req.body;
     if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
       return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
     }
@@ -51117,7 +51133,7 @@ ACCOUNT GROWTH CHALLENGE:
 - Starting Balance: $${accountBalance}
 - Weekly Profit Target: $${profitTarget}
 - Goal Balance: $${(parseFloat(accountBalance) + parseFloat(profitTarget)).toFixed(2)} (${growthMultiplier}x growth)
-- Preferred Lot Size: ${lotSize || "AI decides optimal sizing based on risk level above"}
+- Preferred Lot Size: ${lotSize2 || "AI decides optimal sizing based on risk level above"}
 - Selected Pairs: ${pairs.join(", ")}
 - ACTIVE TRADING DAYS: ${activeTradingDays.join(", ")} \u2014 DO NOT generate trades for any other days${pinnedInstructions ? `
 - PAIR DAY CONSTRAINTS:
@@ -51282,7 +51298,7 @@ Respond with ONLY valid JSON:
         riskLevel: selectedRisk,
         tradingDays: activeTradingDays,
         pairDayAssignments: pinnedPairs,
-        lotSize: lotSize || "auto",
+        lotSize: lotSize2 || "auto",
         strategyMode: hftMode,
         plan,
         pairStats,
@@ -51538,7 +51554,7 @@ Respond with ONLY valid JSON:
   app2.post("/api/goal-pacing/set-ai-path", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { pathType, pairs, lotSize, enabled } = req.body;
+    const { pathType, pairs, lotSize: lotSize2, enabled } = req.body;
     global.veddAiPathControl = global.veddAiPathControl || {};
     if (!enabled) {
       global.veddAiPathControl[userId] = { enabled: false };
@@ -51546,7 +51562,7 @@ Respond with ONLY valid JSON:
     }
     let resolvedPathType = pathType || "AUTO";
     let resolvedPairs = pairs || [];
-    let resolvedLotMult = lotSize || 1;
+    let resolvedLotMult = lotSize2 || 1;
     if (resolvedPathType === "AUTO") {
       const gi = global.veddGoalIntelligence?.[userId];
       const paceRatio = gi?.paceRatio ?? 1;
@@ -62286,7 +62302,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/growth-plan/trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
+    const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize: lotSize2, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     try {
       const [planResult] = await db.execute(sql7`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
@@ -62296,7 +62312,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const riskProfile = planRows[0]?.risk_profile || "conservative";
       await db.execute(sql7`
         INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
-        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
+        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize2 || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
       `);
       let phaseChanged = false;
       let newPhase = oldPhase;
@@ -62562,7 +62578,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/micro-growth/dispatch-signal", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
     const userId = req.user.id;
-    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize, accountAlias } = req.body;
+    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize: lotSize2, accountAlias } = req.body;
     if (!symbol || !direction) return res.status(400).json({ message: "symbol and direction required" });
     if (typeof global.addMT5Signal === "function") {
       global.addMT5Signal(userId, {
@@ -62572,7 +62588,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         entryPrice: entryPrice ?? null,
         stopLoss: slPips ?? null,
         takeProfit: tpPips ?? null,
-        lotSize: lotSize ?? 0.01,
+        lotSize: lotSize2 ?? 0.01,
         source: "micro_growth",
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       }, accountAlias ?? "default");
@@ -62661,7 +62677,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/fx-paper/trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
+    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize: lotSize2 = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
     if (!pair || !direction || typeof entryPrice !== "number") {
       return res.status(400).json({ error: "pair, direction, and entryPrice are required" });
     }
@@ -62673,7 +62689,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const tradeRows = await db.execute(sql7`
         INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
-        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
+        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize2}, ${confidence2 ?? null}, ${source}, 'open', now())
         RETURNING id
       `);
       const newTradeId = tradeRows[0]?.[0]?.id ?? tradeRows.rows?.[0]?.id;
@@ -62684,7 +62700,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         `);
         const copierList = copiers[0] ?? copiers.rows ?? [];
         for (const rel of copierList) {
-          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
+          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize2)) || 0.01);
           await db.execute(sql7`
             INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
@@ -62717,12 +62733,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         `);
       }
       try {
+        const copyLogs = await db.execute(sql7`
+          SELECT ctl.id, ctl.copier_id, ctl.lot_size, cr.profit_share_pct
+          FROM copy_trade_logs ctl
+          JOIN copy_relationships cr ON cr.id = ctl.relationship_id
+          WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
+        `);
+        const logs = copyLogs[0] ?? copyLogs.rows ?? [];
         await db.execute(sql7`
           UPDATE copy_trade_logs
           SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
           WHERE original_trade_id=${tradeId} AND source_user_id=${userId} AND status='open'
         `);
-      } catch {
+        if (typeof pnl === "number" && pnl > 0) {
+          const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+          const VEDD_PER_USD = 10;
+          let totalVeddEarned = 0;
+          for (const log2 of logs) {
+            const sharePct = parseFloat(log2.profit_share_pct) || 20;
+            const lotRatio = parseFloat(log2.lot_size) > 0 ? parseFloat(log2.lot_size) / (parseFloat(String(lotSize)) || parseFloat(log2.lot_size)) : 1;
+            const copierPnl = pnl * Math.min(1, lotRatio);
+            const shareUsd = copierPnl * (sharePct / 100);
+            const veddToTrader = Math.round(shareUsd * VEDD_PER_USD * 100) / 100;
+            if (veddToTrader > 0) {
+              await _stor.addToWalletBalance(userId, veddToTrader);
+              totalVeddEarned += veddToTrader;
+              await db.execute(sql7`UPDATE copy_trade_logs SET profit_share_vedd=${veddToTrader} WHERE id=${log2.id}`);
+            }
+          }
+          if (totalVeddEarned > 0) {
+            console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
+          }
+        }
+      } catch (e) {
+        console.log("[CopyTrading] Profit share error (non-critical):", e.message);
       }
       res.json({ success: true });
     } catch (e) {
@@ -62812,18 +62856,34 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.post("/api/copy/relationships", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { sourceUserId, accountType = "paper", maxLotSize = 0.01 } = req.body;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20 } = req.body;
     if (!sourceUserId || sourceUserId === userId) {
       return res.status(400).json({ error: "Invalid sourceUserId" });
     }
+    const COPY_SUBSCRIPTION_FEE_VEDD = 10;
+    const COPY_MIN_VEDD_BALANCE = 10;
     try {
+      const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const copierWallet = await _stor.getInternalWallet(userId);
+      const copierBalance = copierWallet?.veddBalance ?? 0;
+      if (copierBalance < COPY_MIN_VEDD_BALANCE) {
+        return res.status(402).json({
+          error: `You need at least ${COPY_MIN_VEDD_BALANCE} VEDD tokens to copy a trader. Your balance: ${copierBalance.toFixed(1)} VEDD.`,
+          required: COPY_MIN_VEDD_BALANCE,
+          balance: copierBalance
+        });
+      }
+      await _stor.updateInternalWalletBalance(userId, -COPY_SUBSCRIPTION_FEE_VEDD);
+      await _stor.addToWalletBalance(sourceUserId, COPY_SUBSCRIPTION_FEE_VEDD);
+      const clampedPct = Math.min(50, Math.max(5, Number(profitSharePct) || 20));
       await db.execute(sql7`
-        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, is_active, created_at)
-        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, true, now())
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, vedd_fee_paid, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
         ON CONFLICT (copier_id, source_user_id)
-        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}
+        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}, profit_share_pct=${clampedPct},
+                      vedd_fee_paid=copy_relationships.vedd_fee_paid+${COPY_SUBSCRIPTION_FEE_VEDD}
       `);
-      res.json({ success: true });
+      res.json({ success: true, veddCharged: COPY_SUBSCRIPTION_FEE_VEDD, profitSharePct: clampedPct });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -62852,6 +62912,30 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       await db.execute(sql7`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
       res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/copy/vedd-status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+      const wallet = await _stor.getInternalWallet(userId);
+      const earnedRows = await db.execute(sql7`
+        SELECT COALESCE(SUM(profit_share_vedd), 0) AS total_vedd_earned,
+               COUNT(*) FILTER (WHERE profit_share_vedd > 0) AS trades_earned
+        FROM copy_trade_logs WHERE source_user_id=${userId} AND status='closed'
+      `);
+      const earned = (earnedRows[0]?.[0] ?? earnedRows.rows?.[0]) || {};
+      res.json({
+        veddBalance: wallet?.veddBalance ?? 0,
+        totalEarned: wallet?.totalEarned ?? 0,
+        copyEarningsVedd: parseFloat(earned.total_vedd_earned) || 0,
+        copyTradesEarned: parseInt(earned.trades_earned) || 0,
+        subscriptionFee: 10,
+        minBalanceRequired: 10
+      });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -64706,6 +64790,13 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.log("[startup] Lead Hunter tables created/verified.");
     } catch (err) {
       console.error("[startup] Lead Hunter tables migration (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql9`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
+      await db.execute(sql9`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
+      await db.execute(sql9`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
+      console.log("[startup] Copy trading VEDD columns verified.");
+    } catch (err) {
     }
     try {
       await db.execute(sql9`CREATE TABLE IF NOT EXISTS blog_posts (

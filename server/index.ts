@@ -647,6 +647,15 @@ async function withRetry<T>(
       console.error('[startup] Lead Hunter tables migration (non-fatal):', (err as Error).message);
     }
 
+    // Add VEDD copy-trading columns to copy_relationships (idempotent)
+    try {
+      await db.execute(sql`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
+      await db.execute(sql`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
+      await db.execute(sql`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
+      console.log('[startup] Copy trading VEDD columns verified.');
+    } catch (err) {
+    }
+
     try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,

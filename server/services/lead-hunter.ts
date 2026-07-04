@@ -107,60 +107,82 @@ async function apifyScrape(actorId: string, input: object): Promise<any[]> {
 
 // ── Platform scrapers ────────────────────────────────────────────────────────
 
+async function redditFetchJSON(url: string, headers: Record<string, string>): Promise<any | null> {
+  try {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      console.log(`[LeadHunter] Reddit HTTP ${res.status} for ${url}`);
+      return null;
+    }
+    // Reddit rate-limits bots by returning an HTML page instead of JSON.
+    // Check content-type before parsing to avoid "Unexpected token <" crashes.
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      const preview = (await res.text()).substring(0, 80);
+      console.log(`[LeadHunter] Reddit returned non-JSON (${ct}): ${preview}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e: any) {
+    console.log(`[LeadHunter] Reddit fetch error: ${e.message}`);
+    return null;
+  }
+}
+
 async function scrapeReddit(): Promise<RawLead[]> {
   // Uses Reddit's free public JSON API — no API key or Apify needed.
   const subreddits = ['algotrading', 'Forex', 'CryptoCurrency', 'Solana', 'Daytrading', 'stocks'];
   const searches = ['AI+trading+tools', 'chart+analysis+tool', 'trading+software'];
   const all: RawLead[] = [];
-  const headers = { 'User-Agent': 'VEDDBuild-LeadHunter/1.0' };
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (compatible; VEDDBuild-LeadHunter/1.0; +https://veddbuild.com)',
+    'Accept': 'application/json',
+  };
 
   // Scrape new posts from each subreddit
   for (const sub of subreddits) {
-    try {
-      const res = await fetch(`https://www.reddit.com/r/${sub}/new.json?limit=25`, { headers, signal: AbortSignal.timeout(15000) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const posts = data?.data?.children || [];
-      for (const { data: p } of posts) {
-        if (!p || !p.selftext || p.selftext.length < 30) continue;
-        const created = new Date(p.created_utc * 1000);
-        const ageHours = (Date.now() - created.getTime()) / 3600000;
-        if (ageHours > 48) continue; // only last 48h
-        all.push({
-          platform: 'Reddit',
-          username: p.author || 'unknown',
-          post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
-          post_url: `https://www.reddit.com${p.permalink}`,
-          subreddit: sub,
-          engagement: p.ups || 0,
-          num_comments: p.num_comments || 0,
-          date: created.toISOString().substring(0, 10),
-        });
-      }
-    } catch { /* skip on timeout */ }
+    const data = await redditFetchJSON(`https://www.reddit.com/r/${sub}/new.json?limit=25`, headers);
+    if (!data) continue;
+    const posts = data?.data?.children || [];
+    for (const { data: p } of posts) {
+      if (!p || !p.selftext || p.selftext.length < 30) continue;
+      const created = new Date(p.created_utc * 1000);
+      const ageHours = (Date.now() - created.getTime()) / 3600000;
+      if (ageHours > 48) continue;
+      all.push({
+        platform: 'Reddit',
+        username: p.author || 'unknown',
+        post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
+        post_url: `https://www.reddit.com${p.permalink}`,
+        subreddit: sub,
+        engagement: p.ups || 0,
+        num_comments: p.num_comments || 0,
+        date: created.toISOString().substring(0, 10),
+      });
+    }
+    // Small delay between subreddit requests to avoid rate limiting
+    await new Promise(r => setTimeout(r, 800));
   }
 
   // Search Reddit for specific trading keywords
   for (const q of searches) {
-    try {
-      const res = await fetch(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, { headers, signal: AbortSignal.timeout(15000) });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const posts = data?.data?.children || [];
-      for (const { data: p } of posts) {
-        if (!p || (p.selftext || '').length < 20) continue;
-        all.push({
-          platform: 'Reddit',
-          username: p.author || 'unknown',
-          post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
-          post_url: `https://www.reddit.com${p.permalink}`,
-          subreddit: p.subreddit || '',
-          engagement: p.ups || 0,
-          num_comments: p.num_comments || 0,
-          date: new Date(p.created_utc * 1000).toISOString().substring(0, 10),
-        });
-      }
-    } catch { /* skip */ }
+    const data = await redditFetchJSON(`https://www.reddit.com/search.json?q=${q}&sort=new&t=week&limit=20`, headers);
+    if (!data) continue;
+    const posts = data?.data?.children || [];
+    for (const { data: p } of posts) {
+      if (!p || (p.selftext || '').length < 20) continue;
+      all.push({
+        platform: 'Reddit',
+        username: p.author || 'unknown',
+        post_content: ((p.title || '') + ': ' + (p.selftext || '')).substring(0, 500),
+        post_url: `https://www.reddit.com${p.permalink}`,
+        subreddit: p.subreddit || '',
+        engagement: p.ups || 0,
+        num_comments: p.num_comments || 0,
+        date: new Date(p.created_utc * 1000).toISOString().substring(0, 10),
+      });
+    }
+    await new Promise(r => setTimeout(r, 800));
   }
 
   console.log(`[LeadHunter] Reddit (free API): ${all.length} posts`);

@@ -54,6 +54,17 @@ export default function CopyTradingPage() {
   const [newMaxLot, setNewMaxLot] = useState("0.01");
   const [newAccountType, setNewAccountType] = useState("paper");
   const [logFilter, setLogFilter] = useState<"all" | "open" | "closed">("all");
+  const [profitSharePct, setProfitSharePct] = useState(20);
+
+  const { data: veddStatus } = useQuery<{
+    veddBalance: number; totalEarned: number; copyEarningsVedd: number;
+    copyTradesEarned: number; subscriptionFee: number; minBalanceRequired: number;
+  }>({ queryKey: ["/api/copy/vedd-status"], refetchInterval: 30000 });
+
+  const veddBalance = veddStatus?.veddBalance ?? 0;
+  const subscriptionFee = veddStatus?.subscriptionFee ?? 10;
+  const minRequired = veddStatus?.minBalanceRequired ?? 10;
+  const canCopy = veddBalance >= minRequired;
 
   const { data: leaderboard = [], isLoading: lbLoading, dataUpdatedAt: lbUpdated } = useQuery<any[]>({
     queryKey: ["/api/copy/leaderboard"],
@@ -72,16 +83,20 @@ export default function CopyTradingPage() {
   });
 
   const startCopyMutation = useMutation({
-    mutationFn: async ({ sourceUserId, accountType, maxLotSize }: { sourceUserId: number; accountType: string; maxLotSize: number }) => {
-      const res = await apiRequest("POST", "/api/copy/relationships", { sourceUserId, accountType, maxLotSize });
+    mutationFn: async ({ sourceUserId, accountType, maxLotSize, profitSharePct }: { sourceUserId: number; accountType: string; maxLotSize: number; profitSharePct: number }) => {
+      const res = await apiRequest("POST", "/api/copy/relationships", { sourceUserId, accountType, maxLotSize, profitSharePct });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/copy/relationships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/copy/vedd-status"] });
       setCopyingUserId(null);
-      toast({ title: "Copy started", description: "You are now copying this trader." });
+      toast({ title: "Copy started", description: `${data.veddCharged} VEDD charged · ${data.profitSharePct}% profit share active.` });
     },
-    onError: () => toast({ title: "Error", description: "Could not start copy.", variant: "destructive" }),
+    onError: (err: any) => {
+      const msg = err?.message || "Could not start copy.";
+      toast({ title: "Insufficient VEDD", description: msg, variant: "destructive" });
+    },
   });
 
   const stopCopyMutation = useMutation({
@@ -148,6 +163,12 @@ export default function CopyTradingPage() {
             <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Mirror top traders' AI signals · auto-refreshes every 10s</p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* VEDD balance chip */}
+            <div style={{ padding: "5px 12px", borderRadius: 20, background: canCopy ? "#1a0f2e" : "#1a0a0a", border: `1px solid ${canCopy ? "#a855f7" : "#7f1d1d"}`, display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 16 }}>🪙</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: canCopy ? "#a855f7" : "#ef4444" }}>{veddBalance.toFixed(1)} VEDD</span>
+              {!canCopy && <span style={{ fontSize: 10, color: "#6b7280" }}>need {minRequired}</span>}
+            </div>
             <span style={{ fontSize: 10, color: "#4b5563" }}>Updated {lastUpdated}</span>
             <button
               onClick={() => refetchTrades()}
@@ -297,7 +318,7 @@ export default function CopyTradingPage() {
                   <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ color: "#6b7280", fontSize: 10, borderBottom: "1px solid #1a1f2e" }}>
-                        {["#", "Trader", "Win Rate", "Trades", "Open", "Avg P&L", "Best", "Total P&L", "Last Active", ""].map(h => (
+                        {["#", "Trader", "Win Rate", "Trades", "Open", "Avg P&L", "Best", "Total P&L", "Share %", "Last Active", ""].map(h => (
                           <th key={h} style={{ padding: "8px 12px", textAlign: h === "#" || h === "Trader" || h === "" ? "left" : "right", fontWeight: 600 }}>{h}</th>
                         ))}
                       </tr>
@@ -345,6 +366,9 @@ export default function CopyTradingPage() {
                               <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, color: pnlColor(pnl) }}>
                                 {fmt(pnl)}
                               </td>
+                              <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: "#a855f7" }}>20%</span>
+                              </td>
                               <td style={{ padding: "10px 12px", textAlign: "right", fontSize: 11, color: "#6b7280" }}>
                                 {trader.last_trade_at ? relativeTime(trader.last_trade_at) : "—"}
                               </td>
@@ -355,13 +379,17 @@ export default function CopyTradingPage() {
                                   <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 8, background: "#065f4622", color: "#10b981", fontWeight: 700, border: "1px solid #10b98133" }}>
                                     ✓ Copying
                                   </span>
-                                ) : (
+                                ) : canCopy ? (
                                   <button
                                     onClick={() => { setCopyingUserId(isExpanded ? null : trader.user_id); setNewMaxLot("0.01"); setNewAccountType("paper"); }}
                                     style={{ padding: "4px 12px", borderRadius: 8, background: "#a855f7", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }}
                                   >
                                     <Copy size={10} style={{ display: "inline", marginRight: 4 }} />Copy
                                   </button>
+                                ) : (
+                                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 8, background: "#1a0a0a", color: "#ef4444", fontWeight: 700, border: "1px solid #7f1d1d44" }}>
+                                    🪙 {minRequired} VEDD
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -382,15 +410,19 @@ export default function CopyTradingPage() {
                                         <option value="real">Real</option>
                                       </select>
                                     </div>
-                                    <Button size="sm" onClick={() => startCopyMutation.mutate({ sourceUserId: trader.user_id, accountType: newAccountType, maxLotSize: parseFloat(newMaxLot) || 0.01 })}
+                                    <Button size="sm" onClick={() => startCopyMutation.mutate({ sourceUserId: trader.user_id, accountType: newAccountType, maxLotSize: parseFloat(newMaxLot) || 0.01, profitSharePct })}
                                       disabled={startCopyMutation.isPending} className="h-8 bg-purple-600 hover:bg-purple-700">
-                                      {startCopyMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : "Confirm Copy"}
+                                      {startCopyMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : `Confirm — ${subscriptionFee} VEDD`}
                                     </Button>
                                     <Button size="sm" variant="ghost" onClick={() => setCopyingUserId(null)} className="h-8 text-gray-400">Cancel</Button>
                                   </div>
-                                  <p style={{ margin: "8px 0 0", fontSize: 11, color: "#4b5563" }}>
-                                    Trades will mirror to your {newAccountType} account at ≤{newMaxLot} lots. Stop anytime.
-                                  </p>
+                                  <div style={{ marginTop: 8, padding: "8px 10px", background: "#080b14", borderRadius: 8, border: "1px solid #1a1f2e" }}>
+                                    <span style={{ fontSize: 10, color: "#6b7280" }}>
+                                      🪙 <strong style={{ color: "#a855f7" }}>{subscriptionFee} VEDD</strong> subscription fee paid to trader ·
+                                      <strong style={{ color: "#10b981" }}> 20% profit share</strong> of each winning trade goes to them in VEDD ·
+                                      Your balance: <strong style={{ color: canCopy ? "#a855f7" : "#ef4444" }}>{veddBalance.toFixed(1)} VEDD</strong>
+                                    </span>
+                                  </div>
                                 </td>
                               </tr>
                             )}
@@ -584,6 +616,27 @@ export default function CopyTradingPage() {
                 </div>
               )}
             </div>
+
+            {/* My VEDD earnings as a copy trader */}
+            {(veddStatus?.copyEarningsVedd ?? 0) > 0 && (
+              <div style={{ background: "#0f1420", border: "1px solid #a855f733", borderRadius: 14, padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 16 }}>🪙</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#a855f7" }}>My Copy Trading Earnings</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ background: "#080b14", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: "#a855f7" }}>+{(veddStatus?.copyEarningsVedd ?? 0).toFixed(1)}</div>
+                    <div style={{ fontSize: 9, color: "#4b5563" }}>VEDD earned</div>
+                  </div>
+                  <div style={{ background: "#080b14", borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 16, fontWeight: 900, color: "#10b981" }}>{veddStatus?.copyTradesEarned ?? 0}</div>
+                    <div style={{ fontSize: 9, color: "#4b5563" }}>trades paid</div>
+                  </div>
+                </div>
+                <p style={{ margin: "8px 0 0", fontSize: 10, color: "#4b5563" }}>Earned from 20% profit share of copiers' winning trades.</p>
+              </div>
+            )}
 
             {/* How it works */}
             <div style={{ background: "#0f1420", border: "1px solid #1a1f2e", borderRadius: 14, padding: 16 }}>

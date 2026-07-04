@@ -26539,14 +26539,51 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
         `);
       }
-      // Close mirrored copy trades for this source trade
+      // Close mirrored copy trades and pay profit share to source trader in VEDD tokens
       try {
+        // Fetch open copy logs for this trade along with the relationship's profit share %
+        const copyLogs = await db.execute(sql`
+          SELECT ctl.id, ctl.copier_id, ctl.lot_size, cr.profit_share_pct
+          FROM copy_trade_logs ctl
+          JOIN copy_relationships cr ON cr.id = ctl.relationship_id
+          WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
+        `);
+        const logs: any[] = (copyLogs as any)[0] ?? (copyLogs as any).rows ?? [];
+
+        // Close all open mirrored logs
         await db.execute(sql`
           UPDATE copy_trade_logs
           SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
           WHERE original_trade_id=${tradeId} AND source_user_id=${userId} AND status='open'
         `);
-      } catch { /* non-critical */ }
+
+        // Pay VEDD profit share to the source trader for each profitable copy
+        if (typeof pnl === 'number' && pnl > 0) {
+          const { storage: _stor } = await import('./storage');
+          // 10 VEDD per $1 of profit share (rate can be tuned)
+          const VEDD_PER_USD = 10;
+          let totalVeddEarned = 0;
+          for (const log of logs) {
+            const sharePct = parseFloat(log.profit_share_pct) || 20;
+            // Scale P&L by lot ratio (copier may have smaller lot than source)
+            const lotRatio = parseFloat(log.lot_size) > 0 ? parseFloat(log.lot_size) / (parseFloat(String(lotSize)) || parseFloat(log.lot_size)) : 1;
+            const copierPnl = pnl * Math.min(1, lotRatio);
+            const shareUsd = copierPnl * (sharePct / 100);
+            const veddToTrader = Math.round(shareUsd * VEDD_PER_USD * 100) / 100;
+            if (veddToTrader > 0) {
+              await _stor.addToWalletBalance(userId, veddToTrader);
+              totalVeddEarned += veddToTrader;
+              // Record profit share on the log
+              await db.execute(sql`UPDATE copy_trade_logs SET profit_share_vedd=${veddToTrader} WHERE id=${log.id}`);
+            }
+          }
+          if (totalVeddEarned > 0) {
+            console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
+          }
+        }
+      } catch (e: any) {
+        console.log('[CopyTrading] Profit share error (non-critical):', e.message);
+      }
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -26649,18 +26686,41 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.post("/api/copy/relationships", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
-    const { sourceUserId, accountType = "paper", maxLotSize = 0.01 } = req.body;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20 } = req.body;
     if (!sourceUserId || sourceUserId === userId) {
       return res.status(400).json({ error: "Invalid sourceUserId" });
     }
+
+    const COPY_SUBSCRIPTION_FEE_VEDD = 10; // VEDD tokens to subscribe
+    const COPY_MIN_VEDD_BALANCE = 10;      // minimum wallet balance required
+
     try {
+      // Check copier has enough VEDD tokens in their internal wallet
+      const { storage: _stor } = await import('./storage');
+      const copierWallet = await _stor.getInternalWallet(userId);
+      const copierBalance = copierWallet?.veddBalance ?? 0;
+      if (copierBalance < COPY_MIN_VEDD_BALANCE) {
+        return res.status(402).json({
+          error: `You need at least ${COPY_MIN_VEDD_BALANCE} VEDD tokens to copy a trader. Your balance: ${copierBalance.toFixed(1)} VEDD.`,
+          required: COPY_MIN_VEDD_BALANCE,
+          balance: copierBalance,
+        });
+      }
+
+      // Deduct subscription fee from copier
+      await _stor.updateInternalWalletBalance(userId, -COPY_SUBSCRIPTION_FEE_VEDD);
+      // Credit subscription fee to trader
+      await _stor.addToWalletBalance(sourceUserId as number, COPY_SUBSCRIPTION_FEE_VEDD);
+
+      const clampedPct = Math.min(50, Math.max(5, Number(profitSharePct) || 20));
       await db.execute(sql`
-        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, is_active, created_at)
-        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, true, now())
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, vedd_fee_paid, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
         ON CONFLICT (copier_id, source_user_id)
-        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}
+        DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}, profit_share_pct=${clampedPct},
+                      vedd_fee_paid=copy_relationships.vedd_fee_paid+${COPY_SUBSCRIPTION_FEE_VEDD}
       `);
-      res.json({ success: true });
+      res.json({ success: true, veddCharged: COPY_SUBSCRIPTION_FEE_VEDD, profitSharePct: clampedPct });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -26691,6 +26751,32 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       await db.execute(sql`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
       res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/copy/vedd-status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const { storage: _stor } = await import('./storage');
+      const wallet = await _stor.getInternalWallet(userId);
+      // Total VEDD earned as a copy trader (profit share received)
+      const earnedRows = await db.execute(sql`
+        SELECT COALESCE(SUM(profit_share_vedd), 0) AS total_vedd_earned,
+               COUNT(*) FILTER (WHERE profit_share_vedd > 0) AS trades_earned
+        FROM copy_trade_logs WHERE source_user_id=${userId} AND status='closed'
+      `);
+      const earned = ((earnedRows as any)[0]?.[0] ?? (earnedRows as any).rows?.[0]) || {};
+      res.json({
+        veddBalance: wallet?.veddBalance ?? 0,
+        totalEarned: wallet?.totalEarned ?? 0,
+        copyEarningsVedd: parseFloat(earned.total_vedd_earned) || 0,
+        copyTradesEarned: parseInt(earned.trades_earned) || 0,
+        subscriptionFee: 10,
+        minBalanceRequired: 10,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
