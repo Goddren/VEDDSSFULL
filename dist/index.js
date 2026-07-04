@@ -941,6 +941,12 @@ var init_schema = __esm({
       // Size by % of this account's equity instead of copying source lot
       riskPercent: doublePrecision("risk_percent").notNull().default(1),
       // % of equity to risk per trade when useRiskPercent=true
+      isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
+      // Mark this TL account as a prop-firm/funded account
+      propFirmName: text("prop_firm_name"),
+      // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
+      propFirmAccountSize: doublePrecision("prop_firm_account_size"),
+      // Funded account size in $ (for drawdown/target math)
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -1065,6 +1071,8 @@ var init_schema = __esm({
       // When trade was closed
       source: text("source").default("manual"),
       // 'manual', 'auto', 'mt5_copier'
+      connectionId: integer("connection_id"),
+      // TradeLocker connection this trade belongs to (ties trades → specific account)
       mt5Ticket: text("mt5_ticket"),
       // MT5 trade ticket number for sync
       notes: text("notes"),
@@ -20928,6 +20936,141 @@ var init_share_card_service = __esm({
   }
 });
 
+// server/services/tradelocker-sync.ts
+var tradelocker_sync_exports = {};
+__export(tradelocker_sync_exports, {
+  getTlAccountData: () => getTlAccountData,
+  markTlUserActive: () => markTlUserActive,
+  refreshTlAfterTrade: () => refreshTlAfterTrade,
+  startTradeLockerSync: () => startTradeLockerSync,
+  syncUserTradeLocker: () => syncUserTradeLocker
+});
+function cache2() {
+  global.tlAccountData = global.tlAccountData || {};
+  return global.tlAccountData;
+}
+function markTlUserActive(userId) {
+  activeUsers.set(userId, Date.now());
+}
+async function syncUserTradeLocker(userId, force = false) {
+  const now = Date.now();
+  if (!force) {
+    const last = lastSyncAt.get(userId) || 0;
+    if (now - last < MIN_RESYNC_GAP_MS) {
+      return Object.values(cache2()[userId] || {});
+    }
+  }
+  if (inFlight.has(userId)) {
+    return Object.values(cache2()[userId] || {});
+  }
+  inFlight.add(userId);
+  try {
+    const connections = await storage.getUserTradelockerConnections(userId);
+    const active = connections.filter((c) => c.isActive);
+    const store = cache2();
+    store[userId] = store[userId] || {};
+    const activeIds = new Set(active.map((c) => c.accountId));
+    for (const key of Object.keys(store[userId])) {
+      if (!activeIds.has(key)) delete store[userId][key];
+    }
+    for (const conn of active) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const info = await svc.getAccountInfo();
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: info.balance || 0,
+          equity: info.equity || 0,
+          margin: info.margin || 0,
+          freeMargin: info.freeMargin || 0,
+          currency: info.currency || "USD",
+          lastUpdated: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        global.tlAccountBalances = global.tlAccountBalances || {};
+        global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
+        if (info.balance > 0) global.tlAccountBalances[userId][conn.accountId] = info.balance;
+      } catch (err) {
+        const prev = store[userId][conn.accountId];
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+          balance: prev?.balance || 0,
+          equity: prev?.equity || 0,
+          margin: prev?.margin || 0,
+          freeMargin: prev?.freeMargin || 0,
+          currency: prev?.currency || "USD",
+          lastUpdated: prev?.lastUpdated || (/* @__PURE__ */ new Date(0)).toISOString(),
+          error: err?.message || "fetch failed"
+        };
+      }
+    }
+    lastSyncAt.set(userId, Date.now());
+    return Object.values(store[userId]);
+  } finally {
+    inFlight.delete(userId);
+  }
+}
+function getTlAccountData(userId) {
+  markTlUserActive(userId);
+  const store = cache2()[userId] || {};
+  const now = Date.now();
+  const accounts = Object.values(store).map((a) => {
+    const secondsAgo = Math.floor((now - new Date(a.lastUpdated).getTime()) / 1e3);
+    return { ...a, secondsAgo, isConnected: secondsAgo < 120 && !a.error };
+  });
+  return {
+    connected: accounts.some((a) => a.isConnected),
+    accounts,
+    totalBalance: accounts.reduce((s, a) => s + (a.balance || 0), 0),
+    totalEquity: accounts.reduce((s, a) => s + (a.equity || 0), 0)
+  };
+}
+function refreshTlAfterTrade(userId) {
+  markTlUserActive(userId);
+  syncUserTradeLocker(userId, true).catch(() => {
+  });
+}
+function startTradeLockerSync() {
+  if (started) return;
+  started = true;
+  setInterval(async () => {
+    const now = Date.now();
+    for (const [userId, seenAt] of activeUsers.entries()) {
+      if (now - seenAt > ACTIVE_WINDOW_MS) {
+        activeUsers.delete(userId);
+        continue;
+      }
+      try {
+        await syncUserTradeLocker(userId);
+      } catch {
+      }
+    }
+  }, SYNC_INTERVAL_MS);
+  console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
+}
+var activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
+var init_tradelocker_sync = __esm({
+  "server/services/tradelocker-sync.ts"() {
+    "use strict";
+    init_storage();
+    init_tradelocker();
+    activeUsers = /* @__PURE__ */ new Map();
+    ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
+    SYNC_INTERVAL_MS = 20 * 1e3;
+    MIN_RESYNC_GAP_MS = 8 * 1e3;
+    lastSyncAt = /* @__PURE__ */ new Map();
+    inFlight = /* @__PURE__ */ new Set();
+    started = false;
+  }
+});
+
 // server/services/ai-model-service.ts
 var ai_model_service_exports = {};
 __export(ai_model_service_exports, {
@@ -25454,6 +25597,7 @@ async function processDecision(userId, decision, newsCtx) {
         state.tradesExecuted++;
         state.tradesOpenedToday++;
         state.openPositionCount++;
+        refreshTlAfterTrade(userId);
         mt5Signal.status = "executed";
       } else {
         state.tradesFailed++;
@@ -25541,6 +25685,7 @@ async function processDecision(userId, decision, newsCtx) {
               });
               if (tradeResult.success) {
                 addActivity2(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
+                refreshTlAfterTrade(userId);
               } else {
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `CLOSE failed on TradeLocker ${acctLabel}: ${tradeResult.error}` });
               }
@@ -26241,6 +26386,7 @@ var init_live_trading_engine = __esm({
     "use strict";
     init_service();
     init_tradelocker();
+    init_tradelocker_sync();
     init_indicators();
     init_storage();
     init_news_service();
@@ -33749,22 +33895,22 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache2 && Date.now() - cache2.fetchedAt < CACHE_TTL_MS6) {
-    return cache2.data;
+  if (cache3 && Date.now() - cache3.fetchedAt < CACHE_TTL_MS6) {
+    return cache3.data;
   }
   return refreshSportsPredictions();
 }
 async function refreshSportsPredictions() {
   try {
     const data = await fetchAllPredictions();
-    cache2 = { data, fetchedAt: Date.now() };
+    cache3 = { data, fetchedAt: Date.now() };
     return data;
   } catch (err) {
     console.error("[sports-predictor] Fatal error during refresh:", err);
-    return cache2?.data ?? [];
+    return cache3?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS6, ELO_K, ELO_DEFAULT, eloRatings, cache2, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS6, ELO_K, ELO_DEFAULT, eloRatings, cache3, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
@@ -33775,7 +33921,7 @@ var init_sports_predictor = __esm({
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
-    cache2 = null;
+    cache3 = null;
     SPORT_PATHS = {
       nba: "basketball/nba",
       nfl: "football/nfl",
@@ -34340,22 +34486,26 @@ async function getExistingKeys() {
     return /* @__PURE__ */ new Set();
   }
 }
+function defaultScored(l) {
+  return {
+    ...l,
+    intent_score: 5,
+    account_quality: 5,
+    contact_opportunity: JSON.stringify({ pain_point: "Not yet AI-analyzed", vedd_feature: "VEDDBuild Platform", vedd_url: "https://veddbuild.com", opener: "", talking_points: [] }),
+    suggested_reply: "",
+    auto_engaged: false,
+    engagement_type: ""
+  };
+}
 async function scoreLeads(rawLeads) {
   if (rawLeads.length === 0) return [];
   const ai = getAI();
   if (!ai) {
-    return rawLeads.map((l) => ({
-      ...l,
-      intent_score: 5,
-      account_quality: 5,
-      contact_opportunity: JSON.stringify({ pain_point: "Unknown", vedd_feature: "VEDDBuild Platform", vedd_url: "https://veddbuild.com", opener: "Hey, saw your post and thought VEDDBuild might help.", talking_points: ["AI-powered trading platform", "Auto-execution engine", "Free to start"] }),
-      suggested_reply: "",
-      auto_engaged: false,
-      engagement_type: ""
-    }));
+    return rawLeads.map(defaultScored);
   }
   const scored = [];
-  const batch = rawLeads.slice(0, 50);
+  const batch = rawLeads.slice(0, AI_SCORE_LIMIT);
+  const remainder = rawLeads.slice(AI_SCORE_LIMIT);
   for (const lead of batch) {
     try {
       const prompt = `You are an ambassador coach for VEDDBuild (veddbuild.com) \u2014 an AI trading platform with these features:
@@ -34408,16 +34558,11 @@ Return ONLY valid JSON (no markdown, no explanation):
         engagement_type: ""
       });
     } catch {
-      scored.push({
-        ...lead,
-        intent_score: 5,
-        account_quality: 5,
-        contact_opportunity: JSON.stringify({ pain_point: "", vedd_feature: "VEDDBuild Platform", vedd_url: "https://veddbuild.com", opener: "", talking_points: [] }),
-        suggested_reply: "",
-        auto_engaged: false,
-        engagement_type: ""
-      });
+      scored.push(defaultScored(lead));
     }
+  }
+  for (const lead of remainder) {
+    scored.push(defaultScored(lead));
   }
   return scored;
 }
@@ -34653,7 +34798,7 @@ function startLeadHunterScheduler() {
   };
   scheduleNext();
 }
-var DIGEST_TO, DIGEST_CC, FROM2, SKIP_USERNAMES;
+var DIGEST_TO, DIGEST_CC, FROM2, SKIP_USERNAMES, AI_SCORE_LIMIT;
 var init_lead_hunter = __esm({
   "server/services/lead-hunter.ts"() {
     "use strict";
@@ -34663,6 +34808,7 @@ var init_lead_hunter = __esm({
     DIGEST_CC = "chris@madetomaximize.com";
     FROM2 = "VEDD Lead Hunter <noreply@veddbuild.com>";
     SKIP_USERNAMES = /* @__PURE__ */ new Set(["donchism44", "christopherchism", "donchismkos"]);
+    AI_SCORE_LIMIT = 120;
   }
 });
 
@@ -50177,8 +50323,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache3 = global.mt5ChartDataCache || {};
-    const chartData = cache3[chartDataKey];
+    const cache4 = global.mt5ChartDataCache || {};
+    const chartData = cache4[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -52417,25 +52563,32 @@ Rules:
       }
     }
     try {
+      const { getTlAccountData: getTlAccountData2, markTlUserActive: markTlUserActive2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+      markTlUserActive2(userId);
+      const tlLive = getTlAccountData2(userId);
+      const liveByAccountId = {};
+      for (const a of tlLive.accounts) liveByAccountId[a.accountId] = a;
       const tlConns = await storage.getUserTradelockerConnections(userId);
       for (const c of tlConns) {
         if (!c.isActive) continue;
+        const live = liveByAccountId[c.accountId];
         const lastConnAgo = c.lastConnectedAt ? Math.floor((Date.now() - new Date(c.lastConnectedAt).getTime()) / 1e3) : Infinity;
         accounts.push({
           type: "tradelocker",
           key: `tl_${c.id}`,
           id: String(c.id),
           label: `TradeLocker \u2013 ${c.email} (${c.accountType})`,
-          broker: "TradeLocker",
-          balance: 0,
-          // fetched live via /balance endpoint
-          equity: 0,
-          currency: "USD",
+          broker: c.brokerName || "TradeLocker",
+          balance: live?.balance ?? 0,
+          equity: live?.equity ?? 0,
+          profit: live ? live.equity - live.balance : 0,
+          currency: live?.currency || "USD",
           server: c.serverId,
           accountNumber: c.accNum || c.accountId,
           accountType: c.accountType,
           email: c.email,
-          isConnected: lastConnAgo < 86400,
+          isConnected: live ? live.isConnected : lastConnAgo < 86400,
+          ageSeconds: live?.secondsAgo,
           lastConnectedAt: c.lastConnectedAt
         });
       }
@@ -52589,6 +52742,25 @@ Rules:
       res.status(500).json({ error: "Failed to fetch TL balance" });
     }
   });
+  app2.get("/api/tradelocker/account-data", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2, markTlUserActive: markTlUserActive2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+      markTlUserActive2(userId);
+      let data = getTlAccountData2(userId);
+      const stale = data.accounts.length === 0 || data.accounts.every((a) => a.secondsAgo > 90);
+      if (stale) {
+        await syncUserTradeLocker2(userId, true).catch(() => {
+        });
+        data = getTlAccountData2(userId);
+      }
+      res.json(data);
+    } catch (err) {
+      console.error("[TL account-data]", err);
+      res.status(500).json({ error: "Failed to fetch TL account data" });
+    }
+  });
   app2.get("/api/tradelocker/connection", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -52654,7 +52826,17 @@ Rules:
     if (!connection2 || connection2.userId !== userId) {
       return res.status(404).json({ error: "No connection found" });
     }
-    const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent } = req.body;
+    const {
+      isActive,
+      autoExecute,
+      lotMultiplier,
+      gateMode,
+      useRiskPercent,
+      riskPercent,
+      isPropFirmAccount,
+      propFirmName,
+      propFirmAccountSize
+    } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
     if (autoExecute !== void 0) updateDataById.autoExecute = autoExecute;
@@ -52664,6 +52846,12 @@ Rules:
     }
     if (gateMode !== void 0 && (gateMode === "full" || gateMode === "basic")) {
       updateDataById.gateMode = gateMode;
+    }
+    if (isPropFirmAccount !== void 0) updateDataById.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== void 0) updateDataById.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== void 0) {
+      const size = parseFloat(propFirmAccountSize);
+      updateDataById.propFirmAccountSize = isNaN(size) ? null : size;
     }
     if (useRiskPercent !== void 0) updateDataById.useRiskPercent = !!useRiskPercent;
     if (riskPercent !== void 0) {
@@ -53571,7 +53759,7 @@ Format each recommendation as a clear, concise action item.`;
       const conns = await storage.getUserTradelockerConnections(userId);
       const active = conns.filter((c) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1e3) / 1e3);
-      const saveOrder = async (o) => {
+      const saveOrder = async (o, connId) => {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
         if (!isFinite(p) || p === 0) return;
@@ -53583,9 +53771,13 @@ Format each recommendation as a clear, concise action item.`;
             await storage.updateAiTradeResult(existing.id, userId, {
               result: p > 0 ? "WIN" : "LOSS",
               profitLoss: p,
+              connectionId: connId,
               closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
             });
             added++;
+          } else if (existing.connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, { connectionId: connId }).catch(() => {
+            });
           }
           return;
         }
@@ -53599,6 +53791,7 @@ Format each recommendation as a clear, concise action item.`;
           result: p > 0 ? "WIN" : "LOSS",
           profitLoss: p,
           source: "tradelocker",
+          connectionId: connId,
           mt5Ticket: tk,
           notes: "TradeLocker closed position (synced)",
           closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
@@ -53619,7 +53812,7 @@ Format each recommendation as a clear, concise action item.`;
             const id = String(o.id || o.positionId || o.orderId || "");
             if (id && seen.has(id)) continue;
             if (id) seen.add(id);
-            await saveOrder(o);
+            await saveOrder(o, conn.id);
           }
         } catch (_) {
         }
@@ -53694,6 +53887,39 @@ Format each recommendation as a clear, concise action item.`;
       };
       const mt5Rows = closed.filter((t) => t.source !== "tradelocker");
       const tlRows = closed.filter((t) => t.source === "tradelocker");
+      let tradelockerAccounts = [];
+      try {
+        const tlConns = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+        const tlLiveCache = global.tlAccountData?.[userId] || {};
+        const singleConn = tlConns.length === 1 ? tlConns[0] : null;
+        tradelockerAccounts = tlConns.map((c) => {
+          const rows = tlRows.filter(
+            (t) => t.connectionId != null && t.connectionId === c.id || singleConn && t.connectionId == null
+          );
+          const live = tlLiveCache[c.accountId];
+          return {
+            connectionId: c.id,
+            email: c.email,
+            accountId: c.accountId,
+            accountType: c.accountType,
+            brokerName: c.brokerName || c.serverId || "TradeLocker",
+            isPropFirm: !!c.isPropFirmAccount,
+            propFirmName: c.propFirmName || null,
+            propFirmAccountSize: c.propFirmAccountSize || null,
+            balance: live?.balance ?? 0,
+            equity: live?.equity ?? 0,
+            currency: live?.currency || "USD",
+            isConnected: live ? Date.now() - new Date(live.lastUpdated).getTime() < 12e4 && !live.error : false,
+            ...tally(rows)
+          };
+        });
+      } catch (_) {
+      }
+      const propFirmAccounts = tradelockerAccounts.filter((a) => a.isPropFirm);
+      const propFirmTally = tally(tlRows.filter((t) => {
+        const acct = tradelockerAccounts.find((a) => a.connectionId === t.connectionId && a.isPropFirm);
+        return !!acct;
+      }));
       let streakType = null, streakCount = 0;
       for (const t of closed) {
         if (t.result === "BREAKEVEN") continue;
@@ -53710,6 +53936,8 @@ Format each recommendation as a clear, concise action item.`;
       res.json({
         overall: tally(closed),
         bySource: { mt5: tally(mt5Rows), tradelocker: tally(tlRows) },
+        tradelockerAccounts,
+        propFirm: { accounts: propFirmAccounts, ...propFirmTally },
         today: tally(todayRows),
         streak: { type: streakType, count: streakCount },
         recentTrades: closed.slice(0, 12).map((t) => ({
@@ -56048,17 +56276,25 @@ Respond with ONLY valid JSON:
       const tlDbResults = _allClosed.filter((t) => t.source === "tradelocker");
       const tlDbDailyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const tlDbWeeklyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+      const _tlCache = global.tlAccountData?.[userId] || {};
       await Promise.all(active.map(async (conn) => {
         try {
           const svc = await getOrCreateService(conn);
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
           let balance = 0, equity = 0;
-          try {
-            const balData = await svc.getAccountInfo().catch(() => null);
-            balance = balData?.balance ?? 0;
-            equity = balData?.equity ?? balance;
-          } catch {
+          const cached2 = _tlCache[conn.accountId];
+          const cacheFresh = cached2 && !cached2.error && Date.now() - new Date(cached2.lastUpdated).getTime() < 12e4;
+          if (cacheFresh) {
+            balance = cached2.balance ?? 0;
+            equity = cached2.equity ?? balance;
+          } else {
+            try {
+              const balData = await svc.getAccountInfo().catch(() => null);
+              balance = balData?.balance ?? 0;
+              equity = balData?.equity ?? balance;
+            } catch {
+            }
           }
           tlAccounts.push({
             id: conn.id,
@@ -59664,7 +59900,20 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         const today2 = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
         dailyPnLHistory[today2] = todayPnL2;
         const tlConns = await storage.getUserTradelockerConnections(userId).catch(() => []);
-        const bal = tlConns[0]?.accountBalance ?? 0;
+        let bal = 0;
+        try {
+          const { getTlAccountData: getTlAccountData2, syncUserTradeLocker: syncUserTradeLocker2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+          let tlLive = getTlAccountData2(userId);
+          if (tlLive.accounts.length === 0 && tlConns.some((c) => c.isActive)) {
+            await syncUserTradeLocker2(userId, true).catch(() => {
+            });
+            tlLive = getTlAccountData2(userId);
+          }
+          const propConn = tlConns.find((c) => c.isActive && c.isPropFirmAccount);
+          const propLive = propConn ? tlLive.accounts.find((a) => a.connectionId === propConn.id) : null;
+          bal = propLive?.balance ?? tlLive.accounts[0]?.balance ?? 0;
+        } catch {
+        }
         const periodKeys2 = Object.keys(dailyPnLHistory).sort().slice(-15);
         const profitableDays2 = periodKeys2.filter((k) => (dailyPnLHistory[k] ?? 0) > 0).length;
         const utcHour2 = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -61551,15 +61800,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache3 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache3);
+    const cache4 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache4);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache3[key]) {
-        found = cache3[key];
+      if (cache4[key]) {
+        found = cache4[key];
         foundTf = tf;
         break;
       }
@@ -61567,7 +61816,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache3[partialKey];
+        found = cache4[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
@@ -64799,6 +65048,15 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     } catch (err) {
     }
     try {
+      await db.execute(sql9`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
+      await db.execute(sql9`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
+      await db.execute(sql9`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql9`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
+      console.log("[startup] Prop-firm linkage columns verified.");
+    } catch (err) {
+      console.error("[startup] Prop-firm linkage migration (non-fatal):", err.message);
+    }
+    try {
       await db.execute(sql9`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
@@ -65185,6 +65443,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startLeadHunterScheduler2();
     const { startAmbassadorPrimeScheduler: startAmbassadorPrimeScheduler2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
     startAmbassadorPrimeScheduler2();
+    const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    startTradeLockerSync2();
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
   });

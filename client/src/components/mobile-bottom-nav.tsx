@@ -198,20 +198,34 @@ export function MobileBottomNav() {
   const [tlBals, setTlBals] = useState<Record<number, { balance: number; currency: string; loading: boolean }>>({});
 
   const fetchTLBals = useCallback(async () => {
-    for (const conn of activeTL) {
-      setTlBals(prev => ({ ...prev, [conn.id]: { balance: prev[conn.id]?.balance ?? 0, currency: 'USD', loading: true } }));
-      try {
-        const res = await fetch(`/api/accounts/tradelocker/${conn.id}/balance`, { credentials: 'include' });
-        if (res.ok) {
-          const d = await res.json();
-          setTlBals(prev => ({ ...prev, [conn.id]: { balance: d.balance ?? 0, currency: d.currency ?? 'USD', loading: false } }));
-        } else {
-          setTlBals(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false } }));
-        }
-      } catch {
-        setTlBals(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false } }));
+    // Single call to the background-sync cache (live like MT5) — no per-account round-trips
+    setTlBals(prev => {
+      const next = { ...prev };
+      for (const conn of activeTL) next[conn.id] = { balance: prev[conn.id]?.balance ?? 0, currency: 'USD', loading: true };
+      return next;
+    });
+    try {
+      const res = await fetch('/api/tradelocker/account-data', { credentials: 'include' });
+      if (res.ok) {
+        const d = await res.json();
+        const byConnId: Record<number, any> = {};
+        for (const a of d?.accounts ?? []) byConnId[a.connectionId] = a;
+        setTlBals(prev => {
+          const next = { ...prev };
+          for (const conn of activeTL) {
+            const live = byConnId[conn.id];
+            next[conn.id] = { balance: live?.balance ?? 0, currency: live?.currency ?? 'USD', loading: false };
+          }
+          return next;
+        });
+        return;
       }
-    }
+    } catch { /* fall through */ }
+    setTlBals(prev => {
+      const next = { ...prev };
+      for (const conn of activeTL) next[conn.id] = { balance: 0, currency: 'USD', loading: false };
+      return next;
+    });
   }, [activeTL.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

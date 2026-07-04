@@ -158,24 +158,44 @@ const Header: React.FC = () => {
     refetchInterval: mobileMenuOpen ? 20000 : false,
   });
 
-  // Live balances per TL connection — fetched when the slide nav opens
+  // Live balances per TL connection — one call to the background-sync cache
+  // (kept fresh server-side like MT5) instead of a network round-trip per account.
   const [tlNavBalances, setTlNavBalances] = useState<Record<number, { balance: number; currency: string; loading: boolean; error?: boolean }>>({});
 
   const fetchTLNavBalances = async () => {
-    for (const conn of activeTLNavConns) {
-      setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: prev[conn.id]?.balance ?? 0, currency: prev[conn.id]?.currency ?? 'USD', loading: true } }));
-      try {
-        const res = await fetch(`/api/accounts/tradelocker/${conn.id}/balance`, { credentials: 'include' });
-        if (res.ok) {
-          const data = await res.json();
-          setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: data.balance ?? 0, currency: data.currency ?? 'USD', loading: false } }));
-        } else {
-          setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false, error: true } }));
-        }
-      } catch {
-        setTlNavBalances(prev => ({ ...prev, [conn.id]: { balance: 0, currency: 'USD', loading: false, error: true } }));
+    setTlNavBalances(prev => {
+      const next = { ...prev };
+      for (const conn of activeTLNavConns) {
+        next[conn.id] = { balance: prev[conn.id]?.balance ?? 0, currency: prev[conn.id]?.currency ?? 'USD', loading: true };
       }
-    }
+      return next;
+    });
+    try {
+      const res = await fetch('/api/tradelocker/account-data', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        const byConnId: Record<number, any> = {};
+        for (const a of data?.accounts ?? []) byConnId[a.connectionId] = a;
+        setTlNavBalances(prev => {
+          const next = { ...prev };
+          for (const conn of activeTLNavConns) {
+            const live = byConnId[conn.id];
+            next[conn.id] = live
+              ? { balance: live.balance ?? 0, currency: live.currency ?? 'USD', loading: false, error: !!live.error }
+              : { balance: 0, currency: 'USD', loading: false, error: true };
+          }
+          return next;
+        });
+        return;
+      }
+    } catch { /* fall through to error state */ }
+    setTlNavBalances(prev => {
+      const next = { ...prev };
+      for (const conn of activeTLNavConns) {
+        next[conn.id] = { balance: 0, currency: 'USD', loading: false, error: true };
+      }
+      return next;
+    });
   };
 
   // Auto-fetch balances when the slide nav opens, or when connections load after nav is already open

@@ -23105,8 +23105,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         }
         const today = new Date().toISOString().split('T')[0];
         dailyPnLHistory[today] = todayPnL;
+        // Live balance from the background-sync cache (prefer a prop-firm-tagged
+        // account); trigger a sync if the cache is cold so the number is real,
+        // not the old always-0 DB field.
         const tlConns = await storage.getUserTradelockerConnections(userId).catch(() => []);
-        const bal = (tlConns[0] as any)?.accountBalance ?? 0;
+        let bal = 0;
+        try {
+          const { getTlAccountData, syncUserTradeLocker } = await import('./services/tradelocker-sync');
+          let tlLive = getTlAccountData(userId);
+          if (tlLive.accounts.length === 0 && tlConns.some((c: any) => c.isActive)) {
+            await syncUserTradeLocker(userId, true).catch(() => {});
+            tlLive = getTlAccountData(userId);
+          }
+          const propConn = tlConns.find((c: any) => c.isActive && (c as any).isPropFirmAccount);
+          const propLive = propConn ? tlLive.accounts.find(a => a.connectionId === propConn.id) : null;
+          bal = propLive?.balance ?? tlLive.accounts[0]?.balance ?? 0;
+        } catch { /* keep 0 */ }
         const periodKeys = Object.keys(dailyPnLHistory).sort().slice(-15);
         const profitableDays = periodKeys.filter(k => (dailyPnLHistory[k] ?? 0) > 0).length;
         const utcHour = new Date().getUTCHours();

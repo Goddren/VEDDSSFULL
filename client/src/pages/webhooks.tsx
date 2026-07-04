@@ -456,9 +456,9 @@ export default function WebhooksPage() {
   });
 
   const { data: tlBalances } = useQuery<{ totalBalance: number; totalEquity: number; accounts: Array<{ accountId: string; accountType: string; balance: number; equity: number; currency: string; error?: string }> }>({
-    queryKey: ['/api/tradelocker/account-balance'],
+    queryKey: ['/api/tradelocker/account-data'], // live background-sync cache (like MT5)
     enabled: tlConnections.length > 0,
-    refetchInterval: 30000,
+    refetchInterval: 15000,
     staleTime: 0,
   });
 
