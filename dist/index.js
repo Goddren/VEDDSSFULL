@@ -6619,6 +6619,7 @@ function getModelProvider(modelId) {
 }
 function inferModelProvider(modelId) {
   const m = (modelId || "").toLowerCase();
+  if (m.endsWith(":free") || m.startsWith("openrouter/")) return "openrouter";
   if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("chatgpt")) return "openai";
   if (m.startsWith("claude")) return "anthropic";
   if (m.startsWith("gemini")) return "google";
@@ -8058,7 +8059,8 @@ function buildOpenAICompatClient(provider, apiKey) {
   const baseURLs = {
     groq: "https://api.groq.com/openai/v1",
     google: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    mistral: "https://api.mistral.ai/v1"
+    mistral: "https://api.mistral.ai/v1",
+    openrouter: "https://openrouter.ai/api/v1"
   };
   const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4 });
   const wrapper = client2;
@@ -9280,20 +9282,20 @@ function estimateReadTime(html) {
   return `${minutes} min read`;
 }
 async function generateVeddBlogPost(topic, userId) {
-  let apiKey = process.env.OPENAI_API_KEY;
-  if (userId) {
-    try {
-      const client2 = await getUniversalAIClientForUser(userId);
-      if (client2) {
-        const keys = await (await Promise.resolve().then(() => (init_storage(), storage_exports))).storage.getUserApiKeys(userId);
-        const openaiKey = keys.find((k) => k.provider === "openai");
-        if (openaiKey?.apiKey) apiKey = openaiKey.apiKey;
-      }
-    } catch {
-    }
+  let openai2;
+  let blogModel = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    blogModel = openai2.defaultModel || "gpt-4o";
+  } catch {
   }
-  if (!apiKey) throw new Error("No OpenAI API key configured. Please add your OpenAI key in AI Settings.");
-  const openai2 = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    blogModel = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
   const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
   let chosenTopic;
   let currentEventsContext;
@@ -9302,7 +9304,7 @@ async function generateVeddBlogPost(topic, userId) {
     currentEventsContext = `User-specified topic: ${topic}`;
   } else {
     const topicsResponse = await openai2.chat.completions.create({
-      model: "gpt-4o",
+      model: blogModel,
       messages: [
         {
           role: "system",
@@ -9355,7 +9357,7 @@ OUTPUT: Return a JSON object with these exact fields:
   "content": "full HTML article content"
 }`;
   const articleResponse = await openai2.chat.completions.create({
-    model: "gpt-4o",
+    model: blogModel,
     messages: [
       { role: "system", content: systemPrompt },
       {
@@ -9674,7 +9676,12 @@ var init_openai = __esm({
       { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (Groq)", description: "Fastest Groq model \u2014 ultra-low latency (text/confirmation)", tier: "budget", provider: "groq", textOnly: true },
       { id: "qwen/qwen3-vl-32b-instruct", name: "Qwen 3 VL (Vision, Groq)", description: "Groq vision model \u2014 use OpenAI/Anthropic for chart analysis", tier: "budget", provider: "groq", textOnly: true },
       { id: "mistral-large-latest", name: "Mistral Large", description: "Top-tier reasoning", tier: "premium", provider: "mistral" },
-      { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" }
+      { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient and affordable", tier: "budget", provider: "mistral" },
+      // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
+      { id: "deepseek/deepseek-chat-v3-0324:free", name: "DeepSeek V3 (FREE)", description: "Open-source flagship \u2014 GPT-4-class reasoning, completely free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1 (FREE)", description: "Open-source reasoning model \u2014 deep chain-of-thought, free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B (FREE)", description: "Meta open-source 70B \u2014 strong all-round, free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "qwen/qwen3-235b-a22b:free", name: "Qwen3 235B (FREE)", description: "Alibaba open-source MoE \u2014 full-power option, free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true }
     ];
     userModelPreferences = /* @__PURE__ */ new Map();
     DEPRECATED_MODEL_MAP = {
@@ -9711,7 +9718,9 @@ var init_openai = __esm({
       // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
       google: "gemini-2.0-flash",
       // was gemini-1.5-pro (deprecated id)
-      mistral: "mistral-large-latest"
+      mistral: "mistral-large-latest",
+      openrouter: "deepseek/deepseek-chat-v3-0324:free"
+      // 100% free open-source flagship
     };
     AnthropicAsOpenAI = class {
       defaultModel;
@@ -9768,7 +9777,7 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
         };
       }
     };
-    PROVIDER_PRIORITY = ["openai", "groq", "anthropic", "google", "mistral"];
+    PROVIDER_PRIORITY = ["openai", "groq", "anthropic", "google", "mistral", "openrouter"];
     VEDD_IDENTITY_CONTEXT = `
 VEDD AI Trading is a fintech AI trading education platform with the following characteristics:
 - AI-powered chart analysis and automated trading signal generation
@@ -34273,6 +34282,7 @@ var init_sports_trade_engine = __esm({
 // server/services/lead-hunter.ts
 var lead_hunter_exports = {};
 __export(lead_hunter_exports, {
+  outreachLead: () => outreachLead,
   runLeadHunter: () => runLeadHunter,
   startLeadHunterScheduler: () => startLeadHunterScheduler
 });
@@ -34690,6 +34700,28 @@ Return ONLY valid JSON (no markdown, no explanation):
   }
   return scored;
 }
+async function engageTwitter(lead) {
+  const token = process.env.TWITTER_ACCESS_TOKEN;
+  if (!token || !lead.tweet_id) return "";
+  try {
+    await fetch(`https://api.twitter.com/2/users/${TWITTER_USER_ID}/likes`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ tweet_id: lead.tweet_id })
+    });
+    if (lead.suggested_reply) {
+      await fetch("https://api.twitter.com/2/tweets", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: lead.suggested_reply, reply: { in_reply_to_tweet_id: lead.tweet_id } })
+      });
+      return "Like + Reply";
+    }
+    return "Like";
+  } catch {
+    return "";
+  }
+}
 async function sendDigest(scored, platformBreakdown, dedupStats, errors) {
   const key = process.env.SENDGRID_API_KEY;
   if (!key) {
@@ -34903,6 +34935,36 @@ async function runLeadHunter() {
     platformBreakdown
   };
 }
+async function outreachLead(dbLead) {
+  const message = dbLead.suggestedReply || (() => {
+    try {
+      return JSON.parse(dbLead.contactOpportunity || "{}").opener || "";
+    } catch {
+      return "";
+    }
+  })();
+  if (dbLead.platform === "X/Twitter") {
+    const token = process.env.TWITTER_ACCESS_TOKEN;
+    const tweetId = (dbLead.postUrl || "").match(/status\/(\d+)/)?.[1];
+    if (token && tweetId) {
+      const result = await engageTwitter({ tweet_id: tweetId, suggested_reply: message });
+      if (result) {
+        return { automated: true, engagementType: result, reason: `Auto-engaged on X: ${result}`, postUrl: dbLead.postUrl || void 0 };
+      }
+      return { automated: false, reason: "X engagement call failed (token may lack write scope) \u2014 send manually", postUrl: dbLead.postUrl || void 0, message };
+    }
+    return { automated: false, reason: token ? "Could not extract tweet id" : "TWITTER_ACCESS_TOKEN not set \u2014 manual send", postUrl: dbLead.postUrl || void 0, message };
+  }
+  if (dbLead.platform === "LinkedIn") {
+    return { automated: false, reason: "LinkedIn auto-comment needs the activity id from a fresh scan \u2014 send manually", postUrl: dbLead.postUrl || void 0, message };
+  }
+  return {
+    automated: false,
+    reason: `${dbLead.platform} has no posting API configured \u2014 message copied, opening the post to paste`,
+    postUrl: dbLead.postUrl || void 0,
+    message
+  };
+}
 function startLeadHunterScheduler() {
   const scheduleNext = () => {
     const now = /* @__PURE__ */ new Date();
@@ -34922,7 +34984,7 @@ function startLeadHunterScheduler() {
   };
   scheduleNext();
 }
-var DIGEST_TO, DIGEST_CC, FROM2, SKIP_USERNAMES, AI_SCORE_LIMIT;
+var DIGEST_TO, DIGEST_CC, FROM2, TWITTER_USER_ID, SKIP_USERNAMES, AI_SCORE_LIMIT;
 var init_lead_hunter = __esm({
   "server/services/lead-hunter.ts"() {
     "use strict";
@@ -34931,6 +34993,7 @@ var init_lead_hunter = __esm({
     DIGEST_TO = "donchismkos@gmail.com";
     DIGEST_CC = "chris@madetomaximize.com";
     FROM2 = "VEDD Lead Hunter <noreply@veddbuild.com>";
+    TWITTER_USER_ID = "1479666669366788098";
     SKIP_USERNAMES = /* @__PURE__ */ new Set(["donchism44", "christopherchism", "donchismkos"]);
     AI_SCORE_LIMIT = 120;
   }
@@ -63579,6 +63642,50 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { desc: desc7 } = await import("drizzle-orm");
       const rows = await db2.select().from(leadHunterRuns2).orderBy(desc7(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/lead-hunter/outreach/:id", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq13 } = await import("drizzle-orm");
+      const [lead] = await db2.select().from(leads2).where(eq13(leads2.id, req.params.id)).limit(1);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+      const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
+      const result = await outreachLead2(lead);
+      await db2.update(leads2).set({
+        status: "Contacted",
+        autoEngaged: result.automated,
+        engagementType: result.engagementType || (result.automated ? "auto" : "manual")
+      }).where(eq13(leads2.id, req.params.id));
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/lead-hunter/outreach-run", async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq13, and: and7, gte: gte4, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and7(eq13(leads2.status, "New"), gte4(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
+      let engaged = 0, manualNeeded = 0;
+      for (const lead of rows) {
+        const r = await outreachLead2(lead).catch(() => null);
+        if (r?.automated) {
+          engaged++;
+          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq13(leads2.id, lead.id));
+          await new Promise((rs) => setTimeout(rs, 1500));
+        } else {
+          manualNeeded++;
+        }
+      }
+      res.json({ scanned: rows.length, engaged, manualNeeded, message: `Auto-engaged ${engaged} lead(s); ${manualNeeded} need one-tap manual send (no posting API for their platform).` });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

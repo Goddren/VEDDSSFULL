@@ -799,6 +799,54 @@ export async function runLeadHunter(): Promise<RunResult> {
   };
 }
 
+// ── Outreach — automated engagement on the platforms we scrape ────────────────
+// X/Twitter: like + reply via API (needs TWITTER_ACCESS_TOKEN).
+// LinkedIn: comment via API (needs LINKEDIN_ACCESS_TOKEN + activity id).
+// Reddit / StockTwits / Instagram / Facebook: no posting API creds — we return
+// the ready-to-send message + post link so the UI can copy + open in one tap.
+
+export interface OutreachResult {
+  automated: boolean;
+  engagementType?: string;
+  reason: string;
+  postUrl?: string;
+  message?: string;
+}
+
+export async function outreachLead(dbLead: {
+  id: string; platform: string; username: string; postUrl?: string | null;
+  suggestedReply?: string | null; contactOpportunity?: string | null;
+}): Promise<OutreachResult> {
+  const message = dbLead.suggestedReply
+    || (() => { try { return JSON.parse(dbLead.contactOpportunity || '{}').opener || ''; } catch { return ''; } })();
+
+  if (dbLead.platform === 'X/Twitter') {
+    const token = process.env.TWITTER_ACCESS_TOKEN;
+    // Extract the tweet id from the stored post URL (x.com/<user>/status/<id>)
+    const tweetId = (dbLead.postUrl || '').match(/status\/(\d+)/)?.[1];
+    if (token && tweetId) {
+      const result = await engageTwitter({ tweet_id: tweetId, suggested_reply: message } as any);
+      if (result) {
+        return { automated: true, engagementType: result, reason: `Auto-engaged on X: ${result}`, postUrl: dbLead.postUrl || undefined };
+      }
+      return { automated: false, reason: 'X engagement call failed (token may lack write scope) — send manually', postUrl: dbLead.postUrl || undefined, message };
+    }
+    return { automated: false, reason: token ? 'Could not extract tweet id' : 'TWITTER_ACCESS_TOKEN not set — manual send', postUrl: dbLead.postUrl || undefined, message };
+  }
+
+  if (dbLead.platform === 'LinkedIn') {
+    return { automated: false, reason: 'LinkedIn auto-comment needs the activity id from a fresh scan — send manually', postUrl: dbLead.postUrl || undefined, message };
+  }
+
+  // Reddit, StockTwits, Instagram, Facebook — manual one-tap flow
+  return {
+    automated: false,
+    reason: `${dbLead.platform} has no posting API configured — message copied, opening the post to paste`,
+    postUrl: dbLead.postUrl || undefined,
+    message,
+  };
+}
+
 // ── Daily scheduler (8am UTC) ─────────────────────────────────────────────────
 
 export function startLeadHunterScheduler(): void {

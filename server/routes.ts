@@ -27161,6 +27161,59 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // POST /api/lead-hunter/outreach/:id — automated outreach for one lead.
+  // Auto-engages via platform API where creds exist (X like+reply); otherwise
+  // returns the ready message + post link for one-tap manual send.
+  app.post("/api/lead-hunter/outreach/:id", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import("./db");
+      const { leads } = await import("../shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [lead] = await db.select().from(leads).where(eq(leads.id, req.params.id)).limit(1);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const { outreachLead } = await import("./services/lead-hunter");
+      const result = await outreachLead(lead as any);
+
+      await db.update(leads).set({
+        status: 'Contacted',
+        autoEngaged: result.automated,
+        engagementType: result.engagementType || (result.automated ? 'auto' : 'manual'),
+      }).where(eq(leads.id, req.params.id));
+
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // POST /api/lead-hunter/outreach-run — bulk auto-outreach across all NEW
+  // high-intent leads (only platforms with API creds fire automatically).
+  app.post("/api/lead-hunter/outreach-run", async (req: Request, res: Response) => {
+    if (!req.user) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import("./db");
+      const { leads } = await import("../shared/schema");
+      const { eq, and, gte, sql: dsql } = await import("drizzle-orm");
+      const rows = await db.select().from(leads)
+        .where(and(eq(leads.status, 'New'), gte(leads.intentScore, 7)))
+        .orderBy(dsql`intent_score DESC`).limit(25);
+
+      const { outreachLead } = await import("./services/lead-hunter");
+      let engaged = 0, manualNeeded = 0;
+      for (const lead of rows) {
+        const r = await outreachLead(lead as any).catch(() => null);
+        if (r?.automated) {
+          engaged++;
+          await db.update(leads).set({ status: 'Contacted', autoEngaged: true, engagementType: r.engagementType || 'auto' }).where(eq(leads.id, lead.id));
+          await new Promise(rs => setTimeout(rs, 1500)); // pace API calls
+        } else {
+          manualNeeded++;
+        }
+      }
+      res.json({ scanned: rows.length, engaged, manualNeeded, message: `Auto-engaged ${engaged} lead(s); ${manualNeeded} need one-tap manual send (no posting API for their platform).` });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.patch("/api/lead-hunter/leads/:id/status", async (req: Request, res: Response) => {
     if (!req.user) return res.status(401).json({ error: "Not authenticated" });
     try {

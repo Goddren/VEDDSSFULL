@@ -318,6 +318,11 @@ export const AVAILABLE_VISION_MODELS = [
   { id: 'qwen/qwen3-vl-32b-instruct', name: 'Qwen 3 VL (Vision, Groq)', description: 'Groq vision model — use OpenAI/Anthropic for chart analysis', tier: 'budget', provider: 'groq', textOnly: true },
   { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
+  // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
+  { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3 (FREE)', description: 'Open-source flagship — GPT-4-class reasoning, completely free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (FREE)', description: 'Open-source reasoning model — deep chain-of-thought, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (FREE)', description: 'Meta open-source 70B — strong all-round, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B (FREE)', description: 'Alibaba open-source MoE — full-power option, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
 ];
 
 export type VisionModelId = string;
@@ -360,6 +365,9 @@ function getModelProvider(modelId: string): string {
 // vision registry). Used so a user's selected model routes to the right provider.
 export function inferModelProvider(modelId: string): string {
   const m = (modelId || '').toLowerCase();
+  // OpenRouter free models use the ":free" suffix — check before the groq
+  // keyword match (llama/qwen/deepseek would otherwise route to groq)
+  if (m.endsWith(':free') || m.startsWith('openrouter/')) return 'openrouter';
   if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4') || m.startsWith('chatgpt')) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
   if (m.startsWith('gemini')) return 'google';
@@ -2200,6 +2208,7 @@ const PROVIDER_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
   google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
+  openrouter: 'deepseek/deepseek-chat-v3-0324:free', // 100% free open-source flagship
 };
 
 // Thin wrapper that makes Anthropic SDK look like OpenAI SDK
@@ -2276,6 +2285,7 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
     groq: 'https://api.groq.com/openai/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     mistral: 'https://api.mistral.ai/v1',
+    openrouter: 'https://openrouter.ai/api/v1',
   };
   // maxRetries handles transient "invalid response body while trying to fetch" /
   // connection drops (the SDK retries APIConnectionError); timeout caps hangs.
@@ -2287,7 +2297,7 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
 }
 
 // Provider selection priority
-const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral'];
+const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral', 'openrouter'];
 
 // Is an AI error worth failing over to another provider? (429 rate-limit/quota, 5xx, transient)
 function isFailoverError(e: any): boolean {
@@ -3842,21 +3852,22 @@ export async function generateVeddBlogPost(topic?: string, userId?: number): Pro
   readTime: string;
   currentEventsContext: string;
 }> {
-  // Use the caller's stored API key if available, fall back to env
-  let apiKey = process.env.OPENAI_API_KEY;
-  if (userId) {
-    try {
-      const client = await getUniversalAIClientForUser(userId);
-      if (client) {
-        // getUniversalAIClientForUser returns the client — grab the key it resolved
-        const keys = await (await import('./storage')).storage.getUserApiKeys(userId);
-        const openaiKey = keys.find(k => k.provider === 'openai');
-        if (openaiKey?.apiKey) apiKey = openaiKey.apiKey;
-      }
-    } catch { /* fall through to env key */ }
+  // Use the universal failover client — works with ANY configured provider
+  // (OpenAI, Groq, Google, Mistral, OpenRouter free models), not just OpenAI.
+  // This is what broke blog generation for users without an OpenAI key.
+  let openai: any;
+  let blogModel = 'gpt-4o';
+  try {
+    openai = await getUniversalAIClientForUser(userId || 0);
+    blogModel = (openai as any).defaultModel || 'gpt-4o';
+  } catch { /* fall through to platform key below */ }
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai = new OpenAI({ apiKey, ...(isGroq ? { baseURL: 'https://api.groq.com/openai/v1' } : {}), maxRetries: 4, timeout: 90000 });
+    blogModel = isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o';
   }
-  if (!apiKey) throw new Error("No OpenAI API key configured. Please add your OpenAI key in AI Settings.");
-  const openai = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 });
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -3869,7 +3880,7 @@ export async function generateVeddBlogPost(topic?: string, userId?: number): Pro
     currentEventsContext = `User-specified topic: ${topic}`;
   } else {
     const topicsResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: blogModel,
       messages: [
         {
           role: "system",
@@ -3926,7 +3937,7 @@ OUTPUT: Return a JSON object with these exact fields:
 }`;
 
   const articleResponse = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: blogModel,
     messages: [
       { role: "system", content: systemPrompt },
       {

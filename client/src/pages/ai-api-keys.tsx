@@ -70,6 +70,15 @@ const AI_PROVIDERS = [
     icon: '🌊'
   },
   {
+    id: 'openrouter',
+    name: 'OpenRouter (FREE models)',
+    description: '100% FREE open-source AI — DeepSeek V3/R1, Llama 3.3 70B, Qwen3 235B. Free key, no card needed',
+    placeholder: 'sk-or-...',
+    docsUrl: 'https://openrouter.ai/keys',
+    color: 'from-teal-500 to-emerald-600',
+    icon: '🆓'
+  },
+  {
     id: 'elevenlabs',
     name: 'ElevenLabs',
     description: 'Ultra-realistic human voice for ABBA — most natural TTS available',
@@ -361,10 +370,10 @@ export default function AiApiKeysPage() {
                   <SelectContent>
                     {(() => {
                       const models = modelPref?.availableModels || [];
-                      const providers = ['openai', 'anthropic', 'google', 'groq', 'mistral'];
+                      const providers = ['openai', 'anthropic', 'google', 'groq', 'mistral', 'openrouter'];
                       const providerLabels: Record<string, string> = {
                         openai: '🤖 OpenAI', anthropic: '🧠 Anthropic', google: '💎 Google AI',
-                        groq: '⚡ Groq', mistral: '🌊 Mistral AI'
+                        groq: '⚡ Groq', mistral: '🌊 Mistral AI', openrouter: '🆓 OpenRouter (FREE)'
                       };
                       return providers.map((prov, idx) => {
                         const provModels = models.filter((m: any) => m.provider === prov);

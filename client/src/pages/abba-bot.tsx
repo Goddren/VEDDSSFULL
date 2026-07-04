@@ -268,6 +268,7 @@ export default function AbbaBotPage() {
       return nv;
     });
   };
+  const pinnedVoice = useRef<SpeechSynthesisVoice | null>(null);
   const speak = (text: string) => {
     if (!voiceOn || !window.speechSynthesis) return;
     try {
@@ -275,12 +276,23 @@ export default function AbbaBotPage() {
       // Strip nav tags / markdown so the voice reads clean
       const clean = text.replace(/\[NAV:[^\]]*\]/g, '').replace(/[*_`#]/g, '').trim();
       if (!clean) return;
-      const u = new SpeechSynthesisUtterance(clean.slice(0, 900));
-      const voices = window.speechSynthesis.getVoices();
-      const deep = voices.find(v => /male|david|guy|daniel/i.test(v.name) && v.lang.startsWith('en'));
-      if (deep) u.voice = deep;
-      u.rate = 1.02; u.pitch = 0.85;
-      window.speechSynthesis.speak(u);
+      // Pin ONE voice for the whole session so it never switches mid-conversation
+      if (!pinnedVoice.current) {
+        const voices = window.speechSynthesis.getVoices();
+        pinnedVoice.current =
+          voices.find(v => /microsoft guy|microsoft david|google uk english male|daniel|alex/i.test(v.name))
+          || voices.find(v => /male|david|guy|daniel/i.test(v.name) && v.lang.startsWith('en'))
+          || voices[0] || null;
+      }
+      // Speak the FULL text — split into sentence chunks that queue in order
+      // (a single long utterance gets cut off on some mobile browsers)
+      const sentences = clean.match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g) || [clean];
+      for (const s of sentences) {
+        const u = new SpeechSynthesisUtterance(s.trim());
+        if (pinnedVoice.current) u.voice = pinnedVoice.current;
+        u.rate = 0.98; u.pitch = 0.8;
+        window.speechSynthesis.speak(u); // queues — no cancel between sentences
+      }
     } catch { /* voice is best-effort */ }
   };
 

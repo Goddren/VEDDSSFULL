@@ -1167,23 +1167,30 @@ export function AbbaAssistant() {
   const speechQueueRef = useRef<string[]>([]);
   const speechBusyRef  = useRef(false);
 
+  // Pin ONE voice for the entire session — re-picking per sentence caused the
+  // voice to audibly switch mid-reply when Chrome's async voice list changed.
+  const pinnedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
   const speakNext = useCallback(async () => {
     if (!hasSpeechSynthesis) return;
     if (speechBusyRef.current || speechQueueRef.current.length === 0) return;
     const text = speechQueueRef.current.shift()!;
     speechBusyRef.current = true;
-    window.speechSynthesis.cancel();
+    // NOTE: no cancel() here — cancelling right before speak() clips sentences
+    // on Chrome/Android and killed parts of the reply (the "partial read" bug).
     const utt = new SpeechSynthesisUtterance(text);
     utt.rate   = 1.0;
     utt.pitch  = 0.85;
     utt.volume = 1.0;
-    // Use async loadVoices() — Chrome/Edge return empty array on first sync call
-    const voices = await loadVoices();
-    const best = voices.find(v => /microsoft guy|microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
-              || voices.find(v => v.lang === 'en-US' && /male|man/i.test(v.name))
-              || voices.find(v => v.lang === 'en-US')
-              || voices[0];
-    if (best) utt.voice = best;
+    if (!pinnedVoiceRef.current) {
+      // Use async loadVoices() — Chrome/Edge return empty array on first sync call
+      const voices = await loadVoices();
+      pinnedVoiceRef.current = voices.find(v => /microsoft guy|microsoft david|microsoft mark|google uk english male|daniel|alex|reed|liam|james/i.test(v.name))
+        || voices.find(v => v.lang === 'en-US' && /male|man/i.test(v.name))
+        || voices.find(v => v.lang === 'en-US')
+        || voices[0] || null;
+    }
+    if (pinnedVoiceRef.current) utt.voice = pinnedVoiceRef.current;
     utt.onend = utt.onerror = () => { speechBusyRef.current = false; speakNext(); };
     safeSetSpeaking(true);
     window.speechSynthesis.speak(utt);
@@ -1234,9 +1241,10 @@ export function AbbaAssistant() {
       let sseBuffer = '';
       let fullText = '';
 
-      // ── Instant TTS: fire as soon as the first complete sentence arrives ──
-      // This gives immediate audio feedback instead of waiting for the full stream.
-      let earlyTTSFired = false;
+      // ── Live conversational speech: queue EVERY sentence the moment it completes ──
+      // One pinned voice, no cancels between sentences → the FULL reply is spoken,
+      // starting within the first sentence (no more waiting for the whole response).
+      let spokeAnything = false;
       let sentenceBuffer = '';
 
       while (true) {
@@ -1262,17 +1270,15 @@ export function AbbaAssistant() {
             sentenceBuffer += parsed.text;
             setMessages(prev => prev.map(m => m.id === msgId ? { ...m, content: fullText } : m));
 
-            // ── Fire TTS as soon as we detect the first sentence boundary (30+ chars) ──
-            // This starts audio 2-4 seconds sooner than waiting for the full response.
-            if (voiceEnabled && !earlyTTSFired) {
-              const match = sentenceBuffer.match(/^[\s\S]{30,}?[.!?]+(?:\s|$)/);
-              if (match) {
-                earlyTTSFired = true;
-                // Clear browser speech queue
-                if (hasSpeechSynthesis) { window.speechSynthesis.cancel(); speechQueueRef.current = []; speechBusyRef.current = false; }
-                speak(match[0].trim(), msgId, (audioUrl) => {
-                  setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl } : m));
-                });
+            if (voiceEnabled) {
+              // Queue every COMPLETE sentence as it arrives — natural conversation
+              // flow: speech starts on the first sentence while the rest streams,
+              // and the ENTIRE reply gets spoken (sendMessage cleared old speech).
+              let m: RegExpMatchArray | null;
+              while ((m = sentenceBuffer.match(/^[\s\S]{12,}?[.!?]+["')\]]*(?:\s+|$)/))) {
+                const sentence = m[0].trim();
+                sentenceBuffer = sentenceBuffer.slice(m[0].length);
+                if (sentence) { queueSpeak(sentence); spokeAnything = true; }
               }
             }
           }
@@ -1297,12 +1303,13 @@ export function AbbaAssistant() {
         }
       }
 
-      // ── After full stream: if early TTS didn't fire (very short response), speak now ──
-      if (voiceEnabled && fullText && !earlyTTSFired) {
-        if (hasSpeechSynthesis) { window.speechSynthesis.cancel(); speechQueueRef.current = []; speechBusyRef.current = false; }
-        speak(fullText, msgId, (audioUrl) => {
-          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, audioUrl } : m));
-        });
+      // ── After full stream: flush whatever's left in the buffer so the ENTIRE
+      // reply is spoken (trailing fragment without terminal punctuation included).
+      if (voiceEnabled) {
+        const rest = sentenceBuffer.trim();
+        if (rest.length > 1) { queueSpeak(rest); spokeAnything = true; }
+        // Very short reply with no sentence boundary at all — speak it whole
+        if (!spokeAnything && fullText.trim()) queueSpeak(fullText.trim());
       }
 
     } catch {

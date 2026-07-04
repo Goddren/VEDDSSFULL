@@ -119,6 +119,38 @@ export default function LeadHunterPage() {
     onError: () => toast({ title: 'Diagnostic failed', variant: 'destructive' }),
   });
 
+  // Automated outreach — engages via platform API where creds exist (X like+reply);
+  // otherwise copies the ready message to the clipboard and opens the post to paste.
+  const outreachMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest('POST', `/api/lead-hunter/outreach/${id}`);
+      return res.json();
+    },
+    onSuccess: async (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/leads'] });
+      if (data.automated) {
+        toast({ title: '✅ Auto-engaged', description: data.reason });
+      } else {
+        if (data.message) { try { await navigator.clipboard.writeText(data.message); } catch { /* clipboard optional */ } }
+        if (data.postUrl) window.open(data.postUrl, '_blank');
+        toast({ title: '📋 Message copied — post opened', description: data.reason });
+      }
+    },
+    onError: () => toast({ title: 'Outreach failed', variant: 'destructive' }),
+  });
+
+  const bulkOutreachMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/lead-hunter/outreach-run');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/leads'] });
+      toast({ title: `Auto-Outreach: ${data.engaged} engaged`, description: data.message });
+    },
+    onError: () => toast({ title: 'Auto-outreach failed', variant: 'destructive' }),
+  });
+
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const res = await apiRequest('PATCH', `/api/lead-hunter/leads/${id}/status`, { status });
@@ -176,6 +208,15 @@ export default function LeadHunterPage() {
             >
               <AlertCircle size={14} style={{ marginRight: 6 }} />
               {diagMutation.isPending ? 'Testing…' : 'Diagnose'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => bulkOutreachMutation.mutate()}
+              disabled={bulkOutreachMutation.isPending}
+              style={{ borderColor: '#F0D26955', color: '#F0D269' }}
+            >
+              🚀 {bulkOutreachMutation.isPending ? 'Reaching out…' : 'Auto-Outreach'}
             </Button>
             <Button
               size="sm"
@@ -345,7 +386,15 @@ export default function LeadHunterPage() {
                             <p style={{ margin: 0, fontSize: 12, color: '#e5e7eb', lineHeight: 1.6 }}>{lead.suggestedReply}</p>
                           </div>
                         )}
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {/* Automated outreach — API-engages where possible, else copies msg + opens post */}
+                          <button
+                            onClick={e => { e.stopPropagation(); outreachMutation.mutate(lead.id); }}
+                            disabled={outreachMutation.isPending}
+                            style={{ padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, background: 'linear-gradient(135deg,#F0D269,#d4a800)', color: '#000' }}
+                          >
+                            🚀 {outreachMutation.isPending ? 'Sending…' : 'Send Outreach'}
+                          </button>
                           {lead.postUrl && (
                             <a
                               href={lead.postUrl}
