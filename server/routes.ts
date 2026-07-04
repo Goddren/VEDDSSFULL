@@ -26490,10 +26490,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!acct) {
         await db.execute(sql`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
       }
-      await db.execute(sql`
+      const tradeRows = await db.execute(sql`
         INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
         VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence ?? null}, ${source}, 'open', now())
+        RETURNING id
       `);
+      const newTradeId = (tradeRows as any)[0]?.[0]?.id ?? (tradeRows as any).rows?.[0]?.id;
+
+      // Mirror trade to all active copiers
+      try {
+        const copiers = await db.execute(sql`
+          SELECT id, copier_id, max_lot_size FROM copy_relationships
+          WHERE source_user_id=${userId} AND is_active=true
+        `);
+        const copierList: any[] = (copiers as any)[0] ?? (copiers as any).rows ?? [];
+        for (const rel of copierList) {
+          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
+          await db.execute(sql`
+            INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
+            VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
+          `);
+        }
+      } catch { /* non-critical — don't fail the trade if mirroring errors */ }
+
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -26520,6 +26539,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
         `);
       }
+      // Close mirrored copy trades for this source trade
+      try {
+        await db.execute(sql`
+          UPDATE copy_trade_logs
+          SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
+          WHERE original_trade_id=${tradeId} AND source_user_id=${userId} AND status='open'
+        `);
+      } catch { /* non-critical */ }
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -26548,34 +26575,49 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/copy/leaderboard", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
+      // Pulls from BOTH paper trades (AI SS Engine paper mode) AND real AI trade results
+      // so any user running the live engine also appears on the leaderboard.
       const rows = await db.execute(sql`
         SELECT
           u.id AS user_id,
           u.username,
-          COUNT(t.id) FILTER (WHERE t.status = 'closed') AS total_trades,
-          COUNT(t.id) FILTER (WHERE t.status = 'closed' AND t.pnl > 0) AS wins,
-          COUNT(t.id) FILTER (WHERE t.status = 'open') AS open_trades,
+          COUNT(t.id) FILTER (WHERE t.is_closed) AS total_trades,
+          COUNT(t.id) FILTER (WHERE t.is_closed AND t.pnl > 0) AS wins,
+          COUNT(t.id) FILTER (WHERE NOT t.is_closed) AS open_trades,
           ROUND(
-            CASE WHEN COUNT(t.id) FILTER (WHERE t.status='closed') > 0
-              THEN (COUNT(t.id) FILTER (WHERE t.status='closed' AND t.pnl > 0)::numeric /
-                   COUNT(t.id) FILTER (WHERE t.status='closed') * 100)
+            CASE WHEN COUNT(t.id) FILTER (WHERE t.is_closed) > 0
+              THEN (COUNT(t.id) FILTER (WHERE t.is_closed AND t.pnl > 0)::numeric /
+                   COUNT(t.id) FILTER (WHERE t.is_closed) * 100)
               ELSE 0
             END, 1
           ) AS win_rate,
-          COALESCE(SUM(t.pnl) FILTER (WHERE t.status='closed'), 0) AS total_pnl,
-          COALESCE(AVG(t.pnl) FILTER (WHERE t.status='closed'), 0) AS avg_pnl,
-          COALESCE(MAX(t.pnl) FILTER (WHERE t.status='closed'), 0) AS best_trade,
-          COALESCE(MIN(t.pnl) FILTER (WHERE t.status='closed'), 0) AS worst_trade,
-          COALESCE(SUM(t.pnl_pips) FILTER (WHERE t.status='closed'), 0) AS total_pips,
-          MAX(t.opened_at) AS last_trade_at,
-          CASE WHEN pa.is_enabled THEN 'paper' ELSE 'inactive' END AS account_type
+          COALESCE(SUM(t.pnl) FILTER (WHERE t.is_closed), 0) AS total_pnl,
+          ROUND(COALESCE(AVG(t.pnl) FILTER (WHERE t.is_closed), 0)::numeric, 2) AS avg_pnl,
+          COALESCE(MAX(t.pnl) FILTER (WHERE t.is_closed), 0) AS best_trade,
+          COALESCE(MIN(t.pnl) FILTER (WHERE t.is_closed), 0) AS worst_trade,
+          COALESCE(SUM(t.pnl_pips) FILTER (WHERE t.is_closed), 0) AS total_pips,
+          MAX(t.opened_at) AS last_trade_at
         FROM users u
-        LEFT JOIN fx_paper_trades t ON t.user_id = u.id
-        LEFT JOIN fx_paper_accounts pa ON pa.user_id = u.id
-        WHERE pa.is_enabled = true
-        GROUP BY u.id, u.username, pa.is_enabled
-        HAVING COUNT(t.id) FILTER (WHERE t.status='closed') >= 1
-        ORDER BY win_rate DESC, total_pnl DESC
+        INNER JOIN (
+          SELECT user_id, id,
+            pnl, pnl_pips,
+            (status = 'closed') AS is_closed,
+            opened_at
+          FROM fx_paper_trades
+          UNION ALL
+          SELECT user_id, id,
+            profit_loss AS pnl,
+            profit_loss_pips AS pnl_pips,
+            (result IN ('WIN', 'LOSS', 'BREAKEVEN') OR closed_at IS NOT NULL) AS is_closed,
+            created_at AS opened_at
+          FROM ai_trade_results
+          WHERE profit_loss IS NOT NULL
+        ) t ON t.user_id = u.id
+        GROUP BY u.id, u.username
+        HAVING COUNT(t.id) >= 1
+        ORDER BY
+          CASE WHEN COUNT(t.id) FILTER (WHERE t.is_closed) >= 5 THEN win_rate ELSE -1 END DESC,
+          total_pnl DESC
         LIMIT 50
       `);
       const traders = (rows as any)[0] ?? (rows as any).rows ?? [];

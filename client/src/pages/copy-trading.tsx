@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import {
   Copy, Users, TrendingUp, TrendingDown, Trophy, Activity,
   CheckCircle, XCircle, Loader2, Settings, ArrowLeft,
-  Zap, Clock, Target, BarChart2, RefreshCw,
+  Zap, Clock, Target, BarChart2, RefreshCw, Info,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -176,6 +176,33 @@ export default function CopyTradingPage() {
           ))}
         </div>
 
+        {/* Platform summary — always visible */}
+        {leaderboard.length === 0 && activeRels.length === 0 && (
+          <div style={{ background: "#0a0f1a", border: "1px solid #a855f733", borderRadius: 12, padding: "14px 18px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center" }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <p style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 700, color: "#a855f7" }}>Copy Trading — How it works</p>
+              <p style={{ margin: 0, fontSize: 12, color: "#6b7280", lineHeight: 1.6 }}>
+                Traders who run the AI SS Engine appear in the leaderboard below.
+                Click <strong style={{ color: "#fff" }}>Copy</strong> next to any trader, set your max lot size, and every AI signal they get fires on your account automatically.
+                Track all mirrored positions live — open trades refresh every 10 seconds.
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 180 }}>
+              {[
+                { icon: <Trophy size={11} />, color: "#f59e0b", text: "See win rate, avg P&L, best trade" },
+                { icon: <Copy size={11} />, color: "#a855f7", text: "One click to start copying" },
+                { icon: <Zap size={11} />, color: "#10b981", text: "Trades mirror automatically" },
+                { icon: <Activity size={11} />, color: "#60a5fa", text: "Live P&L tracking for each trader" },
+              ].map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: s.color }}>{s.icon}</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>{s.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Live open trades — prominent panel */}
         {openCopyTrades.length > 0 && (
           <div style={{ background: "#0f1420", border: "1px solid #f59e0b44", borderRadius: 14, marginBottom: 20, overflow: "hidden" }}>
@@ -240,10 +267,30 @@ export default function CopyTradingPage() {
                   <Loader2 size={16} style={{ marginRight: 8 }} className="animate-spin" /> Loading…
                 </div>
               ) : leaderboard.length === 0 ? (
-                <div style={{ padding: "40px 20px", textAlign: "center" }}>
-                  <Users size={32} color="#1f2937" style={{ margin: "0 auto 10px" }} />
-                  <p style={{ margin: 0, color: "#6b7280", fontSize: 13 }}>No traders on the leaderboard yet.</p>
-                  <p style={{ margin: "6px 0 0", color: "#4b5563", fontSize: 11 }}>Enable paper trading on the AI SS Engine page and complete some trades.</p>
+                <div style={{ padding: "32px 24px" }}>
+                  <div style={{ textAlign: "center", marginBottom: 24 }}>
+                    <Users size={36} color="#1f2937" style={{ margin: "0 auto 10px" }} />
+                    <p style={{ margin: "0 0 4px", color: "#9ca3af", fontSize: 14, fontWeight: 600 }}>No traders ranked yet</p>
+                    <p style={{ margin: 0, color: "#4b5563", fontSize: 12 }}>The leaderboard populates as users complete trades via the AI SS Engine or paper trading mode.</p>
+                  </div>
+                  <div style={{ background: "#080b14", border: "1px solid #1e3a5f", borderRadius: 12, padding: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <Info size={13} color="#60a5fa" />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa" }}>How to appear on the leaderboard</span>
+                    </div>
+                    {[
+                      { step: "1", text: "Go to AI SS Engine and start the engine (live or paper mode)", link: "/weekly-strategy" },
+                      { step: "2", text: "Complete at least 1 trade — wins, losses, and breakevens all count", link: null },
+                      { step: "3", text: "Your stats automatically appear here so others can copy you", link: null },
+                    ].map(s => (
+                      <div key={s.step} style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+                        <div style={{ width: 20, height: 20, borderRadius: "50%", background: "#1e3a5f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#60a5fa", flexShrink: 0 }}>{s.step}</div>
+                        <p style={{ margin: 0, fontSize: 12, color: "#9ca3af", lineHeight: 1.5 }}>
+                          {s.link ? <a href={s.link} style={{ color: "#60a5fa" }}>{s.text}</a> : s.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <div style={{ overflowX: "auto" }}>
@@ -466,8 +513,8 @@ export default function CopyTradingPage() {
               {activeRels.length === 0 ? (
                 <div style={{ padding: "24px 14px", textAlign: "center" }}>
                   <Copy size={24} color="#1f2937" style={{ margin: "0 auto 8px" }} />
-                  <p style={{ margin: 0, fontSize: 12, color: "#4b5563" }}>No active copies yet.</p>
-                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#374151" }}>Pick a trader from the leaderboard.</p>
+                  <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>Not copying anyone yet.</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#4b5563" }}>Find a trader in the leaderboard and click <strong style={{ color: "#a855f7" }}>Copy</strong> to start.</p>
                 </div>
               ) : (
                 <div>
