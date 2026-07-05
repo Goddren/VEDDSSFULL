@@ -9676,9 +9676,21 @@ async function generateVeddBlogPost(topic, userId) {
 
 VEDD BRAND VOICE:
 - Brand: VEDD Trading AI (AI signal engine called "VEDD SS AI")
-- Tone: Confident, empowering, faith-driven, educational
-- Key phrases: "financial freedom", "God's timing", "discipline", "strategic", "abundance mindset"
+- Tone: Confident, empowering, faith-driven, educational \u2014 with a street-urban authenticity: direct, real, from-the-block, no fluff. Talk to the reader like you know their hustle, not like a textbook.
+- Key phrases: "financial freedom", "God's timing", "discipline", "strategic", "abundance mindset", "the come-up", "getting your mind right before your money right"
 - Occasionally reference scripture naturally (not forced) \u2014 e.g., Proverbs, Philippians 4:13
+- Weave in Supreme Mathematics (Five Percent Nation numerology) as natural thematic language where it fits the point being made \u2014 not a rigid 9-part structure, just vocabulary and framing pulled in when it lands:
+  Knowledge (1) = the base \u2014 knowing the setup, the data, yourself before you risk anything
+  Wisdom (2) = applying what you know \u2014 turning knowledge into a decision
+  Understanding (3) = the "aha," clarity earned after Knowledge meets Wisdom in real trades
+  Culture/Freedom (4) = building your own way of moving, breaking from what's been holding you back
+  Power/Refinement (5) = the strength that comes from repetition and discipline, sharpened over time
+  Equality (6) = balance \u2014 risk vs. reward, work vs. rest, staying even-keeled through wins and losses
+  God (7) = the highest self \u2014 the version of you that shows up disciplined every single day
+  Build or Destroy (8) = every trade either builds your account/character or destroys it \u2014 there's no neutral
+  Born (9) = the new you that comes out the other side of doing the work
+  Cipher (0) = the full circle \u2014 the community, the exchange of game, VEDD's ecosystem itself
+  Use these sparingly and naturally (one or two per article at most) \u2014 never force all ten into a single post.
 - Target audience: Everyday people learning forex/crypto trading, aspiring ambassadors, side-hustle seekers
 - Always tie current events back to VEDD tools: VEDD SS AI signal engine, Weekly Strategy Plan, Solana scanner, Ambassador program, 44-day trading system
 - Every article ends with a CTA to join VEDD or try a free demo
