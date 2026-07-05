@@ -658,7 +658,7 @@ export default function ContentStudioPage() {
                     color: reelId === r.id ? r.accent : '#6b7280',
                   }}
                 >
-                  {r.title} · :{r.duration}
+                  {r.title} · :20
                 </button>
               ))}
             </div>
@@ -747,8 +747,8 @@ export default function ContentStudioPage() {
                     <div className="h-px" style={{ background: 'rgba(255,255,255,.06)' }} />
                     <div className="p-3 rounded-lg text-xs font-mono" style={{ background: '#060910', border: '1px solid #1A2030', color: '#64748B' }}>
                       <div className="font-bold mb-1" style={{ color: r.accent }}># CLOSING TEXT CARD</div>
-                      {r.closing.map((l, i) => (
-                        <span key={i}>{i === r.closing.length - 1 ? <span style={{ color: r.accent }}>{l}</span> : l}<br /></span>
+                      {r.close.filter(Boolean).map((l, i, arr) => (
+                        <span key={i}>{i === arr.length - 1 ? <span style={{ color: r.accent }}>{l}</span> : l}<br /></span>
                       ))}
                     </div>
                   </div>
