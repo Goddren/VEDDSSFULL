@@ -59,6 +59,7 @@ import { apiRequest } from '@/lib/queryClient';
 import VeddLogo from '@/components/ui/vedd-logo';
 import { MarketCalendar } from '@/components/market/market-calendar';
 import { TradePerformanceCard, TodayReviewPanel, AiHealthStrip } from '@/components/trade-performance-card';
+import { TlOpenPositions } from '@/components/tl-open-positions';
 import { getUserLevel } from '@/lib/achievement-system';
 import TradingCoach from '@/components/trading-coach/trading-coach';
 import { DailyWisdom } from '@/components/scripture/daily-wisdom';
@@ -1993,6 +1994,7 @@ const Dashboard: React.FC = () => {
           <div className="mb-4 space-y-3">
             <AiHealthStrip />
             <TradePerformanceCard />
+            <TlOpenPositions />
             <TodayReviewPanel />
           </div>
 

@@ -5,6 +5,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { TlOpenPositions } from "@/components/tl-open-positions";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -6357,6 +6358,9 @@ export default function WeeklyStrategyPage() {
                 <a href="/webhooks" className="text-cyan-400 text-sm underline mt-1 inline-block">Connect a TradeLocker account →</a>
               </div>
             )}
+
+            {/* ── Live Open Positions (incl. losing trades, per-trade P/L) ── */}
+            {activeTLEngineConns.length > 0 && <TlOpenPositions />}
 
             {/* ── TL Recent Trade History ── */}
             {activeTLEngineConns.length > 0 && (

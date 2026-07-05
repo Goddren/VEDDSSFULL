@@ -2289,7 +2289,12 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
   };
   // maxRetries handles transient "invalid response body while trying to fetch" /
   // connection drops (the SDK retries APIConnectionError); timeout caps hangs.
-  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 90000 });
+  // OpenRouter recommends (and some free models require) HTTP-Referer + X-Title
+  // attribution headers — without them certain models reject with 400.
+  const defaultHeaders = provider === 'openrouter'
+    ? { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' }
+    : undefined;
+  const client = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 90000, defaultHeaders });
   const wrapper = client as any;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;

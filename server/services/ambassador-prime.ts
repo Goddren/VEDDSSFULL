@@ -507,8 +507,12 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
       completedSteps.push('DALL-E Image Generation');
       await logStep(runDate, 'DALL-E Image Generation', 'completed');
     } else {
+      const skipReason = !process.env.OPENAI_API_KEY
+        ? 'OPENAI_API_KEY not set in server environment — DALL-E image generation requires it'
+        : 'DALL-E returned no image URL (check server logs for the API error)';
+      errors.push(`Image: ${skipReason}`);
       skippedSteps.push('DALL-E Image Generation');
-      await logStep(runDate, 'DALL-E Image Generation', 'skipped', 'No image URL returned');
+      await logStep(runDate, 'DALL-E Image Generation', 'skipped', skipReason);
     }
   } catch (e: any) {
     errors.push(`DALL-E: ${e.message}`);

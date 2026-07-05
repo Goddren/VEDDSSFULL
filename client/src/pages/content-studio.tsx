@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { VeddReelPlayer } from '@/components/vedd-reel-player';
 import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
 import { VeddEduReel, EDU_REELS } from '@/components/vedd-edu-reels';
+import { ReelRecorder } from '@/components/reel-recorder';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
@@ -663,9 +664,12 @@ export default function ContentStudioPage() {
               ))}
             </div>
 
-            <div className="flex items-center gap-2 mb-6 px-3 py-2 rounded-xl" style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)' }}>
-              <span>🎬</span>
-              <p className="text-xs text-gray-300">Animated reel preview — press Play, then screen-record to export as a real video.</p>
+            <div className="flex flex-col gap-3 mb-6 px-3 py-3 rounded-xl" style={{ background: 'rgba(124,58,237,.08)', border: '1px solid rgba(124,58,237,.25)' }}>
+              <div className="flex items-center gap-2">
+                <span>🎬</span>
+                <p className="text-xs text-gray-300">Press Record & Export, then Play the reel — you'll get a real video file to post.</p>
+              </div>
+              <ReelRecorder suggestedName={`vedd-reel-${reelId}`} />
             </div>
 
             {reelId === 'correction' && (

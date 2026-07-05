@@ -8272,7 +8272,8 @@ function buildOpenAICompatClient(provider, apiKey) {
     mistral: "https://api.mistral.ai/v1",
     openrouter: "https://openrouter.ai/api/v1"
   };
-  const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4 });
+  const defaultHeaders = provider === "openrouter" ? { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } : void 0;
+  const client2 = new OpenAI({ apiKey, baseURL: baseURLs[provider], maxRetries: 4, timeout: 9e4, defaultHeaders });
   const wrapper = client2;
   wrapper.defaultModel = PROVIDER_MODELS[provider];
   wrapper.provider = provider;
@@ -36218,8 +36219,10 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
       completedSteps.push("DALL-E Image Generation");
       await logStep(runDate, "DALL-E Image Generation", "completed");
     } else {
+      const skipReason = !process.env.OPENAI_API_KEY ? "OPENAI_API_KEY not set in server environment \u2014 DALL-E image generation requires it" : "DALL-E returned no image URL (check server logs for the API error)";
+      errors.push(`Image: ${skipReason}`);
       skippedSteps.push("DALL-E Image Generation");
-      await logStep(runDate, "DALL-E Image Generation", "skipped", "No image URL returned");
+      await logStep(runDate, "DALL-E Image Generation", "skipped", skipReason);
     }
   } catch (e) {
     errors.push(`DALL-E: ${e.message}`);
@@ -36651,6 +36654,112 @@ var init_ambassador_prime = __esm({
         modules: ["Success story", "Community spotlight", "Week-ahead prep"]
       }
     };
+  }
+});
+
+// server/services/ensure-options-tables.ts
+var ensure_options_tables_exports = {};
+__export(ensure_options_tables_exports, {
+  ensureOptionsTables: () => ensureOptionsTables
+});
+async function ensureOptionsTables() {
+  try {
+    await pool.query(DDL);
+    console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs).");
+  } catch (err) {
+    console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL;
+var init_ensure_options_tables = __esm({
+  "server/services/ensure-options-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL = `
+CREATE TABLE IF NOT EXISTS "alpaca_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "api_key_id" text NOT NULL,
+  "encrypted_api_secret" text NOT NULL,
+  "account_type" text NOT NULL DEFAULT 'paper',
+  "is_active" boolean NOT NULL DEFAULT true,
+  "auto_execute" boolean NOT NULL DEFAULT false,
+  "account_id" text,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "trade_count" integer NOT NULL DEFAULT 0,
+  "use_risk_percent" boolean NOT NULL DEFAULT true,
+  "risk_percent" double precision NOT NULL DEFAULT 1.0,
+  "is_prop_firm_account" boolean NOT NULL DEFAULT false,
+  "prop_firm_name" text,
+  "prop_firm_account_size" double precision,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "tastytrade_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "username" text NOT NULL,
+  "encrypted_password" text NOT NULL,
+  "account_type" text NOT NULL DEFAULT 'sandbox',
+  "is_active" boolean NOT NULL DEFAULT true,
+  "auto_execute" boolean NOT NULL DEFAULT false,
+  "account_number" text,
+  "session_token" text,
+  "token_expires_at" timestamp,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "trade_count" integer NOT NULL DEFAULT 0,
+  "use_risk_percent" boolean NOT NULL DEFAULT true,
+  "risk_percent" double precision NOT NULL DEFAULT 1.0,
+  "is_prop_firm_account" boolean NOT NULL DEFAULT false,
+  "prop_firm_name" text,
+  "prop_firm_account_size" double precision,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "cryptocom_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "api_key" text NOT NULL,
+  "encrypted_api_secret" text NOT NULL,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "auto_execute" boolean NOT NULL DEFAULT false,
+  "instrument_type" text NOT NULL DEFAULT 'perpetual',
+  "use_risk_percent" boolean NOT NULL DEFAULT true,
+  "risk_percent" double precision NOT NULL DEFAULT 1.0,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "trade_count" integer NOT NULL DEFAULT 0,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "options_engine_configs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
+  "is_active" boolean NOT NULL DEFAULT false,
+  "symbols" jsonb NOT NULL DEFAULT '["SPY","QQQ","AAPL","TSLA","NVDA"]',
+  "scan_interval_ms" integer NOT NULL DEFAULT 60000,
+  "strategy_mode" text NOT NULL DEFAULT 'auto',
+  "direction_filter" text NOT NULL DEFAULT 'both',
+  "max_open_positions" integer NOT NULL DEFAULT 3,
+  "max_contracts_per_trade" integer NOT NULL DEFAULT 1,
+  "risk_per_trade" double precision NOT NULL DEFAULT 1.0,
+  "min_confidence" double precision NOT NULL DEFAULT 70,
+  "weekly_profit_target" double precision NOT NULL DEFAULT 5.0,
+  "account_balance" double precision NOT NULL DEFAULT 0,
+  "enable_compounding" boolean NOT NULL DEFAULT false,
+  "prop_firm_mode" boolean NOT NULL DEFAULT false,
+  "prop_firm_daily_drawdown_limit" double precision NOT NULL DEFAULT 4.0,
+  "daily_loss_limit" double precision NOT NULL DEFAULT 5.0,
+  "daily_profit_target" double precision NOT NULL DEFAULT 0,
+  "max_daily_trades" integer NOT NULL DEFAULT 0,
+  "execution_source" text NOT NULL DEFAULT 'auto',
+  "lock_settings" boolean NOT NULL DEFAULT false,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+`;
   }
 });
 
@@ -61243,6 +61352,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             headers: { "Authorization": `Bearer ${decryptedKey}` }
           });
           isValid = resp.ok;
+        } else if (provider === "openrouter") {
+          const resp = await fetch("https://openrouter.ai/api/v1/models", {
+            headers: { "Authorization": `Bearer ${decryptedKey}` }
+          });
+          isValid = resp.ok;
         } else if (provider === "elevenlabs") {
           try {
             const r = await fetch("https://api.elevenlabs.io/v1/models", { headers: { "xi-api-key": decryptedKey } });
@@ -66250,6 +66364,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     }
   } catch (err) {
     console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureOptionsTables: ensureOptionsTables2 } = await Promise.resolve().then(() => (init_ensure_options_tables(), ensure_options_tables_exports));
+    await ensureOptionsTables2();
+  } catch (err) {
+    console.error(`[startup] ensureOptionsTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     await registerRoutes(app, httpServer);

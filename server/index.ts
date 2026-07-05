@@ -186,6 +186,15 @@ async function withRetry<T>(
     console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Options AI Engine broker tables exist (idempotent, self-provisioning
+  // on deploy so no interactive drizzle-kit push is required).
+  try {
+    const { ensureOptionsTables } = await import('./services/ensure-options-tables');
+    await ensureOptionsTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureOptionsTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

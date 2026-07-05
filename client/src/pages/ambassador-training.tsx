@@ -2844,7 +2844,7 @@ function AmbassadorEarningsCalculator() {
         />
         <div className="flex justify-between text-xs text-gray-500 mt-1"><span>1</span><span>150</span></div>
       </div>
-      <div className="grid grid-cols-3 gap-3 text-center">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
         <div className="bg-gray-700/50 rounded-lg p-3">
           <p className="text-lg font-bold text-amber-400">{tier}</p>
           <p className="text-xs text-gray-400">Your Tier</p>
@@ -3392,7 +3392,7 @@ export default function AmbassadorTrainingPage() {
 
               {/* Progress Stats */}
               {contentFlowStats && (
-                <div className="grid grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <div className="text-center p-2 bg-gray-800/50 rounded-lg">
                     <p className="text-lg font-bold text-amber-400">{contentFlowStats.completedDays}</p>
                     <p className="text-xs text-gray-400">Completed</p>
@@ -3603,7 +3603,17 @@ export default function AmbassadorTrainingPage() {
                   <Card key={post.id} className="bg-gray-800/60 border-gray-700 hover:border-gray-600 transition-all">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between gap-3 mb-3">
-                        <Badge className={`bg-${post.color}-500/20 text-${post.color}-400 border-${post.color}-500/30 text-xs shrink-0`}>{post.tool}</Badge>
+                        <Badge className={`text-xs shrink-0 ${{
+                          blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+                          purple: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+                          emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+                          green: 'bg-green-500/20 text-green-400 border-green-500/30',
+                          amber: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+                          red: 'bg-red-500/20 text-red-400 border-red-500/30',
+                          cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+                          pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+                          gray: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+                        }[post.color] || 'bg-gray-500/20 text-gray-400 border-gray-500/30'}`}>{post.tool}</Badge>
                         <Button
                           size="sm"
                           variant="outline"
@@ -4285,9 +4295,11 @@ export default function AmbassadorTrainingPage() {
               </ul>
             </CardContent>
             <CardFooter>
-              <Button variant="outline" className="w-full" disabled={!isComplete}>
-                {isComplete ? 'Join Community' : 'Complete Training First'}
-              </Button>
+              <Link href="/community" className="w-full">
+                <Button variant="outline" className="w-full" disabled={!isComplete}>
+                  {isComplete ? 'Join Community' : 'Complete Training First'}
+                </Button>
+              </Link>
             </CardFooter>
           </Card>
         </div>

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import {
   Coins, Users, FileText, Wallet, Shield, Settings, ChevronRight,
@@ -51,6 +52,7 @@ function CopyBtn({ text }: { text: string }) {
 
 export default function AdminHub() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [setupStep, setSetupStep] = useState(0);
   const [userSearch, setUserSearch] = useState('');
   const queryClient = useQueryClient();
@@ -79,7 +81,9 @@ export default function AdminHub() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/admin/users'] });
+      toast({ title: 'User updated' });
     },
+    onError: (e: any) => toast({ title: 'Update failed', description: e.message, variant: 'destructive' }),
   });
 
   if (!user?.isAdmin) {
@@ -102,7 +106,8 @@ export default function AdminHub() {
     {
       number: 1,
       title: 'Get your VEDD token mint address',
-      status: 'required',
+      // A registered pool implies the mint address was configured
+      status: poolReady ? 'done' : 'required',
       content: (
         <div className="space-y-3">
           <p className="text-gray-300 text-sm">Your VEDD token lives on Solana (pump.fun). You need its mint address to tell the app which token to send.</p>
@@ -126,7 +131,7 @@ export default function AdminHub() {
               <div>
                 <p className="text-white text-xs font-semibold">Save it — you'll add this to Render env vars in Step 4</p>
                 <div className="mt-1.5 bg-black/30 rounded-lg px-3 py-2 flex items-center justify-between">
-                  <code className="text-amber-300 text-xs">VEDD_TOKEN_MINT=HnvMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>
+                  <code className="text-amber-300 text-xs break-all">VEDD_TOKEN_MINT=HnvMxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>
                 </div>
               </div>
             </div>
@@ -137,7 +142,7 @@ export default function AdminHub() {
     {
       number: 2,
       title: 'Create a dedicated Treasury (rewards) wallet',
-      status: 'required',
+      status: poolReady ? 'done' : 'required',
       content: (
         <div className="space-y-3">
           <p className="text-gray-300 text-sm">Create a <strong className="text-white">new Phantom wallet</strong> specifically for sending ambassador rewards. Never use your main personal wallet — keep the treasury separate for security.</p>
@@ -170,7 +175,7 @@ export default function AdminHub() {
     {
       number: 3,
       title: 'Transfer VEDD tokens into the Treasury wallet',
-      status: 'required',
+      status: hasBalance ? 'done' : 'required',
       content: (
         <div className="space-y-3">
           <p className="text-gray-300 text-sm">Load the Treasury wallet with VEDD tokens from your main holdings. Start with what you have — even <strong className="text-white">11M VEDD covers over 12,000 ambassador-months</strong> at current reward rates. Replenish in batches as the program grows.</p>
@@ -249,11 +254,11 @@ export default function AdminHub() {
                     { key: 'SOLANA_RPC_URL', value: 'https://api.mainnet-beta.solana.com', hint: 'Or use QuickNode/Helius for faster sends' },
                   ].map(v => (
                     <div key={v.key} className="bg-black/30 rounded-lg px-3 py-2">
-                      <div className="flex items-center justify-between">
-                        <code className="text-amber-300 text-[11px]">{v.key}</code>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <code className="text-amber-300 text-[11px] break-all">{v.key}</code>
                         <span className="text-[10px] text-gray-600">{v.hint}</span>
                       </div>
-                      <code className="text-gray-500 text-[10px]">{v.value}</code>
+                      <code className="text-gray-500 text-[10px] break-all">{v.value}</code>
                     </div>
                   ))}
                 </div>

@@ -23348,6 +23348,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             headers: { 'Authorization': `Bearer ${decryptedKey}` },
           });
           isValid = resp.ok;
+        } else if (provider === 'openrouter') {
+          const resp = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: { 'Authorization': `Bearer ${decryptedKey}` },
+          });
+          isValid = resp.ok;
         } else if (provider === 'elevenlabs') {
           try {
             const r = await fetch('https://api.elevenlabs.io/v1/models', { headers: { 'xi-api-key': decryptedKey } });

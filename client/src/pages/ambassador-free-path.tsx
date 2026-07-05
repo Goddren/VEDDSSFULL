@@ -429,7 +429,7 @@ export default function AmbassadorFreePathPage() {
             </div>
 
             {/* Stats row */}
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { label:"Tokens", value:tokensEarned, icon:<Trophy className="h-4 w-4 text-yellow-400" /> },
                 { label:"Referrals", value:journey?.referralsCount ?? 0, icon:<Users className="h-4 w-4 text-blue-400" /> },
@@ -804,7 +804,7 @@ export default function AmbassadorFreePathPage() {
           {/* Activity stats */}
           <div className="smart-card p-4">
             <h3 className="font-semibold text-white mb-3">Activity</h3>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
                 { label:"Days Active", value:completedDays.length, color:"text-emerald-400" },
                 { label:"Best Streak", value:journey?.longestStreak ?? 0, color:"text-orange-400" },

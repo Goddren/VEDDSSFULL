@@ -162,13 +162,20 @@ export default function AmbassadorPrimePage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  // While a run is in progress we poll the today/content endpoints so the step
+  // log + KPIs fill in live (a run takes 1–2 min). Self-terminates after 4 min.
+  const [pollUntil, setPollUntil] = useState(0);
+  const isPolling = Date.now() < pollUntil;
 
   const { data: todayData, isLoading: todayLoading } = useQuery<{
     summary: RunSummary | null;
     content: ContentItem[];
     kpis: KpiData | null;
     date: string;
-  }>({ queryKey: ['/api/ambassador-prime/today'] });
+  }>({
+    queryKey: ['/api/ambassador-prime/today'],
+    refetchInterval: () => (Date.now() < pollUntil ? 4000 : false),
+  });
 
   const { data: historyData } = useQuery<{ runs: RunSummary[] }>({ queryKey: ['/api/ambassador-prime/history'] });
 
@@ -176,13 +183,18 @@ export default function AmbassadorPrimePage() {
     queryKey: ['/api/ambassador-prime/content', selectedDate],
     queryFn: () => fetch(`/api/ambassador-prime/content/${selectedDate}`).then(r => r.json()),
     enabled: !!selectedDate,
+    refetchInterval: () => (Date.now() < pollUntil ? 4000 : false),
   });
 
   const runMutation = useMutation({
     mutationFn: () => apiRequest('POST', '/api/ambassador-prime/run'),
     onSuccess: () => {
-      toast({ title: 'Ambassador Prime started', description: 'Run triggered — email report coming in ~5 min' });
-      setTimeout(() => { qc.invalidateQueries({ queryKey: ['/api/ambassador-prime/today'] }); }, 10000);
+      const today = new Date().toISOString().split('T')[0];
+      setSelectedDate(today);           // ensure the live step log tracks today's run
+      setPollUntil(Date.now() + 240000); // poll for up to 4 minutes
+      toast({ title: 'Ambassador Prime running…', description: 'Watching progress live below — the step log fills in as each stage completes.' });
+      qc.invalidateQueries({ queryKey: ['/api/ambassador-prime/today'] });
+      qc.invalidateQueries({ queryKey: ['/api/ambassador-prime/content', today] });
     },
     onError: () => toast({ title: 'Error', description: 'Failed to trigger run', variant: 'destructive' }),
   });
@@ -207,13 +219,28 @@ export default function AmbassadorPrimePage() {
           </div>
           <Button
             onClick={() => runMutation.mutate()}
-            disabled={runMutation.isPending}
+            disabled={runMutation.isPending || isPolling}
             className="bg-orange-500 hover:bg-orange-600 text-white gap-2"
           >
             <Play className="h-4 w-4" />
-            {runMutation.isPending ? 'Starting…' : 'Run Now'}
+            {runMutation.isPending || isPolling ? 'Running…' : 'Run Now'}
           </Button>
         </div>
+
+        {/* Live run progress — visible while a run is in flight */}
+        {isPolling && (
+          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="h-4 w-4 text-orange-400 animate-pulse" />
+              <span className="text-sm font-semibold text-orange-300">Run in progress — steps complete live as each stage finishes</span>
+            </div>
+            {dayContent?.steps?.length ? (
+              <StepLog steps={dayContent.steps} />
+            ) : (
+              <div className="text-xs text-slate-400">Starting research and content generation…</div>
+            )}
+          </div>
+        )}
 
         {/* Today theme banner */}
         {todayData?.summary && (

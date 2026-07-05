@@ -118,6 +118,7 @@ export default function AdminVeddPool() {
   const syncBalanceMutation = useMutation({
     mutationFn: async (walletId: number) => (await apiRequest('POST', `/api/vedd/admin/pool/${walletId}/sync`)).json(),
     onSuccess: () => { toast({ title: "Synced" }); queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/overview'] }); },
+    onError: (err: Error) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
   });
 
   const verifyRewardMutation = useMutation({
@@ -128,11 +129,13 @@ export default function AdminVeddPool() {
       queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/pending-rewards'] });
       queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/transfers'] });
     },
+    onError: (err: Error) => toast({ title: "Verify failed", description: err.message, variant: "destructive" }),
   });
 
   const retryTransferMutation = useMutation({
     mutationFn: async (jobId: number) => (await apiRequest('POST', `/api/vedd/admin/transfers/${jobId}/retry`)).json(),
     onSuccess: () => { toast({ title: "Retrying transfer…" }); queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/transfers'] }); },
+    onError: (err: Error) => toast({ title: "Retry failed", description: err.message, variant: "destructive" }),
   });
 
   const addBlacklistMutation = useMutation({
@@ -153,6 +156,7 @@ export default function AdminVeddPool() {
       toast({ title: "Removed from blacklist" });
       queryClient.invalidateQueries({ queryKey: ['/api/vedd/admin/blacklist'] });
     },
+    onError: (err: Error) => toast({ title: "Remove failed", description: err.message, variant: "destructive" }),
   });
 
   if (isLoading) {
@@ -168,9 +172,9 @@ export default function AdminVeddPool() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
+            <Link href="/admin">
               <Button variant="ghost" size="icon"><ArrowLeft className="w-5 h-5" /></Button>
             </Link>
             <div>
@@ -379,7 +383,7 @@ export default function AdminVeddPool() {
           <TabsContent value="referrals">
             <div className="mt-4 space-y-4">
               {/* Summary */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
                   { label: 'Total Referral Txns', value: referralTransfers.length, color: 'text-purple-400' },
                   { label: 'VEDD Sent (referrals)', value: `${totalReferralVedd.toFixed(0)} VEDD`, color: 'text-emerald-400' },

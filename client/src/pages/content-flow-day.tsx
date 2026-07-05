@@ -1041,7 +1041,14 @@ export default function ContentFlowDay() {
                           onClick={() => {
                             refetchCommunity();
                             fetch(`/api/ambassador/community/social-directions/${day}`, { credentials: 'include' })
-                              .then(() => refetchCommunity());
+                              .then(async (r) => {
+                                if (!r.ok) {
+                                  const d = await r.json().catch(() => ({}));
+                                  throw new Error(d.message || d.error || `Request failed (${r.status})`);
+                                }
+                                refetchCommunity();
+                              })
+                              .catch((e) => toast({ title: 'Generation failed', description: e.message, variant: 'destructive' }));
                           }}
                           className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
                         >
@@ -1142,7 +1149,14 @@ export default function ContentFlowDay() {
                           variant="outline"
                           onClick={() => {
                             fetch(`/api/ambassador/community/challenges?week=${weekNumber}`, { credentials: 'include' })
-                              .then(() => refetchCommunity());
+                              .then(async (r) => {
+                                if (!r.ok) {
+                                  const d = await r.json().catch(() => ({}));
+                                  throw new Error(d.message || d.error || `Request failed (${r.status})`);
+                                }
+                                refetchCommunity();
+                              })
+                              .catch((e) => toast({ title: 'Generation failed', description: e.message, variant: 'destructive' }));
                           }}
                           className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
                         >
@@ -1264,7 +1278,14 @@ export default function ContentFlowDay() {
                           variant="outline"
                           onClick={() => {
                             fetch(`/api/ambassador/community/events?week=${weekNumber}`, { credentials: 'include' })
-                              .then(() => refetchCommunity());
+                              .then(async (r) => {
+                                if (!r.ok) {
+                                  const d = await r.json().catch(() => ({}));
+                                  throw new Error(d.message || d.error || `Request failed (${r.status})`);
+                                }
+                                refetchCommunity();
+                              })
+                              .catch((e) => toast({ title: 'Generation failed', description: e.message, variant: 'destructive' }));
                           }}
                           className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
                         >
