@@ -34,6 +34,7 @@ __export(schema_exports, {
   aiModelConfigs: () => aiModelConfigs,
   aiTradeResults: () => aiTradeResults,
   allTimeRecords: () => allTimeRecords,
+  alpacaConnections: () => alpacaConnections,
   ambassadorActionRewards: () => ambassadorActionRewards,
   ambassadorBonusContent: () => ambassadorBonusContent,
   ambassadorCertifications: () => ambassadorCertifications,
@@ -80,6 +81,7 @@ __export(schema_exports, {
   copyRelationships: () => copyRelationships,
   copyTradeLogs: () => copyTradeLogs,
   creditTaskTypeEnum: () => creditTaskTypeEnum,
+  cryptocomConnections: () => cryptocomConnections,
   devotionalGroups: () => devotionalGroups,
   devotionalSessions: () => devotionalSessions,
   devotionals: () => devotionals,
@@ -103,6 +105,7 @@ __export(schema_exports, {
   insertAiConfirmationOutcomeSchema: () => insertAiConfirmationOutcomeSchema,
   insertAiModelConfigSchema: () => insertAiModelConfigSchema,
   insertAiTradeResultSchema: () => insertAiTradeResultSchema,
+  insertAlpacaConnectionSchema: () => insertAlpacaConnectionSchema,
   insertAmbassadorActionRewardSchema: () => insertAmbassadorActionRewardSchema,
   insertAmbassadorCertificationSchema: () => insertAmbassadorCertificationSchema,
   insertAmbassadorChallengeParticipantSchema: () => insertAmbassadorChallengeParticipantSchema,
@@ -127,6 +130,7 @@ __export(schema_exports, {
   insertChartAnalysisSchema: () => insertChartAnalysisSchema,
   insertCommunityPartnershipSchema: () => insertCommunityPartnershipSchema,
   insertConnectedSocialAccountSchema: () => insertConnectedSocialAccountSchema,
+  insertCryptocomConnectionSchema: () => insertCryptocomConnectionSchema,
   insertDevotionalGroupSchema: () => insertDevotionalGroupSchema,
   insertDevotionalSchema: () => insertDevotionalSchema,
   insertDevotionalSessionSchema: () => insertDevotionalSessionSchema,
@@ -149,6 +153,7 @@ __export(schema_exports, {
   insertMarketDataSnapshotSchema: () => insertMarketDataSnapshotSchema,
   insertMt5ApiTokenSchema: () => insertMt5ApiTokenSchema,
   insertMt5SignalLogSchema: () => insertMt5SignalLogSchema,
+  insertOptionsEngineConfigSchema: () => insertOptionsEngineConfigSchema,
   insertPaperTradeSchema: () => insertPaperTradeSchema,
   insertPriceAlertSchema: () => insertPriceAlertSchema,
   insertQuizLeadSchema: () => insertQuizLeadSchema,
@@ -161,6 +166,7 @@ __export(schema_exports, {
   insertStopOrderSchema: () => insertStopOrderSchema,
   insertSubscriptionPlanSchema: () => insertSubscriptionPlanSchema,
   insertSubscriptionTokenPaymentSchema: () => insertSubscriptionTokenPaymentSchema,
+  insertTastytradeConnectionSchema: () => insertTastytradeConnectionSchema,
   insertTokenInvestmentSchema: () => insertTokenInvestmentSchema,
   insertTokenPositionSchema: () => insertTokenPositionSchema,
   insertTradelockerConnectionSchema: () => insertTradelockerConnectionSchema,
@@ -199,6 +205,7 @@ __export(schema_exports, {
   nameCheckSourceEnum: () => nameCheckSourceEnum,
   nfcActivations: () => nfcActivations,
   nfcDailyTaps: () => nfcDailyTaps,
+  optionsEngineConfigs: () => optionsEngineConfigs,
   paperTrades: () => paperTrades,
   priceAlerts: () => priceAlerts,
   quizLeads: () => quizLeads,
@@ -215,6 +222,7 @@ __export(schema_exports, {
   subscriptionPlans: () => subscriptionPlans,
   subscriptionTokenPayments: () => subscriptionTokenPayments,
   taskStatusEnum: () => taskStatusEnum,
+  tastytradeConnections: () => tastytradeConnections,
   tokenInvestments: () => tokenInvestments,
   tokenPositions: () => tokenPositions,
   tradelockerConnections: () => tradelockerConnections,
@@ -246,7 +254,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -958,6 +966,134 @@ var init_schema = __esm({
       lastConnectedAt: true,
       lastError: true,
       tradeCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    alpacaConnections = pgTable("alpaca_connections", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      apiKeyId: text("api_key_id").notNull(),
+      encryptedApiSecret: text("encrypted_api_secret").notNull(),
+      accountType: text("account_type").notNull().default("paper"),
+      // 'paper' or 'live'
+      isActive: boolean("is_active").notNull().default(true),
+      autoExecute: boolean("auto_execute").notNull().default(false),
+      accountId: text("account_id"),
+      // Alpaca account number, resolved after first successful auth
+      lastConnectedAt: timestamp("last_connected_at"),
+      lastError: text("last_error"),
+      tradeCount: integer("trade_count").notNull().default(0),
+      useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
+      propFirmName: text("prop_firm_name"),
+      propFirmAccountSize: doublePrecision("prop_firm_account_size"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertAlpacaConnectionSchema = createInsertSchema(alpacaConnections).omit({
+      id: true,
+      lastConnectedAt: true,
+      lastError: true,
+      tradeCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    tastytradeConnections = pgTable("tastytrade_connections", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      username: text("username").notNull(),
+      encryptedPassword: text("encrypted_password").notNull(),
+      accountType: text("account_type").notNull().default("sandbox"),
+      // 'sandbox' or 'live'
+      isActive: boolean("is_active").notNull().default(true),
+      autoExecute: boolean("auto_execute").notNull().default(false),
+      accountNumber: text("account_number"),
+      // resolved after first successful auth
+      sessionToken: text("session_token"),
+      tokenExpiresAt: timestamp("token_expires_at"),
+      lastConnectedAt: timestamp("last_connected_at"),
+      lastError: text("last_error"),
+      tradeCount: integer("trade_count").notNull().default(0),
+      useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
+      propFirmName: text("prop_firm_name"),
+      propFirmAccountSize: doublePrecision("prop_firm_account_size"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertTastytradeConnectionSchema = createInsertSchema(tastytradeConnections).omit({
+      id: true,
+      sessionToken: true,
+      tokenExpiresAt: true,
+      lastConnectedAt: true,
+      lastError: true,
+      tradeCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    cryptocomConnections = pgTable("cryptocom_connections", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      apiKey: text("api_key").notNull(),
+      encryptedApiSecret: text("encrypted_api_secret").notNull(),
+      isActive: boolean("is_active").notNull().default(true),
+      autoExecute: boolean("auto_execute").notNull().default(false),
+      instrumentType: text("instrument_type").notNull().default("perpetual"),
+      // 'perpetual' | 'future' | 'option'
+      useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+      riskPercent: doublePrecision("risk_percent").notNull().default(1),
+      lastConnectedAt: timestamp("last_connected_at"),
+      lastError: text("last_error"),
+      tradeCount: integer("trade_count").notNull().default(0),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertCryptocomConnectionSchema = createInsertSchema(cryptocomConnections).omit({
+      id: true,
+      lastConnectedAt: true,
+      lastError: true,
+      tradeCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    optionsEngineConfigs = pgTable("options_engine_configs", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull().unique(),
+      isActive: boolean("is_active").notNull().default(false),
+      symbols: jsonb("symbols").notNull().default(["SPY", "QQQ", "AAPL", "TSLA", "NVDA"]),
+      // underlying tickers to scan
+      scanIntervalMs: integer("scan_interval_ms").notNull().default(6e4),
+      strategyMode: text("strategy_mode").notNull().default("auto"),
+      // e.g. 'auto' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+      directionFilter: text("direction_filter").notNull().default("both"),
+      // 'calls_only' | 'puts_only' | 'both'
+      maxOpenPositions: integer("max_open_positions").notNull().default(3),
+      maxContractsPerTrade: integer("max_contracts_per_trade").notNull().default(1),
+      riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1),
+      // % of account equity risked per trade
+      minConfidence: doublePrecision("min_confidence").notNull().default(70),
+      // min AI confidence score (0-100) to fire a signal
+      weeklyProfitTarget: doublePrecision("weekly_profit_target").notNull().default(5),
+      accountBalance: doublePrecision("account_balance").notNull().default(0),
+      enableCompounding: boolean("enable_compounding").notNull().default(false),
+      propFirmMode: boolean("prop_firm_mode").notNull().default(false),
+      propFirmDailyDrawdownLimit: doublePrecision("prop_firm_daily_drawdown_limit").notNull().default(4),
+      dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(5),
+      // % of account, 0 = disabled
+      dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0),
+      // % of account, 0 = disabled
+      maxDailyTrades: integer("max_daily_trades").notNull().default(0),
+      // 0 = unlimited
+      executionSource: text("execution_source").notNull().default("auto"),
+      // 'alpaca' | 'tastytrade' | 'auto'
+      lockSettings: boolean("lock_settings").notNull().default(false),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertOptionsEngineConfigSchema = createInsertSchema(optionsEngineConfigs).omit({
+      id: true,
       createdAt: true,
       updatedAt: true
     });
@@ -3746,6 +3882,80 @@ var init_storage = __esm({
       }
       async getTradelockerTradeLogs(userId, limit = 100) {
         return await db.select().from(tradelockerTradeLogs).where(eq(tradelockerTradeLogs.userId, userId)).orderBy(desc(tradelockerTradeLogs.createdAt)).limit(limit);
+      }
+      // ── Alpaca Connection methods (Options AI Engine) ──────────────────────────
+      async createAlpacaConnection(connection2) {
+        const [result] = await db.insert(alpacaConnections).values(connection2).returning();
+        return result;
+      }
+      async getAlpacaConnection(id) {
+        const [result] = await db.select().from(alpacaConnections).where(eq(alpacaConnections.id, id));
+        return result;
+      }
+      async getUserAlpacaConnections(userId) {
+        return db.select().from(alpacaConnections).where(eq(alpacaConnections.userId, userId));
+      }
+      async updateAlpacaConnection(id, data) {
+        const [result] = await db.update(alpacaConnections).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(alpacaConnections.id, id)).returning();
+        return result;
+      }
+      async deleteAlpacaConnection(id) {
+        await db.delete(alpacaConnections).where(eq(alpacaConnections.id, id));
+        return true;
+      }
+      // ── TastyTrade Connection methods (Options AI Engine) ───────────────────────
+      async createTastytradeConnection(connection2) {
+        const [result] = await db.insert(tastytradeConnections).values(connection2).returning();
+        return result;
+      }
+      async getTastytradeConnection(id) {
+        const [result] = await db.select().from(tastytradeConnections).where(eq(tastytradeConnections.id, id));
+        return result;
+      }
+      async getUserTastytradeConnections(userId) {
+        return db.select().from(tastytradeConnections).where(eq(tastytradeConnections.userId, userId));
+      }
+      async updateTastytradeConnection(id, data) {
+        const [result] = await db.update(tastytradeConnections).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(tastytradeConnections.id, id)).returning();
+        return result;
+      }
+      async deleteTastytradeConnection(id) {
+        await db.delete(tastytradeConnections).where(eq(tastytradeConnections.id, id));
+        return true;
+      }
+      // ── Options AI Engine config ────────────────────────────────────────────────
+      async getUserOptionsEngineConfig(userId) {
+        const [result] = await db.select().from(optionsEngineConfigs).where(eq(optionsEngineConfigs.userId, userId));
+        return result;
+      }
+      async upsertOptionsEngineConfig(userId, data) {
+        const existing = await this.getUserOptionsEngineConfig(userId);
+        if (existing) {
+          const [result2] = await db.update(optionsEngineConfigs).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineConfigs.userId, userId)).returning();
+          return result2;
+        }
+        const [result] = await db.insert(optionsEngineConfigs).values({ userId, ...data }).returning();
+        return result;
+      }
+      // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
+      async createCryptocomConnection(connection2) {
+        const [result] = await db.insert(cryptocomConnections).values(connection2).returning();
+        return result;
+      }
+      async getCryptocomConnection(id) {
+        const [result] = await db.select().from(cryptocomConnections).where(eq(cryptocomConnections.id, id));
+        return result;
+      }
+      async getUserCryptocomConnections(userId) {
+        return db.select().from(cryptocomConnections).where(eq(cryptocomConnections.userId, userId));
+      }
+      async updateCryptocomConnection(id, data) {
+        const [result] = await db.update(cryptocomConnections).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomConnections.id, id)).returning();
+        return result;
+      }
+      async deleteCryptocomConnection(id) {
+        await db.delete(cryptocomConnections).where(eq(cryptocomConnections.id, id));
+        return true;
       }
       // ── Tradovate Connection methods ──────────────────────────────────────────
       async createTradovateConnection(connection2) {
@@ -17671,6 +17881,498 @@ var init_tl_risk_settings = __esm({
   }
 });
 
+// server/alpaca.ts
+var alpaca_exports = {};
+__export(alpaca_exports, {
+  AlpacaService: () => AlpacaService,
+  decryptApiSecret: () => decryptApiSecret,
+  encryptApiSecret: () => encryptApiSecret
+});
+import crypto5 from "crypto";
+function getEncryptionKey3() {
+  const key = process.env.ALPACA_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY2;
+  }
+  if (key.length < 32) {
+    console.warn("[Alpaca] ALPACA_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptApiSecret(secret) {
+  const iv = crypto5.randomBytes(IV_LENGTH2);
+  const salt = crypto5.randomBytes(SALT_LENGTH2);
+  const key = crypto5.scryptSync(getEncryptionKey3(), salt, 32);
+  const cipher = crypto5.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(secret, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptApiSecret(encrypted) {
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto5.scryptSync(getEncryptionKey3(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto5.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+function parseOccSymbol(occSymbol, underlyingSymbol) {
+  const rest = occSymbol.slice(underlyingSymbol.length);
+  const dateStr = rest.slice(0, 6);
+  const typeChar = rest.charAt(6);
+  const strikeStr = rest.slice(7);
+  const yy = dateStr.slice(0, 2), mm = dateStr.slice(2, 4), dd = dateStr.slice(4, 6);
+  return {
+    expirationDate: `20${yy}-${mm}-${dd}`,
+    strikePrice: parseInt(strikeStr || "0", 10) / 1e3,
+    type: typeChar === "P" ? "put" : "call"
+  };
+}
+var IV_LENGTH2, SALT_LENGTH2, DEFAULT_ENCRYPTION_KEY2, RETRY_DELAYS2, RETRYABLE_STATUSES2, AlpacaService;
+var init_alpaca = __esm({
+  "server/alpaca.ts"() {
+    "use strict";
+    IV_LENGTH2 = 16;
+    SALT_LENGTH2 = 16;
+    DEFAULT_ENCRYPTION_KEY2 = "vedd-alpaca-default-key-change-me-32ch!!";
+    RETRY_DELAYS2 = [1e3, 2e3];
+    RETRYABLE_STATUSES2 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    AlpacaService = class {
+      baseUrl;
+      dataUrl = "https://data.alpaca.markets";
+      apiKeyId;
+      apiSecret;
+      accountId = null;
+      constructor(accountType, apiKeyId, apiSecret) {
+        this.baseUrl = accountType === "paper" ? "https://paper-api.alpaca.markets" : "https://api.alpaca.markets";
+        this.apiKeyId = apiKeyId;
+        this.apiSecret = apiSecret;
+      }
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      headers() {
+        return {
+          "APCA-API-KEY-ID": this.apiKeyId,
+          "APCA-API-SECRET-KEY": this.apiSecret,
+          "Content-Type": "application/json"
+        };
+      }
+      async request(url, init = {}, attempt = 0) {
+        const response = await fetch(url, {
+          ...init,
+          headers: { ...this.headers(), ...init.headers || {} },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok && RETRYABLE_STATUSES2.has(response.status) && attempt < RETRY_DELAYS2.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS2[attempt]));
+          return this.request(url, init, attempt + 1);
+        }
+        return response;
+      }
+      // Alpaca has no login step — keys are sent on every request. "Authenticate"
+      // here means: verify the key/secret pair actually works before we store it.
+      async authenticate() {
+        const info = await this.getAccountInfo();
+        this.accountId = info.accountId;
+        return info;
+      }
+      async getAccountInfo() {
+        const response = await this.request(`${this.baseUrl}/v2/account`, { method: "GET" });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca account fetch failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          accountId: data.account_number || data.id,
+          balance: parseFloat(data.cash ?? "0"),
+          equity: parseFloat(data.equity ?? "0"),
+          buyingPower: parseFloat(data.buying_power ?? "0"),
+          optionsBuyingPower: parseFloat(data.options_buying_power ?? data.buying_power ?? "0"),
+          currency: data.currency || "USD",
+          status: data.status || "UNKNOWN",
+          optionsTradingLevel: data.options_trading_level ?? 0
+        };
+      }
+      async getOptionsChain(underlyingSymbol) {
+        const response = await this.request(
+          `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?limit=200`,
+          { method: "GET" }
+        );
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        const snapshots = data.snapshots || {};
+        return Object.entries(snapshots).map(([symbol, snap]) => {
+          const parsed = parseOccSymbol(symbol, underlyingSymbol);
+          return {
+            symbol,
+            underlyingSymbol,
+            expirationDate: parsed.expirationDate,
+            strikePrice: parsed.strikePrice,
+            type: parsed.type,
+            bid: snap.latestQuote?.bp,
+            ask: snap.latestQuote?.ap,
+            lastPrice: snap.latestTrade?.p,
+            impliedVolatility: snap.impliedVolatility,
+            openInterest: snap.openInterest
+          };
+        });
+      }
+      async placeOrder(order) {
+        const response = await this.request(`${this.baseUrl}/v2/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            symbol: order.optionSymbol,
+            qty: order.quantity,
+            side: order.side,
+            type: order.type,
+            time_in_force: order.timeInForce || "day",
+            ...order.type === "limit" && order.limitPrice ? { limit_price: order.limitPrice } : {}
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca order placement failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: data.id,
+          status: data.status,
+          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
+          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
+        };
+      }
+    };
+  }
+});
+
+// server/tastytrade.ts
+var tastytrade_exports = {};
+__export(tastytrade_exports, {
+  TastyTradeService: () => TastyTradeService,
+  decryptPassword: () => decryptPassword2,
+  encryptPassword: () => encryptPassword2
+});
+import crypto6 from "crypto";
+function getEncryptionKey4() {
+  const key = process.env.TASTYTRADE_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY3;
+  }
+  if (key.length < 32) {
+    console.warn("[TastyTrade] TASTYTRADE_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptPassword2(password) {
+  const iv = crypto6.randomBytes(IV_LENGTH3);
+  const salt = crypto6.randomBytes(SALT_LENGTH3);
+  const key = crypto6.scryptSync(getEncryptionKey4(), salt, 32);
+  const cipher = crypto6.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(password, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptPassword2(encryptedPassword) {
+  const parts = encryptedPassword.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted password format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto6.scryptSync(getEncryptionKey4(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto6.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+var IV_LENGTH3, SALT_LENGTH3, DEFAULT_ENCRYPTION_KEY3, RETRY_DELAYS3, RETRYABLE_STATUSES3, TastyTradeService;
+var init_tastytrade = __esm({
+  "server/tastytrade.ts"() {
+    "use strict";
+    IV_LENGTH3 = 16;
+    SALT_LENGTH3 = 16;
+    DEFAULT_ENCRYPTION_KEY3 = "vedd-tasty-default-key-change-me-32ch!!";
+    RETRY_DELAYS3 = [1e3, 2e3];
+    RETRYABLE_STATUSES3 = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    TastyTradeService = class {
+      baseUrl;
+      username;
+      password;
+      sessionToken = null;
+      tokenExpiresAt = null;
+      accountNumber = null;
+      constructor(accountType, username, password) {
+        this.baseUrl = accountType === "sandbox" ? "https://api.cert.tastyworks.com" : "https://api.tastyworks.com";
+        this.username = username;
+        this.password = password;
+      }
+      getResolvedAccountNumber() {
+        return this.accountNumber;
+      }
+      setSession(sessionToken, expiresAt) {
+        this.sessionToken = sessionToken;
+        this.tokenExpiresAt = expiresAt || null;
+      }
+      async ensureAuthenticated() {
+        if (this.sessionToken && this.tokenExpiresAt && this.tokenExpiresAt.getTime() - Date.now() > 6e4) {
+          return;
+        }
+        await this.login();
+      }
+      async request(path13, init = {}, attempt = 0) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path13}`, {
+          ...init,
+          headers: {
+            "Authorization": this.sessionToken || "",
+            "Content-Type": "application/json",
+            ...init.headers || {}
+          },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
+          return this.request(path13, init, attempt + 1);
+        }
+        return response;
+      }
+      async login() {
+        const response = await fetch(`${this.baseUrl}/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login: this.username, password: this.password, "remember-me": true }),
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade login failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        const token = data.data?.["session-token"];
+        if (!token) throw new Error("TastyTrade login response missing session-token");
+        this.sessionToken = token;
+        this.tokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1e3);
+        return {
+          sessionToken: token,
+          rememberToken: data.data?.["remember-token"],
+          expiresIn: 24 * 60 * 60
+        };
+      }
+      // "Authenticate" = log in, then resolve + verify the first account works.
+      async authenticate() {
+        await this.login();
+        const info = await this.getAccountInfo();
+        this.accountNumber = info.accountNumber;
+        return info;
+      }
+      async getAccountInfo() {
+        const accountsRes = await this.request("/customers/me/accounts");
+        if (!accountsRes.ok) {
+          const text2 = await accountsRes.text();
+          throw new Error(`TastyTrade accounts fetch failed: ${accountsRes.status} - ${text2}`);
+        }
+        const accountsData = await accountsRes.json();
+        const items = accountsData.data?.items || [];
+        if (items.length === 0) throw new Error("TastyTrade account has no linked brokerage accounts");
+        const accountNumber = items[0].account["account-number"];
+        const balancesRes = await this.request(`/accounts/${accountNumber}/balances`);
+        if (!balancesRes.ok) {
+          const text2 = await balancesRes.text();
+          throw new Error(`TastyTrade balances fetch failed: ${balancesRes.status} - ${text2}`);
+        }
+        const balances = (await balancesRes.json()).data;
+        return {
+          accountNumber,
+          balance: parseFloat(balances["cash-balance"] ?? "0"),
+          equity: parseFloat(balances["net-liquidating-value"] ?? "0"),
+          buyingPower: parseFloat(balances["derivative-buying-power"] ?? balances["equity-buying-power"] ?? "0"),
+          optionBuyingPower: parseFloat(balances["derivative-buying-power"] ?? "0"),
+          currency: "USD"
+        };
+      }
+      async getOptionsChain(underlyingSymbol) {
+        const response = await this.request(`/option-chains/${encodeURIComponent(underlyingSymbol)}/nested`);
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade options chain fetch failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        const expirations = data.data?.items?.[0]?.expirations || [];
+        const contracts = [];
+        for (const exp of expirations) {
+          for (const strike of exp.strikes || []) {
+            if (strike.call) {
+              contracts.push({
+                symbol: strike.call,
+                underlyingSymbol,
+                expirationDate: exp["expiration-date"],
+                strikePrice: parseFloat(strike["strike-price"]),
+                type: "call"
+              });
+            }
+            if (strike.put) {
+              contracts.push({
+                symbol: strike.put,
+                underlyingSymbol,
+                expirationDate: exp["expiration-date"],
+                strikePrice: parseFloat(strike["strike-price"]),
+                type: "put"
+              });
+            }
+          }
+        }
+        return contracts;
+      }
+      async placeOrder(order) {
+        if (!this.accountNumber) throw new Error("TastyTrade account not resolved \u2014 call authenticate() first");
+        const response = await this.request(`/accounts/${this.accountNumber}/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            "order-type": order.type === "market" ? "Market" : "Limit",
+            "time-in-force": order.timeInForce === "gtc" ? "GTC" : "Day",
+            ...order.type === "limit" && order.limitPrice ? { price: order.limitPrice, "price-effect": order.side === "buy" ? "Debit" : "Credit" } : {},
+            legs: [{
+              "instrument-type": "Equity Option",
+              symbol: order.optionSymbol,
+              quantity: order.quantity,
+              action: order.side === "buy" ? "Buy to Open" : "Sell to Close"
+            }]
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`TastyTrade order placement failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: String(data.data?.order?.id ?? ""),
+          status: data.data?.order?.status ?? "unknown"
+        };
+      }
+    };
+  }
+});
+
+// server/cryptocom.ts
+var cryptocom_exports = {};
+__export(cryptocom_exports, {
+  CryptoComService: () => CryptoComService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto7 from "crypto";
+function getEncryptionKey5() {
+  const key = process.env.CRYPTOCOM_ENCRYPTION_KEY;
+  if (!key) {
+    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY not set \u2014 using default key. Set it in your Render environment variables.");
+    return DEFAULT_ENCRYPTION_KEY4;
+  }
+  if (key.length < 32) {
+    console.warn("[Crypto.com] CRYPTOCOM_ENCRYPTION_KEY is too short, padding to 32 chars.");
+    return key.padEnd(32, "0");
+  }
+  return key;
+}
+function encryptApiSecret2(secret) {
+  const iv = crypto7.randomBytes(IV_LENGTH4);
+  const salt = crypto7.randomBytes(SALT_LENGTH4);
+  const key = crypto7.scryptSync(getEncryptionKey5(), salt, 32);
+  const cipher = crypto7.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(secret, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return salt.toString("hex") + ":" + iv.toString("hex") + ":" + encrypted;
+}
+function decryptApiSecret2(encrypted) {
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) throw new Error("Invalid encrypted secret format");
+  const [saltHex, ivHex, data] = parts;
+  const key = crypto7.scryptSync(getEncryptionKey5(), Buffer.from(saltHex, "hex"), 32);
+  const decipher = crypto7.createDecipheriv("aes-256-cbc", key, Buffer.from(ivHex, "hex"));
+  let decrypted = decipher.update(data, "hex", "utf8");
+  decrypted += decipher.final("utf8");
+  return decrypted;
+}
+var IV_LENGTH4, SALT_LENGTH4, DEFAULT_ENCRYPTION_KEY4, CryptoComService;
+var init_cryptocom = __esm({
+  "server/cryptocom.ts"() {
+    "use strict";
+    IV_LENGTH4 = 16;
+    SALT_LENGTH4 = 16;
+    DEFAULT_ENCRYPTION_KEY4 = "vedd-cryptocom-default-key-change-32ch";
+    CryptoComService = class {
+      baseUrl = "https://api.crypto.com/exchange/v1";
+      apiKey;
+      apiSecret;
+      constructor(apiKey, apiSecret) {
+        this.apiKey = apiKey;
+        this.apiSecret = apiSecret;
+      }
+      sign(method, id, params, nonce) {
+        const paramString = Object.keys(params).sort().map((k) => `${k}${typeof params[k] === "object" ? JSON.stringify(params[k]) : params[k]}`).join("");
+        const sigPayload = `${method}${id}${this.apiKey}${paramString}${nonce}`;
+        return crypto7.createHmac("sha256", this.apiSecret).update(sigPayload).digest("hex");
+      }
+      async call(method, params = {}) {
+        const id = Date.now();
+        const nonce = Date.now();
+        const sig = this.sign(method, id, params, nonce);
+        const body = { id, method, api_key: this.apiKey, params, nonce, sig };
+        const response = await fetch(`${this.baseUrl}/${method}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Crypto.com API failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        if (data.code !== void 0 && data.code !== 0) {
+          throw new Error(`Crypto.com error ${data.code}: ${data.message || "Unknown error"}`);
+        }
+        return data.result;
+      }
+      // "Authenticate" = verify the key/secret pair works before storing it.
+      async authenticate() {
+        return this.getAccountInfo();
+      }
+      async getAccountInfo() {
+        const result = await this.call("private/user-balance");
+        const account = result?.data?.[0];
+        if (!account) throw new Error("Crypto.com returned no account balance data");
+        return {
+          balance: parseFloat(account.total_cash_balance ?? "0"),
+          equity: parseFloat(account.total_balance ?? "0"),
+          availableBalance: parseFloat(account.total_available_balance ?? "0"),
+          currency: "USD"
+        };
+      }
+      async placeOrder(order) {
+        const result = await this.call("private/create-order", {
+          instrument_name: order.instrumentName,
+          side: order.side,
+          type: order.type,
+          quantity: String(order.quantity),
+          ...order.type === "LIMIT" && order.price ? { price: String(order.price) } : {}
+        });
+        return {
+          orderId: String(result?.order_id ?? ""),
+          status: result?.status ?? "unknown"
+        };
+      }
+    };
+  }
+});
+
 // server/services/vedd-token-service.ts
 var vedd_token_service_exports = {};
 __export(vedd_token_service_exports, {
@@ -27599,7 +28301,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs6 from "fs";
 import * as path6 from "path";
-import * as crypto5 from "crypto";
+import * as crypto8 from "crypto";
 function loadAll2() {
   try {
     if (fs6.existsSync(FILE2)) return JSON.parse(fs6.readFileSync(FILE2, "utf-8"));
@@ -27643,13 +28345,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto5.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto8.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto5.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto8.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -28084,7 +28786,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs7 from "fs";
 import * as path7 from "path";
-import * as crypto6 from "crypto";
+import * as crypto9 from "crypto";
 function loadAllCreds() {
   try {
     if (fs7.existsSync(CREDS_FILE)) return JSON.parse(fs7.readFileSync(CREDS_FILE, "utf-8"));
@@ -28126,7 +28828,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto6.createPrivateKey(pem);
+    crypto9.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -28175,14 +28877,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto6.createSign("sha256");
+  const sign3 = crypto9.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto6.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto6.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto9.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto9.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -29424,21 +30126,21 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq9 } from "drizzle-orm";
-import crypto7 from "crypto";
-function getEncryptionKey3() {
+import crypto10 from "crypto";
+function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto7.createHash("sha256").update(seed).digest();
+  return crypto10.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto7.randomBytes(16);
-  const cipher = crypto7.createCipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const iv = crypto10.randomBytes(16);
+  const cipher = crypto10.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto7.createDecipheriv("aes-256-cbc", getEncryptionKey3(), iv);
+  const decipher = crypto10.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -31481,7 +32183,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto8 from "crypto";
+import crypto11 from "crypto";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
   const randomPart = Math.floor(Math.random() * 1e5).toString().padStart(5, "0");
@@ -31495,7 +32197,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto8.createHash("sha256").update(payload2).digest("hex");
+  return crypto11.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   let createCanvas;
@@ -35060,7 +35762,7 @@ __export(ambassador_prime_exports, {
   runAmbassadorPrime: () => runAmbassadorPrime,
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
-import crypto9 from "crypto";
+import crypto12 from "crypto";
 import { eq as eq10 } from "drizzle-orm";
 import { OpenAI as OpenAI6 } from "openai";
 async function logStep(runDate, stepName, status, error) {
@@ -35077,7 +35779,7 @@ function buildOAuthHeader(method, url, params) {
   if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
   const oauthParams = {
     oauth_consumer_key: apiKey,
-    oauth_nonce: crypto9.randomBytes(16).toString("hex"),
+    oauth_nonce: crypto12.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
     oauth_token: accessToken,
@@ -35088,7 +35790,7 @@ function buildOAuthHeader(method, url, params) {
   const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
-  const signature = crypto9.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  const signature = crypto12.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
   const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
   return `OAuth ${headerValue}`;
@@ -37404,6 +38106,9 @@ function isTelegramConfigured() {
 init_tradelocker();
 init_pipUtils();
 init_tl_risk_settings();
+init_alpaca();
+init_tastytrade();
+init_cryptocom();
 
 // server/routes/vedd-token.ts
 init_vedd_token_service();
@@ -38065,8 +38770,8 @@ async function getOrCreateTradovateService(userId, username, encryptedPassword, 
   if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS2) {
     return cached2.service;
   }
-  const { decryptPassword: decryptPassword3 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-  const password = decryptPassword3(encryptedPassword);
+  const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+  const password = decryptPassword4(encryptedPassword);
   const svc = new TradovateService(accountType);
   svc.setCredentials(username, password);
   if (accountId) svc.setAccountId(parseInt(accountId, 10));
@@ -38080,8 +38785,8 @@ async function getOrCreateTradovateService(userId, username, encryptedPassword, 
 }
 async function executeFuturesSignal(connection2, signal) {
   try {
-    const { decryptPassword: decryptPassword3 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-    const password = decryptPassword3(connection2.encryptedPassword);
+    const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+    const password = decryptPassword4(connection2.encryptedPassword);
     const svc = await getOrCreateTradovateService(
       connection2.userId || 0,
       connection2.username,
@@ -38834,6 +39539,59 @@ var MoomooService = class {
         trd_env: 1,
         // real trading
         remark: "VEDD_AUTO"
+      };
+      const res = await fetch(`${url}/v1/trade/place_order`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(1e4)
+      });
+      if (!res.ok) throw new Error(`OpenD ${res.status}`);
+      const data = await res.json();
+      const orderNum = data?.s2c?.order_id?.toString();
+      if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+      return { success: true, orderId: orderNum, isPaper: false };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+  // Options trading via OpenD sec_type=3. Requires OpenD to already have
+  // option quote/trade permissions enabled on the connected Futu account.
+  async getOptionsChain(underlyingCode) {
+    if (this.isPaperMode()) return [];
+    const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+    const res = await fetch(`${url}/v1/qot/get_option_chain`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
+      // market 11 = US
+      signal: AbortSignal.timeout(1e4)
+    });
+    if (!res.ok) throw new Error(`OpenD ${res.status}`);
+    const data = await res.json();
+    return data?.s2c?.optionChain || [];
+  }
+  async placeOptionsOrder(req) {
+    const isPaper = this.isPaperMode();
+    const orderId = `MMOPT${++this.orderCounter}`;
+    if (isPaper) {
+      console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
+      return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+    }
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+      const body = {
+        header: { req_id: orderId },
+        acc_id: parseInt(this.connection.accountId) || 0,
+        sec_type: 3,
+        // option
+        code: req.optionCode,
+        trd_side: req.direction === "BUY" ? 1 : 2,
+        order_type: req.orderType === "limit" ? 1 : 2,
+        qty: req.contracts,
+        price: req.orderType === "limit" ? req.limitPrice || 0 : 0,
+        trd_env: 1,
+        remark: "VEDD_AUTO_OPTIONS"
       };
       const res = await fetch(`${url}/v1/trade/place_order`, {
         method: "POST",
@@ -40050,6 +40808,32 @@ router3.get("/moomoo/account", async (req, res) => {
   try {
     const info = await svc.getAccountInfo();
     res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router3.get("/moomoo/options-chain/:underlyingCode", async (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  const svc = getMoomooService(getUserId2(req));
+  if (!svc || !svc.isConnected()) return res.status(400).json({ error: "Moomoo not connected. Call POST /api/moomoo/connect first." });
+  try {
+    const chain = await svc.getOptionsChain(req.params.underlyingCode);
+    res.json({ chain });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router3.post("/moomoo/options-order", async (req, res) => {
+  if (!requireAuth2(req, res)) return;
+  const svc = getMoomooService(getUserId2(req));
+  if (!svc || !svc.isConnected()) return res.status(400).json({ error: "Moomoo not connected. Call POST /api/moomoo/connect first." });
+  const { optionCode, direction, contracts, orderType, limitPrice } = req.body;
+  if (!optionCode || !direction || !contracts) {
+    return res.status(400).json({ error: "Missing required fields: optionCode, direction, contracts" });
+  }
+  try {
+    const result = await svc.placeOptionsOrder({ optionCode, direction, contracts, orderType, limitPrice });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -53230,6 +54014,335 @@ Rules:
       res.status(400).json({ success: false, error: errorMsg });
     }
   });
+  app2.get("/api/alpaca/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connections = await storage.getUserAlpacaConnections(userId);
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+  });
+  app2.post("/api/alpaca/connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { apiKeyId, apiSecret, accountType, autoExecute } = req.body;
+    if (!apiKeyId || !apiSecret) {
+      return res.status(400).json({ error: "Missing required fields: apiKeyId, apiSecret" });
+    }
+    let resolvedAccountId = null;
+    try {
+      const service = new AlpacaService(accountType === "live" ? "live" : "paper", apiKeyId, apiSecret);
+      const info = await service.authenticate();
+      resolvedAccountId = info.accountId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return res.status(400).json({ error: `Alpaca login failed: ${msg}` });
+    }
+    const connection2 = await storage.createAlpacaConnection({
+      userId,
+      apiKeyId,
+      encryptedApiSecret: encryptApiSecret(apiSecret),
+      accountType: accountType === "live" ? "live" : "paper",
+      isActive: true,
+      autoExecute: !!autoExecute,
+      accountId: resolvedAccountId,
+      useRiskPercent: true,
+      riskPercent: 1,
+      isPropFirmAccount: false,
+      propFirmName: null,
+      propFirmAccountSize: null
+    });
+    await storage.updateAlpacaConnection(connection2.id, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null });
+    const { encryptedApiSecret: _, ...safeConnection } = connection2;
+    res.json(safeConnection);
+  });
+  app2.patch("/api/alpaca/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getAlpacaConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    const { isActive, autoExecute, useRiskPercent, riskPercent, isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
+    const updateData = {};
+    if (isActive !== void 0) updateData.isActive = !!isActive;
+    if (autoExecute !== void 0) updateData.autoExecute = !!autoExecute;
+    if (useRiskPercent !== void 0) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== void 0) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+    if (isPropFirmAccount !== void 0) updateData.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== void 0) updateData.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== void 0) {
+      const size = parseFloat(propFirmAccountSize);
+      updateData.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+    const updated = await storage.updateAlpacaConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedApiSecret: _, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+  app2.delete("/api/alpaca/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getAlpacaConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteAlpacaConnection(connId);
+    res.json({ success: true });
+  });
+  app2.post("/api/alpaca/test/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getAlpacaConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
+      const secret = decryptApiSecret3(connection2.encryptedApiSecret);
+      const service = new AlpacaService(connection2.accountType, connection2.apiKeyId, secret);
+      const info = await service.authenticate();
+      await storage.updateAlpacaConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountId: info.accountId });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      await storage.updateAlpacaConnection(connId, { lastError: errorMsg });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+  app2.get("/api/tastytrade/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connections = await storage.getUserTastytradeConnections(userId);
+    res.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe }) => safe));
+  });
+  app2.post("/api/tastytrade/connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { username, password, accountType, autoExecute } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Missing required fields: username, password" });
+    }
+    let resolvedAccountNumber = null;
+    try {
+      const service = new TastyTradeService(accountType === "live" ? "live" : "sandbox", username, password);
+      const info = await service.authenticate();
+      resolvedAccountNumber = info.accountNumber;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return res.status(400).json({ error: `TastyTrade login failed: ${msg}` });
+    }
+    const connection2 = await storage.createTastytradeConnection({
+      userId,
+      username,
+      encryptedPassword: encryptPassword2(password),
+      accountType: accountType === "live" ? "live" : "sandbox",
+      isActive: true,
+      autoExecute: !!autoExecute,
+      accountNumber: resolvedAccountNumber,
+      useRiskPercent: true,
+      riskPercent: 1,
+      isPropFirmAccount: false,
+      propFirmName: null,
+      propFirmAccountSize: null
+    });
+    await storage.updateTastytradeConnection(connection2.id, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null });
+    const { encryptedPassword: _, sessionToken: __, ...safeConnection } = connection2;
+    res.json(safeConnection);
+  });
+  app2.patch("/api/tastytrade/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getTastytradeConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    const { isActive, autoExecute, useRiskPercent, riskPercent, isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
+    const updateData = {};
+    if (isActive !== void 0) updateData.isActive = !!isActive;
+    if (autoExecute !== void 0) updateData.autoExecute = !!autoExecute;
+    if (useRiskPercent !== void 0) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== void 0) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+    if (isPropFirmAccount !== void 0) updateData.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== void 0) updateData.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== void 0) {
+      const size = parseFloat(propFirmAccountSize);
+      updateData.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+    const updated = await storage.updateTastytradeConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedPassword: _, sessionToken: __, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+  app2.delete("/api/tastytrade/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getTastytradeConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteTastytradeConnection(connId);
+    res.json({ success: true });
+  });
+  app2.post("/api/tastytrade/test/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getTastytradeConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
+      const password = decryptTastytradePassword(connection2.encryptedPassword);
+      const service = new TastyTradeService(connection2.accountType, connection2.username, password);
+      const info = await service.authenticate();
+      await storage.updateTastytradeConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null, accountNumber: info.accountNumber });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      await storage.updateTastytradeConnection(connId, { lastError: errorMsg });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+  app2.get("/api/options-engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    let config = await storage.getUserOptionsEngineConfig(userId);
+    if (!config) {
+      config = await storage.upsertOptionsEngineConfig(userId, {});
+    }
+    res.json(config);
+  });
+  app2.patch("/api/options-engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const allowed = [
+      "isActive",
+      "symbols",
+      "scanIntervalMs",
+      "strategyMode",
+      "directionFilter",
+      "maxOpenPositions",
+      "maxContractsPerTrade",
+      "riskPerTrade",
+      "minConfidence",
+      "weeklyProfitTarget",
+      "accountBalance",
+      "enableCompounding",
+      "propFirmMode",
+      "propFirmDailyDrawdownLimit",
+      "dailyLossLimit",
+      "dailyProfitTarget",
+      "maxDailyTrades",
+      "executionSource",
+      "lockSettings"
+    ];
+    const updateData = {};
+    for (const key of allowed) {
+      if (req.body[key] !== void 0) updateData[key] = req.body[key];
+    }
+    const config = await storage.upsertOptionsEngineConfig(userId, updateData);
+    res.json(config);
+  });
+  app2.get("/api/cryptocom/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connections = await storage.getUserCryptocomConnections(userId);
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+  });
+  app2.post("/api/cryptocom/connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { apiKey, apiSecret, instrumentType, autoExecute } = req.body;
+    if (!apiKey || !apiSecret) {
+      return res.status(400).json({ error: "Missing required fields: apiKey, apiSecret" });
+    }
+    try {
+      const service = new CryptoComService(apiKey, apiSecret);
+      await service.authenticate();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      return res.status(400).json({ error: `Crypto.com login failed: ${msg}` });
+    }
+    const connection2 = await storage.createCryptocomConnection({
+      userId,
+      apiKey,
+      encryptedApiSecret: encryptApiSecret2(apiSecret),
+      instrumentType: ["perpetual", "future", "option"].includes(instrumentType) ? instrumentType : "perpetual",
+      isActive: true,
+      autoExecute: !!autoExecute,
+      useRiskPercent: true,
+      riskPercent: 1
+    });
+    await storage.updateCryptocomConnection(connection2.id, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null });
+    const { encryptedApiSecret: _, ...safeConnection } = connection2;
+    res.json(safeConnection);
+  });
+  app2.patch("/api/cryptocom/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getCryptocomConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    const { isActive, autoExecute, instrumentType, useRiskPercent, riskPercent } = req.body;
+    const updateData = {};
+    if (isActive !== void 0) updateData.isActive = !!isActive;
+    if (autoExecute !== void 0) updateData.autoExecute = !!autoExecute;
+    if (instrumentType !== void 0 && ["perpetual", "future", "option"].includes(instrumentType)) updateData.instrumentType = instrumentType;
+    if (useRiskPercent !== void 0) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== void 0) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+    const updated = await storage.updateCryptocomConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedApiSecret: _, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+  app2.delete("/api/cryptocom/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getCryptocomConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteCryptocomConnection(connId);
+    res.json({ success: true });
+  });
+  app2.post("/api/cryptocom/test/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getCryptocomConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+      const secret = decryptApiSecret3(connection2.encryptedApiSecret);
+      const service = new CryptoComService(connection2.apiKey, secret);
+      const info = await service.authenticate();
+      await storage.updateCryptocomConnection(connId, { lastConnectedAt: /* @__PURE__ */ new Date(), lastError: null });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      await storage.updateCryptocomConnection(connId, { lastError: errorMsg });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
   app2.get("/api/tradelocker/trades", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -62375,8 +63488,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           hint: "Connect your TradeLocker account via Settings \u2192 Broker Connections"
         });
       }
-      const { TradeLockerService: TradeLockerService2, decryptPassword: decryptPassword3 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-      const password = decryptPassword3(tlConn.encryptedPassword);
+      const { TradeLockerService: TradeLockerService2, decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+      const password = decryptPassword4(tlConn.encryptedPassword);
       const service = new TradeLockerService2(
         tlConn.accountType,
         tlConn.accountId,

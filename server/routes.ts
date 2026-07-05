@@ -64,6 +64,9 @@ import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./
 import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
 import { getTLRisk } from "./services/tl-risk-settings";
+import { AlpacaService, encryptApiSecret } from "./alpaca";
+import { TastyTradeService, encryptPassword as encryptTastytradePassword } from "./tastytrade";
+import { CryptoComService, encryptApiSecret as encryptCryptocomSecret } from "./cryptocom";
 
 /**
  * Balance-scaled max-lot ceiling. A fixed 0.10 cap chokes large accounts — a
@@ -14733,6 +14736,364 @@ Rules:
       await storage.updateTradelockerConnection(connection.id, {
         lastError: errorMsg,
       });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Options AI Engine — Alpaca, TastyTrade connections + engine config
+  // ══════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/alpaca/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connections = await storage.getUserAlpacaConnections(userId);
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+  });
+
+  app.post("/api/alpaca/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { apiKeyId, apiSecret, accountType, autoExecute } = req.body;
+
+    if (!apiKeyId || !apiSecret) {
+      return res.status(400).json({ error: "Missing required fields: apiKeyId, apiSecret" });
+    }
+
+    let resolvedAccountId: string | null = null;
+    try {
+      const service = new AlpacaService(accountType === 'live' ? 'live' : 'paper', apiKeyId, apiSecret);
+      const info = await service.authenticate();
+      resolvedAccountId = info.accountId;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return res.status(400).json({ error: `Alpaca login failed: ${msg}` });
+    }
+
+    const connection = await storage.createAlpacaConnection({
+      userId,
+      apiKeyId,
+      encryptedApiSecret: encryptApiSecret(apiSecret),
+      accountType: accountType === 'live' ? 'live' : 'paper',
+      isActive: true,
+      autoExecute: !!autoExecute,
+      accountId: resolvedAccountId,
+      useRiskPercent: true,
+      riskPercent: 1.0,
+      isPropFirmAccount: false,
+      propFirmName: null,
+      propFirmAccountSize: null,
+    });
+    await storage.updateAlpacaConnection(connection.id, { lastConnectedAt: new Date(), lastError: null });
+
+    const { encryptedApiSecret: _, ...safeConnection } = connection;
+    res.json(safeConnection);
+  });
+
+  app.patch("/api/alpaca/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+
+    const connection = await storage.getAlpacaConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+
+    const { isActive, autoExecute, useRiskPercent, riskPercent, isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
+    const updateData: Record<string, any> = {};
+    if (isActive !== undefined) updateData.isActive = !!isActive;
+    if (autoExecute !== undefined) updateData.autoExecute = !!autoExecute;
+    if (useRiskPercent !== undefined) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== undefined) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+    if (isPropFirmAccount !== undefined) updateData.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== undefined) updateData.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== undefined) {
+      const size = parseFloat(propFirmAccountSize);
+      updateData.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+
+    const updated = await storage.updateAlpacaConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedApiSecret: _, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+
+  app.delete("/api/alpaca/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getAlpacaConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteAlpacaConnection(connId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/alpaca/test/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getAlpacaConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptApiSecret } = await import('./alpaca');
+      const secret = decryptApiSecret(connection.encryptedApiSecret);
+      const service = new AlpacaService(connection.accountType as 'paper' | 'live', connection.apiKeyId, secret);
+      const info = await service.authenticate();
+      await storage.updateAlpacaConnection(connId, { lastConnectedAt: new Date(), lastError: null, accountId: info.accountId });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      await storage.updateAlpacaConnection(connId, { lastError: errorMsg });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+
+  app.get("/api/tastytrade/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connections = await storage.getUserTastytradeConnections(userId);
+    res.json(connections.map(({ encryptedPassword: _p, sessionToken: _t, ...safe }) => safe));
+  });
+
+  app.post("/api/tastytrade/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { username, password, accountType, autoExecute } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: "Missing required fields: username, password" });
+    }
+
+    let resolvedAccountNumber: string | null = null;
+    try {
+      const service = new TastyTradeService(accountType === 'live' ? 'live' : 'sandbox', username, password);
+      const info = await service.authenticate();
+      resolvedAccountNumber = info.accountNumber;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return res.status(400).json({ error: `TastyTrade login failed: ${msg}` });
+    }
+
+    const connection = await storage.createTastytradeConnection({
+      userId,
+      username,
+      encryptedPassword: encryptTastytradePassword(password),
+      accountType: accountType === 'live' ? 'live' : 'sandbox',
+      isActive: true,
+      autoExecute: !!autoExecute,
+      accountNumber: resolvedAccountNumber,
+      useRiskPercent: true,
+      riskPercent: 1.0,
+      isPropFirmAccount: false,
+      propFirmName: null,
+      propFirmAccountSize: null,
+    });
+    await storage.updateTastytradeConnection(connection.id, { lastConnectedAt: new Date(), lastError: null });
+
+    const { encryptedPassword: _, sessionToken: __, ...safeConnection } = connection;
+    res.json(safeConnection);
+  });
+
+  app.patch("/api/tastytrade/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+
+    const connection = await storage.getTastytradeConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+
+    const { isActive, autoExecute, useRiskPercent, riskPercent, isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
+    const updateData: Record<string, any> = {};
+    if (isActive !== undefined) updateData.isActive = !!isActive;
+    if (autoExecute !== undefined) updateData.autoExecute = !!autoExecute;
+    if (useRiskPercent !== undefined) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== undefined) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+    if (isPropFirmAccount !== undefined) updateData.isPropFirmAccount = !!isPropFirmAccount;
+    if (propFirmName !== undefined) updateData.propFirmName = propFirmName ? String(propFirmName).slice(0, 60) : null;
+    if (propFirmAccountSize !== undefined) {
+      const size = parseFloat(propFirmAccountSize);
+      updateData.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+
+    const updated = await storage.updateTastytradeConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedPassword: _, sessionToken: __, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+
+  app.delete("/api/tastytrade/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getTastytradeConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteTastytradeConnection(connId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/tastytrade/test/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getTastytradeConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptPassword: decryptTastytradePassword } = await import('./tastytrade');
+      const password = decryptTastytradePassword(connection.encryptedPassword);
+      const service = new TastyTradeService(connection.accountType as 'sandbox' | 'live', connection.username, password);
+      const info = await service.authenticate();
+      await storage.updateTastytradeConnection(connId, { lastConnectedAt: new Date(), lastError: null, accountNumber: info.accountNumber });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      await storage.updateTastytradeConnection(connId, { lastError: errorMsg });
+      res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+
+  app.get("/api/options-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    let config = await storage.getUserOptionsEngineConfig(userId);
+    if (!config) {
+      config = await storage.upsertOptionsEngineConfig(userId, {});
+    }
+    res.json(config);
+  });
+
+  app.patch("/api/options-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const allowed = [
+      'isActive', 'symbols', 'scanIntervalMs', 'strategyMode', 'directionFilter',
+      'maxOpenPositions', 'maxContractsPerTrade', 'riskPerTrade', 'minConfidence',
+      'weeklyProfitTarget', 'accountBalance', 'enableCompounding', 'propFirmMode',
+      'propFirmDailyDrawdownLimit', 'dailyLossLimit', 'dailyProfitTarget', 'maxDailyTrades',
+      'executionSource', 'lockSettings',
+    ];
+    const updateData: Record<string, any> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+    const config = await storage.upsertOptionsEngineConfig(userId, updateData);
+    res.json(config);
+  });
+
+  // ── Crypto.com — separate crypto-derivatives bucket, distinct from the ──────
+  // ── equity Options Engine (perpetuals/futures; options only in some regions) ─
+  app.get("/api/cryptocom/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connections = await storage.getUserCryptocomConnections(userId);
+    res.json(connections.map(({ encryptedApiSecret: _s, ...safe }) => safe));
+  });
+
+  app.post("/api/cryptocom/connection", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { apiKey, apiSecret, instrumentType, autoExecute } = req.body;
+
+    if (!apiKey || !apiSecret) {
+      return res.status(400).json({ error: "Missing required fields: apiKey, apiSecret" });
+    }
+
+    try {
+      const service = new CryptoComService(apiKey, apiSecret);
+      await service.authenticate();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      return res.status(400).json({ error: `Crypto.com login failed: ${msg}` });
+    }
+
+    const connection = await storage.createCryptocomConnection({
+      userId,
+      apiKey,
+      encryptedApiSecret: encryptCryptocomSecret(apiSecret),
+      instrumentType: ['perpetual', 'future', 'option'].includes(instrumentType) ? instrumentType : 'perpetual',
+      isActive: true,
+      autoExecute: !!autoExecute,
+      useRiskPercent: true,
+      riskPercent: 1.0,
+    });
+    await storage.updateCryptocomConnection(connection.id, { lastConnectedAt: new Date(), lastError: null });
+
+    const { encryptedApiSecret: _, ...safeConnection } = connection;
+    res.json(safeConnection);
+  });
+
+  app.patch("/api/cryptocom/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getCryptocomConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+
+    const { isActive, autoExecute, instrumentType, useRiskPercent, riskPercent } = req.body;
+    const updateData: Record<string, any> = {};
+    if (isActive !== undefined) updateData.isActive = !!isActive;
+    if (autoExecute !== undefined) updateData.autoExecute = !!autoExecute;
+    if (instrumentType !== undefined && ['perpetual', 'future', 'option'].includes(instrumentType)) updateData.instrumentType = instrumentType;
+    if (useRiskPercent !== undefined) updateData.useRiskPercent = !!useRiskPercent;
+    if (riskPercent !== undefined) {
+      const r = parseFloat(riskPercent);
+      if (!isNaN(r) && r >= 0.05 && r <= 20) updateData.riskPercent = r;
+    }
+
+    const updated = await storage.updateCryptocomConnection(connId, updateData);
+    if (!updated) return res.status(500).json({ error: "Failed to update connection" });
+    const { encryptedApiSecret: _, ...safeConnection } = updated;
+    res.json(safeConnection);
+  });
+
+  app.delete("/api/cryptocom/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getCryptocomConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    await storage.deleteCryptocomConnection(connId);
+    res.json({ success: true });
+  });
+
+  app.post("/api/cryptocom/test/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getCryptocomConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { decryptApiSecret } = await import('./cryptocom');
+      const secret = decryptApiSecret(connection.encryptedApiSecret);
+      const service = new CryptoComService(connection.apiKey, secret);
+      const info = await service.authenticate();
+      await storage.updateCryptocomConnection(connId, { lastConnectedAt: new Date(), lastError: null });
+      res.json({ success: true, account: info });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      await storage.updateCryptocomConnection(connId, { lastError: errorMsg });
       res.status(400).json({ success: false, error: errorMsg });
     }
   });

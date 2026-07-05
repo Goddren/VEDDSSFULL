@@ -94,4 +94,39 @@ router.get('/moomoo/account', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/moomoo/options-chain/:underlyingCode ────────────────────────────
+router.get('/moomoo/options-chain/:underlyingCode', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const svc = getMoomooService(getUserId(req));
+  if (!svc || !svc.isConnected()) return res.status(400).json({ error: 'Moomoo not connected. Call POST /api/moomoo/connect first.' });
+
+  try {
+    const chain = await svc.getOptionsChain(req.params.underlyingCode);
+    res.json({ chain });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/moomoo/options-order ───────────────────────────────────────────
+// Body: { optionCode, direction: 'BUY'|'SELL', contracts, orderType?, limitPrice? }
+// Requires OpenD with option trading permissions enabled on the Futu account.
+router.post('/moomoo/options-order', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const svc = getMoomooService(getUserId(req));
+  if (!svc || !svc.isConnected()) return res.status(400).json({ error: 'Moomoo not connected. Call POST /api/moomoo/connect first.' });
+
+  const { optionCode, direction, contracts, orderType, limitPrice } = req.body;
+  if (!optionCode || !direction || !contracts) {
+    return res.status(400).json({ error: 'Missing required fields: optionCode, direction, contracts' });
+  }
+
+  try {
+    const result = await svc.placeOptionsOrder({ optionCode, direction, contracts, orderType, limitPrice });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

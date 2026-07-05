@@ -4,6 +4,7 @@ import {
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   tradovateConnections, tradovateTradeLogs,
+  alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -22,6 +23,9 @@ import {
   type Mt5ApiToken, type InsertMt5ApiToken, type Mt5SignalLog, type InsertMt5SignalLog,
   type TradelockerConnection, type InsertTradelockerConnection, type TradelockerTradeLog, type InsertTradelockerTradeLog,
   type TradovateConnection, type InsertTradovateConnection, type TradovateTradeLog, type InsertTradovateTradeLog,
+  type AlpacaConnection, type InsertAlpacaConnection, type TastytradeConnection, type InsertTastytradeConnection,
+  type OptionsEngineConfig, type InsertOptionsEngineConfig,
+  type CryptocomConnection, type InsertCryptocomConnection,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -324,6 +328,31 @@ export interface IStorage {
   // TradeLocker Trade Log methods
   createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
   getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
+
+  // Alpaca Connection methods (Options AI Engine)
+  createAlpacaConnection(connection: InsertAlpacaConnection): Promise<AlpacaConnection>;
+  getAlpacaConnection(id: number): Promise<AlpacaConnection | undefined>;
+  getUserAlpacaConnections(userId: number): Promise<AlpacaConnection[]>;
+  updateAlpacaConnection(id: number, data: Partial<AlpacaConnection>): Promise<AlpacaConnection | undefined>;
+  deleteAlpacaConnection(id: number): Promise<boolean>;
+
+  // TastyTrade Connection methods (Options AI Engine)
+  createTastytradeConnection(connection: InsertTastytradeConnection): Promise<TastytradeConnection>;
+  getTastytradeConnection(id: number): Promise<TastytradeConnection | undefined>;
+  getUserTastytradeConnections(userId: number): Promise<TastytradeConnection[]>;
+  updateTastytradeConnection(id: number, data: Partial<TastytradeConnection>): Promise<TastytradeConnection | undefined>;
+  deleteTastytradeConnection(id: number): Promise<boolean>;
+
+  // Options AI Engine config
+  getUserOptionsEngineConfig(userId: number): Promise<OptionsEngineConfig | undefined>;
+  upsertOptionsEngineConfig(userId: number, data: Partial<InsertOptionsEngineConfig>): Promise<OptionsEngineConfig>;
+
+  // Crypto.com Connection methods (separate crypto-derivatives bucket)
+  createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
+  getCryptocomConnection(id: number): Promise<CryptocomConnection | undefined>;
+  getUserCryptocomConnections(userId: number): Promise<CryptocomConnection[]>;
+  updateCryptocomConnection(id: number, data: Partial<CryptocomConnection>): Promise<CryptocomConnection | undefined>;
+  deleteCryptocomConnection(id: number): Promise<boolean>;
 
   // Tradovate Connection methods (futures prop firm trading)
   createTradovateConnection(connection: InsertTradovateConnection): Promise<TradovateConnection>;
@@ -1821,6 +1850,111 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tradelockerTradeLogs.userId, userId))
       .orderBy(desc(tradelockerTradeLogs.createdAt))
       .limit(limit);
+  }
+
+  // ── Alpaca Connection methods (Options AI Engine) ──────────────────────────
+  async createAlpacaConnection(connection: InsertAlpacaConnection): Promise<AlpacaConnection> {
+    const [result] = await db.insert(alpacaConnections).values(connection).returning();
+    return result;
+  }
+
+  async getAlpacaConnection(id: number): Promise<AlpacaConnection | undefined> {
+    const [result] = await db.select().from(alpacaConnections).where(eq(alpacaConnections.id, id));
+    return result;
+  }
+
+  async getUserAlpacaConnections(userId: number): Promise<AlpacaConnection[]> {
+    return db.select().from(alpacaConnections).where(eq(alpacaConnections.userId, userId));
+  }
+
+  async updateAlpacaConnection(id: number, data: Partial<AlpacaConnection>): Promise<AlpacaConnection | undefined> {
+    const [result] = await db.update(alpacaConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(alpacaConnections.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteAlpacaConnection(id: number): Promise<boolean> {
+    await db.delete(alpacaConnections).where(eq(alpacaConnections.id, id));
+    return true;
+  }
+
+  // ── TastyTrade Connection methods (Options AI Engine) ───────────────────────
+  async createTastytradeConnection(connection: InsertTastytradeConnection): Promise<TastytradeConnection> {
+    const [result] = await db.insert(tastytradeConnections).values(connection).returning();
+    return result;
+  }
+
+  async getTastytradeConnection(id: number): Promise<TastytradeConnection | undefined> {
+    const [result] = await db.select().from(tastytradeConnections).where(eq(tastytradeConnections.id, id));
+    return result;
+  }
+
+  async getUserTastytradeConnections(userId: number): Promise<TastytradeConnection[]> {
+    return db.select().from(tastytradeConnections).where(eq(tastytradeConnections.userId, userId));
+  }
+
+  async updateTastytradeConnection(id: number, data: Partial<TastytradeConnection>): Promise<TastytradeConnection | undefined> {
+    const [result] = await db.update(tastytradeConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tastytradeConnections.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteTastytradeConnection(id: number): Promise<boolean> {
+    await db.delete(tastytradeConnections).where(eq(tastytradeConnections.id, id));
+    return true;
+  }
+
+  // ── Options AI Engine config ────────────────────────────────────────────────
+  async getUserOptionsEngineConfig(userId: number): Promise<OptionsEngineConfig | undefined> {
+    const [result] = await db.select().from(optionsEngineConfigs).where(eq(optionsEngineConfigs.userId, userId));
+    return result;
+  }
+
+  async upsertOptionsEngineConfig(userId: number, data: Partial<InsertOptionsEngineConfig>): Promise<OptionsEngineConfig> {
+    const existing = await this.getUserOptionsEngineConfig(userId);
+    if (existing) {
+      const [result] = await db.update(optionsEngineConfigs)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(optionsEngineConfigs.userId, userId))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(optionsEngineConfigs)
+      .values({ userId, ...data } as InsertOptionsEngineConfig)
+      .returning();
+    return result;
+  }
+
+  // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
+  async createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection> {
+    const [result] = await db.insert(cryptocomConnections).values(connection).returning();
+    return result;
+  }
+
+  async getCryptocomConnection(id: number): Promise<CryptocomConnection | undefined> {
+    const [result] = await db.select().from(cryptocomConnections).where(eq(cryptocomConnections.id, id));
+    return result;
+  }
+
+  async getUserCryptocomConnections(userId: number): Promise<CryptocomConnection[]> {
+    return db.select().from(cryptocomConnections).where(eq(cryptocomConnections.userId, userId));
+  }
+
+  async updateCryptocomConnection(id: number, data: Partial<CryptocomConnection>): Promise<CryptocomConnection | undefined> {
+    const [result] = await db.update(cryptocomConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(cryptocomConnections.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteCryptocomConnection(id: number): Promise<boolean> {
+    await db.delete(cryptocomConnections).where(eq(cryptocomConnections.id, id));
+    return true;
   }
 
   // ── Tradovate Connection methods ──────────────────────────────────────────

@@ -18,6 +18,16 @@ export interface MoomooOrderRequest {
   takeProfit?: number;
 }
 
+// Options order — Futu OpenD sec_type=3 (option). optionCode is Futu's own
+// option contract code (not OCC); resolve via /v1/qot/get_option_chain first.
+export interface MoomooOptionsOrderRequest {
+  optionCode: string;
+  direction: 'BUY' | 'SELL';
+  contracts: number;
+  orderType?: 'market' | 'limit';
+  limitPrice?: number;
+}
+
 export interface MoomooOrderResult {
   success: boolean;
   orderId?: string;
@@ -207,6 +217,62 @@ export class MoomooService {
         price: 0,       // market price
         trd_env: 1,     // real trading
         remark: 'VEDD_AUTO',
+      };
+
+      const res = await fetch(`${url}/v1/trade/place_order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) throw new Error(`OpenD ${res.status}`);
+      const data = await res.json();
+      const orderNum = data?.s2c?.order_id?.toString();
+      if (!orderNum) throw new Error(data?.retMsg || 'No order ID returned');
+      return { success: true, orderId: orderNum, isPaper: false };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Options trading via OpenD sec_type=3. Requires OpenD to already have
+  // option quote/trade permissions enabled on the connected Futu account.
+  async getOptionsChain(underlyingCode: string): Promise<any[]> {
+    if (this.isPaperMode()) return [];
+    const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || 'http://127.0.0.1:11111';
+    const res = await fetch(`${url}/v1/qot/get_option_chain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }), // market 11 = US
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`OpenD ${res.status}`);
+    const data = await res.json();
+    return data?.s2c?.optionChain || [];
+  }
+
+  async placeOptionsOrder(req: MoomooOptionsOrderRequest): Promise<MoomooOrderResult> {
+    const isPaper = this.isPaperMode();
+    const orderId = `MMOPT${++this.orderCounter}`;
+
+    if (isPaper) {
+      console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
+      return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+    }
+
+    try {
+      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || 'http://127.0.0.1:11111';
+      const body = {
+        header: { req_id: orderId },
+        acc_id: parseInt(this.connection.accountId) || 0,
+        sec_type: 3, // option
+        code: req.optionCode,
+        trd_side: req.direction === 'BUY' ? 1 : 2,
+        order_type: req.orderType === 'limit' ? 1 : 2,
+        qty: req.contracts,
+        price: req.orderType === 'limit' ? (req.limitPrice || 0) : 0,
+        trd_env: 1,
+        remark: 'VEDD_AUTO_OPTIONS',
       };
 
       const res = await fetch(`${url}/v1/trade/place_order`, {

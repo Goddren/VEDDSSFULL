@@ -735,6 +735,148 @@ export const insertTradelockerConnectionSchema = createInsertSchema(tradelockerC
 export type TradelockerConnection = typeof tradelockerConnections.$inferSelect;
 export type InsertTradelockerConnection = z.infer<typeof insertTradelockerConnectionSchema>;
 
+// ── Options AI Engine — broker connections ──────────────────────────────────
+// Alpaca: authenticates via API Key ID + Secret Key (no username/password, no OAuth)
+export const alpacaConnections = pgTable("alpaca_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  apiKeyId: text("api_key_id").notNull(),
+  encryptedApiSecret: text("encrypted_api_secret").notNull(),
+  accountType: text("account_type").notNull().default('paper'), // 'paper' or 'live'
+  isActive: boolean("is_active").notNull().default(true),
+  autoExecute: boolean("auto_execute").notNull().default(false),
+  accountId: text("account_id"), // Alpaca account number, resolved after first successful auth
+  lastConnectedAt: timestamp("last_connected_at"),
+  lastError: text("last_error"),
+  tradeCount: integer("trade_count").notNull().default(0),
+  useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+  riskPercent: doublePrecision("risk_percent").notNull().default(1.0),
+  isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
+  propFirmName: text("prop_firm_name"),
+  propFirmAccountSize: doublePrecision("prop_firm_account_size"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAlpacaConnectionSchema = createInsertSchema(alpacaConnections).omit({
+  id: true,
+  lastConnectedAt: true,
+  lastError: true,
+  tradeCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type AlpacaConnection = typeof alpacaConnections.$inferSelect;
+export type InsertAlpacaConnection = z.infer<typeof insertAlpacaConnectionSchema>;
+
+// TastyTrade: session-based auth via username/password (sandbox 'cert' env or live)
+export const tastytradeConnections = pgTable("tastytrade_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  username: text("username").notNull(),
+  encryptedPassword: text("encrypted_password").notNull(),
+  accountType: text("account_type").notNull().default('sandbox'), // 'sandbox' or 'live'
+  isActive: boolean("is_active").notNull().default(true),
+  autoExecute: boolean("auto_execute").notNull().default(false),
+  accountNumber: text("account_number"), // resolved after first successful auth
+  sessionToken: text("session_token"),
+  tokenExpiresAt: timestamp("token_expires_at"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  lastError: text("last_error"),
+  tradeCount: integer("trade_count").notNull().default(0),
+  useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+  riskPercent: doublePrecision("risk_percent").notNull().default(1.0),
+  isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false),
+  propFirmName: text("prop_firm_name"),
+  propFirmAccountSize: doublePrecision("prop_firm_account_size"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTastytradeConnectionSchema = createInsertSchema(tastytradeConnections).omit({
+  id: true,
+  sessionToken: true,
+  tokenExpiresAt: true,
+  lastConnectedAt: true,
+  lastError: true,
+  tradeCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type TastytradeConnection = typeof tastytradeConnections.$inferSelect;
+export type InsertTastytradeConnection = z.infer<typeof insertTastytradeConnectionSchema>;
+
+// Crypto.com Exchange — separate crypto-derivatives bucket, NOT part of the
+// equity Options Engine (crypto.com has perpetuals/futures, options only in
+// some regions — deliberately kept distinct from Alpaca/TastyTrade equity options).
+// Auth via API Key + Secret Key (HMAC-signed requests, no OAuth/login page).
+export const cryptocomConnections = pgTable("cryptocom_connections", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  apiKey: text("api_key").notNull(),
+  encryptedApiSecret: text("encrypted_api_secret").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  autoExecute: boolean("auto_execute").notNull().default(false),
+  instrumentType: text("instrument_type").notNull().default('perpetual'), // 'perpetual' | 'future' | 'option'
+  useRiskPercent: boolean("use_risk_percent").notNull().default(true),
+  riskPercent: doublePrecision("risk_percent").notNull().default(1.0),
+  lastConnectedAt: timestamp("last_connected_at"),
+  lastError: text("last_error"),
+  tradeCount: integer("trade_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCryptocomConnectionSchema = createInsertSchema(cryptocomConnections).omit({
+  id: true,
+  lastConnectedAt: true,
+  lastError: true,
+  tradeCount: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type CryptocomConnection = typeof cryptocomConnections.$inferSelect;
+export type InsertCryptocomConnection = z.infer<typeof insertCryptocomConnectionSchema>;
+
+// Per-user Options AI Engine settings — mirrors the Forex SS AI Engine's LiveEngineConfig shape
+export const optionsEngineConfigs = pgTable("options_engine_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  isActive: boolean("is_active").notNull().default(false),
+  symbols: jsonb("symbols").notNull().default(['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']), // underlying tickers to scan
+  scanIntervalMs: integer("scan_interval_ms").notNull().default(60000),
+  strategyMode: text("strategy_mode").notNull().default('auto'), // e.g. 'auto' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+  directionFilter: text("direction_filter").notNull().default('both'), // 'calls_only' | 'puts_only' | 'both'
+  maxOpenPositions: integer("max_open_positions").notNull().default(3),
+  maxContractsPerTrade: integer("max_contracts_per_trade").notNull().default(1),
+  riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1.0), // % of account equity risked per trade
+  minConfidence: doublePrecision("min_confidence").notNull().default(70), // min AI confidence score (0-100) to fire a signal
+  weeklyProfitTarget: doublePrecision("weekly_profit_target").notNull().default(5.0),
+  accountBalance: doublePrecision("account_balance").notNull().default(0),
+  enableCompounding: boolean("enable_compounding").notNull().default(false),
+  propFirmMode: boolean("prop_firm_mode").notNull().default(false),
+  propFirmDailyDrawdownLimit: doublePrecision("prop_firm_daily_drawdown_limit").notNull().default(4.0),
+  dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(5.0), // % of account, 0 = disabled
+  dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0), // % of account, 0 = disabled
+  maxDailyTrades: integer("max_daily_trades").notNull().default(0), // 0 = unlimited
+  executionSource: text("execution_source").notNull().default('auto'), // 'alpaca' | 'tastytrade' | 'auto'
+  lockSettings: boolean("lock_settings").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertOptionsEngineConfigSchema = createInsertSchema(optionsEngineConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type OptionsEngineConfig = typeof optionsEngineConfigs.$inferSelect;
+export type InsertOptionsEngineConfig = z.infer<typeof insertOptionsEngineConfigSchema>;
+
 // TradeLocker Trade Logs for tracking executed trades
 export const tradelockerTradeLogs = pgTable("tradelocker_trade_logs", {
   id: serial("id").primaryKey(),
