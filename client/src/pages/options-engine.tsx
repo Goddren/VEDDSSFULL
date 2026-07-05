@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft, Zap, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
+  TrendingDown, Radar, Ban,
 } from "lucide-react";
 
 // ── Types mirroring the server schema ───────────────────────────────────────
@@ -57,6 +58,18 @@ type CryptocomConnection = {
   lastConnectedAt: string | null;
   lastError: string | null;
   tradeCount: number;
+};
+
+type EngineActivity = {
+  id: number;
+  symbol: string;
+  decision: 'watching' | 'signal' | 'skipped' | 'error';
+  reasoning: string;
+  score: number | null;
+  price: number | null;
+  dailyChangePercent: number | null;
+  source: string;
+  createdAt: string;
 };
 
 type OptionsEngineConfig = {
@@ -274,6 +287,13 @@ export default function OptionsEnginePage() {
   const { data: config, isLoading: configLoading } = useQuery<OptionsEngineConfig>({
     queryKey: ['/api/options-engine/config'],
   });
+
+  // ── Live scan/decision feed — what the engine is seeing and why ───────────
+  const { data: activityData, isLoading: activityLoading, refetch: refetchActivity } = useQuery<{ activity: EngineActivity[] }>({
+    queryKey: ['/api/options-engine/activity'],
+    refetchInterval: config?.isActive ? 15000 : false,
+  });
+  const activity = activityData?.activity ?? [];
 
   const updateConfigMutation = useMutation({
     mutationFn: async (data: Partial<OptionsEngineConfig>) => {
@@ -806,6 +826,63 @@ export default function OptionsEnginePage() {
                     <Label className="text-xs text-gray-300">Lock settings (no auto-adjust)</Label>
                   </div>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Live decision feed — what the engine is seeing and why ── */}
+        <Card className="bg-gray-900 border-gray-800 mt-6">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span className="flex items-center gap-2"><Radar className="w-4 h-4 text-emerald-400" /> Live Feed</span>
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => refetchActivity()}>
+                <RefreshCw className="w-3.5 h-3.5" />
+              </Button>
+            </CardTitle>
+            <CardDescription>
+              {config?.isActive
+                ? 'What the engine is scanning right now and why it is (or isn\'t) acting — refreshes every 15s.'
+                : 'Activate the engine above to start scanning. Rule-based on momentum today; AI-driven strategy scoring is next.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {activityLoading ? (
+              <p className="text-xs text-gray-500">Loading feed...</p>
+            ) : activity.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                {config?.isActive ? 'No scans yet — the first cycle runs within a minute of activation.' : 'No activity yet.'}
+              </p>
+            ) : (
+              <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                {activity.map((a) => {
+                  const cfg = {
+                    signal: { icon: TrendingUp, color: 'text-emerald-400', border: 'border-emerald-700/30', bg: 'bg-emerald-900/10' },
+                    watching: { icon: Eye, color: 'text-blue-400', border: 'border-blue-700/20', bg: 'bg-gray-800/40' },
+                    skipped: { icon: Ban, color: 'text-gray-500', border: 'border-gray-700/20', bg: 'bg-gray-800/20' },
+                    error: { icon: AlertCircle, color: 'text-red-400', border: 'border-red-700/30', bg: 'bg-red-900/10' },
+                  }[a.decision];
+                  const Icon = cfg.icon;
+                  return (
+                    <div key={a.id} className={`p-2.5 rounded-lg border ${cfg.border} ${cfg.bg}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
+                          <span className="text-sm font-bold text-white">{a.symbol}</span>
+                          {a.price != null && <span className="text-xs font-mono text-gray-400">${a.price.toFixed(2)}</span>}
+                          {a.dailyChangePercent != null && (
+                            <span className={`text-xs font-mono flex items-center gap-0.5 ${a.dailyChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {a.dailyChangePercent >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                              {a.dailyChangePercent >= 0 ? '+' : ''}{a.dailyChangePercent.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-gray-500 shrink-0">{new Date(a.createdAt).toLocaleTimeString()}</span>
+                      </div>
+                      <p className="text-xs text-gray-400 leading-relaxed">{a.reasoning}</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

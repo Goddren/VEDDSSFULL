@@ -4,7 +4,7 @@ import {
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   tradovateConnections, tradovateTradeLogs,
-  alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections,
+  alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections, optionsEngineActivity,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -26,6 +26,7 @@ import {
   type AlpacaConnection, type InsertAlpacaConnection, type TastytradeConnection, type InsertTastytradeConnection,
   type OptionsEngineConfig, type InsertOptionsEngineConfig,
   type CryptocomConnection, type InsertCryptocomConnection,
+  type OptionsEngineActivity, type InsertOptionsEngineActivity,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -346,6 +347,11 @@ export interface IStorage {
   // Options AI Engine config
   getUserOptionsEngineConfig(userId: number): Promise<OptionsEngineConfig | undefined>;
   upsertOptionsEngineConfig(userId: number, data: Partial<InsertOptionsEngineConfig>): Promise<OptionsEngineConfig>;
+  getAllActiveOptionsEngineConfigs(): Promise<OptionsEngineConfig[]>;
+
+  // Options AI Engine — scan/decision activity feed
+  createOptionsEngineActivity(entry: InsertOptionsEngineActivity): Promise<OptionsEngineActivity>;
+  getUserOptionsEngineActivity(userId: number, limit?: number): Promise<OptionsEngineActivity[]>;
 
   // Crypto.com Connection methods (separate crypto-derivatives bucket)
   createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
@@ -1927,6 +1933,23 @@ export class DatabaseStorage implements IStorage {
       .values({ userId, ...data } as InsertOptionsEngineConfig)
       .returning();
     return result;
+  }
+
+  async getAllActiveOptionsEngineConfigs(): Promise<OptionsEngineConfig[]> {
+    return db.select().from(optionsEngineConfigs).where(eq(optionsEngineConfigs.isActive, true));
+  }
+
+  // ── Options AI Engine — scan/decision activity feed ─────────────────────────
+  async createOptionsEngineActivity(entry: InsertOptionsEngineActivity): Promise<OptionsEngineActivity> {
+    const [result] = await db.insert(optionsEngineActivity).values(entry).returning();
+    return result;
+  }
+
+  async getUserOptionsEngineActivity(userId: number, limit: number = 50): Promise<OptionsEngineActivity[]> {
+    return db.select().from(optionsEngineActivity)
+      .where(eq(optionsEngineActivity.userId, userId))
+      .orderBy(desc(optionsEngineActivity.createdAt))
+      .limit(limit);
   }
 
   // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────

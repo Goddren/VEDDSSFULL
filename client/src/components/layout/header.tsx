@@ -151,6 +151,22 @@ const Header: React.FC = () => {
   });
   const activeTLNavConns = tlNavConnections.filter((c: any) => c.isActive);
 
+  // Options AI Engine connections (Alpaca / TastyTrade / Crypto.com) for the slide nav
+  const { data: navAlpacaConns = [] } = useQuery<any[]>({
+    queryKey: ['/api/alpaca/connections'], enabled: !!user, refetchInterval: 60000,
+  });
+  const { data: navTastyConns = [] } = useQuery<any[]>({
+    queryKey: ['/api/tastytrade/connections'], enabled: !!user, refetchInterval: 60000,
+  });
+  const { data: navCryptocomConns = [] } = useQuery<any[]>({
+    queryKey: ['/api/cryptocom/connections'], enabled: !!user, refetchInterval: 60000,
+  });
+  const activeOptionsNavConns = [
+    ...navAlpacaConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'Alpaca', label: c.apiKeyId?.slice(0, 8) + '••••', typeLabel: c.accountType })),
+    ...navTastyConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'TastyTrade', label: c.username, typeLabel: c.accountType })),
+    ...navCryptocomConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'Crypto.com', label: c.apiKey?.slice(0, 8) + '••••', typeLabel: c.instrumentType })),
+  ];
+
   // Live MT5 EA push data for the nav balance display
   const { data: navMt5Data } = useQuery<any>({
     queryKey: ['/api/mt5/account-data'],
@@ -1062,6 +1078,58 @@ const Header: React.FC = () => {
                       >
                         <LinkIcon className="h-4 w-4" />
                         Connect TradeLocker
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* ── Options AI Engine Accounts ─────────────────────── */}
+                  {activeOptionsNavConns.length > 0 && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                        <TrendingUp className="h-3 w-3" />
+                        Options Engine Accounts
+                      </span>
+                      <div className="space-y-2 mb-3">
+                        {activeOptionsNavConns.map((conn: any) => (
+                          <div key={`${conn.broker}-${conn.id}`} className="bg-gray-800/60 border border-emerald-700/25 rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm text-white font-medium truncate">{conn.label}</p>
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">{conn.broker}</span>
+                                  <span className="text-[10px] text-gray-500 uppercase">{conn.typeLabel}</span>
+                                </div>
+                              </div>
+                              {conn.lastError ? (
+                                <span className="text-[11px] text-red-400 shrink-0">Error</span>
+                              ) : conn.lastConnectedAt ? (
+                                <span className="text-[11px] text-emerald-400 shrink-0">● Live</span>
+                              ) : (
+                                <span className="text-[11px] text-gray-500 shrink-0">—</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Link
+                        href="/options-engine"
+                        onClick={handleMobileNavClick}
+                        className="text-sm font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-1.5"
+                      >
+                        <TrendingUp className="h-3.5 w-3.5" />
+                        Manage Options Engine
+                      </Link>
+                    </div>
+                  )}
+                  {activeOptionsNavConns.length === 0 && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <Link
+                        href="/options-engine"
+                        onClick={handleMobileNavClick}
+                        className="text-base font-medium text-emerald-400 hover:text-emerald-300 flex items-center gap-2"
+                      >
+                        <TrendingUp className="h-4 w-4" />
+                        Connect Options Engine
                       </Link>
                     </div>
                   )}

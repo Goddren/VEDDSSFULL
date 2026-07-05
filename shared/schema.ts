@@ -877,6 +877,30 @@ export const insertOptionsEngineConfigSchema = createInsertSchema(optionsEngineC
 export type OptionsEngineConfig = typeof optionsEngineConfigs.$inferSelect;
 export type InsertOptionsEngineConfig = z.infer<typeof insertOptionsEngineConfigSchema>;
 
+// Options AI Engine — live scan/decision feed. Each row is one thing the
+// engine looked at and what it concluded, so the user can see what it's
+// picking up and why (or why not) it's acting.
+export const optionsEngineActivity = pgTable("options_engine_activity", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  symbol: text("symbol").notNull(),
+  decision: text("decision").notNull(), // 'watching' | 'signal' | 'skipped' | 'error'
+  reasoning: text("reasoning").notNull(), // human-readable explanation
+  score: doublePrecision("score"), // 0-100 confidence proxy, null if not computed
+  price: doublePrecision("price"),
+  dailyChangePercent: doublePrecision("daily_change_percent"),
+  source: text("source").notNull().default('alpaca'), // which broker's data fed this read
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertOptionsEngineActivitySchema = createInsertSchema(optionsEngineActivity).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type OptionsEngineActivity = typeof optionsEngineActivity.$inferSelect;
+export type InsertOptionsEngineActivity = z.infer<typeof insertOptionsEngineActivitySchema>;
+
 // TradeLocker Trade Logs for tracking executed trades
 export const tradelockerTradeLogs = pgTable("tradelocker_trade_logs", {
   id: serial("id").primaryKey(),

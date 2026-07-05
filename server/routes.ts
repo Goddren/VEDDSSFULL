@@ -15015,6 +15015,14 @@ Rules:
     res.json(config);
   });
 
+  app.get("/api/options-engine/activity", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
+    const activity = await storage.getUserOptionsEngineActivity(userId, limit);
+    res.json({ activity });
+  });
+
   app.patch("/api/options-engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

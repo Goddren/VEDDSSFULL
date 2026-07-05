@@ -88,12 +88,24 @@ CREATE TABLE IF NOT EXISTS "options_engine_configs" (
   "created_at" timestamp DEFAULT now() NOT NULL,
   "updated_at" timestamp DEFAULT now() NOT NULL
 );
+CREATE TABLE IF NOT EXISTS "options_engine_activity" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "symbol" text NOT NULL,
+  "decision" text NOT NULL,
+  "reasoning" text NOT NULL,
+  "score" double precision,
+  "price" double precision,
+  "daily_change_percent" double precision,
+  "source" text NOT NULL DEFAULT 'alpaca',
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
 `;
 
 export async function ensureOptionsTables(): Promise<void> {
   try {
     await pool.query(DDL);
-    console.log('[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs).');
+    console.log('[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity).');
   } catch (err: any) {
     console.error('[startup] ensureOptionsTables failed (non-fatal):', err?.message ?? err);
   }

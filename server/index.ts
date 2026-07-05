@@ -1107,6 +1107,10 @@ async function withRetry<T>(
     // Start live TradeLocker balance sync (keeps balances fresh like MT5)
     const { startTradeLockerSync } = await import('./services/tradelocker-sync');
     startTradeLockerSync();
+
+    // Start Options AI Engine scan loop (produces the live decision feed)
+    const { startOptionsEngineScanner } = await import('./services/options-scanner');
+    startOptionsEngineScanner();
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });

@@ -151,6 +151,27 @@ export class AlpacaService {
     };
   }
 
+  // Real-time-ish market snapshot (latest trade + today's/yesterday's daily bar)
+  // for the underlying — used by the options scanner to explain what it's
+  // seeing (price, momentum) without needing a full options-chain pull for
+  // every symbol on every scan cycle.
+  async getSnapshot(symbol: string): Promise<{ price: number; prevClose: number; dailyChangePercent: number } | null> {
+    const response = await this.request(
+      `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/snapshot`,
+      { method: 'GET' },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const price = data.latestTrade?.p ?? data.dailyBar?.c;
+    const prevClose = data.prevDailyBar?.c;
+    if (!price || !prevClose) return null;
+    return {
+      price,
+      prevClose,
+      dailyChangePercent: ((price - prevClose) / prevClose) * 100,
+    };
+  }
+
   async getOptionsChain(underlyingSymbol: string): Promise<AlpacaOptionContract[]> {
     const response = await this.request(
       `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?limit=200`,
