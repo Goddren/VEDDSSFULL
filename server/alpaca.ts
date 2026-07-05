@@ -172,6 +172,30 @@ export class AlpacaService {
     };
   }
 
+  // OHLCV bars — the real data source behind ORB (intraday bars since open),
+  // Volume Profile (intraday bars across N days), and Breakout (daily bars
+  // over a lookback window) strategies. timeframe examples: '1Min', '5Min', '1Day'.
+  async getBars(symbol: string, timeframe: string, start: Date, end: Date, limit = 1000): Promise<Array<{
+    t: string; o: number; h: number; l: number; c: number; v: number;
+  }>> {
+    const params = new URLSearchParams({
+      timeframe,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      limit: String(limit),
+      adjustment: 'raw',
+      feed: 'iex', // free/paper-compatible data feed
+    });
+    const response = await this.request(
+      `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars?${params.toString()}`,
+      { method: 'GET' },
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    const bars = data.bars || [];
+    return bars.map((b: any) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+  }
+
   async getOptionsChain(underlyingSymbol: string): Promise<AlpacaOptionContract[]> {
     const response = await this.request(
       `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?limit=200`,

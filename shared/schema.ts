@@ -848,7 +848,8 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   isActive: boolean("is_active").notNull().default(false),
   symbols: jsonb("symbols").notNull().default(['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']), // underlying tickers to scan
   scanIntervalMs: integer("scan_interval_ms").notNull().default(60000),
-  strategyMode: text("strategy_mode").notNull().default('auto'), // e.g. 'auto' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+  strategyMode: text("strategy_mode").notNull().default('auto'), // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+  singleStrategyMode: boolean("single_strategy_mode").notNull().default(false), // when true, only strategyMode fires — no mixing
   directionFilter: text("direction_filter").notNull().default('both'), // 'calls_only' | 'puts_only' | 'both'
   maxOpenPositions: integer("max_open_positions").notNull().default(3),
   maxContractsPerTrade: integer("max_contracts_per_trade").notNull().default(1),
@@ -864,6 +865,29 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   maxDailyTrades: integer("max_daily_trades").notNull().default(0), // 0 = unlimited
   executionSource: text("execution_source").notNull().default('auto'), // 'alpaca' | 'tastytrade' | 'auto'
   lockSettings: boolean("lock_settings").notNull().default(false),
+
+  // ── Options-native settings (no FX/lots equivalent — these replace pip/lot ──
+  // ── concepts with strike/expiry/premium concepts specific to options) ──────
+  expiryPreference: text("expiry_preference").notNull().default('auto'), // '0dte' | 'weekly' | 'monthly' | 'auto'
+  minDaysToExpiry: integer("min_days_to_expiry").notNull().default(1),
+  maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(45),
+  strikeSelectionMode: text("strike_selection_mode").notNull().default('atm'), // 'atm' | 'itm' | 'otm' | 'delta_target'
+  targetDelta: doublePrecision("target_delta").notNull().default(0.30), // used when strikeSelectionMode = 'delta_target'
+  profitTargetPercent: doublePrecision("profit_target_percent").notNull().default(50), // close at +X% of premium paid
+  stopLossPercent: doublePrecision("stop_loss_percent").notNull().default(50), // close at -X% of premium paid
+  ivRankMax: doublePrecision("iv_rank_max").notNull().default(80), // skip entries when IV rank exceeds this (expensive premium)
+  sessionFilterEnabled: boolean("session_filter_enabled").notNull().default(true), // avoid the volatile open/close minutes
+  avoidLastMinutesBeforeClose: integer("avoid_last_minutes_before_close").notNull().default(15), // pin-risk / illiquidity guard near close
+
+  // Strategy-specific parameters
+  orbRangeMinutes: integer("orb_range_minutes").notNull().default(15), // opening range window length
+  volumeProfileLookbackDays: integer("volume_profile_lookback_days").notNull().default(10),
+  breakoutLookbackDays: integer("breakout_lookback_days").notNull().default(20),
+
+  // Acceleration / adaptive behavior (mirrors SS Engine's acceleration features)
+  adaptiveScanInterval: boolean("adaptive_scan_interval").notNull().default(false), // scan faster near market open/ORB window
+  enablePyramiding: boolean("enable_pyramiding").notNull().default(false), // add contracts as a move confirms further
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -890,6 +914,7 @@ export const optionsEngineActivity = pgTable("options_engine_activity", {
   price: doublePrecision("price"),
   dailyChangePercent: doublePrecision("daily_change_percent"),
   source: text("source").notNull().default('alpaca'), // which broker's data fed this read
+  strategy: text("strategy"), // 'orb' | 'volume_profile' | 'breakout' | 'momentum' | null
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

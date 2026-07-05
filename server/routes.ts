@@ -15027,11 +15027,15 @@ Rules:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const allowed = [
-      'isActive', 'symbols', 'scanIntervalMs', 'strategyMode', 'directionFilter',
+      'isActive', 'symbols', 'scanIntervalMs', 'strategyMode', 'singleStrategyMode', 'directionFilter',
       'maxOpenPositions', 'maxContractsPerTrade', 'riskPerTrade', 'minConfidence',
       'weeklyProfitTarget', 'accountBalance', 'enableCompounding', 'propFirmMode',
       'propFirmDailyDrawdownLimit', 'dailyLossLimit', 'dailyProfitTarget', 'maxDailyTrades',
       'executionSource', 'lockSettings',
+      'expiryPreference', 'minDaysToExpiry', 'maxDaysToExpiry', 'strikeSelectionMode', 'targetDelta',
+      'profitTargetPercent', 'stopLossPercent', 'ivRankMax', 'sessionFilterEnabled', 'avoidLastMinutesBeforeClose',
+      'orbRangeMinutes', 'volumeProfileLookbackDays', 'breakoutLookbackDays',
+      'adaptiveScanInterval', 'enablePyramiding',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {

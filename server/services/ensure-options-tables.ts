@@ -100,6 +100,23 @@ CREATE TABLE IF NOT EXISTS "options_engine_activity" (
   "source" text NOT NULL DEFAULT 'alpaca',
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "single_strategy_mode" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "expiry_preference" text NOT NULL DEFAULT 'auto';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "min_days_to_expiry" integer NOT NULL DEFAULT 1;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "max_days_to_expiry" integer NOT NULL DEFAULT 45;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "strike_selection_mode" text NOT NULL DEFAULT 'atm';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "target_delta" double precision NOT NULL DEFAULT 0.30;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "profit_target_percent" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "stop_loss_percent" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "iv_rank_max" double precision NOT NULL DEFAULT 80;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "session_filter_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "avoid_last_minutes_before_close" integer NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "orb_range_minutes" integer NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "volume_profile_lookback_days" integer NOT NULL DEFAULT 10;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "breakout_lookback_days" integer NOT NULL DEFAULT 20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "adaptive_scan_interval" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "enable_pyramiding" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_activity" ADD COLUMN IF NOT EXISTS "strategy" text;
 `;
 
 export async function ensureOptionsTables(): Promise<void> {

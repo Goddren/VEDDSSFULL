@@ -69,6 +69,7 @@ type EngineActivity = {
   price: number | null;
   dailyChangePercent: number | null;
   source: string;
+  strategy: string | null;
   createdAt: string;
 };
 
@@ -78,6 +79,7 @@ type OptionsEngineConfig = {
   symbols: string[];
   scanIntervalMs: number;
   strategyMode: string;
+  singleStrategyMode: boolean;
   directionFilter: 'calls_only' | 'puts_only' | 'both';
   maxOpenPositions: number;
   maxContractsPerTrade: number;
@@ -92,6 +94,21 @@ type OptionsEngineConfig = {
   maxDailyTrades: number;
   executionSource: 'alpaca' | 'tastytrade' | 'auto';
   lockSettings: boolean;
+  expiryPreference: '0dte' | 'weekly' | 'monthly' | 'auto';
+  minDaysToExpiry: number;
+  maxDaysToExpiry: number;
+  strikeSelectionMode: 'atm' | 'itm' | 'otm' | 'delta_target';
+  targetDelta: number;
+  profitTargetPercent: number;
+  stopLossPercent: number;
+  ivRankMax: number;
+  sessionFilterEnabled: boolean;
+  avoidLastMinutesBeforeClose: number;
+  orbRangeMinutes: number;
+  volumeProfileLookbackDays: number;
+  breakoutLookbackDays: number;
+  adaptiveScanInterval: boolean;
+  enablePyramiding: boolean;
 };
 
 export default function OptionsEnginePage() {
@@ -698,135 +715,312 @@ export default function OptionsEnginePage() {
                 : `${config?.isActive ? 'Active' : 'Paused'} — scanning ${config?.symbols?.length ?? 0} symbols.`}
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-6">
             {configLoading || !config ? (
               <p className="text-xs text-gray-500">Loading settings...</p>
             ) : (
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Underlyings to scan (comma-separated)</Label>
-                  <Input
-                    defaultValue={config.symbols.join(', ')}
-                    onBlur={(e) => updateConfigMutation.mutate({ symbols: e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Direction filter</Label>
-                  <Select value={config.directionFilter} onValueChange={(v: any) => updateConfigMutation.mutate({ directionFilter: v })}>
-                    <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="both">Calls + Puts</SelectItem>
-                      <SelectItem value="calls_only">Calls only</SelectItem>
-                      <SelectItem value="puts_only">Puts only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Execution source</Label>
-                  <Select value={config.executionSource} onValueChange={(v: any) => updateConfigMutation.mutate({ executionSource: v })}>
-                    <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (any connected)</SelectItem>
-                      <SelectItem value="alpaca">Alpaca only</SelectItem>
-                      <SelectItem value="tastytrade">TastyTrade only</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Strategy mode</Label>
-                  <Select value={config.strategyMode} onValueChange={(v: any) => updateConfigMutation.mutate({ strategyMode: v })}>
-                    <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (AI picks)</SelectItem>
-                      <SelectItem value="long_call">Long Call</SelectItem>
-                      <SelectItem value="long_put">Long Put</SelectItem>
-                      <SelectItem value="credit_spread">Credit Spread</SelectItem>
-                      <SelectItem value="covered_call">Covered Call</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Max open positions</Label>
-                  <Input
-                    type="number" min={1} max={20}
-                    defaultValue={config.maxOpenPositions}
-                    onBlur={(e) => updateConfigMutation.mutate({ maxOpenPositions: parseInt(e.target.value, 10) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Max contracts / trade</Label>
-                  <Input
-                    type="number" min={1} max={50}
-                    defaultValue={config.maxContractsPerTrade}
-                    onBlur={(e) => updateConfigMutation.mutate({ maxContractsPerTrade: parseInt(e.target.value, 10) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Risk per trade (%)</Label>
-                  <Input
-                    type="number" step="0.1" min="0.1" max="20"
-                    defaultValue={config.riskPerTrade}
-                    onBlur={(e) => updateConfigMutation.mutate({ riskPerTrade: parseFloat(e.target.value) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Min AI confidence (0–100)</Label>
-                  <Input
-                    type="number" min={0} max={100}
-                    defaultValue={config.minConfidence}
-                    onBlur={(e) => updateConfigMutation.mutate({ minConfidence: parseFloat(e.target.value) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Daily loss limit (%, 0 = off)</Label>
-                  <Input
-                    type="number" step="0.5" min="0" max="50"
-                    defaultValue={config.dailyLossLimit}
-                    onBlur={(e) => updateConfigMutation.mutate({ dailyLossLimit: parseFloat(e.target.value) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs text-gray-400">Max daily trades (0 = unlimited)</Label>
-                  <Input
-                    type="number" min={0} max={100}
-                    defaultValue={config.maxDailyTrades}
-                    onBlur={(e) => updateConfigMutation.mutate({ maxDailyTrades: parseInt(e.target.value, 10) })}
-                    className="bg-gray-800 border-gray-700 h-8 text-sm"
-                  />
-                </div>
-
-                <div className="md:col-span-2 flex items-center gap-6 flex-wrap pt-2 border-t border-gray-800">
-                  <div className="flex items-center gap-2">
-                    <Switch checked={config.propFirmMode} onCheckedChange={(v) => updateConfigMutation.mutate({ propFirmMode: v })} />
-                    <Label className="text-xs text-gray-300">Prop-firm mode</Label>
-                  </div>
-                  {config.propFirmMode && (
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-gray-400 whitespace-nowrap">Daily drawdown limit (%)</Label>
+              <>
+                {/* ── Watchlist & Strategy ── */}
+                <div>
+                  <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Watchlist & Strategy</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="text-xs text-gray-400">Underlyings to scan (comma-separated)</Label>
                       <Input
-                        type="number" step="0.5" min="0.5" max="20"
-                        defaultValue={config.propFirmDailyDrawdownLimit}
-                        onBlur={(e) => updateConfigMutation.mutate({ propFirmDailyDrawdownLimit: parseFloat(e.target.value) })}
-                        className="bg-gray-800 border-gray-700 h-7 text-xs w-20"
+                        defaultValue={config.symbols.join(', ')}
+                        onBlur={(e) => updateConfigMutation.mutate({ symbols: e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
                       />
                     </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <Switch checked={config.enableCompounding} onCheckedChange={(v) => updateConfigMutation.mutate({ enableCompounding: v })} />
-                    <Label className="text-xs text-gray-300">Enable compounding</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch checked={config.lockSettings} onCheckedChange={(v) => updateConfigMutation.mutate({ lockSettings: v })} />
-                    <Label className="text-xs text-gray-300">Lock settings (no auto-adjust)</Label>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Strategy</Label>
+                      <Select value={config.strategyMode} onValueChange={(v: any) => updateConfigMutation.mutate({ strategyMode: v })}>
+                        <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto — run all, take the best signal</SelectItem>
+                          <SelectItem value="orb">Opening Range Breakout</SelectItem>
+                          <SelectItem value="volume_profile">Volume Profile (POC / Value Area)</SelectItem>
+                          <SelectItem value="breakout">N-Day High/Low Breakout</SelectItem>
+                          <SelectItem value="momentum">Daily Momentum</SelectItem>
+                          <SelectItem value="long_call">Long Call (manual)</SelectItem>
+                          <SelectItem value="long_put">Long Put (manual)</SelectItem>
+                          <SelectItem value="credit_spread">Credit Spread (roadmap)</SelectItem>
+                          <SelectItem value="covered_call">Covered Call (roadmap)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Direction filter</Label>
+                      <Select value={config.directionFilter} onValueChange={(v: any) => updateConfigMutation.mutate({ directionFilter: v })}>
+                        <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="both">Calls + Puts</SelectItem>
+                          <SelectItem value="calls_only">Calls only</SelectItem>
+                          <SelectItem value="puts_only">Puts only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Strategy-specific parameters */}
+                    {(config.strategyMode === 'orb' || config.strategyMode === 'auto') && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">ORB range (minutes)</Label>
+                        <Input
+                          type="number" min={5} max={60}
+                          defaultValue={config.orbRangeMinutes}
+                          onBlur={(e) => updateConfigMutation.mutate({ orbRangeMinutes: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                    {(config.strategyMode === 'volume_profile' || config.strategyMode === 'auto') && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Volume profile lookback (days)</Label>
+                        <Input
+                          type="number" min={3} max={60}
+                          defaultValue={config.volumeProfileLookbackDays}
+                          onBlur={(e) => updateConfigMutation.mutate({ volumeProfileLookbackDays: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                    {(config.strategyMode === 'breakout' || config.strategyMode === 'auto') && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Breakout lookback (days)</Label>
+                        <Input
+                          type="number" min={5} max={120}
+                          defaultValue={config.breakoutLookbackDays}
+                          onBlur={(e) => updateConfigMutation.mutate({ breakoutLookbackDays: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Switch checked={config.singleStrategyMode} onCheckedChange={(v) => updateConfigMutation.mutate({ singleStrategyMode: v })} disabled={config.strategyMode !== 'auto'} />
+                      <Label className="text-xs text-gray-300">Single-strategy mode (no mixing, Auto only)</Label>
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                {/* ── Options Contract Preferences ── */}
+                <div className="pt-4 border-t border-gray-800">
+                  <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Options Contract Preferences</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Expiry preference</Label>
+                      <Select value={config.expiryPreference} onValueChange={(v: any) => updateConfigMutation.mutate({ expiryPreference: v })}>
+                        <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto (within min/max range)</SelectItem>
+                          <SelectItem value="0dte">0DTE (same-day)</SelectItem>
+                          <SelectItem value="weekly">Weekly</SelectItem>
+                          <SelectItem value="monthly">Monthly</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Strike selection</Label>
+                      <Select value={config.strikeSelectionMode} onValueChange={(v: any) => updateConfigMutation.mutate({ strikeSelectionMode: v })}>
+                        <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="atm">At-the-money</SelectItem>
+                          <SelectItem value="itm">In-the-money</SelectItem>
+                          <SelectItem value="otm">Out-of-the-money</SelectItem>
+                          <SelectItem value="delta_target">Target delta</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {config.strikeSelectionMode === 'delta_target' && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Target delta (0.05–0.95)</Label>
+                        <Input
+                          type="number" step="0.05" min="0.05" max="0.95"
+                          defaultValue={config.targetDelta}
+                          onBlur={(e) => updateConfigMutation.mutate({ targetDelta: parseFloat(e.target.value) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Days to expiry (min–max)</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number" min={0} max={365}
+                          defaultValue={config.minDaysToExpiry}
+                          onBlur={(e) => updateConfigMutation.mutate({ minDaysToExpiry: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                        <span className="text-gray-500 text-xs">to</span>
+                        <Input
+                          type="number" min={1} max={365}
+                          defaultValue={config.maxDaysToExpiry}
+                          onBlur={(e) => updateConfigMutation.mutate({ maxDaysToExpiry: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Profit target (% of premium)</Label>
+                      <Input
+                        type="number" min={5} max={500}
+                        defaultValue={config.profitTargetPercent}
+                        onBlur={(e) => updateConfigMutation.mutate({ profitTargetPercent: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Stop loss (% of premium)</Label>
+                      <Input
+                        type="number" min={5} max={100}
+                        defaultValue={config.stopLossPercent}
+                        onBlur={(e) => updateConfigMutation.mutate({ stopLossPercent: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Max IV rank to enter (0–100)</Label>
+                      <Input
+                        type="number" min={0} max={100}
+                        defaultValue={config.ivRankMax}
+                        onBlur={(e) => updateConfigMutation.mutate({ ivRankMax: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Position Sizing & Confidence ── */}
+                <div className="pt-4 border-t border-gray-800">
+                  <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Position Sizing & Confidence</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Execution source</Label>
+                      <Select value={config.executionSource} onValueChange={(v: any) => updateConfigMutation.mutate({ executionSource: v })}>
+                        <SelectTrigger className="h-8 bg-gray-800 border-gray-700 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto (any connected)</SelectItem>
+                          <SelectItem value="alpaca">Alpaca only</SelectItem>
+                          <SelectItem value="tastytrade">TastyTrade only</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Max open positions</Label>
+                      <Input
+                        type="number" min={1} max={20}
+                        defaultValue={config.maxOpenPositions}
+                        onBlur={(e) => updateConfigMutation.mutate({ maxOpenPositions: parseInt(e.target.value, 10) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Max contracts / trade</Label>
+                      <Input
+                        type="number" min={1} max={50}
+                        defaultValue={config.maxContractsPerTrade}
+                        onBlur={(e) => updateConfigMutation.mutate({ maxContractsPerTrade: parseInt(e.target.value, 10) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Risk per trade (%)</Label>
+                      <Input
+                        type="number" step="0.1" min="0.1" max="20"
+                        defaultValue={config.riskPerTrade}
+                        onBlur={(e) => updateConfigMutation.mutate({ riskPerTrade: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Min confidence score (0–100)</Label>
+                      <Input
+                        type="number" min={0} max={100}
+                        defaultValue={config.minConfidence}
+                        onBlur={(e) => updateConfigMutation.mutate({ minConfidence: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Session & Safety ── */}
+                <div className="pt-4 border-t border-gray-800">
+                  <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Session & Safety</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Daily loss limit (%, 0 = off)</Label>
+                      <Input
+                        type="number" step="0.5" min="0" max="50"
+                        defaultValue={config.dailyLossLimit}
+                        onBlur={(e) => updateConfigMutation.mutate({ dailyLossLimit: parseFloat(e.target.value) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-400">Max daily trades (0 = unlimited)</Label>
+                      <Input
+                        type="number" min={0} max={100}
+                        defaultValue={config.maxDailyTrades}
+                        onBlur={(e) => updateConfigMutation.mutate({ maxDailyTrades: parseInt(e.target.value, 10) })}
+                        className="bg-gray-800 border-gray-700 h-8 text-sm"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.sessionFilterEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ sessionFilterEnabled: v })} />
+                      <Label className="text-xs text-gray-300">Session filter (skip volatile open/pin-risk close)</Label>
+                    </div>
+                    {config.sessionFilterEnabled && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Avoid last N minutes before close</Label>
+                        <Input
+                          type="number" min={0} max={60}
+                          defaultValue={config.avoidLastMinutesBeforeClose}
+                          onBlur={(e) => updateConfigMutation.mutate({ avoidLastMinutesBeforeClose: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.propFirmMode} onCheckedChange={(v) => updateConfigMutation.mutate({ propFirmMode: v })} />
+                      <Label className="text-xs text-gray-300">Prop-firm mode</Label>
+                    </div>
+                    {config.propFirmMode && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Daily drawdown limit (%)</Label>
+                        <Input
+                          type="number" step="0.5" min="0.5" max="20"
+                          defaultValue={config.propFirmDailyDrawdownLimit}
+                          onBlur={(e) => updateConfigMutation.mutate({ propFirmDailyDrawdownLimit: parseFloat(e.target.value) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Acceleration ── */}
+                <div className="pt-4 border-t border-gray-800">
+                  <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Acceleration</h4>
+                  <div className="flex items-center gap-6 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.enableCompounding} onCheckedChange={(v) => updateConfigMutation.mutate({ enableCompounding: v })} />
+                      <Label className="text-xs text-gray-300">Enable compounding</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.adaptiveScanInterval} onCheckedChange={(v) => updateConfigMutation.mutate({ adaptiveScanInterval: v })} />
+                      <Label className="text-xs text-gray-300">Adaptive scan interval</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.enablePyramiding} onCheckedChange={(v) => updateConfigMutation.mutate({ enablePyramiding: v })} />
+                      <Label className="text-xs text-gray-300">Enable pyramiding</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch checked={config.lockSettings} onCheckedChange={(v) => updateConfigMutation.mutate({ lockSettings: v })} />
+                      <Label className="text-xs text-gray-300">Lock settings (no auto-adjust)</Label>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -869,6 +1063,7 @@ export default function OptionsEnginePage() {
                         <div className="flex items-center gap-1.5">
                           <Icon className={`w-3.5 h-3.5 ${cfg.color}`} />
                           <span className="text-sm font-bold text-white">{a.symbol}</span>
+                          {a.strategy && <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/5 text-gray-400">{a.strategy.replace('_', ' ')}</span>}
                           {a.price != null && <span className="text-xs font-mono text-gray-400">${a.price.toFixed(2)}</span>}
                           {a.dailyChangePercent != null && (
                             <span className={`text-xs font-mono flex items-center gap-0.5 ${a.dailyChangePercent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>

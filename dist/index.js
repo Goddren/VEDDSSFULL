@@ -1068,7 +1068,9 @@ var init_schema = __esm({
       // underlying tickers to scan
       scanIntervalMs: integer("scan_interval_ms").notNull().default(6e4),
       strategyMode: text("strategy_mode").notNull().default("auto"),
-      // e.g. 'auto' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+      // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+      singleStrategyMode: boolean("single_strategy_mode").notNull().default(false),
+      // when true, only strategyMode fires — no mixing
       directionFilter: text("direction_filter").notNull().default("both"),
       // 'calls_only' | 'puts_only' | 'both'
       maxOpenPositions: integer("max_open_positions").notNull().default(3),
@@ -1091,6 +1093,36 @@ var init_schema = __esm({
       executionSource: text("execution_source").notNull().default("auto"),
       // 'alpaca' | 'tastytrade' | 'auto'
       lockSettings: boolean("lock_settings").notNull().default(false),
+      // ── Options-native settings (no FX/lots equivalent — these replace pip/lot ──
+      // ── concepts with strike/expiry/premium concepts specific to options) ──────
+      expiryPreference: text("expiry_preference").notNull().default("auto"),
+      // '0dte' | 'weekly' | 'monthly' | 'auto'
+      minDaysToExpiry: integer("min_days_to_expiry").notNull().default(1),
+      maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(45),
+      strikeSelectionMode: text("strike_selection_mode").notNull().default("atm"),
+      // 'atm' | 'itm' | 'otm' | 'delta_target'
+      targetDelta: doublePrecision("target_delta").notNull().default(0.3),
+      // used when strikeSelectionMode = 'delta_target'
+      profitTargetPercent: doublePrecision("profit_target_percent").notNull().default(50),
+      // close at +X% of premium paid
+      stopLossPercent: doublePrecision("stop_loss_percent").notNull().default(50),
+      // close at -X% of premium paid
+      ivRankMax: doublePrecision("iv_rank_max").notNull().default(80),
+      // skip entries when IV rank exceeds this (expensive premium)
+      sessionFilterEnabled: boolean("session_filter_enabled").notNull().default(true),
+      // avoid the volatile open/close minutes
+      avoidLastMinutesBeforeClose: integer("avoid_last_minutes_before_close").notNull().default(15),
+      // pin-risk / illiquidity guard near close
+      // Strategy-specific parameters
+      orbRangeMinutes: integer("orb_range_minutes").notNull().default(15),
+      // opening range window length
+      volumeProfileLookbackDays: integer("volume_profile_lookback_days").notNull().default(10),
+      breakoutLookbackDays: integer("breakout_lookback_days").notNull().default(20),
+      // Acceleration / adaptive behavior (mirrors SS Engine's acceleration features)
+      adaptiveScanInterval: boolean("adaptive_scan_interval").notNull().default(false),
+      // scan faster near market open/ORB window
+      enablePyramiding: boolean("enable_pyramiding").notNull().default(false),
+      // add contracts as a move confirms further
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -1113,6 +1145,8 @@ var init_schema = __esm({
       dailyChangePercent: doublePrecision("daily_change_percent"),
       source: text("source").notNull().default("alpaca"),
       // which broker's data fed this read
+      strategy: text("strategy"),
+      // 'orb' | 'volume_profile' | 'breakout' | 'momentum' | null
       createdAt: timestamp("created_at").defaultNow().notNull()
     });
     insertOptionsEngineActivitySchema = createInsertSchema(optionsEngineActivity).omit({
@@ -18116,6 +18150,28 @@ var init_alpaca = __esm({
           prevClose,
           dailyChangePercent: (price - prevClose) / prevClose * 100
         };
+      }
+      // OHLCV bars — the real data source behind ORB (intraday bars since open),
+      // Volume Profile (intraday bars across N days), and Breakout (daily bars
+      // over a lookback window) strategies. timeframe examples: '1Min', '5Min', '1Day'.
+      async getBars(symbol, timeframe, start, end, limit = 1e3) {
+        const params = new URLSearchParams({
+          timeframe,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          limit: String(limit),
+          adjustment: "raw",
+          feed: "iex"
+          // free/paper-compatible data feed
+        });
+        const response = await this.request(
+          `${this.dataUrl}/v2/stocks/${encodeURIComponent(symbol)}/bars?${params.toString()}`,
+          { method: "GET" }
+        );
+        if (!response.ok) return [];
+        const data = await response.json();
+        const bars = data.bars || [];
+        return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
       }
       async getOptionsChain(underlyingSymbol) {
         const response = await this.request(
@@ -36824,6 +36880,23 @@ CREATE TABLE IF NOT EXISTS "options_engine_activity" (
   "source" text NOT NULL DEFAULT 'alpaca',
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "single_strategy_mode" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "expiry_preference" text NOT NULL DEFAULT 'auto';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "min_days_to_expiry" integer NOT NULL DEFAULT 1;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "max_days_to_expiry" integer NOT NULL DEFAULT 45;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "strike_selection_mode" text NOT NULL DEFAULT 'atm';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "target_delta" double precision NOT NULL DEFAULT 0.30;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "profit_target_percent" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "stop_loss_percent" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "iv_rank_max" double precision NOT NULL DEFAULT 80;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "session_filter_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "avoid_last_minutes_before_close" integer NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "orb_range_minutes" integer NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "volume_profile_lookback_days" integer NOT NULL DEFAULT 10;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "breakout_lookback_days" integer NOT NULL DEFAULT 20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "adaptive_scan_interval" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "enable_pyramiding" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_activity" ADD COLUMN IF NOT EXISTS "strategy" text;
 `;
   }
 });
@@ -36834,9 +36907,247 @@ __export(options_scanner_exports, {
   runOptionsEngineScan: () => runOptionsEngineScan,
   startOptionsEngineScanner: () => startOptionsEngineScanner
 });
+function nyOffsetMinutes(date2) {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+  const parts = dtf.formatToParts(date2).reduce((acc, p) => {
+    acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return (asUTC - date2.getTime()) / 6e4;
+}
+function nyMarketOpenUTC(reference) {
+  const dtf = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+  const parts = dtf.formatToParts(reference).reduce((acc, p) => {
+    acc[p.type] = p.value;
+    return acc;
+  }, {});
+  const y = +parts.year, m = +parts.month, d = +parts.day;
+  const noonUTC = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const offsetMin = nyOffsetMinutes(noonUTC);
+  const utcMinutesSinceMidnight = 9 * 60 + 30 - offsetMin;
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + utcMinutesSinceMidnight * 6e4);
+}
+function nyMarketCloseUTC(reference) {
+  const open = nyMarketOpenUTC(reference);
+  return new Date(open.getTime() + 6.5 * 60 * 6e4);
+}
+function isWeekday(date2) {
+  const dow = date2.getUTCDay();
+  return dow >= 1 && dow <= 5;
+}
+async function runOrb(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const open = nyMarketOpenUTC(now);
+  const rangeEnd = new Date(open.getTime() + cfg.orbRangeMinutes * 6e4);
+  if (!isWeekday(now) || now < open) {
+    return { decision: "watching", reasoning: `${symbol}: market is closed \u2014 ORB needs the regular session to be open.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (now < rangeEnd) {
+    return { decision: "watching", reasoning: `${symbol}: opening range still forming (first ${cfg.orbRangeMinutes} min) \u2014 checking again once it closes.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const bars = await service.getBars(symbol, "1Min", open, now, 500);
+  if (bars.length < cfg.orbRangeMinutes) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const rangeBars = bars.filter((b) => new Date(b.t) < rangeEnd);
+  const afterRangeBars = bars.filter((b) => new Date(b.t) >= rangeEnd);
+  if (rangeBars.length === 0 || afterRangeBars.length === 0) {
+    return { decision: "watching", reasoning: `${symbol}: waiting on more bars to confirm the opening range.`, score: null, price: null, dailyChangePercent: null, strategy: "orb" };
+  }
+  const orHigh = Math.max(...rangeBars.map((b) => b.h));
+  const orLow = Math.min(...rangeBars.map((b) => b.l));
+  const last = afterRangeBars[afterRangeBars.length - 1];
+  const avgRangeVolume = rangeBars.reduce((s, b) => s + b.v, 0) / rangeBars.length;
+  const volumeConfirmed = last.v > avgRangeVolume * 1.2;
+  const brokeUp = last.c > orHigh;
+  const brokeDown = last.c < orLow;
+  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const rangeSizePct = (orHigh - orLow) / orLow * 100;
+  const score = Math.min(100, Math.round(50 + rangeSizePct * 10 + (volumeConfirmed ? 15 : 0)));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: still trading inside the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}) \u2014 no breakout yet.`, score, price: last.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: last.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (!volumeConfirmed) {
+    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of the opening range at $${last.c.toFixed(2)}, but volume (${Math.round(last.v)}) isn't confirming vs the range average (${Math.round(avgRangeVolume)}) \u2014 watching for confirmation.`, score, price: last.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of the opening range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: last.c, dailyChangePercent: null, strategy: "orb" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price: last.c,
+    dailyChangePercent: null,
+    strategy: "orb",
+    reasoning: `${symbol}: volume-confirmed ${direction} breakout of the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}), now at $${last.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode === "delta_target" ? `~${cfg.targetDelta} delta` : cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+async function runVolumeProfile(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const start = new Date(now.getTime() - cfg.volumeProfileLookbackDays * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "5Min", start, now, 2e3);
+  if (bars.length < 20) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday history returned to build a volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  const lo = Math.min(...bars.map((b) => b.l));
+  const hi = Math.max(...bars.map((b) => b.h));
+  const binCount = 24;
+  const binSize = (hi - lo) / binCount || 1;
+  const volumeByBin = new Array(binCount).fill(0);
+  for (const b of bars) {
+    const mid = (b.h + b.l) / 2;
+    const idx = Math.min(binCount - 1, Math.max(0, Math.floor((mid - lo) / binSize)));
+    volumeByBin[idx] += b.v;
+  }
+  const totalVolume = volumeByBin.reduce((s, v) => s + v, 0);
+  let pocIdx = 0;
+  for (let i = 1; i < binCount; i++) if (volumeByBin[i] > volumeByBin[pocIdx]) pocIdx = i;
+  const pocPrice = lo + (pocIdx + 0.5) * binSize;
+  let sorted = volumeByBin.map((v, i) => ({ i, v })).sort((a, b) => b.v - a.v);
+  let acc = 0;
+  const valueAreaIdx = /* @__PURE__ */ new Set();
+  for (const { i, v } of sorted) {
+    valueAreaIdx.add(i);
+    acc += v;
+    if (acc >= totalVolume * 0.7) break;
+  }
+  const valueAreaIdxArr = Array.from(valueAreaIdx);
+  const vaHighIdx = Math.max(...valueAreaIdxArr);
+  const vaLowIdx = Math.min(...valueAreaIdxArr);
+  const vaHigh = lo + (vaHighIdx + 1) * binSize;
+  const vaLow = lo + vaLowIdx * binSize;
+  const last = bars[bars.length - 1];
+  const price = last.c;
+  const distFromPocPct = Math.abs((price - pocPrice) / pocPrice) * 100;
+  const aboveVA = price > vaHigh;
+  const belowVA = price < vaLow;
+  const direction = aboveVA ? "up" : belowVA ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const score = Math.min(100, Math.round(40 + distFromPocPct * 8));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: trading inside its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}, POC $${pocPrice.toFixed(2)}) \u2014 fair value, no edge either direction.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its value area (POC $${pocPrice.toFixed(2)}) at $${price.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: outside its value area at $${price.toFixed(2)} (POC $${pocPrice.toFixed(2)}), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "volume_profile" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "volume_profile",
+    reasoning: `${symbol}: broke ${direction} out of its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}) \u2014 POC (point of control) at $${pocPrice.toFixed(2)}, now at $${price.toFixed(2)} (${distFromPocPct.toFixed(1)}% away). Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
+async function runBreakout(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const start = new Date(now.getTime() - (cfg.breakoutLookbackDays + 3) * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "1Day", start, now, 200);
+  if (bars.length < cfg.breakoutLookbackDays) {
+    return { decision: "error", reasoning: `${symbol}: not enough daily history returned for a ${cfg.breakoutLookbackDays}-day breakout check.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
+  }
+  const priorBars = bars.slice(-cfg.breakoutLookbackDays - 1, -1);
+  const today = bars[bars.length - 1];
+  const priorHigh = Math.max(...priorBars.map((b) => b.h));
+  const priorLow = Math.min(...priorBars.map((b) => b.l));
+  const avgVolume = priorBars.reduce((s, b) => s + b.v, 0) / priorBars.length;
+  const volumeConfirmed = today.v > avgVolume * 1.3;
+  const brokeUp = today.c > priorHigh;
+  const brokeDown = today.c < priorLow;
+  const direction = brokeUp ? "up" : brokeDown ? "down" : "inside";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const breakoutMagnitudePct = direction === "up" ? (today.c - priorHigh) / priorHigh * 100 : direction === "down" ? (priorLow - today.c) / priorLow * 100 : 0;
+  const score = Math.min(100, Math.round(45 + breakoutMagnitudePct * 15 + (volumeConfirmed ? 15 : 0)));
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: still inside its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}) \u2014 no breakout.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (!volumeConfirmed) {
+    return { decision: "watching", reasoning: `${symbol}: broke ${direction} out of its ${cfg.breakoutLookbackDays}-day range at $${today.c.toFixed(2)}, but today's volume isn't confirming (${Math.round(today.v)} vs avg ${Math.round(avgVolume)}) \u2014 watching for follow-through.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range, but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price: today.c, dailyChangePercent: null, strategy: "breakout" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price: today.c,
+    dailyChangePercent: null,
+    strategy: "breakout",
+    reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}), now at $${today.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
 function momentumScore(dailyChangePercent) {
   const magnitude = Math.min(Math.abs(dailyChangePercent) / 3, 1);
   return Math.round(50 + magnitude * 50);
+}
+async function runMomentum(service, symbol, cfg) {
+  const snap = await service.getSnapshot(symbol);
+  if (!snap) {
+    return { decision: "error", reasoning: `${symbol}: no market data returned \u2014 check the symbol is a valid US equity ticker.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
+  }
+  const score = momentumScore(snap.dailyChangePercent);
+  const direction = snap.dailyChangePercent >= 0 ? "up" : "down";
+  const meetsConfidence = score >= cfg.minConfidence;
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  if (!directionAllowed) {
+    return { decision: "skipped", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today, but your direction filter is "${cfg.directionFilter}" \u2014 this move doesn't qualify.` };
+  }
+  if (meetsConfidence) {
+    const optType = direction === "up" ? "call" : "put";
+    return { decision: "signal", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${cfg.minConfidence} minimum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.` };
+  }
+  return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
+}
+async function scanSymbol(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  if (cfg.sessionFilterEnabled && isWeekday(now)) {
+    const open = nyMarketOpenUTC(now);
+    const close = nyMarketCloseUTC(now);
+    const closeGuardStart = new Date(close.getTime() - cfg.avoidLastMinutesBeforeClose * 6e4);
+    if (now >= close || now < open) {
+      return { decision: "watching", reasoning: `${symbol}: outside regular market hours \u2014 session filter is on.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+    }
+    if (now >= closeGuardStart) {
+      return { decision: "watching", reasoning: `${symbol}: within the last ${cfg.avoidLastMinutesBeforeClose} minutes before close \u2014 session filter is skipping new entries (pin-risk/illiquidity guard).`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+    }
+  }
+  if (cfg.strategyMode === "auto") {
+    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum"].map((k) => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
+    const valid = results.filter((r) => !!r);
+    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (signals.length > 0) return signals[0];
+    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (watching.length > 0) return watching[0];
+    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
+  }
+  const runner = STRATEGY_RUNNERS[cfg.strategyMode];
+  if (!runner) {
+    return { decision: "watching", reasoning: `${symbol}: strategy "${cfg.strategyMode}" isn't yet backed by live scanning logic (options-spread strategies like covered_call/credit_spread are on the roadmap) \u2014 no read produced.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
+  }
+  return runner(service, symbol, cfg);
 }
 async function scanOneUser(userId) {
   const config = await storage.getUserOptionsEngineConfig(userId);
@@ -36856,7 +37167,8 @@ async function scanOneUser(userId) {
       score: null,
       price: null,
       dailyChangePercent: null,
-      source: "none"
+      source: "none",
+      strategy: null
     });
     return;
   }
@@ -36873,52 +37185,25 @@ async function scanOneUser(userId) {
       score: null,
       price: null,
       dailyChangePercent: null,
-      source: "alpaca"
+      source: "alpaca",
+      strategy: null
     });
     return;
   }
   const symbols = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
-      const snap = await service.getSnapshot(symbol);
-      if (!snap) {
-        await storage.createOptionsEngineActivity({
-          userId,
-          symbol,
-          decision: "error",
-          reasoning: `No market data returned for ${symbol} \u2014 check the symbol is a valid US equity ticker.`,
-          score: null,
-          price: null,
-          dailyChangePercent: null,
-          source: "alpaca"
-        });
-        continue;
-      }
-      const score = momentumScore(snap.dailyChangePercent);
-      const direction = snap.dailyChangePercent >= 0 ? "up" : "down";
-      const meetsConfidence = score >= config.minConfidence;
-      const directionAllowed = config.directionFilter === "both" || config.directionFilter === "calls_only" && direction === "up" || config.directionFilter === "puts_only" && direction === "down";
-      let decision;
-      let reasoning;
-      if (!directionAllowed) {
-        decision = "skipped";
-        reasoning = `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today, but your direction filter is "${config.directionFilter}" \u2014 this move doesn't qualify.`;
-      } else if (meetsConfidence) {
-        decision = "signal";
-        reasoning = `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${config.minConfidence} minimum. Would consider a ${direction === "up" ? "call" : "put"} here (strategy: ${config.strategyMode}).`;
-      } else {
-        decision = "watching";
-        reasoning = `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${config.minConfidence} confidence threshold. Watching, not acting.`;
-      }
+      const result = await scanSymbol(service, symbol, config);
       await storage.createOptionsEngineActivity({
         userId,
         symbol,
-        decision,
-        reasoning,
-        score,
-        price: snap.price,
-        dailyChangePercent: snap.dailyChangePercent,
-        source: "alpaca"
+        decision: result.decision,
+        reasoning: result.reasoning,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca",
+        strategy: result.strategy
       });
     } catch (err) {
       await storage.createOptionsEngineActivity({
@@ -36929,7 +37214,8 @@ async function scanOneUser(userId) {
         score: null,
         price: null,
         dailyChangePercent: null,
-        source: "alpaca"
+        source: "alpaca",
+        strategy: config.strategyMode
       });
     }
   }
@@ -36954,9 +37240,9 @@ function startOptionsEngineScanner() {
     runOptionsEngineScan().catch(() => {
     });
   }, LOOP_INTERVAL_MS);
-  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled).");
+  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, started2;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, STRATEGY_RUNNERS, started2;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -36964,6 +37250,12 @@ var init_options_scanner = __esm({
     init_alpaca();
     MIN_SCAN_INTERVAL_MS = 3e4;
     lastScanAt = /* @__PURE__ */ new Map();
+    STRATEGY_RUNNERS = {
+      orb: runOrb,
+      volume_profile: runVolumeProfile,
+      breakout: runBreakout,
+      momentum: runMomentum
+    };
     started2 = false;
   }
 });
@@ -54673,6 +54965,7 @@ Rules:
       "symbols",
       "scanIntervalMs",
       "strategyMode",
+      "singleStrategyMode",
       "directionFilter",
       "maxOpenPositions",
       "maxContractsPerTrade",
@@ -54687,7 +54980,22 @@ Rules:
       "dailyProfitTarget",
       "maxDailyTrades",
       "executionSource",
-      "lockSettings"
+      "lockSettings",
+      "expiryPreference",
+      "minDaysToExpiry",
+      "maxDaysToExpiry",
+      "strikeSelectionMode",
+      "targetDelta",
+      "profitTargetPercent",
+      "stopLossPercent",
+      "ivRankMax",
+      "sessionFilterEnabled",
+      "avoidLastMinutesBeforeClose",
+      "orbRangeMinutes",
+      "volumeProfileLookbackDays",
+      "breakoutLookbackDays",
+      "adaptiveScanInterval",
+      "enablePyramiding"
     ];
     const updateData = {};
     for (const key of allowed) {
