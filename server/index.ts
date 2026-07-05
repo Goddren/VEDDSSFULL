@@ -690,6 +690,16 @@ async function withRetry<T>(
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
+      // Patch older deployments — IF NOT EXISTS on CREATE won't add columns that
+      // were introduced later, and a missing column 500s every /api/blog select.
+      for (const col of [
+        `tags JSONB DEFAULT '[]'`, `cover_image TEXT`, `author_id INTEGER`, `author_name TEXT DEFAULT 'VEDD Team'`,
+        `is_published BOOLEAN DEFAULT false`, `is_featured BOOLEAN DEFAULT false`, `ai_generated BOOLEAN DEFAULT false`,
+        `current_events_context TEXT`, `read_time TEXT DEFAULT '5 min read'`, `view_count INTEGER DEFAULT 0`,
+        `published_at TIMESTAMP`, `updated_at TIMESTAMP DEFAULT NOW()`,
+      ]) {
+        await db.execute(sql.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {});
+      }
       console.log('[startup] blog_posts table created/verified.');
     } catch (err) {
       console.error('[startup] blog_posts table migration (non-fatal):', (err as Error).message);

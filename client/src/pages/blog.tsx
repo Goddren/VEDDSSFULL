@@ -916,6 +916,11 @@ export default function BlogPage() {
     enabled: !!user,
   });
   const signupUrl = referralData?.url ?? '/auth';
+  // Every card/reader/share component below reads `referralCode` — it was
+  // never derived from referralData, so any render path touching it crashed
+  // the whole page with "referralCode is not defined" (this is exactly the
+  // "something went wrong" screen users were hitting on /blog).
+  const referralCode: string | null = referralData?.code ?? null;
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [activeCategory, setActiveCategory]         = useState('All');

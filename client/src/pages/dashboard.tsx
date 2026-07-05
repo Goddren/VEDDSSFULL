@@ -3143,7 +3143,7 @@ const Dashboard: React.FC = () => {
                   label: '💰 Grow & Earn', color: '#a855f7',
                   items: [
                     { name: 'VEDD Wallet', path: '/vedd-wallet', desc: 'Your VEDD token balance', icon: '💎' },
-                    { name: 'Account Growth', path: '/account-growth', desc: 'Growth plan builder', icon: '📈' },
+                    { name: 'Micro Growth Engine', path: '/micro-growth', desc: 'Grow small FX accounts fast with AI', icon: '📈' },
                     { name: 'Referral Hub', path: '/referral', desc: 'Earn by referring', icon: '🎁' },
                     { name: 'Achievements', path: '/achievements', desc: 'Unlock badges', icon: '🏆' },
                     { name: 'Activity Hub', path: '/activity', desc: 'Daily missions & XP', icon: '🎮' },

@@ -9133,8 +9133,8 @@ Lead with the financial literacy crisis in underserved communities. Show how VED
 Key metrics to build around: ambassadors certified, community members reached per ambassador, financial literacy scores improved, new investors onboarded, inter-city expansion milestones.`,
       fintech_expansion: `
 TEMPLATE FOCUS \u2014 Fintech Innovation & Technology Access:
-This proposal emphasizes VEDD's AI trading infrastructure, the institutional-grade tools now available at democratized pricing, Solana blockchain integration, and the market gap being addressed.
-Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale.
+This proposal emphasizes VEDD's full AI trading infrastructure \u2014 live multi-broker execution (MT5 + TradeLocker), the ABBA AI strategist/voice assistant, Solana blockchain integration, an AI prediction-markets engine (Kalshi/Polymarket), and copy-trading with token profit-sharing \u2014 all delivered at democratized pricing versus institutional platforms.
+Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale across multiple asset classes (forex, crypto, prediction markets) from one platform.
 Key metrics: platform users reached, trades analyzed by AI, subscription growth, cost-per-user vs. institutional alternatives, technology adoption in underserved markets.`,
       community_dev: `
 TEMPLATE FOCUS \u2014 Community Economic Development & Financial Inclusion:
@@ -9779,17 +9779,45 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
     };
     PROVIDER_PRIORITY = ["openai", "groq", "anthropic", "google", "mistral", "openrouter"];
     VEDD_IDENTITY_CONTEXT = `
-VEDD AI Trading is a fintech AI trading education platform with the following characteristics:
-- AI-powered chart analysis and automated trading signal generation
-- Ambassador network for community outreach and financial education
+VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
+- Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
 - Faith-based community values with inter-city economic empowerment focus
-- Solana blockchain integration (VEDD token, NFT membership tiers)
-- Target communities: underserved urban communities, minority entrepreneurs, aspiring traders
-- Programs: Ambassador training certification, trading education, financial literacy
-- Mission: Democratizing access to AI-powered trading tools and financial education
 - Legal structure: Technology company / EdTech platform
 - Geographic focus: United States (with international ambassador expansion)
-- Key impact areas: Financial inclusion, STEM/fintech education, community economic development
+- Key impact areas: Financial inclusion, STEM/fintech education, community economic development, prediction-market literacy
+
+CORE AI TRADING ENGINES (current platform capability):
+- AI Chart Analysis: upload any chart screenshot (MT4/MT5/TradingView/TradeLocker) for AI-generated entry/exit/stop/target signals, pattern recognition, and multi-timeframe confluence scoring
+- VEDD SS AI Engine: fully automated forex trading engine connected live to both MT5 and TradeLocker brokers simultaneously \u2014 scans, scores, and auto-executes trades with configurable risk, session windows, and confidence thresholds; includes a paper-trading mode for risk-free onboarding
+- Live TradeLocker + MT5 multi-broker execution with real-time balance/equity sync (background-synced every 20 seconds), supporting multiple broker accounts per user concurrently
+- ORB (Opening Range Breakout) Engine: automated NY-session breakout strategy with live AI scoring, auto-detected retest entries, and mobile-optimized live status monitoring
+- ABBA \u2014 proprietary AI trading strategist and voice assistant: gives users a personalized daily/weekly trading plan grounded in their real closed-trade history, diagnoses win/loss patterns by pair/session/confidence, and answers questions conversationally (with live speech) about their account, strategy, and the platform
+- Micro Account Growth Engine: a higher-risk, concentrated-pair (1-2 pairs at a time) AI engine purpose-built to grow small FX accounts quickly, including automatic weekend crypto-pair trading (BTC/ETH) when traditional FX markets are closed \u2014 kept fully separate from prop-firm challenge accounts to protect funded-account compliance
+- Prop Firm Challenge Mode: enforces funded-account rules automatically (daily loss limits, consistency requirements, session filters) so ambassadors and users can safely pursue funded trading accounts
+- Copy Trading: a live leaderboard of verified trader performance (win rate, P&L, best trade) that any user can subscribe to and auto-mirror, with a built-in VEDD-token profit-share model that lets top traders earn passive income from followers' wins
+- Solana (SOL) Token Scanner: autonomous on-chain token-scanning engine with multiple selectable trading strategies (momentum, order-flow, trend-following, adaptive auto-selection) and configurable auto-trade execution against a connected Solana wallet
+- AI Prediction Markets Engine (Kalshi + Polymarket): scans live prediction-market contracts, ranks the highest win-probability opportunities using an AI edge model plus learned historical strategy accuracy, and supports an automatic bankroll-compounding mode that scales stake size as the account grows
+- EA/Expert Advisor Generator: converts plain-English trading rules into ready-to-run MQL5 (MT5) or Pine Script (TradingView) code, with a marketplace for sharing/downloading community-built EAs
+- AI Trade Performance Dashboard: unified live performance tracking across every connected broker/account (MT5, TradeLocker, prop-firm, copy-trading), with per-account and per-strategy breakdowns
+
+COMMUNITY, EDUCATION & AMBASSADOR INFRASTRUCTURE:
+- Ambassador Network: a 44-day certification training program with NFT-based credentialing, quiz-gated modules, and a referral/commission structure that creates self-sustaining local economic micro-ecosystems
+- Lead Hunter: an AI-powered outreach system that scans social platforms (Reddit, StockTwits, X, Instagram, LinkedIn, Facebook) for high-intent prospects, scores and drafts personalized outreach for each ambassador, and can auto-engage where platform APIs allow
+- Content Studio: AI-generated branded social content (posts + educational reels) with one-tap, per-platform-formatted sharing to 8 platforms
+- AI-generated Blog/Insights: automated market-relevant educational articles published on a rotating schedule
+- VEDD Token Ecosystem: on-chain Solana token used for platform rewards, ambassador commissions, and a profit-share mechanism between copy-trading followers and the traders they mirror
+- Gamification: XP/tier progression, daily missions, streak tracking, and achievement badges that drive sustained engagement with financial-literacy content
+- Multi-provider AI infrastructure: the platform is provider-agnostic (OpenAI, Anthropic, Google, Groq, Mistral, and free open-source models via OpenRouter), which keeps the cost of delivering AI-driven education low and sustainable at scale
+
+DIFFERENTIATORS (use these to stand out):
+- First-mover AI trading education platform integrated with live multi-broker execution (MT5 + TradeLocker) AND Solana blockchain infrastructure AND regulated prediction markets (Kalshi/Polymarket) in a single platform
+- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
+- Faith-based community trust networks across multiple U.S. cities \u2014 channels that traditional fintech cannot access
+- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas, reinforced by a token profit-share model between traders and their followers
+- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
+- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
+- Purpose-built risk segmentation: separate engines for aggressive small-account growth vs. compliance-strict prop-firm accounts, showing responsible, segmented risk design rather than one-size-fits-all automation
+- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
 `;
     MASTER_GRANT_WRITER_SYSTEM = `You are Dr. Ren\xE9e Hargrove, a senior grant strategist and proposal writer with 10 years of experience and a 98% funding success rate. You have secured over $47 million in competitive grants for fintech companies, community development organizations, EdTech platforms, and minority-owned enterprises.
 
@@ -29755,6 +29783,8 @@ function passesStrategyFilter(analysis, strategy) {
       return priceChg >= -15 && priceChg <= 10 && buyRatio > 0.62 && analysis.sentimentScore >= 55;
     case "order_flow_scalper":
       return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 5e4;
+    case "trend_rider":
+      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.8 && token.volume24h >= 75e3 && token.makers24h >= 40 && analysis.riskLevel !== "HIGH";
     case "adaptive":
       return true;
     default:
@@ -31045,6 +31075,13 @@ function getPendingSignals(userId) {
   if (!state) return [];
   const now = Date.now();
   const valid = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() > now);
+  const expired = state.pendingSignals.filter((s) => new Date(s.expiresAt).getTime() <= now);
+  for (const s of expired) {
+    addActivity3(state, {
+      type: "signal_expired",
+      message: `\u23F1\uFE0F Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) \u2014 no server wallet set up for full auto.`
+    });
+  }
   state.pendingSignals = [];
   return valid;
 }
@@ -31096,6 +31133,13 @@ function getPendingExits(userId) {
   if (!state) return [];
   const now = Date.now();
   const valid = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
+  const expired = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() <= now);
+  for (const e of expired) {
+    addActivity3(state, {
+      type: "exit_expired",
+      message: `\u23F1\uFE0F Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) \u2014 position remains OPEN, still being monitored.`
+    });
+  }
   state.pendingExits = state.pendingExits.filter((e) => new Date(e.expiresAt).getTime() > now);
   return valid;
 }
@@ -31374,6 +31418,17 @@ var init_sol_engine = __esm({
         baseFraction: 0.025,
         minSignal: "BUY",
         holdTarget: "15\u201360min"
+      },
+      {
+        id: "trend_rider",
+        name: "Trend Rider",
+        icon: "\u{1F4C8}",
+        description: "Rides established multi-hour uptrends with steady volume and consistent buy pressure \u2014 fewer, higher-quality entries that compound",
+        minConfidence: 74,
+        maxRisk: "MEDIUM",
+        baseFraction: 0.03,
+        minSignal: "BUY",
+        holdTarget: "6\u201324h"
       },
       {
         id: "adaptive",
@@ -62963,6 +63018,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const bal = typeof balance === "number" ? balance : 25;
     const tierDef = getMicroTier(bal);
     const midPipTarget = Math.round((tierDef.pipTargetMin + tierDef.pipTargetMax) / 2);
+    const CRYPTO_PAIRS2 = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"];
+    let sessionPairs = (Array.isArray(pairs) && pairs.length ? pairs : ["EURUSD", "XAUUSD"]).map((p) => String(p).toUpperCase().replace("/", "")).slice(0, 2);
+    const day = (/* @__PURE__ */ new Date()).getUTCDay();
+    const isWeekend = day === 0 || day === 6;
+    if (isWeekend) {
+      const cryptoOnly = sessionPairs.filter((p) => CRYPTO_PAIRS2.includes(p));
+      sessionPairs = cryptoOnly.length ? cryptoOnly : ["BTCUSD"];
+    }
     const session3 = {
       id: `${userId}_${Date.now()}`,
       userId,
@@ -62973,7 +63036,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       maxTrades: tierDef.maxTrades,
       pipTarget: midPipTarget,
       slPips: tierDef.slPips,
-      pairs: pairs ?? ["EURUSD", "XAUUSD"],
+      pairs: sessionPairs,
+      weekendCryptoMode: isWeekend,
       status: "active",
       tradesCount: 0,
       pipsGained: 0,
@@ -63022,6 +63086,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const ind = await Promise.resolve().then(() => (init_indicators(), indicators_exports));
       computeVP = ind.computeTrueVolumeProfile;
+    } catch {
+    }
+    let ssEngineSnapshot = {};
+    try {
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const leState = getLiveEngineState3(userId);
+      if (leState?.status === "running") ssEngineSnapshot = leState.marketSnapshot || {};
     } catch {
     }
     const results = {};
@@ -63075,6 +63146,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         direction = "SELL";
         entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
       }
+      const ssSnap = ssEngineSnapshot[sym];
+      let ssEngineBias = null;
+      if (ssSnap) {
+        const ssDir = ssSnap.trend === "up" ? "BUY" : ssSnap.trend === "down" ? "SELL" : null;
+        ssEngineBias = {
+          direction: ssDir,
+          trend: ssSnap.trend,
+          rsi: ssSnap.rsi,
+          agrees: !!(direction && ssDir && direction === ssDir)
+        };
+      }
       results[sym] = {
         available: true,
         poc,
@@ -63085,7 +63167,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         timeframe: usedTf,
         orderType,
         direction,
-        entryNote
+        entryNote,
+        ssEngineBias
+        // null if SS Engine isn't running or hasn't scanned this symbol yet
       };
     }
     res.json(results);
@@ -63095,6 +63179,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize: lotSize2, accountAlias } = req.body;
     if (!symbol || !direction) return res.status(400).json({ message: "symbol and direction required" });
+    try {
+      const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const leState = getLiveEngineState3(userId);
+      if (leState?.config?.propFirmMode) {
+        return res.status(403).json({
+          message: "Micro Growth is disabled while Prop Firm Mode is active on your SS AI Engine \u2014 funded/challenge accounts never receive Micro Growth signals. Turn off Prop Firm Mode to use Micro Growth, or use a separate non-challenge account."
+        });
+      }
+    } catch {
+    }
     if (typeof global.addMT5Signal === "function") {
       global.addMT5Signal(userId, {
         symbol,
@@ -65388,6 +65482,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
+      for (const col of [
+        `tags JSONB DEFAULT '[]'`,
+        `cover_image TEXT`,
+        `author_id INTEGER`,
+        `author_name TEXT DEFAULT 'VEDD Team'`,
+        `is_published BOOLEAN DEFAULT false`,
+        `is_featured BOOLEAN DEFAULT false`,
+        `ai_generated BOOLEAN DEFAULT false`,
+        `current_events_context TEXT`,
+        `read_time TEXT DEFAULT '5 min read'`,
+        `view_count INTEGER DEFAULT 0`,
+        `published_at TIMESTAMP`,
+        `updated_at TIMESTAMP DEFAULT NOW()`
+      ]) {
+        await db.execute(sql9.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
+        });
+      }
       console.log("[startup] blog_posts table created/verified.");
     } catch (err) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);

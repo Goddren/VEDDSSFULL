@@ -29,7 +29,7 @@ export interface SolEngineConfig {
 }
 
 export interface SolActivityEntry {
-  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy' | 'paper_buy' | 'paper_sell' | 'live_signal' | 'live_buy' | 'live_sell';
+  type: 'info' | 'signal' | 'shield' | 'trigger' | 'kelly' | 'goal' | 'strategy' | 'paper_buy' | 'paper_sell' | 'live_signal' | 'live_buy' | 'live_sell' | 'signal_expired' | 'exit_expired';
   message: string;
   timestamp: string;
 }
@@ -288,6 +288,17 @@ export const SOL_STRATEGIES: SolStrategy[] = [
     baseFraction: 0.025,
     minSignal: 'BUY',
     holdTarget: '15–60min',
+  },
+  {
+    id: 'trend_rider',
+    name: 'Trend Rider',
+    icon: '📈',
+    description: 'Rides established multi-hour uptrends with steady volume and consistent buy pressure — fewer, higher-quality entries that compound',
+    minConfidence: 74,
+    maxRisk: 'MEDIUM',
+    baseFraction: 0.03,
+    minSignal: 'BUY',
+    holdTarget: '6–24h',
   },
   {
     id: 'adaptive',
@@ -758,6 +769,13 @@ function passesStrategyFilter(analysis: TokenAnalysis, strategy: SolStrategy): b
       // Delta divergence proxy: buy ratio strongly positive while price hasn't moved yet
       // (price lags the buy/sell flow — classic order flow setup for SOL tokens)
       return buyRatio > 0.65 && priceChg >= -5 && priceChg <= 20 && token.volume24h >= 50000;
+
+    case 'trend_rider':
+      // Established, orderly uptrend: solid but not parabolic gain, healthy sustained
+      // volume, consistent (not euphoric) buy pressure, and enough participants that
+      // the trend isn't one whale — the highest-quality "boring" entries.
+      return priceChg >= 8 && priceChg <= 60 && buyRatio > 0.56 && buyRatio < 0.80
+        && token.volume24h >= 75000 && token.makers24h >= 40 && analysis.riskLevel !== 'HIGH';
 
     case 'adaptive':
       // Adaptive mode delegates to the auto-selected strategy — always passes here
@@ -2365,6 +2383,15 @@ export function getPendingSignals(userId: number): SolPendingSignal[] {
   if (!state) return [];
   const now = Date.now();
   const valid = state.pendingSignals.filter(s => new Date(s.expiresAt).getTime() > now);
+  // Log missed opportunities — previously these vanished silently when the
+  // 90s Phantom-approval window lapsed, leaving no trace of why a signal fired.
+  const expired = state.pendingSignals.filter(s => new Date(s.expiresAt).getTime() <= now);
+  for (const s of expired) {
+    addActivity(state, {
+      type: 'signal_expired',
+      message: `⏱️ Missed: ${s.symbol} buy signal expired unconfirmed (90s window passed) — no server wallet set up for full auto.`,
+    });
+  }
   state.pendingSignals = []; // clear after pickup
   return valid;
 }
@@ -2433,6 +2460,15 @@ export function getPendingExits(userId: number): SolPendingExit[] {
   if (!state) return [];
   const now = Date.now();
   const valid = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() > now);
+  // Log missed exit approvals — an expired exit leaves the position open with no
+  // record of why the SL/TP that triggered it never actually closed the trade.
+  const expired = state.pendingExits.filter(e => new Date(e.expiresAt).getTime() <= now);
+  for (const e of expired) {
+    addActivity(state, {
+      type: 'exit_expired',
+      message: `⏱️ Missed exit: ${e.symbol} close signal expired unconfirmed (90s window passed) — position remains OPEN, still being monitored.`,
+    });
+  }
   // BUG 13 FIX: Previously the entire array was wiped on read (`state.pendingExits = []`).
   // Any exit queued between the frontend poll and Phantom confirmation was silently
   // dropped — position stayed open forever, no SL/TP ever fired again.

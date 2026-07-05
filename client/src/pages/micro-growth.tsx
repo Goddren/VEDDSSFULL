@@ -76,6 +76,10 @@ interface VpSignal {
   orderType?: 'market' | 'stop_entry' | 'limit_entry';
   direction?: 'BUY' | 'SELL';
   entryNote?: string;
+  // Live read from the SS AI Engine's own scan of this symbol (null if the
+  // user doesn't have the SS Engine running) — this is how Micro Growth
+  // reuses real SS Engine strategy signals instead of running in isolation.
+  ssEngineBias?: { direction: 'BUY' | 'SELL' | null; trend: string; rsi: number; agrees: boolean } | null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -107,7 +111,15 @@ const RISK_MODES = [
 ] as const;
 type RiskMode = 'conservative' | 'standard' | 'aggressive';
 
-const ALL_PAIRS = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'NAS100', 'USDJPY', 'GBPJPY'];
+const FX_PAIRS = ['EURUSD', 'GBPUSD', 'XAUUSD', 'US30', 'NAS100', 'USDJPY', 'GBPJPY'];
+// FX closes on weekends — crypto CFDs trade 24/7, so these are the only tradable
+// instruments Sat/Sun. Weekend sessions auto-default to these on the server too.
+const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+const ALL_PAIRS = [...FX_PAIRS, ...CRYPTO_PAIRS];
+function isWeekendUTC(): boolean {
+  const d = new Date().getUTCDay();
+  return d === 0 || d === 6;
+}
 
 const ORDER_TYPE_META: Record<string, { label: string; color: string; bg: string; emoji: string; desc: string }> = {
   market:      { label: 'MARKET',      color: '#22c55e', bg: 'rgba(34,197,94,0.15)',   emoji: '🟢', desc: 'Enter immediately at current price' },
@@ -134,7 +146,8 @@ function fmtDate(iso: string): string {
 }
 
 function fmtPrice(p: number, sym: string): string {
-  const digits = sym === 'XAUUSD' ? 2 : sym === 'US30' || sym === 'NAS100' ? 1 : 5;
+  const digits = sym === 'XAUUSD' ? 2 : sym === 'US30' || sym === 'NAS100' ? 1
+    : sym === 'BTCUSD' || sym === 'ETHUSD' ? 2 : sym === 'SOLUSD' || sym === 'XRPUSD' ? 3 : 5;
   return p.toFixed(digits);
 }
 
@@ -153,7 +166,8 @@ export default function MicroGrowthPage() {
   // Setup state
   const [balance, setBalance] = useState<number>(25);
   const [balanceInput, setBalanceInput] = useState<string>('25');
-  const [selectedPairs, setSelectedPairs] = useState<string[]>(['EURUSD', 'XAUUSD']);
+  const isWeekend = isWeekendUTC();
+  const [selectedPairs, setSelectedPairs] = useState<string[]>(() => isWeekendUTC() ? ['BTCUSD'] : ['EURUSD', 'XAUUSD']);
   const [riskMode, setRiskMode] = useState<RiskMode>('standard');
 
   // Account connection state
@@ -267,7 +281,16 @@ export default function MicroGrowthPage() {
   const dispatchSignalMutation = useMutation({
     mutationFn: (data: any) => apiRequest('POST', '/api/micro-growth/dispatch-signal', data).then(r => r.json()),
     onSuccess: () => toast({ title: '📡 Signal sent to MT5', description: 'Check your EA for the pending order.' }),
-    onError: () => toast({ title: 'MT5 Dispatch Failed', description: 'Live engine may not be running.', variant: 'destructive' }),
+    onError: (err: any) => {
+      // Surface the server's actual message when available (e.g. the Prop Firm
+      // Mode safety block) instead of a generic failure toast.
+      let description = 'Live engine may not be running.';
+      try {
+        const match = String(err?.message || '').match(/\{.*\}/);
+        if (match) description = JSON.parse(match[0])?.message || description;
+      } catch { /* keep default */ }
+      toast({ title: 'Signal Blocked', description, variant: 'destructive' });
+    },
   });
 
   // ── Timer logic ───────────────────────────────────────────────────────────────
@@ -379,10 +402,18 @@ export default function MicroGrowthPage() {
     if (!isNaN(n) && n >= 1) setBalance(n);
   }
 
+  // Hard cap: 1-2 pairs only. Small accounts grow fastest by CONCENTRATION —
+  // spreading risk across many pairs is exactly what this engine exists to avoid.
+  const MAX_SESSION_PAIRS = 2;
   function togglePair(pair: string) {
-    setSelectedPairs(prev =>
-      prev.includes(pair) ? (prev.length > 1 ? prev.filter(p => p !== pair) : prev) : [...prev, pair]
-    );
+    setSelectedPairs(prev => {
+      if (prev.includes(pair)) return prev.length > 1 ? prev.filter(p => p !== pair) : prev;
+      if (prev.length >= MAX_SESSION_PAIRS) {
+        toast({ title: `Max ${MAX_SESSION_PAIRS} pairs per session`, description: 'Deselect a pair first — concentration is how small accounts grow fast.' });
+        return prev;
+      }
+      return [...prev, pair];
+    });
   }
 
   function handleStartSession() {
@@ -444,7 +475,13 @@ export default function MicroGrowthPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white leading-tight">Micro Account Growth Engine</h1>
-            <p className="text-xs text-gray-400">Scale from $25 → $500+ with tier-based sessions + VP-guided orders</p>
+            <p className="text-xs text-gray-400">Grow small FX accounts FAST with AI — SS Engine strategies at aggressive risk. Separate from prop-firm accounts.</p>
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">⚠️ HIGH RISK — built for speed</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25">🎯 1–2 pairs max per session</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25">🌙 Weekends: crypto pairs (BTC/ETH) auto-selected</span>
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/25">🚫 Never runs on prop-firm accounts</span>
+            </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => { refetchStatus(); refetchSessions(); }} className="text-gray-400 hover:text-white">
@@ -708,6 +745,19 @@ export default function MicroGrowthPage() {
                     {vp.entryNote && (
                       <p className="text-[10px] text-gray-400 pl-0.5">{vp.entryNote}</p>
                     )}
+                    {/* SS AI Engine bias — real signal from the running SS Engine scan, not a copy */}
+                    {vp.ssEngineBias && (
+                      <div className="flex items-center gap-1.5 pl-0.5">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded font-bold" style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>
+                          🧠 SS Engine: {vp.ssEngineBias.trend === 'up' ? '↑ bullish' : vp.ssEngineBias.trend === 'down' ? '↓ bearish' : '— flat'} · RSI {vp.ssEngineBias.rsi?.toFixed(0)}
+                        </span>
+                        {vp.direction && vp.ssEngineBias.direction && (
+                          <span className={`text-[9px] font-bold ${vp.ssEngineBias.agrees ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {vp.ssEngineBias.agrees ? '✓ confirms VP signal' : '⚠ diverges from VP signal'}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -743,20 +793,43 @@ export default function MicroGrowthPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs text-gray-400 mb-1.5 block">Pairs to Trade</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs text-gray-400 block">Pairs to Trade (max {MAX_SESSION_PAIRS})</label>
+                      {isWeekend && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25">🌙 Weekend — FX closed, crypto only</span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-2">
-                      {ALL_PAIRS.map(pair => (
+                      {FX_PAIRS.map(pair => (
+                        <button
+                          key={pair}
+                          onClick={() => !isWeekend && togglePair(pair)}
+                          disabled={isWeekend}
+                          title={isWeekend ? 'FX market closed on weekends' : undefined}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all disabled:cursor-not-allowed"
+                          style={{
+                            background: selectedPairs.includes(pair) ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.05)',
+                            border: selectedPairs.includes(pair) ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                            color: isWeekend ? '#4b5563' : selectedPairs.includes(pair) ? '#c4b5fd' : '#9ca3af',
+                            opacity: isWeekend ? 0.5 : 1,
+                          }}
+                        >
+                          {pair}
+                        </button>
+                      ))}
+                      <div className="w-px self-stretch mx-1" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                      {CRYPTO_PAIRS.map(pair => (
                         <button
                           key={pair}
                           onClick={() => togglePair(pair)}
                           className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all"
                           style={{
-                            background: selectedPairs.includes(pair) ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.05)',
-                            border: selectedPairs.includes(pair) ? '1px solid rgba(139,92,246,0.6)' : '1px solid rgba(255,255,255,0.1)',
-                            color: selectedPairs.includes(pair) ? '#c4b5fd' : '#9ca3af',
+                            background: selectedPairs.includes(pair) ? 'rgba(245,158,11,0.22)' : 'rgba(255,255,255,0.05)',
+                            border: selectedPairs.includes(pair) ? '1px solid rgba(245,158,11,0.6)' : '1px solid rgba(255,255,255,0.1)',
+                            color: selectedPairs.includes(pair) ? '#fbbf24' : '#9ca3af',
                           }}
                         >
-                          {pair}
+                          ◎ {pair}
                         </button>
                       ))}
                     </div>

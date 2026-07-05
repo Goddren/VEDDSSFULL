@@ -452,10 +452,10 @@ const Header: React.FC = () => {
                 </span>
               </Link>
               {user && (
-                <Link href="/account-growth">
+                <Link href="/micro-growth">
                   <span className="text-xs font-medium rounded-xl px-3 py-1.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/15 transition-all cursor-pointer inline-flex items-center gap-1">
                     <TrendingUp className="h-3.5 w-3.5" />
-                    Growth Plan
+                    Micro Growth
                   </span>
                 </Link>
               )}

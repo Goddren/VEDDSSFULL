@@ -101,7 +101,6 @@ import AmbassadorRecruitmentPage from "@/pages/ambassador-recruitment";
 import AmbassadorLandingPage from "@/pages/ambassador-landing-page";
 import AmbassadorFreePathPage from "@/pages/ambassador-free-path";
 import TokenInvestmentsPage from "@/pages/token-investments";
-import AccountGrowthPlan from "@/pages/account-growth-plan";
 import MicroGrowthPage from "@/pages/micro-growth";
 import ActivityHubPage from "@/pages/activity-hub";
 import CopyTradingPage from "@/pages/copy-trading";
@@ -284,7 +283,8 @@ function AppLayout() {
             <ProtectedRoute path="/prop-firm-challenge" component={PropFirmChallengePage} />
 
             {/* Account Growth Plan */}
-            <ProtectedRoute path="/account-growth" component={AccountGrowthPlan} />
+            {/* Growth Plan retired — old links land on the Micro Growth Engine */}
+            <ProtectedRoute path="/account-growth" component={MicroGrowthPage} />
 
             {/* Micro Account Growth Engine */}
             <ProtectedRoute path="/micro-growth" component={MicroGrowthPage} />

@@ -638,94 +638,69 @@ const guideSections: GuideSection[] = [
     ]
   },
   {
-    id: 'account-growth-plan',
-    title: 'Account Growth Plan',
+    id: 'micro-growth',
+    title: 'Micro Account Growth Engine',
     icon: TrendingUp,
-    description: '6-phase capital scaling system with automated position sizing and trade logging',
+    description: 'Higher-risk, concentrated-pair AI engine built to grow small FX accounts fast — separate from prop-firm accounts',
     content: [
       {
-        heading: 'The 6-Phase Growth System',
+        heading: 'What This Engine Is For',
         steps: [
-          'Navigate to Account Growth Plan from the main menu',
-          'Phase 1 — Seedling: $0–$499 | 0.5% risk per trade | max 2 concurrent trades',
-          'Phase 2 — Sprout: $500–$1,999 | 1% risk per trade | max 3 concurrent trades',
-          'Phase 3 — Growth: $2,000–$4,999 | 1.5% risk per trade | max 4 concurrent trades',
-          'Phase 4 — Momentum: $5,000–$14,999 | 2% risk per trade | max 5 concurrent trades',
-          'Phase 5 — Acceleration: $15,000–$49,999 | 2.5% risk per trade | max 6 concurrent trades',
-          'Phase 6 — Peak: $50,000+ | 3% risk per trade | max 8 concurrent trades',
-          'Your current phase is determined by your live account balance — connect a broker account to sync automatically',
-          'A Phase Promotion modal appears with an animated celebration when your balance crosses into a new phase'
+          'Micro Growth is purpose-built to grow SMALL accounts ($25–$500+) quickly using a higher risk tolerance than the standard SS AI Engine',
+          'It concentrates risk into 1–2 pairs at a time instead of spreading across many pairs — concentration is what lets a small account compound fast',
+          'It is intentionally HIGH RISK — this is the speed-focused engine, not the capital-preservation engine',
+          'It is kept fully separate from Prop Firm Challenge accounts: if Prop Firm Mode is active on your SS AI Engine, Micro Growth refuses to dispatch signals to protect your funded account',
+          'On weekends, when the FX market is closed, the engine automatically switches to crypto pairs (BTC, ETH, SOL, XRP vs. USD) so your account keeps working 7 days a week'
         ],
         tips: [
-          'Connect your MT5 or TradeLocker account via the Connected Account Picker to keep your balance in sync automatically',
-          'Each phase has its own lot multiplier built in — you never need to manually recalculate as you grow',
-          'Phase milestones are content goldmines for your ambassador posts — "I just hit Phase 3!" performs extremely well'
+          'Use Micro Growth on a small standalone account, not your prop-firm or main funded account',
+          'The higher risk-per-trade is the whole point — this is not the engine to run on capital you cannot afford to lose fast'
         ]
       },
       {
-        heading: 'Setup Wizard',
+        heading: '7-Tier Scaling System',
         steps: [
-          'First-time visitors see a 7-step guided setup wizard',
-          'Step 1: Enter your starting balance (or tap "Use Live Balance" to pull it from your connected account)',
-          'Step 2: Enter your goal balance (e.g., $50,000)',
-          'Step 3: Select your risk profile — Conservative / Moderate / Aggressive',
-          'Step 4: Choose your trading style — Scalping / Day Trading / Swing / Position',
-          'Step 5: Set your weekly profit target percentage',
-          'Step 6: Review the projected growth curve (area chart showing compound growth to goal)',
-          'Step 7: Confirm and activate your plan',
-          'You can update your balance or plan settings at any time from the Plan Monitor panel'
+          'Your tier is determined automatically by your entered account balance',
+          'Tier 1 — $25–$49: 0.01 lots | 1 max trade | 3–5 pip target | 5 pip SL',
+          'Tier 2 — $50–$99: 0.01 lots | 2 max trades | 4–6 pip target | 6 pip SL',
+          'Tier 3 — $100–$149: 0.02 lots | 3 max trades | 5–8 pip target | 7 pip SL',
+          'Tier 4 — $150–$249: 0.03 lots | 4 max trades | 6–10 pip target | 8 pip SL',
+          'Tier 5 — $250–$349: 0.05 lots | 5 max trades | 8–12 pip target | 10 pip SL',
+          'Tier 6 — $350–$499: 0.07 lots | 6 max trades | 10–13 pip target | 12 pip SL',
+          'Tier 7 — $500+: 0.10 lots | 7 max trades | 12–15 pip target | 14 pip SL',
+          'Each tier also sets a session duration (3–10 minutes) — sessions are short and focused, not all-day'
         ],
         tips: [
-          'The projected growth curve shows both optimistic and conservative compounding paths based on your win rate',
-          'Risk profile affects the lot multiplier within each phase — aggressive profile trades larger within the phase limits'
+          'Re-enter your balance after wins/losses so the engine recalculates your correct tier before the next session',
+          'As your balance crosses a tier threshold, lot size and max trades scale up automatically'
         ]
       },
       {
-        heading: 'Smart Position Sizer',
+        heading: 'Choosing Pairs & Starting a Session',
         steps: [
-          'The Position Sizer is embedded in the Account Growth Plan page',
-          'Select your trading pair (e.g., XAUUSD, GBPUSD)',
-          'Enter your stop loss in pips',
-          'The calculator outputs: exact lot size, dollar risk amount, and max concurrent trades for your current phase',
-          'All calculations are based on your live account balance and current phase risk percentage',
-          'No manual math required — risk rules are enforced automatically'
+          'Select 1–2 pairs to trade this session (hard cap — the picker will not let you select a 3rd)',
+          'On weekdays, choose from FX pairs (EURUSD, GBPUSD, XAUUSD, US30, NAS100, USDJPY, GBPJPY)',
+          'On weekends, FX pairs are grayed out and disabled — only the crypto pairs (BTCUSD, ETHUSD, SOLUSD, XRPUSD) are selectable',
+          'Choose a Risk Mode — Conservative, Standard, or Aggressive — which shifts you toward the lower or upper end of your tier\'s pip target range',
+          'Tap Start Session to begin — the timer and live signal panel activate for your tier\'s session duration'
         ],
         tips: [
-          'Gold (XAUUSD) uses a different pip value than forex pairs — the sizer handles this automatically',
-          'Re-run the sizer before every trade to account for balance changes after wins/losses',
-          'The "Max Trades" output tells you when to stop opening new positions for the session'
+          'Fewer pairs means sharper focus — the engine is designed around 1–2 pairs, not a wide watchlist',
+          'The weekend crypto switch is automatic — you do not need to remember to change anything on a Saturday'
         ]
       },
       {
-        heading: 'Trade Log',
+        heading: 'Reading the Live Signal Panel',
         steps: [
-          'Log every trade directly inside the Account Growth Plan',
-          'Required fields: pair, direction (Buy/Sell), entry price, exit price, lot size',
-          'Optional fields: stop loss, take profit, notes',
-          'P&L is calculated automatically from entry/exit prices and lot size',
-          'The log tracks: total trades, win rate, average R:R, average win, average loss, total P&L',
-          'Per-pair stats show your performance broken down by instrument',
-          'Phase-tagged entries show which phase each trade was taken in'
+          'Each selected pair shows a Volume Profile (VP) read: current Price, POC (point of control), VAH, and VAL',
+          'An order-type recommendation (Market / Stop Entry / Limit Entry) and direction (BUY/SELL) is derived from where price sits relative to the value area',
+          'If your SS AI Engine is also running, a "🧠 SS Engine" bias line appears showing its live trend and RSI read for the same pair — this is a REAL signal pulled from your running SS Engine, not a duplicate calculation',
+          'A green "✓ confirms VP signal" tag means the SS Engine and the VP signal agree on direction; an amber "⚠ diverges" tag means they disagree — treat divergence as a reason to wait',
+          'If a pair shows "No data," your MT5 EA is not currently sending chart data for that symbol'
         ],
         tips: [
-          'Log every trade — even losses. The win rate and R:R stats become your personal edge data over time',
-          'Notes field is great for logging what the AI said, what you saw on the chart, and why you entered'
-        ]
-      },
-      {
-        heading: 'Plan Monitor & Live Status',
-        steps: [
-          'The Plan Monitor panel shows a live circular progress ring for your current weekly target',
-          'Phase progression bar shows your position between current and next phase threshold',
-          'Links directly to your Weekly Strategy to show "Strategy Active" or "No Active Strategy"',
-          'SS AI Engine status shows On/Off and current mode',
-          'Milestones panel shows 10 achievement badges: First Trade, 5 Trades, First Win, 3 Win Streak, Reach Phase 2–6, Doubled Account',
-          'The "DO THIS NOW" badge highlights the next incomplete step in your workflow',
-          'Guided steps link directly to Weekly Strategy, Analysis, and Market Mood pages'
-        ],
-        tips: [
-          'Treat the Plan Monitor as your daily trading dashboard — check it before every session',
-          'Milestone badges unlock VEDD tokens as rewards — completing the milestones also earns bonus credits'
+          'Signal agreement between VP and the SS Engine is the highest-confidence setup — that is when concentration pays off most',
+          'Run your SS AI Engine alongside Micro Growth when possible so you get the confirmation layer, not just the VP read alone'
         ]
       }
     ]

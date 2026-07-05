@@ -3285,17 +3285,45 @@ Return a JSON object with this exact structure:
 // ── Grants & Funding AI Functions ─────────────────────────────────────────────
 
 const VEDD_IDENTITY_CONTEXT = `
-VEDD AI Trading is a fintech AI trading education platform with the following characteristics:
-- AI-powered chart analysis and automated trading signal generation
-- Ambassador network for community outreach and financial education
+VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
+- Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
 - Faith-based community values with inter-city economic empowerment focus
-- Solana blockchain integration (VEDD token, NFT membership tiers)
-- Target communities: underserved urban communities, minority entrepreneurs, aspiring traders
-- Programs: Ambassador training certification, trading education, financial literacy
-- Mission: Democratizing access to AI-powered trading tools and financial education
 - Legal structure: Technology company / EdTech platform
 - Geographic focus: United States (with international ambassador expansion)
-- Key impact areas: Financial inclusion, STEM/fintech education, community economic development
+- Key impact areas: Financial inclusion, STEM/fintech education, community economic development, prediction-market literacy
+
+CORE AI TRADING ENGINES (current platform capability):
+- AI Chart Analysis: upload any chart screenshot (MT4/MT5/TradingView/TradeLocker) for AI-generated entry/exit/stop/target signals, pattern recognition, and multi-timeframe confluence scoring
+- VEDD SS AI Engine: fully automated forex trading engine connected live to both MT5 and TradeLocker brokers simultaneously — scans, scores, and auto-executes trades with configurable risk, session windows, and confidence thresholds; includes a paper-trading mode for risk-free onboarding
+- Live TradeLocker + MT5 multi-broker execution with real-time balance/equity sync (background-synced every 20 seconds), supporting multiple broker accounts per user concurrently
+- ORB (Opening Range Breakout) Engine: automated NY-session breakout strategy with live AI scoring, auto-detected retest entries, and mobile-optimized live status monitoring
+- ABBA — proprietary AI trading strategist and voice assistant: gives users a personalized daily/weekly trading plan grounded in their real closed-trade history, diagnoses win/loss patterns by pair/session/confidence, and answers questions conversationally (with live speech) about their account, strategy, and the platform
+- Micro Account Growth Engine: a higher-risk, concentrated-pair (1-2 pairs at a time) AI engine purpose-built to grow small FX accounts quickly, including automatic weekend crypto-pair trading (BTC/ETH) when traditional FX markets are closed — kept fully separate from prop-firm challenge accounts to protect funded-account compliance
+- Prop Firm Challenge Mode: enforces funded-account rules automatically (daily loss limits, consistency requirements, session filters) so ambassadors and users can safely pursue funded trading accounts
+- Copy Trading: a live leaderboard of verified trader performance (win rate, P&L, best trade) that any user can subscribe to and auto-mirror, with a built-in VEDD-token profit-share model that lets top traders earn passive income from followers' wins
+- Solana (SOL) Token Scanner: autonomous on-chain token-scanning engine with multiple selectable trading strategies (momentum, order-flow, trend-following, adaptive auto-selection) and configurable auto-trade execution against a connected Solana wallet
+- AI Prediction Markets Engine (Kalshi + Polymarket): scans live prediction-market contracts, ranks the highest win-probability opportunities using an AI edge model plus learned historical strategy accuracy, and supports an automatic bankroll-compounding mode that scales stake size as the account grows
+- EA/Expert Advisor Generator: converts plain-English trading rules into ready-to-run MQL5 (MT5) or Pine Script (TradingView) code, with a marketplace for sharing/downloading community-built EAs
+- AI Trade Performance Dashboard: unified live performance tracking across every connected broker/account (MT5, TradeLocker, prop-firm, copy-trading), with per-account and per-strategy breakdowns
+
+COMMUNITY, EDUCATION & AMBASSADOR INFRASTRUCTURE:
+- Ambassador Network: a 44-day certification training program with NFT-based credentialing, quiz-gated modules, and a referral/commission structure that creates self-sustaining local economic micro-ecosystems
+- Lead Hunter: an AI-powered outreach system that scans social platforms (Reddit, StockTwits, X, Instagram, LinkedIn, Facebook) for high-intent prospects, scores and drafts personalized outreach for each ambassador, and can auto-engage where platform APIs allow
+- Content Studio: AI-generated branded social content (posts + educational reels) with one-tap, per-platform-formatted sharing to 8 platforms
+- AI-generated Blog/Insights: automated market-relevant educational articles published on a rotating schedule
+- VEDD Token Ecosystem: on-chain Solana token used for platform rewards, ambassador commissions, and a profit-share mechanism between copy-trading followers and the traders they mirror
+- Gamification: XP/tier progression, daily missions, streak tracking, and achievement badges that drive sustained engagement with financial-literacy content
+- Multi-provider AI infrastructure: the platform is provider-agnostic (OpenAI, Anthropic, Google, Groq, Mistral, and free open-source models via OpenRouter), which keeps the cost of delivering AI-driven education low and sustainable at scale
+
+DIFFERENTIATORS (use these to stand out):
+- First-mover AI trading education platform integrated with live multi-broker execution (MT5 + TradeLocker) AND Solana blockchain infrastructure AND regulated prediction markets (Kalshi/Polymarket) in a single platform
+- Proprietary 44-day Ambassador Certification Program with NFT-based credentialing
+- Faith-based community trust networks across multiple U.S. cities — channels that traditional fintech cannot access
+- Ambassador network model creates self-sustaining economic micro-ecosystems in underserved areas, reinforced by a token profit-share model between traders and their followers
+- Dual revenue model (subscriptions + VEDD token ecosystem) demonstrates financial sustainability
+- Technology democratizes tools previously available only to institutional traders ($50/month vs. $10,000+/year for institutional platforms)
+- Purpose-built risk segmentation: separate engines for aggressive small-account growth vs. compliance-strict prop-firm accounts, showing responsible, segmented risk design rather than one-size-fits-all automation
+- Measurable community outcomes: each ambassador directly impacts 50-200 community members in financial literacy
 `;
 
 export interface GrantScanResult {
@@ -3639,8 +3667,8 @@ Key metrics to build around: ambassadors certified, community members reached pe
 
       fintech_expansion: `
 TEMPLATE FOCUS — Fintech Innovation & Technology Access:
-This proposal emphasizes VEDD's AI trading infrastructure, the institutional-grade tools now available at democratized pricing, Solana blockchain integration, and the market gap being addressed.
-Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale.
+This proposal emphasizes VEDD's full AI trading infrastructure — live multi-broker execution (MT5 + TradeLocker), the ABBA AI strategist/voice assistant, Solana blockchain integration, an AI prediction-markets engine (Kalshi/Polymarket), and copy-trading with token profit-sharing — all delivered at democratized pricing versus institutional platforms.
+Lead with the technological exclusion of retail and minority investors from AI-powered financial tools. Show how VEDD closes this gap at scale across multiple asset classes (forex, crypto, prediction markets) from one platform.
 Key metrics: platform users reached, trades analyzed by AI, subscription growth, cost-per-user vs. institutional alternatives, technology adoption in underserved markets.`,
 
       community_dev: `

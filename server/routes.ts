@@ -3946,9 +3946,9 @@ Respond ONLY in valid JSON format with these exact keys:
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
 
       // Account balance — MT5 (EA push cache) + TradeLocker (background sync cache)
-      const _mt5Bal = accountCache ? Object.values(accountCache).reduce((sum: any, a: any) => sum + (a?.balance || 0), 0) : 0;
+      const _mt5Bal: number = accountCache ? (Object.values(accountCache) as any[]).reduce((sum: number, a: any) => sum + (a?.balance || 0), 0) : 0;
       const _tlCacheAbba = (global as any).tlAccountData?.[userId] || {};
-      const _tlBalAbba = Object.values(_tlCacheAbba).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
+      const _tlBalAbba: number = Object.values(_tlCacheAbba).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
       const balance = (_mt5Bal + _tlBalAbba) || strategy?.accountBalance || 0;
 
       // Plan pairs & today's session
@@ -4549,7 +4549,7 @@ Keep follow-ups SHORT and conversational. One question max. Make it feel like yo
       const dailyTarget = weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0;
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
-      const _mt5BalS = accountCache ? Object.values(accountCache).reduce((s: any, a: any) => s + (a?.balance || 0), 0) : 0;
+      const _mt5BalS: number = accountCache ? (Object.values(accountCache) as any[]).reduce((s: number, a: any) => s + (a?.balance || 0), 0) : 0;
       const _tlCacheS = (global as any).tlAccountData?.[userId] || {};
       const _tlBalS = Object.values(_tlCacheS).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
       const balance = (_mt5BalS + _tlBalS) || strategy?.accountBalance || 0;
@@ -26391,6 +26391,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const tierDef = getMicroTier(bal);
     const midPipTarget = Math.round((tierDef.pipTargetMin + tierDef.pipTargetMax) / 2);
 
+    // ── Micro-growth discipline rules ─────────────────────────────────────────
+    // Small accounts grow fast by CONCENTRATION: max 2 pairs per session.
+    // Weekends: FX is closed — only 24/7 crypto CFDs (BTC/ETH/SOL vs USD) trade,
+    // so weekend sessions are auto-filtered to crypto pairs.
+    const CRYPTO_PAIRS = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+    let sessionPairs = (Array.isArray(pairs) && pairs.length ? pairs : ['EURUSD', 'XAUUSD'])
+      .map(p => String(p).toUpperCase().replace('/', ''))
+      .slice(0, 2); // hard cap: 1-2 pairs only
+    const day = new Date().getUTCDay();
+    const isWeekend = day === 0 || day === 6;
+    if (isWeekend) {
+      const cryptoOnly = sessionPairs.filter(p => CRYPTO_PAIRS.includes(p));
+      sessionPairs = cryptoOnly.length ? cryptoOnly : ['BTCUSD']; // default to BTC on weekends
+    }
+
     const session: any = {
       id: `${userId}_${Date.now()}`,
       userId,
@@ -26401,7 +26416,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       maxTrades: tierDef.maxTrades,
       pipTarget: midPipTarget,
       slPips: tierDef.slPips,
-      pairs: pairs ?? ['EURUSD', 'XAUUSD'],
+      pairs: sessionPairs,
+      weekendCryptoMode: isWeekend,
       status: 'active',
       tradesCount: 0,
       pipsGained: 0,
@@ -26473,6 +26489,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       computeVP = ind.computeTrueVolumeProfile;
     } catch { /* indicators not loaded yet */ }
 
+    // Pull the SS AI Engine's own live technical read for these pairs, if the user
+    // has it running — Micro Growth is meant to reuse SS Engine strategy signals,
+    // not run in isolation. marketSnapshot is populated by the SAME scan loop that
+    // drives real SS Engine trades, so this is a genuine shared signal, not a copy.
+    let ssEngineSnapshot: Record<string, any> = {};
+    try {
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const leState = getLiveEngineState(userId);
+      if (leState?.status === 'running') ssEngineSnapshot = leState.marketSnapshot || {};
+    } catch { /* SS engine optional — VP signals still work standalone */ }
+
     const results: Record<string, any> = {};
 
     for (const sym of symbols) {
@@ -26529,6 +26556,20 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         entryNote = `Limit Entry SELL at POC retest ${poc.toFixed(5)}`;
       }
 
+      // SS AI Engine bias for this same symbol (only if the user has it running) —
+      // derived from the same trend/RSI/ADX read the SS Engine uses for its own entries.
+      const ssSnap = ssEngineSnapshot[sym];
+      let ssEngineBias: { direction: 'BUY' | 'SELL' | null; trend: string; rsi: number; agrees: boolean } | null = null;
+      if (ssSnap) {
+        const ssDir: 'BUY' | 'SELL' | null = ssSnap.trend === 'up' ? 'BUY' : ssSnap.trend === 'down' ? 'SELL' : null;
+        ssEngineBias = {
+          direction: ssDir,
+          trend: ssSnap.trend,
+          rsi: ssSnap.rsi,
+          agrees: !!(direction && ssDir && direction === ssDir),
+        };
+      }
+
       results[sym] = {
         available: true,
         poc, vah, val,
@@ -26538,6 +26579,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         orderType,
         direction,
         entryNote,
+        ssEngineBias, // null if SS Engine isn't running or hasn't scanned this symbol yet
       };
     }
 
@@ -26555,6 +26597,19 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     };
 
     if (!symbol || !direction) return res.status(400).json({ message: 'symbol and direction required' });
+
+    // Hard safety wall: Micro Growth is deliberately higher-risk than a funded
+    // challenge tolerates. If this user has Prop Firm Mode active on the SS Engine,
+    // refuse the signal outright rather than risk it landing on a funded account.
+    try {
+      const { getLiveEngineState } = await import('./services/live-trading-engine');
+      const leState = getLiveEngineState(userId);
+      if (leState?.config?.propFirmMode) {
+        return res.status(403).json({
+          message: 'Micro Growth is disabled while Prop Firm Mode is active on your SS AI Engine — funded/challenge accounts never receive Micro Growth signals. Turn off Prop Firm Mode to use Micro Growth, or use a separate non-challenge account.',
+        });
+      }
+    } catch { /* if engine state can't be read, fail open rather than block legitimate use */ }
 
     // Use the same addMT5Signal helper used by the SS engine
     if (typeof (global as any).addMT5Signal === 'function') {
