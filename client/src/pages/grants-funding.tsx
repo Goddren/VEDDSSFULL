@@ -20,6 +20,7 @@ import {
   CheckCircle2, Copy, ExternalLink, ClipboardCheck, Rocket, Clock
 } from "lucide-react";
 import { TokenomicsBanner } from '@/components/vedd-rewards/tokenomics-banner';
+import { AIKeyNudgeBanner } from '@/components/ai/ai-key-nudge-banner';
 import { Redirect } from "wouter";
 
 /* ─── Seed grants — shown when DB is empty / not yet scanned ─────── */
@@ -588,6 +589,8 @@ export default function GrantsFundingPage() {
             isAdmin={!!user.isAdmin}
           />
         </div>
+
+        <AIKeyNudgeBanner />
 
         {/* AI Disclaimer */}
         <div className="flex items-start gap-2 bg-yellow-900/20 border border-yellow-700/40 rounded-lg p-3 mb-5">

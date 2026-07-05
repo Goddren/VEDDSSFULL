@@ -160,6 +160,7 @@ export function VeddEduReel({ reel }: { reel: EduReel }) {
   const animRef = useRef({ playing: false, elapsed: 0, t0: 0, rafId: 0 });
   const actRef = useRef({ play: () => {}, pause: () => {}, restart: () => {} });
   const [ui, setUi] = useState({ playing: false, time: 0, done: false });
+  const [initError, setInitError] = useState<string | null>(null);
   const PRICES = useRef<number[]>(buildPrices(reel.chart));
 
   useEffect(() => {
@@ -167,9 +168,22 @@ export function VeddEduReel({ reel }: { reel: EduReel }) {
   }, [reel.chart]);
 
   useEffect(() => {
-    const C = containerRef.current!;
-    const cvs = canvasRef.current!;
-    const ctx = cvs.getContext('2d')!;
+    setInitError(null);
+    const C = containerRef.current;
+    const cvs = canvasRef.current;
+    if (!C || !cvs) {
+      const msg = `Reel init failed: ${!C ? 'container' : 'canvas'} ref not mounted`;
+      console.error('[VeddEduReel]', msg, reel.id);
+      setInitError(msg);
+      return;
+    }
+    const ctx = cvs.getContext('2d');
+    if (!ctx) {
+      const msg = 'Reel init failed: 2d canvas context unavailable';
+      console.error('[VeddEduReel]', msg, reel.id);
+      setInitError(msg);
+      return;
+    }
     const anim = animRef.current;
     anim.playing = false; anim.elapsed = 0;
 
@@ -320,25 +334,45 @@ export function VeddEduReel({ reel }: { reel: EduReel }) {
     }
 
     actRef.current.play = () => {
-      anim.playing = true;
-      anim.t0 = performance.now() - anim.elapsed * 1000;
-      anim.rafId = requestAnimationFrame(tick);
-      setUi(u => ({ ...u, playing: true, done: false }));
+      try {
+        anim.playing = true;
+        anim.t0 = performance.now() - anim.elapsed * 1000;
+        anim.rafId = requestAnimationFrame(tick);
+        setUi(u => ({ ...u, playing: true, done: false }));
+      } catch (err) {
+        console.error('[VeddEduReel] play() failed', reel.id, err);
+        setInitError(String(err));
+      }
     };
     actRef.current.pause = () => {
-      anim.playing = false;
-      cancelAnimationFrame(anim.rafId);
-      setUi(u => ({ ...u, playing: false }));
+      try {
+        anim.playing = false;
+        cancelAnimationFrame(anim.rafId);
+        setUi(u => ({ ...u, playing: false }));
+      } catch (err) {
+        console.error('[VeddEduReel] pause() failed', reel.id, err);
+        setInitError(String(err));
+      }
     };
     actRef.current.restart = () => {
-      anim.playing = false;
-      cancelAnimationFrame(anim.rafId);
-      anim.elapsed = 0;
-      updateAll(0);
-      setUi({ playing: false, time: 0, done: false });
+      try {
+        anim.playing = false;
+        cancelAnimationFrame(anim.rafId);
+        anim.elapsed = 0;
+        updateAll(0);
+        setUi({ playing: false, time: 0, done: false });
+      } catch (err) {
+        console.error('[VeddEduReel] restart() failed', reel.id, err);
+        setInitError(String(err));
+      }
     };
 
-    updateAll(0);
+    try {
+      updateAll(0);
+    } catch (err) {
+      console.error('[VeddEduReel] initial updateAll(0) failed', reel.id, err);
+      setInitError(String(err));
+    }
     return () => { cancelAnimationFrame(anim.rafId); };
   }, [reel]);
 
@@ -371,6 +405,19 @@ export function VeddEduReel({ reel }: { reel: EduReel }) {
         boxShadow: '0 0 0 6px #0A0D18,0 0 0 7px #1A2030,0 36px 90px rgba(0,0,0,.85)',
       }}>
         <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 70, height: 18, background: '#060910', borderBottomLeftRadius: 10, borderBottomRightRadius: 10, zIndex: 200 }} />
+
+        {initError && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 300, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10, textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#F87171' }}>This preview couldn't load</div>
+            <div style={{ fontSize: 11, color: '#94A3B8', fontFamily: 'Courier New,monospace' }}>{initError}</div>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ marginTop: 8, background: A, color: '#fff', border: 'none', borderRadius: 3, padding: '8px 18px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}
+            >
+              Reload
+            </button>
+          </div>
+        )}
 
         {/* HOOK */}
         <div className="rp-scene s-hook" style={{ background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '36px 28px' }}>
