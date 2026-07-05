@@ -61252,7 +61252,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     try {
       const { provider, apiKey, label } = req.body;
-      const validProviders = ["openai", "anthropic", "google", "groq", "mistral", "elevenlabs"];
+      const validProviders = ["openai", "anthropic", "google", "groq", "mistral", "openrouter", "elevenlabs"];
       if (!validProviders.includes(provider)) {
         return res.status(400).json({ message: "Invalid provider. Must be one of: " + validProviders.join(", ") });
       }
@@ -61261,8 +61261,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const existingKeys = await storage.getUserApiKeys(req.user.id);
       const isUpdating = existingKeys.some((k) => k.provider === provider);
-      if (!isUpdating && existingKeys.length >= 5) {
-        return res.status(400).json({ message: "Maximum of 5 AI providers allowed" });
+      if (!isUpdating && existingKeys.length >= 10) {
+        return res.status(400).json({ message: "Maximum of 10 AI providers allowed" });
       }
       const result = await storage.createOrUpdateUserApiKey({
         userId: req.user.id,
@@ -61294,6 +61294,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           isValid = resp.ok;
         } else if (provider === "mistral") {
           const resp = await fetch("https://api.mistral.ai/v1/models", { headers: { "Authorization": `Bearer ${trimmedKey}` } });
+          isValid = resp.ok;
+        } else if (provider === "openrouter") {
+          const resp = await fetch("https://openrouter.ai/api/v1/models", { headers: { "Authorization": `Bearer ${trimmedKey}` } });
           isValid = resp.ok;
         } else if (provider === "elevenlabs") {
           try {
