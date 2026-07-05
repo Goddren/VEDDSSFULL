@@ -15023,6 +15023,17 @@ Rules:
     res.json({ activity });
   });
 
+  app.get("/api/options-engine/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
+    const [open, recent] = await Promise.all([
+      storage.getOpenOptionsEngineTrades(userId),
+      storage.getUserOptionsEngineTrades(userId, limit),
+    ]);
+    res.json({ open, recent });
+  });
+
   app.patch("/api/options-engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

@@ -4,7 +4,7 @@ import {
   savedEAs, eaSubscriptions, marketDataSnapshots, marketDataRefreshJobs, eaShareAssets, userStreaks, scenarioAnalyses,
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   tradovateConnections, tradovateTradeLogs,
-  alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections, optionsEngineActivity,
+  alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections, optionsEngineActivity, optionsEngineTrades,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -27,6 +27,7 @@ import {
   type OptionsEngineConfig, type InsertOptionsEngineConfig,
   type CryptocomConnection, type InsertCryptocomConnection,
   type OptionsEngineActivity, type InsertOptionsEngineActivity,
+  type OptionsEngineTrade, type InsertOptionsEngineTrade,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -352,6 +353,15 @@ export interface IStorage {
   // Options AI Engine — scan/decision activity feed
   createOptionsEngineActivity(entry: InsertOptionsEngineActivity): Promise<OptionsEngineActivity>;
   getUserOptionsEngineActivity(userId: number, limit?: number): Promise<OptionsEngineActivity[]>;
+
+  // Options AI Engine — executed trades
+  createOptionsEngineTrade(trade: InsertOptionsEngineTrade): Promise<OptionsEngineTrade>;
+  getOpenOptionsEngineTrades(userId: number): Promise<OptionsEngineTrade[]>;
+  getUserOptionsEngineTrades(userId: number, limit?: number): Promise<OptionsEngineTrade[]>;
+  closeOptionsEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<OptionsEngineTrade | undefined>;
+  markOptionsEngineTradeFailed(id: number, reason: string): Promise<void>;
+  getTodayOptionsEngineTradeCount(userId: number): Promise<number>;
+  getTodayOptionsEngineRealizedPnl(userId: number): Promise<number>;
 
   // Crypto.com Connection methods (separate crypto-derivatives bucket)
   createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
@@ -1950,6 +1960,52 @@ export class DatabaseStorage implements IStorage {
       .where(eq(optionsEngineActivity.userId, userId))
       .orderBy(desc(optionsEngineActivity.createdAt))
       .limit(limit);
+  }
+
+  // ── Options AI Engine — executed trades ─────────────────────────────────────
+  async createOptionsEngineTrade(trade: InsertOptionsEngineTrade): Promise<OptionsEngineTrade> {
+    const [result] = await db.insert(optionsEngineTrades).values(trade).returning();
+    return result;
+  }
+
+  async getOpenOptionsEngineTrades(userId: number): Promise<OptionsEngineTrade[]> {
+    return db.select().from(optionsEngineTrades)
+      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'open')));
+  }
+
+  async getUserOptionsEngineTrades(userId: number, limit: number = 50): Promise<OptionsEngineTrade[]> {
+    return db.select().from(optionsEngineTrades)
+      .where(eq(optionsEngineTrades.userId, userId))
+      .orderBy(desc(optionsEngineTrades.createdAt))
+      .limit(limit);
+  }
+
+  async closeOptionsEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<OptionsEngineTrade | undefined> {
+    const [result] = await db.update(optionsEngineTrades)
+      .set({ status: 'closed', exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(optionsEngineTrades.id, id))
+      .returning();
+    return result;
+  }
+
+  async markOptionsEngineTradeFailed(id: number, reason: string): Promise<void> {
+    await db.update(optionsEngineTrades)
+      .set({ status: 'failed', exitReason: reason, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(optionsEngineTrades.id, id));
+  }
+
+  async getTodayOptionsEngineTradeCount(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(optionsEngineTrades)
+      .where(and(eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)));
+    return rows.length;
+  }
+
+  async getTodayOptionsEngineRealizedPnl(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(optionsEngineTrades)
+      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, startOfDay)));
+    return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
   }
 
   // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────

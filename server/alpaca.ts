@@ -63,6 +63,18 @@ export interface AlpacaOptionContract {
   lastPrice?: number;
   impliedVolatility?: number;
   openInterest?: number;
+  delta?: number;
+}
+
+export interface AlpacaPosition {
+  symbol: string;
+  qty: number;
+  side: 'long' | 'short';
+  avgEntryPrice: number;
+  currentPrice: number;
+  marketValue: number;
+  unrealizedPl: number;
+  assetClass: string; // 'us_option' | 'us_equity'
 }
 
 export interface AlpacaOrderRequest {
@@ -220,8 +232,41 @@ export class AlpacaService {
         lastPrice: snap.latestTrade?.p,
         impliedVolatility: snap.impliedVolatility,
         openInterest: snap.openInterest,
+        delta: snap.greeks?.delta,
       } as AlpacaOptionContract;
     });
+  }
+
+  // Fast single-contract quote — used to price an existing open position for
+  // exit management without re-pulling the entire chain every check cycle.
+  async getOptionQuote(optionSymbol: string): Promise<{ bid: number; ask: number; mid: number } | null> {
+    const response = await this.request(
+      `${this.dataUrl}/v1beta1/options/quotes/latest?symbols=${encodeURIComponent(optionSymbol)}`,
+      { method: 'GET' },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const q = data.quotes?.[optionSymbol];
+    if (!q) return null;
+    const bid = q.bp ?? 0, ask = q.ap ?? 0;
+    if (!bid && !ask) return null;
+    return { bid, ask, mid: (bid + ask) / 2 || ask || bid };
+  }
+
+  async getPositions(): Promise<AlpacaPosition[]> {
+    const response = await this.request(`${this.baseUrl}/v2/positions`, { method: 'GET' });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (Array.isArray(data) ? data : []).map((p: any) => ({
+      symbol: p.symbol,
+      qty: parseFloat(p.qty),
+      side: p.side,
+      avgEntryPrice: parseFloat(p.avg_entry_price),
+      currentPrice: parseFloat(p.current_price ?? p.avg_entry_price),
+      marketValue: parseFloat(p.market_value ?? '0'),
+      unrealizedPl: parseFloat(p.unrealized_pl ?? '0'),
+      assetClass: p.asset_class,
+    }));
   }
 
   async placeOrder(order: AlpacaOrderRequest): Promise<AlpacaOrderResponse> {

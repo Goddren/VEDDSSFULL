@@ -155,6 +155,7 @@ __export(schema_exports, {
   insertMt5SignalLogSchema: () => insertMt5SignalLogSchema,
   insertOptionsEngineActivitySchema: () => insertOptionsEngineActivitySchema,
   insertOptionsEngineConfigSchema: () => insertOptionsEngineConfigSchema,
+  insertOptionsEngineTradeSchema: () => insertOptionsEngineTradeSchema,
   insertPaperTradeSchema: () => insertPaperTradeSchema,
   insertPriceAlertSchema: () => insertPriceAlertSchema,
   insertQuizLeadSchema: () => insertQuizLeadSchema,
@@ -208,6 +209,7 @@ __export(schema_exports, {
   nfcDailyTaps: () => nfcDailyTaps,
   optionsEngineActivity: () => optionsEngineActivity,
   optionsEngineConfigs: () => optionsEngineConfigs,
+  optionsEngineTrades: () => optionsEngineTrades,
   paperTrades: () => paperTrades,
   priceAlerts: () => priceAlerts,
   quizLeads: () => quizLeads,
@@ -256,7 +258,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1152,6 +1154,40 @@ var init_schema = __esm({
     insertOptionsEngineActivitySchema = createInsertSchema(optionsEngineActivity).omit({
       id: true,
       createdAt: true
+    });
+    optionsEngineTrades = pgTable("options_engine_trades", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      connectionId: integer("connection_id").notNull(),
+      // alpacaConnections.id (or tastytradeConnections.id)
+      broker: text("broker").notNull().default("alpaca"),
+      // 'alpaca' | 'tastytrade'
+      underlyingSymbol: text("underlying_symbol").notNull(),
+      optionSymbol: text("option_symbol").notNull(),
+      // OCC symbol actually traded
+      strategy: text("strategy").notNull(),
+      optionType: text("option_type").notNull(),
+      // 'call' | 'put'
+      quantity: integer("quantity").notNull(),
+      entryPrice: doublePrecision("entry_price").notNull(),
+      // premium per contract at entry
+      entryOrderId: text("entry_order_id"),
+      entryReasoning: text("entry_reasoning"),
+      status: text("status").notNull().default("open"),
+      // 'open' | 'closed' | 'failed'
+      exitPrice: doublePrecision("exit_price"),
+      exitOrderId: text("exit_order_id"),
+      exitReason: text("exit_reason"),
+      // 'profit_target' | 'stop_loss' | 'manual' | 'expired' | 'error'
+      realizedPnl: doublePrecision("realized_pnl"),
+      closedAt: timestamp("closed_at"),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertOptionsEngineTradeSchema = createInsertSchema(optionsEngineTrades).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
     });
     tradelockerTradeLogs = pgTable("tradelocker_trade_logs", {
       id: serial("id").primaryKey(),
@@ -4003,6 +4039,36 @@ var init_storage = __esm({
       }
       async getUserOptionsEngineActivity(userId, limit = 50) {
         return db.select().from(optionsEngineActivity).where(eq(optionsEngineActivity.userId, userId)).orderBy(desc(optionsEngineActivity.createdAt)).limit(limit);
+      }
+      // ── Options AI Engine — executed trades ─────────────────────────────────────
+      async createOptionsEngineTrade(trade) {
+        const [result] = await db.insert(optionsEngineTrades).values(trade).returning();
+        return result;
+      }
+      async getOpenOptionsEngineTrades(userId) {
+        return db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "open")));
+      }
+      async getUserOptionsEngineTrades(userId, limit = 50) {
+        return db.select().from(optionsEngineTrades).where(eq(optionsEngineTrades.userId, userId)).orderBy(desc(optionsEngineTrades.createdAt)).limit(limit);
+      }
+      async closeOptionsEngineTrade(id, data) {
+        const [result] = await db.update(optionsEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineTrades.id, id)).returning();
+        return result;
+      }
+      async markOptionsEngineTradeFailed(id, reason) {
+        await db.update(optionsEngineTrades).set({ status: "failed", exitReason: reason, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineTrades.id, id));
+      }
+      async getTodayOptionsEngineTradeCount(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)));
+        return rows.length;
+      }
+      async getTodayOptionsEngineRealizedPnl(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, startOfDay)));
+        return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
       async createCryptocomConnection(connection2) {
@@ -17741,7 +17807,7 @@ ${headlines}`
           return relevantCurrencies.includes(eventCurrency) && (event.impact === "high" || event.impact === "medium");
         }).map((event, idx) => {
           const eventDate = new Date(event.time);
-          const daysUntil = Math.ceil((eventDate.getTime() - now) / (1e3 * 60 * 60 * 24));
+          const daysUntil2 = Math.ceil((eventDate.getTime() - now) / (1e3 * 60 * 60 * 24));
           const currency = event.currency?.toUpperCase() || countryToCurrency[event.country] || event.country;
           return {
             id: `event-${idx}-${eventDate.getTime()}`,
@@ -17751,7 +17817,7 @@ ${headlines}`
             datetime: eventDate.getTime(),
             dateFormatted: eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }),
             timeFormatted: eventDate.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-            daysUntil: Math.max(0, daysUntil),
+            daysUntil: Math.max(0, daysUntil2),
             impact: event.impact,
             forecast: event.forecast,
             previous: event.previous,
@@ -18196,9 +18262,40 @@ var init_alpaca = __esm({
             ask: snap.latestQuote?.ap,
             lastPrice: snap.latestTrade?.p,
             impliedVolatility: snap.impliedVolatility,
-            openInterest: snap.openInterest
+            openInterest: snap.openInterest,
+            delta: snap.greeks?.delta
           };
         });
+      }
+      // Fast single-contract quote — used to price an existing open position for
+      // exit management without re-pulling the entire chain every check cycle.
+      async getOptionQuote(optionSymbol) {
+        const response = await this.request(
+          `${this.dataUrl}/v1beta1/options/quotes/latest?symbols=${encodeURIComponent(optionSymbol)}`,
+          { method: "GET" }
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        const q = data.quotes?.[optionSymbol];
+        if (!q) return null;
+        const bid = q.bp ?? 0, ask = q.ap ?? 0;
+        if (!bid && !ask) return null;
+        return { bid, ask, mid: (bid + ask) / 2 || ask || bid };
+      }
+      async getPositions() {
+        const response = await this.request(`${this.baseUrl}/v2/positions`, { method: "GET" });
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (Array.isArray(data) ? data : []).map((p) => ({
+          symbol: p.symbol,
+          qty: parseFloat(p.qty),
+          side: p.side,
+          avgEntryPrice: parseFloat(p.avg_entry_price),
+          currentPrice: parseFloat(p.current_price ?? p.avg_entry_price),
+          marketValue: parseFloat(p.market_value ?? "0"),
+          unrealizedPl: parseFloat(p.unrealized_pl ?? "0"),
+          assetClass: p.asset_class
+        }));
       }
       async placeOrder(order) {
         const response = await this.request(`${this.baseUrl}/v2/orders`, {
@@ -36774,7 +36871,7 @@ __export(ensure_options_tables_exports, {
 async function ensureOptionsTables() {
   try {
     await pool.query(DDL);
-    console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity).");
+    console.log("[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).");
   } catch (err) {
     console.error("[startup] ensureOptionsTables failed (non-fatal):", err?.message ?? err);
   }
@@ -36897,6 +36994,28 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "breakout_lookback
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "adaptive_scan_interval" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "enable_pyramiding" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_activity" ADD COLUMN IF NOT EXISTS "strategy" text;
+CREATE TABLE IF NOT EXISTS "options_engine_trades" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "broker" text NOT NULL DEFAULT 'alpaca',
+  "underlying_symbol" text NOT NULL,
+  "option_symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "option_type" text NOT NULL,
+  "quantity" integer NOT NULL,
+  "entry_price" double precision NOT NULL,
+  "entry_order_id" text,
+  "entry_reasoning" text,
+  "status" text NOT NULL DEFAULT 'open',
+  "exit_price" double precision,
+  "exit_order_id" text,
+  "exit_reason" text,
+  "realized_pnl" double precision,
+  "closed_at" timestamp,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
 `;
   }
 });
@@ -36994,6 +37113,7 @@ async function runOrb(service, symbol, cfg) {
     price: last.c,
     dailyChangePercent: null,
     strategy: "orb",
+    direction,
     reasoning: `${symbol}: volume-confirmed ${direction} breakout of the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}), now at $${last.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode === "delta_target" ? `~${cfg.targetDelta} delta` : cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
@@ -37055,6 +37175,7 @@ async function runVolumeProfile(service, symbol, cfg) {
     price,
     dailyChangePercent: null,
     strategy: "volume_profile",
+    direction,
     reasoning: `${symbol}: broke ${direction} out of its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}) \u2014 POC (point of control) at $${pocPrice.toFixed(2)}, now at $${price.toFixed(2)} (${distFromPocPct.toFixed(1)}% away). Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
@@ -37096,6 +37217,7 @@ async function runBreakout(service, symbol, cfg) {
     price: today.c,
     dailyChangePercent: null,
     strategy: "breakout",
+    direction,
     reasoning: `${symbol}: volume-confirmed ${direction} breakout of its ${cfg.breakoutLookbackDays}-day range ($${priorLow.toFixed(2)}-$${priorHigh.toFixed(2)}), now at $${today.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
@@ -37117,7 +37239,7 @@ async function runMomentum(service, symbol, cfg) {
   }
   if (meetsConfidence) {
     const optType = direction === "up" ? "call" : "put";
-    return { decision: "signal", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${cfg.minConfidence} minimum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.` };
+    return { decision: "signal", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol} moved ${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today \u2014 momentum score ${score}/100 clears your ${cfg.minConfidence} minimum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.` };
   }
   return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
 }
@@ -37148,6 +37270,212 @@ async function scanSymbol(service, symbol, cfg) {
     return { decision: "watching", reasoning: `${symbol}: strategy "${cfg.strategyMode}" isn't yet backed by live scanning logic (options-spread strategies like covered_call/credit_spread are on the roadmap) \u2014 no read produced.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
   }
   return runner(service, symbol, cfg);
+}
+function daysUntil(dateStr, from) {
+  const target = /* @__PURE__ */ new Date(dateStr + "T00:00:00Z");
+  return Math.round((target.getTime() - from.getTime()) / (24 * 60 * 6e4));
+}
+async function resolveContract(service, underlyingSymbol, direction, cfg) {
+  const optType = direction === "up" ? "call" : "put";
+  const chain = await service.getOptionsChain(underlyingSymbol);
+  const now = /* @__PURE__ */ new Date();
+  let candidates = chain.filter((c) => c.type === optType && c.ask && c.ask > 0);
+  candidates = candidates.filter((c) => {
+    const dte = daysUntil(c.expirationDate, now);
+    return dte >= cfg.minDaysToExpiry && dte <= cfg.maxDaysToExpiry;
+  });
+  if (candidates.length === 0) return null;
+  const targetDte = cfg.expiryPreference === "0dte" ? 0 : cfg.expiryPreference === "weekly" ? 7 : cfg.expiryPreference === "monthly" ? 30 : cfg.minDaysToExpiry;
+  const sortedByExpiry = [...candidates].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - targetDte) - Math.abs(daysUntil(b.expirationDate, now) - targetDte));
+  const chosenExpiry = sortedByExpiry[0].expirationDate;
+  candidates = candidates.filter((c) => c.expirationDate === chosenExpiry);
+  const snap = await service.getSnapshot(underlyingSymbol);
+  if (!snap) return null;
+  const price = snap.price;
+  const sortedByStrike = [...candidates].sort((a, b) => a.strikePrice - b.strikePrice);
+  if (cfg.strikeSelectionMode === "delta_target") {
+    const withDelta = sortedByStrike.filter((c) => typeof c.delta === "number");
+    if (withDelta.length > 0) {
+      return withDelta.sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.targetDelta) - Math.abs(Math.abs(b.delta) - cfg.targetDelta))[0];
+    }
+  }
+  if (cfg.strikeSelectionMode === "itm") {
+    const itm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice < price) : sortedByStrike.filter((c) => c.strikePrice > price);
+    if (itm.length === 0) return null;
+    return optType === "call" ? itm[itm.length - 1] : itm[0];
+  }
+  if (cfg.strikeSelectionMode === "otm") {
+    const otm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice > price) : sortedByStrike.filter((c) => c.strikePrice < price);
+    if (otm.length === 0) return null;
+    return optType === "call" ? otm[0] : otm[otm.length - 1];
+  }
+  return sortedByStrike.sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price))[0] ?? null;
+}
+function computeContractQuantity(equity, riskPerTradePct, askPrice, maxContracts) {
+  if (!askPrice || askPrice <= 0 || equity <= 0) return 0;
+  const riskAmount = equity * (riskPerTradePct / 100);
+  const contractCost = askPrice * 100;
+  const bySize = Math.floor(riskAmount / contractCost);
+  return Math.max(0, Math.min(bySize, maxContracts));
+}
+async function checkSafetyGates(userId, cfg, equity) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayOptionsEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached` };
+  }
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached` };
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached` };
+    }
+    if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached` };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains` };
+    }
+  }
+  return { allowed: true };
+}
+async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg) {
+  if (!result.direction) return;
+  const gate = await checkSafetyGates(userId, cfg, cfg.accountBalance);
+  if (!gate.allowed) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked \u2014 ${gate.reason}.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca",
+      strategy: result.strategy
+    });
+    return;
+  }
+  let account;
+  try {
+    account = await service.getAccountInfo();
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: couldn't fetch account info before sizing the trade: ${err.message}`,
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "alpaca"
+    });
+    return;
+  }
+  const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
+  if (!contract || !contract.ask) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract was found for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const quantity = computeContractQuantity(account.equity, cfg.riskPerTrade, contract.ask, cfg.maxContractsPerTrade);
+  if (quantity < 1) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but ${cfg.riskPerTrade}% of equity ($${account.equity.toFixed(0)}) doesn't cover even 1 contract at $${contract.ask.toFixed(2)} ($${(contract.ask * 100).toFixed(0)}/contract).`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  let order;
+  try {
+    order = await service.placeOrder({ optionSymbol: contract.symbol, side: "buy", quantity, type: "market", timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: order placement failed for ${contract.symbol} x${quantity}: ${err.message}`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  await storage.createOptionsEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    broker: "alpaca",
+    underlyingSymbol,
+    optionSymbol: contract.symbol,
+    strategy: result.strategy,
+    optionType: result.direction === "up" ? "call" : "put",
+    quantity,
+    entryPrice: contract.ask,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open"
+  });
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: underlyingSymbol,
+    decision: "signal",
+    strategy: result.strategy,
+    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "alpaca"
+  });
+}
+async function monitorOpenPositions(service, userId, cfg) {
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+  const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
+  for (const trade of alpacaTrades) {
+    try {
+      const quote = await service.getOptionQuote(trade.optionSymbol);
+      if (!quote || quote.mid <= 0) continue;
+      const pnlPercent = (quote.mid - trade.entryPrice) / trade.entryPrice * 100;
+      let exitReason = null;
+      if (pnlPercent >= cfg.profitTargetPercent) exitReason = "profit_target";
+      else if (pnlPercent <= -cfg.stopLossPercent) exitReason = "stop_loss";
+      if (!exitReason) continue;
+      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "market", timeInForce: "day" });
+      const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
+      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: trade.underlyingSymbol,
+        decision: "signal",
+        strategy: trade.strategy,
+        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${exitReason === "profit_target" ? "+" : ""}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+        score: null,
+        price: quote.mid,
+        dailyChangePercent: null,
+        source: "alpaca"
+      });
+    } catch (err) {
+      console.error(`[options-scanner] failed to monitor/close trade ${trade.id}:`, err.message);
+    }
+  }
 }
 async function scanOneUser(userId) {
   const config = await storage.getUserOptionsEngineConfig(userId);
@@ -37190,6 +37518,10 @@ async function scanOneUser(userId) {
     });
     return;
   }
+  await monitorOpenPositions(service, userId, config).catch(
+    (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId}:`, e.message)
+  );
+  const canAutoExecute = activeAlpaca.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto");
   const symbols = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
@@ -37205,6 +37537,11 @@ async function scanOneUser(userId) {
         source: "alpaca",
         strategy: result.strategy
       });
+      if (result.decision === "signal" && canAutoExecute) {
+        await executeSignal(service, activeAlpaca, userId, symbol, result, config).catch(
+          (e) => console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
+        );
+      }
     } catch (err) {
       await storage.createOptionsEngineActivity({
         userId,
@@ -54956,6 +55293,16 @@ Rules:
     const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
     const activity = await storage.getUserOptionsEngineActivity(userId, limit);
     res.json({ activity });
+  });
+  app2.get("/api/options-engine/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
+    const [open, recent] = await Promise.all([
+      storage.getOpenOptionsEngineTrades(userId),
+      storage.getUserOptionsEngineTrades(userId, limit)
+    ]);
+    res.json({ open, recent });
   });
   app2.patch("/api/options-engine/config", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

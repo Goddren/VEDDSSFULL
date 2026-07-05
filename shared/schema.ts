@@ -926,6 +926,42 @@ export const insertOptionsEngineActivitySchema = createInsertSchema(optionsEngin
 export type OptionsEngineActivity = typeof optionsEngineActivity.$inferSelect;
 export type InsertOptionsEngineActivity = z.infer<typeof insertOptionsEngineActivitySchema>;
 
+// Options AI Engine — executed trades. Created the moment an order is placed;
+// updated on close. This is the source of truth for daily-loss-limit and
+// max-daily-trades enforcement (derived from real records, not a counter that
+// resets on restart).
+export const optionsEngineTrades = pgTable("options_engine_trades", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  connectionId: integer("connection_id").notNull(), // alpacaConnections.id (or tastytradeConnections.id)
+  broker: text("broker").notNull().default('alpaca'), // 'alpaca' | 'tastytrade'
+  underlyingSymbol: text("underlying_symbol").notNull(),
+  optionSymbol: text("option_symbol").notNull(), // OCC symbol actually traded
+  strategy: text("strategy").notNull(),
+  optionType: text("option_type").notNull(), // 'call' | 'put'
+  quantity: integer("quantity").notNull(),
+  entryPrice: doublePrecision("entry_price").notNull(), // premium per contract at entry
+  entryOrderId: text("entry_order_id"),
+  entryReasoning: text("entry_reasoning"),
+  status: text("status").notNull().default('open'), // 'open' | 'closed' | 'failed'
+  exitPrice: doublePrecision("exit_price"),
+  exitOrderId: text("exit_order_id"),
+  exitReason: text("exit_reason"), // 'profit_target' | 'stop_loss' | 'manual' | 'expired' | 'error'
+  realizedPnl: doublePrecision("realized_pnl"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertOptionsEngineTradeSchema = createInsertSchema(optionsEngineTrades).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type OptionsEngineTrade = typeof optionsEngineTrades.$inferSelect;
+export type InsertOptionsEngineTrade = z.infer<typeof insertOptionsEngineTradeSchema>;
+
 // TradeLocker Trade Logs for tracking executed trades
 export const tradelockerTradeLogs = pgTable("tradelocker_trade_logs", {
   id: serial("id").primaryKey(),

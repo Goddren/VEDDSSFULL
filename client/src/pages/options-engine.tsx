@@ -73,6 +73,23 @@ type EngineActivity = {
   createdAt: string;
 };
 
+type EngineTrade = {
+  id: number;
+  broker: string;
+  underlyingSymbol: string;
+  optionSymbol: string;
+  strategy: string;
+  optionType: 'call' | 'put';
+  quantity: number;
+  entryPrice: number;
+  status: 'open' | 'closed' | 'failed';
+  exitPrice: number | null;
+  exitReason: string | null;
+  realizedPnl: number | null;
+  createdAt: string;
+  closedAt: string | null;
+};
+
 type OptionsEngineConfig = {
   id: number;
   isActive: boolean;
@@ -311,6 +328,14 @@ export default function OptionsEnginePage() {
     refetchInterval: config?.isActive ? 15000 : false,
   });
   const activity = activityData?.activity ?? [];
+
+  // ── Executed trades — open positions + recent history ─────────────────────
+  const { data: tradesData, isLoading: tradesLoading } = useQuery<{ open: EngineTrade[]; recent: EngineTrade[] }>({
+    queryKey: ['/api/options-engine/trades'],
+    refetchInterval: config?.isActive ? 15000 : false,
+  });
+  const openTrades = tradesData?.open ?? [];
+  const closedTrades = (tradesData?.recent ?? []).filter(t => t.status !== 'open');
 
   const updateConfigMutation = useMutation({
     mutationFn: async (data: Partial<OptionsEngineConfig>) => {
@@ -1019,6 +1044,62 @@ export default function OptionsEnginePage() {
                       <Label className="text-xs text-gray-300">Lock settings (no auto-adjust)</Label>
                     </div>
                   </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Executed trades — open positions + recent history ── */}
+        <Card className="bg-gray-900 border-gray-800 mt-6">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-emerald-400" /> Executed Trades
+            </CardTitle>
+            <CardDescription>Real orders placed by the engine when a signal fires with Auto-execute on.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {tradesLoading ? (
+              <p className="text-xs text-gray-500">Loading trades...</p>
+            ) : (
+              <>
+                <div>
+                  <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Open ({openTrades.length})</h4>
+                  {openTrades.length === 0 ? (
+                    <p className="text-xs text-gray-500">No open positions.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {openTrades.map(t => (
+                        <div key={t.id} className="p-2.5 rounded-lg border border-emerald-700/20 bg-emerald-900/5 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-bold text-white">{t.underlyingSymbol} <span className="text-xs font-normal text-gray-400">{t.optionSymbol}</span></p>
+                            <p className="text-[10px] text-gray-500">{t.quantity}x {t.optionType} @ ${t.entryPrice.toFixed(2)} · {t.strategy.replace('_', ' ')} · {t.broker}</p>
+                          </div>
+                          <span className="text-[10px] text-gray-500 shrink-0">{new Date(t.createdAt).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Recent Closed</h4>
+                  {closedTrades.length === 0 ? (
+                    <p className="text-xs text-gray-500">No closed trades yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-[280px] overflow-y-auto">
+                      {closedTrades.map(t => (
+                        <div key={t.id} className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 ${(t.realizedPnl ?? 0) >= 0 ? 'border-emerald-700/20 bg-emerald-900/5' : 'border-red-700/20 bg-red-900/5'}`}>
+                          <div>
+                            <p className="text-sm font-bold text-white">{t.underlyingSymbol} <span className="text-xs font-normal text-gray-400">{t.optionSymbol}</span></p>
+                            <p className="text-[10px] text-gray-500">{t.quantity}x {t.optionType} · entry ${t.entryPrice.toFixed(2)} → exit ${t.exitPrice?.toFixed(2) ?? '—'} · {t.exitReason?.replace('_', ' ') ?? t.status}</p>
+                          </div>
+                          <span className={`text-sm font-mono font-bold shrink-0 ${(t.realizedPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {t.realizedPnl != null ? `${t.realizedPnl >= 0 ? '+' : ''}$${t.realizedPnl.toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             )}

@@ -117,12 +117,34 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "breakout_lookback
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "adaptive_scan_interval" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "enable_pyramiding" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_activity" ADD COLUMN IF NOT EXISTS "strategy" text;
+CREATE TABLE IF NOT EXISTS "options_engine_trades" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "broker" text NOT NULL DEFAULT 'alpaca',
+  "underlying_symbol" text NOT NULL,
+  "option_symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "option_type" text NOT NULL,
+  "quantity" integer NOT NULL,
+  "entry_price" double precision NOT NULL,
+  "entry_order_id" text,
+  "entry_reasoning" text,
+  "status" text NOT NULL DEFAULT 'open',
+  "exit_price" double precision,
+  "exit_order_id" text,
+  "exit_reason" text,
+  "realized_pnl" double precision,
+  "closed_at" timestamp,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
 `;
 
 export async function ensureOptionsTables(): Promise<void> {
   try {
     await pool.query(DDL);
-    console.log('[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity).');
+    console.log('[startup] Options-engine broker tables ensured (alpaca/tastytrade/cryptocom/options_engine_configs/options_engine_activity/options_engine_trades).');
   } catch (err: any) {
     console.error('[startup] ensureOptionsTables failed (non-fatal):', err?.message ?? err);
   }
