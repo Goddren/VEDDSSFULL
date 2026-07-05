@@ -838,7 +838,35 @@ export async function outreachLead(dbLead: {
     return { automated: false, reason: 'LinkedIn auto-comment needs the activity id from a fresh scan — send manually', postUrl: dbLead.postUrl || undefined, message };
   }
 
-  // Reddit, StockTwits, Instagram, Facebook — manual one-tap flow
+  if (dbLead.platform === 'StockTwits') {
+    // StockTwits public API supports posting replies via messages/create with an
+    // OAuth access token. There is NO public DM API — replies only.
+    const token = process.env.STOCKTWITS_ACCESS_TOKEN;
+    const msgId = (dbLead.postUrl || '').match(/message\/(\d+)/)?.[1];
+    if (token && message) {
+      try {
+        const params = new URLSearchParams({ access_token: token, body: message.substring(0, 1000) });
+        if (msgId) params.set('in_reply_to_message_id', msgId);
+        const r = await fetch('https://api.stocktwits.com/api/2/messages/create.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+          signal: AbortSignal.timeout(12000),
+        });
+        const d: any = await r.json().catch(() => ({}));
+        if (r.ok && d?.message?.id) {
+          return { automated: true, engagementType: 'reply', reason: `Auto-replied on StockTwits${msgId ? ' (threaded to their post)' : ''}`, postUrl: dbLead.postUrl || undefined };
+        }
+        const errMsg = d?.errors?.[0]?.message || `HTTP ${r.status}`;
+        return { automated: false, reason: `StockTwits post failed: ${errMsg} — send manually`, postUrl: dbLead.postUrl || undefined, message };
+      } catch (e: any) {
+        return { automated: false, reason: `StockTwits post error: ${e.message} — send manually`, postUrl: dbLead.postUrl || undefined, message };
+      }
+    }
+    return { automated: false, reason: token ? 'No message generated for this lead' : 'STOCKTWITS_ACCESS_TOKEN not set — manual send', postUrl: dbLead.postUrl || undefined, message };
+  }
+
+  // Reddit, Instagram, Facebook — manual one-tap flow
   return {
     automated: false,
     reason: `${dbLead.platform} has no posting API configured — message copied, opening the post to paste`,

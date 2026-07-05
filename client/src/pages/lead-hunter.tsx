@@ -100,14 +100,21 @@ export default function LeadHunterPage() {
       const res = await apiRequest('POST', '/api/lead-hunter/run');
       return res.json();
     },
-    onSuccess: () => {
-      toast({ title: 'Lead Hunter started', description: 'Check your email digest when it completes (~3–5 min).' });
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/runs'] });
-        refetchLeads();
-      }, 5000);
+    onSuccess: (data: any) => {
+      const breakdown = data.platformBreakdown
+        ? Object.entries(data.platformBreakdown)
+            .filter(([, n]) => Number(n) > 0)
+            .map(([p, n]) => `${p}: ${n}`)
+            .join(' · ')
+        : '';
+      toast({
+        title: `Run complete — ${data.newLeads ?? 0} new leads`,
+        description: breakdown || 'No new leads found this run — check the Diagnostic for platform errors.',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/runs'] });
+      refetchLeads();
     },
-    onError: () => toast({ title: 'Error', description: 'Failed to start lead hunter', variant: 'destructive' }),
+    onError: (error: any) => toast({ title: 'Run failed', description: error.message || 'Failed to run lead hunter', variant: 'destructive' }),
   });
 
   const diagMutation = useMutation({
@@ -225,7 +232,7 @@ export default function LeadHunterPage() {
               style={{ background: 'linear-gradient(135deg,#F0D269,#d4a800)', color: '#000', fontWeight: 700 }}
             >
               <Play size={14} style={{ marginRight: 6 }} />
-              {runMutation.isPending ? 'Starting…' : 'Run Now'}
+              {runMutation.isPending ? 'Scanning… (1–3 min)' : 'Run Now'}
             </Button>
           </div>
         </div>

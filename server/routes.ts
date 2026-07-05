@@ -14740,6 +14740,43 @@ Rules:
     }
   });
 
+  // GET /api/tradelocker/positions — live open positions across ALL active
+  // connections, including losing trades, with per-trade unrealized P/L.
+  app.get("/api/tradelocker/positions", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const connections = (await storage.getUserTradelockerConnections(userId)).filter(c => c.isActive);
+    if (connections.length === 0) return res.json({ accounts: [], totalUnrealizedPl: 0 });
+
+    const accounts: any[] = [];
+    let totalUnrealizedPl = 0;
+    for (const conn of connections) {
+      try {
+        const svc = await tlGetOrCreateService(conn);
+        const positions = await svc.getPositionsNormalized();
+        totalUnrealizedPl += positions.reduce((s, p) => s + p.unrealizedPl, 0);
+        accounts.push({
+          connectionId: conn.id,
+          accountId: conn.accountId,
+          accountType: conn.accountType,
+          broker: (conn as any).brokerName || 'TradeLocker',
+          positions,
+        });
+      } catch (err: any) {
+        accounts.push({
+          connectionId: conn.id,
+          accountId: conn.accountId,
+          accountType: conn.accountType,
+          broker: (conn as any).brokerName || 'TradeLocker',
+          positions: [],
+          error: err?.message || 'fetch failed',
+        });
+      }
+    }
+    res.json({ accounts, totalUnrealizedPl });
+  });
+
   // ══════════════════════════════════════════════════════════════════════════
   // Options AI Engine — Alpaca, TastyTrade connections + engine config
   // ══════════════════════════════════════════════════════════════════════════
@@ -18637,7 +18674,19 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = (req.user as User).id;
       const signals = getPendingMT5Signals(userId, accountAlias);
-      return res.json({ signals });
+      // Enrich pending signals with the engine's live price so the UI tracks
+      // the market instead of showing the (stale) generation-time price.
+      let enriched = signals;
+      try {
+        const snap = (getLiveEngineState(userId) as any)?.marketSnapshot || {};
+        enriched = signals.map((s: any) => {
+          const live = snap[s.symbol]?.price;
+          return live
+            ? { ...s, livePrice: live, livePriceUpdatedAt: snap[s.symbol]?.updatedAt, priceDrift: s.price ? +(live - s.price).toFixed(5) : undefined }
+            : s;
+        });
+      } catch { /* enrichment is best-effort */ }
+      return res.json({ signals: enriched });
     }
     const token = await storage.getMt5ApiTokenByToken(apiKey);
     if (!token) return res.status(401).json({ error: "Invalid API key" });
@@ -27492,6 +27541,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       TWITTER_BEARER_TOKEN: !!process.env.TWITTER_BEARER_TOKEN,
       TWITTER_ACCESS_TOKEN: !!process.env.TWITTER_ACCESS_TOKEN,
       LINKEDIN_ACCESS_TOKEN: !!process.env.LINKEDIN_ACCESS_TOKEN,
+      STOCKTWITS_ACCESS_TOKEN: !!process.env.STOCKTWITS_ACCESS_TOKEN,
       SENDGRID_API_KEY: !!process.env.SENDGRID_API_KEY,
       AI: !!(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY),
     });
@@ -27548,10 +27598,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.user) return res.status(401).json({ error: "Not authenticated" });
     try {
       const { runLeadHunter } = await import("./services/lead-hunter");
-      // Run async so the response returns immediately
-      runLeadHunter().catch(e => console.error('[LeadHunter] Manual run error:', e.message));
-      res.json({ ok: true, message: "Lead hunter started — check email for digest when complete" });
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+      // Run synchronously so the UI gets the real result (counts per platform +
+      // errors). The old fire-and-forget version hid every failure behind a
+      // "check your email" toast — users saw an empty leads list with no clue why.
+      const result = await runLeadHunter();
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      console.error('[LeadHunter] Manual run error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/lead-hunter/leads", async (req: Request, res: Response) => {

@@ -15952,6 +15952,70 @@ var init_tradelocker = __esm({
           throw error;
         }
       }
+      // Normalized open positions — handles BOTH response shapes TradeLocker uses:
+      // object rows (named fields) and column-array rows (order defined by
+      // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
+      // via the instruments list so the UI can show real pair names.
+      async getPositionsNormalized() {
+        const raw = await this.getPositions();
+        if (!raw || raw.length === 0) return [];
+        let instMap = /* @__PURE__ */ new Map();
+        try {
+          const instruments = await this.getInstruments();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+        } catch {
+        }
+        const norm = (v) => parseFloat(v) || 0;
+        if (!Array.isArray(raw[0])) {
+          return raw.map((p) => ({
+            id: String(p.id ?? p.positionId ?? ""),
+            symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? "")) || String(p.tradableInstrumentId ?? ""),
+            side: (p.side || "").toString().toLowerCase(),
+            qty: norm(p.qty),
+            avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
+            unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+            openDate: p.openDate || p.createdDate || void 0
+          }));
+        }
+        let columns = [];
+        try {
+          await this.ensureAuthenticated();
+          const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
+            method: "GET",
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (cfgRes.ok) {
+            const cfg = await cfgRes.json();
+            const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
+            columns = cols.map((c) => String(c.id || c.name || "").toLowerCase());
+          }
+        } catch {
+        }
+        const idx = (candidates) => columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+        const iId = idx(["id"]);
+        const iInst = idx(["tradableinstrument"]);
+        const iSide = idx(["side"]);
+        const iQty = idx(["qty", "quantity"]);
+        const iAvg = idx(["avgprice", "openprice", "price"]);
+        const iPl = idx(["unrealized", "pnl", "pl"]);
+        const iDate = idx(["opendate", "date"]);
+        return raw.map((row) => {
+          const instId = iInst >= 0 ? String(row[iInst]) : "";
+          return {
+            id: iId >= 0 ? String(row[iId]) : "",
+            symbol: instMap.get(instId) || instId,
+            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+            qty: iQty >= 0 ? norm(row[iQty]) : 0,
+            avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
+            unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
+            openDate: iDate >= 0 ? String(row[iDate]) : void 0
+          };
+        });
+      }
       async modifyPosition(positionId, stopLoss, takeProfit) {
         await this.ensureAuthenticated();
         const body = {};
@@ -35715,6 +35779,31 @@ async function outreachLead(dbLead) {
   if (dbLead.platform === "LinkedIn") {
     return { automated: false, reason: "LinkedIn auto-comment needs the activity id from a fresh scan \u2014 send manually", postUrl: dbLead.postUrl || void 0, message };
   }
+  if (dbLead.platform === "StockTwits") {
+    const token = process.env.STOCKTWITS_ACCESS_TOKEN;
+    const msgId = (dbLead.postUrl || "").match(/message\/(\d+)/)?.[1];
+    if (token && message) {
+      try {
+        const params = new URLSearchParams({ access_token: token, body: message.substring(0, 1e3) });
+        if (msgId) params.set("in_reply_to_message_id", msgId);
+        const r = await fetch("https://api.stocktwits.com/api/2/messages/create.json", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+          signal: AbortSignal.timeout(12e3)
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d?.message?.id) {
+          return { automated: true, engagementType: "reply", reason: `Auto-replied on StockTwits${msgId ? " (threaded to their post)" : ""}`, postUrl: dbLead.postUrl || void 0 };
+        }
+        const errMsg = d?.errors?.[0]?.message || `HTTP ${r.status}`;
+        return { automated: false, reason: `StockTwits post failed: ${errMsg} \u2014 send manually`, postUrl: dbLead.postUrl || void 0, message };
+      } catch (e) {
+        return { automated: false, reason: `StockTwits post error: ${e.message} \u2014 send manually`, postUrl: dbLead.postUrl || void 0, message };
+      }
+    }
+    return { automated: false, reason: token ? "No message generated for this lead" : "STOCKTWITS_ACCESS_TOKEN not set \u2014 manual send", postUrl: dbLead.postUrl || void 0, message };
+  }
   return {
     automated: false,
     reason: `${dbLead.platform} has no posting API configured \u2014 message copied, opening the post to paste`,
@@ -54014,6 +54103,38 @@ Rules:
       res.status(400).json({ success: false, error: errorMsg });
     }
   });
+  app2.get("/api/tradelocker/positions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connections = (await storage.getUserTradelockerConnections(userId)).filter((c) => c.isActive);
+    if (connections.length === 0) return res.json({ accounts: [], totalUnrealizedPl: 0 });
+    const accounts = [];
+    let totalUnrealizedPl = 0;
+    for (const conn of connections) {
+      try {
+        const svc = await getOrCreateService(conn);
+        const positions = await svc.getPositionsNormalized();
+        totalUnrealizedPl += positions.reduce((s, p) => s + p.unrealizedPl, 0);
+        accounts.push({
+          connectionId: conn.id,
+          accountId: conn.accountId,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          positions
+        });
+      } catch (err) {
+        accounts.push({
+          connectionId: conn.id,
+          accountId: conn.accountId,
+          accountType: conn.accountType,
+          broker: conn.brokerName || "TradeLocker",
+          positions: [],
+          error: err?.message || "fetch failed"
+        });
+      }
+    }
+    res.json({ accounts, totalUnrealizedPl });
+  });
   app2.get("/api/alpaca/connections", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -57391,7 +57512,16 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
       const userId = req.user.id;
       const signals2 = getPendingMT5Signals2(userId, accountAlias);
-      return res.json({ signals: signals2 });
+      let enriched = signals2;
+      try {
+        const snap = getLiveEngineState2(userId)?.marketSnapshot || {};
+        enriched = signals2.map((s) => {
+          const live = snap[s.symbol]?.price;
+          return live ? { ...s, livePrice: live, livePriceUpdatedAt: snap[s.symbol]?.updatedAt, priceDrift: s.price ? +(live - s.price).toFixed(5) : void 0 } : s;
+        });
+      } catch {
+      }
+      return res.json({ signals: enriched });
     }
     const token = await storage.getMt5ApiTokenByToken(apiKey);
     if (!token) return res.status(401).json({ error: "Invalid API key" });
@@ -64765,6 +64895,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       TWITTER_BEARER_TOKEN: !!process.env.TWITTER_BEARER_TOKEN,
       TWITTER_ACCESS_TOKEN: !!process.env.TWITTER_ACCESS_TOKEN,
       LINKEDIN_ACCESS_TOKEN: !!process.env.LINKEDIN_ACCESS_TOKEN,
+      STOCKTWITS_ACCESS_TOKEN: !!process.env.STOCKTWITS_ACCESS_TOKEN,
       SENDGRID_API_KEY: !!process.env.SENDGRID_API_KEY,
       AI: !!(process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY)
     });
@@ -64822,9 +64953,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.user) return res.status(401).json({ error: "Not authenticated" });
     try {
       const { runLeadHunter: runLeadHunter2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
-      runLeadHunter2().catch((e) => console.error("[LeadHunter] Manual run error:", e.message));
-      res.json({ ok: true, message: "Lead hunter started \u2014 check email for digest when complete" });
+      const result = await runLeadHunter2();
+      res.json({ ok: true, ...result });
     } catch (e) {
+      console.error("[LeadHunter] Manual run error:", e.message);
       res.status(500).json({ error: e.message });
     }
   });

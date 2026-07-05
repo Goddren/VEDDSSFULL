@@ -1073,6 +1073,81 @@ export class TradeLockerService {
     }
   }
 
+  // Normalized open positions — handles BOTH response shapes TradeLocker uses:
+  // object rows (named fields) and column-array rows (order defined by
+  // /trade/config's positionsConfig). Also maps tradableInstrumentId → symbol
+  // via the instruments list so the UI can show real pair names.
+  async getPositionsNormalized(): Promise<Array<{
+    id: string; symbol: string; side: string; qty: number;
+    avgPrice: number; unrealizedPl: number; openDate?: string;
+  }>> {
+    const raw = await this.getPositions();
+    if (!raw || raw.length === 0) return [];
+
+    // Build instrument id → name map (cached instruments fetch)
+    let instMap = new Map<string, string>();
+    try {
+      const instruments = await this.getInstruments();
+      for (const inst of instruments) {
+        const id = String(inst.tradableInstrumentId ?? inst.id ?? '');
+        if (id) instMap.set(id, inst.name || inst.symbol || id);
+      }
+    } catch { /* symbol names degrade to instrument ids */ }
+
+    const norm = (v: any) => parseFloat(v) || 0;
+
+    if (!Array.isArray(raw[0])) {
+      // Object rows
+      return raw.map((p: any) => ({
+        id: String(p.id ?? p.positionId ?? ''),
+        symbol: p.s || p.symbol || instMap.get(String(p.tradableInstrumentId ?? '')) || String(p.tradableInstrumentId ?? ''),
+        side: (p.side || '').toString().toLowerCase(),
+        qty: norm(p.qty),
+        avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
+        unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
+        openDate: p.openDate || p.createdDate || undefined,
+      }));
+    }
+
+    // Column-array rows — resolve column order from /trade/config positionsConfig
+    let columns: string[] = [];
+    try {
+      await this.ensureAuthenticated();
+      const cfgRes = await fetch(`${this.baseUrl}/trade/config`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        const cols = cfg?.d?.positionsConfig?.columns || cfg?.positionsConfig?.columns || [];
+        columns = cols.map((c: any) => String(c.id || c.name || '').toLowerCase());
+      }
+    } catch { /* fall through to positional defaults below */ }
+
+    const idx = (candidates: string[]) => columns.findIndex(c => candidates.some(k => c.includes(k)));
+    const iId = idx(['id']);
+    const iInst = idx(['tradableinstrument']);
+    const iSide = idx(['side']);
+    const iQty = idx(['qty', 'quantity']);
+    const iAvg = idx(['avgprice', 'openprice', 'price']);
+    const iPl = idx(['unrealized', 'pnl', 'pl']);
+    const iDate = idx(['opendate', 'date']);
+
+    return raw.map((row: any[]) => {
+      const instId = iInst >= 0 ? String(row[iInst]) : '';
+      return {
+        id: iId >= 0 ? String(row[iId]) : '',
+        symbol: instMap.get(instId) || instId,
+        side: iSide >= 0 ? String(row[iSide]).toLowerCase() : '',
+        qty: iQty >= 0 ? norm(row[iQty]) : 0,
+        avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
+        unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
+        openDate: iDate >= 0 ? String(row[iDate]) : undefined,
+      };
+    });
+  }
+
   async modifyPosition(
     positionId: string,
     stopLoss?: number,
