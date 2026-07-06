@@ -185,7 +185,12 @@ async function generateDalleImage(prompt: string): Promise<string | null> {
     });
     return res.data[0]?.url ?? null;
   } catch (e: any) {
-    console.error('[ambassador-prime] DALL-E error:', e.message);
+    const status = e?.status ?? e?.statusCode;
+    if (status === 429 || /quota|insufficient_quota/i.test(e?.message || '')) {
+      console.error('[ambassador-prime] DALL-E quota exceeded — check OpenAI billing/plan:', e.message);
+    } else {
+      console.error('[ambassador-prime] DALL-E error:', e.message);
+    }
     return null;
   }
 }
@@ -258,21 +263,52 @@ async function scrapeNewsRSS(theme: string): Promise<string[]> {
   return headlines.slice(0, 10);
 }
 
-// ── AI helper ────────────────────────────────────────────────────────────────
+// ── AI helper (fails over to OpenRouter/Claude on OpenAI quota/rate-limit) ────
+function isQuotaOrRateLimitError(e: any): boolean {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || (status >= 500 && status < 600)) return true;
+  const msg = (e?.message || '').toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|service unavailable/.test(msg);
+}
+
 async function callAI(systemPrompt: string, userPrompt: string): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = apiKey ? 'gpt-4o' : 'gpt-4o';
-  const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 90000 });
-  const res = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ],
-    temperature: 0.7,
-    max_tokens: 2000,
-  });
-  return res.choices[0]?.message?.content?.trim() ?? '';
+  const messages = [
+    { role: 'system' as const, content: systemPrompt },
+    { role: 'user' as const, content: userPrompt },
+  ];
+  try {
+    const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 90000 });
+    const res = await client.chat.completions.create({
+      model: 'gpt-4o', messages, temperature: 0.7, max_tokens: 2000,
+    });
+    return res.choices[0]?.message?.content?.trim() ?? '';
+  } catch (e: any) {
+    if (!isQuotaOrRateLimitError(e)) throw e;
+
+    const orKey = process.env.OPENROUTER_API_KEY;
+    if (!orKey) {
+      console.error('[ambassador-prime] OpenAI quota/rate-limit error and OPENROUTER_API_KEY not set — cannot fail over:', e.message);
+      throw e;
+    }
+
+    console.warn('[ambassador-prime] OpenAI failed (quota/rate-limit) — failing over to OpenRouter/Claude:', e.message);
+    const orClient = new OpenAI({
+      apiKey: orKey,
+      baseURL: 'https://openrouter.ai/api/v1',
+      maxRetries: 2,
+      timeout: 90000,
+      defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
+    });
+    // NOTE: verify this OpenRouter model slug against openrouter.ai/models before
+    // relying on it long-term — Anthropic's own model-id naming has drifted
+    // before in this codebase (see PROVIDER_MODELS.anthropic comment in
+    // openai.ts) and OpenRouter's catalog string is not guaranteed to match.
+    const res = await orClient.chat.completions.create({
+      model: 'anthropic/claude-sonnet-4.6', messages, temperature: 0.7, max_tokens: 2000,
+    });
+    return res.choices[0]?.message?.content?.trim() ?? '';
+  }
 }
 
 // ── Content generation (Batch 1) ─────────────────────────────────────────────
@@ -499,25 +535,32 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   }
 
   // ── Step 4: DALL-E Image ───────────────────────────────────────────────────
-  try {
-    const imagePrompt = batch1?.imagePrompt ?? `Professional trading AI dashboard, ${theme.name} theme, dark background`;
-    imageUrl = await generateDalleImage(imagePrompt);
-    if (imageUrl) {
-      imageGenerated = true;
-      completedSteps.push('DALL-E Image Generation');
-      await logStep(runDate, 'DALL-E Image Generation', 'completed');
-    } else {
-      const skipReason = !process.env.OPENAI_API_KEY
-        ? 'OPENAI_API_KEY not set in server environment — DALL-E image generation requires it'
-        : 'DALL-E returned no image URL (check server logs for the API error)';
-      errors.push(`Image: ${skipReason}`);
-      skippedSteps.push('DALL-E Image Generation');
-      await logStep(runDate, 'DALL-E Image Generation', 'skipped', skipReason);
-    }
-  } catch (e: any) {
-    errors.push(`DALL-E: ${e.message}`);
+  if (!batch1) {
+    // Batch 1 failed upstream — there's no real image prompt to work from, so
+    // don't burn a DALL-E call on a generic fallback prompt unrelated to
+    // today's actual content.
     skippedSteps.push('DALL-E Image Generation');
-    await logStep(runDate, 'DALL-E Image Generation', 'failed', e.message);
+    await logStep(runDate, 'DALL-E Image Generation', 'skipped', 'skipped: upstream failure (Batch 1 AI Generation failed — no image prompt available)');
+  } else {
+    try {
+      imageUrl = await generateDalleImage(batch1.imagePrompt);
+      if (imageUrl) {
+        imageGenerated = true;
+        completedSteps.push('DALL-E Image Generation');
+        await logStep(runDate, 'DALL-E Image Generation', 'completed');
+      } else {
+        const skipReason = !process.env.OPENAI_API_KEY
+          ? 'OPENAI_API_KEY not set in server environment — DALL-E image generation requires it'
+          : 'DALL-E returned no image URL (check server logs for the API error)';
+        errors.push(`Image: ${skipReason}`);
+        skippedSteps.push('DALL-E Image Generation');
+        await logStep(runDate, 'DALL-E Image Generation', 'skipped', skipReason);
+      }
+    } catch (e: any) {
+      errors.push(`DALL-E: ${e.message}`);
+      skippedSteps.push('DALL-E Image Generation');
+      await logStep(runDate, 'DALL-E Image Generation', 'failed', e.message);
+    }
   }
 
   // ── Step 5: Twitter (auto-post if keys set, otherwise save as ready-to-post) ─
@@ -545,8 +588,11 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     completedSteps.push(label);
     await logStep(runDate, label, 'completed');
   } else {
+    const reason = !batch1
+      ? 'skipped: upstream failure (Batch 1 AI Generation failed — no content available)'
+      : 'No tweets generated by Batch 1 AI (parsed 0 tweets)';
     skippedSteps.push('Twitter Content');
-    await logStep(runDate, 'Twitter Content', 'skipped', 'No tweets generated');
+    await logStep(runDate, 'Twitter Content', 'skipped', reason);
   }
 
   // ── Step 6: Hook Variations DB Save ──────────────────────────────────────
@@ -688,7 +734,7 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   // ── Step 11: Email Report ─────────────────────────────────────────────────
   const hasTwitterKeys = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
   const hasLinkedInKey = !!process.env.LINKEDIN_ACCESS_TOKEN;
-  const emailSuccess = await sendAmbassadorPrimeReport({
+  const emailResult = await sendAmbassadorPrimeReport({
     runDate, dayName, theme,
     tweetsPosted, linkedinPosts, igCaptionsGenerated,
     redditInsightsCount, engagementOpportunities, imageGenerated, imageUrl,
@@ -706,16 +752,16 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     completedSteps, skippedSteps, errors,
   });
 
-  if (emailSuccess) {
+  if (emailResult.success) {
     await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq(ambassadorRunSummary.runDate, runDate));
     completedSteps.push('Email Report');
     await logStep(runDate, 'Email Report', 'completed');
   } else {
-    errors.push('Email report failed to send');
-    await logStep(runDate, 'Email Report', 'failed', 'SendGrid error or missing key');
+    errors.push(`Email report failed to send: ${emailResult.reason ?? 'Unknown error'}`);
+    await logStep(runDate, 'Email Report', 'failed', emailResult.reason ?? 'Unknown SendGrid error');
   }
 
-  const success = emailSuccess;
+  const success = emailResult.success;
   const summary = `${theme.name} | ${tweetsPosted} tweets posted | ${linkedinPosts} LinkedIn | ${igCaptionsGenerated} IG captions | ${completedSteps.length} steps completed`;
   console.log(`[ambassador-prime] Run complete: ${summary}`);
   return { success, runDate, summary, completedSteps, skippedSteps, errors };
@@ -733,9 +779,12 @@ async function sendAmbassadorPrimeReport(data: {
   igCaptions: string[]; hooks: { A: string; B: string; C: string };
   reelScript: string; storyIdea: string; bonusContent: string; communityPrompt: string;
   completedSteps: string[]; skippedSteps: string[]; errors: string[];
-}): Promise<boolean> {
+}): Promise<{ success: boolean; reason?: string }> {
   const sgKey = process.env.SENDGRID_API_KEY;
-  if (!sgKey) return false;
+  if (!sgKey) {
+    console.error('[ambassador-prime] SENDGRID_API_KEY not set in server environment — email report cannot be sent');
+    return { success: false, reason: 'SENDGRID_API_KEY not set in server environment' };
+  }
 
   const noApiMode = !data.hasTwitterKeys && !data.hasLinkedInKey;
   const tweetLabel = data.hasTwitterKeys ? 'Tweet' : '🐦 Copy & post to Twitter';
@@ -864,10 +913,17 @@ async function sendAmbassadorPrimeReport(data: {
       subject: `VEDD Ambassador Prime — ${data.theme.name} (${data.runDate})`,
       html,
     });
-    return true;
+    return { success: true };
   } catch (e: any) {
-    console.error('[ambassador-prime] Email send error:', e.message);
-    return false;
+    // SendGrid returns structured per-error detail in e.response.body.errors —
+    // e.message alone is often just "Unauthorized" or "Bad Request", not
+    // useful for diagnosing e.g. an unverified sender identity.
+    const sgErrors = e?.response?.body?.errors;
+    const detail = Array.isArray(sgErrors) && sgErrors.length
+      ? sgErrors.map((er: any) => er.message).join('; ')
+      : e.message;
+    console.error('[ambassador-prime] Email send error:', detail);
+    return { success: false, reason: detail };
   }
 }
 

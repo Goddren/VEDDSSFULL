@@ -36344,7 +36344,12 @@ async function generateDalleImage(prompt) {
     });
     return res.data[0]?.url ?? null;
   } catch (e) {
-    console.error("[ambassador-prime] DALL-E error:", e.message);
+    const status = e?.status ?? e?.statusCode;
+    if (status === 429 || /quota|insufficient_quota/i.test(e?.message || "")) {
+      console.error("[ambassador-prime] DALL-E quota exceeded \u2014 check OpenAI billing/plan:", e.message);
+    } else {
+      console.error("[ambassador-prime] DALL-E error:", e.message);
+    }
     return null;
   }
 }
@@ -36400,20 +36405,50 @@ async function scrapeNewsRSS(theme) {
   }
   return headlines.slice(0, 10);
 }
+function isQuotaOrRateLimitError(e) {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || status >= 500 && status < 600) return true;
+  const msg = (e?.message || "").toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|service unavailable/.test(msg);
+}
 async function callAI(systemPrompt, userPrompt) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = apiKey ? "gpt-4o" : "gpt-4o";
-  const client2 = new OpenAI6({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
-  const res = await client2.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    temperature: 0.7,
-    max_tokens: 2e3
-  });
-  return res.choices[0]?.message?.content?.trim() ?? "";
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
+  ];
+  try {
+    const client2 = new OpenAI6({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
+    const res = await client2.chat.completions.create({
+      model: "gpt-4o",
+      messages,
+      temperature: 0.7,
+      max_tokens: 2e3
+    });
+    return res.choices[0]?.message?.content?.trim() ?? "";
+  } catch (e) {
+    if (!isQuotaOrRateLimitError(e)) throw e;
+    const orKey = process.env.OPENROUTER_API_KEY;
+    if (!orKey) {
+      console.error("[ambassador-prime] OpenAI quota/rate-limit error and OPENROUTER_API_KEY not set \u2014 cannot fail over:", e.message);
+      throw e;
+    }
+    console.warn("[ambassador-prime] OpenAI failed (quota/rate-limit) \u2014 failing over to OpenRouter/Claude:", e.message);
+    const orClient = new OpenAI6({
+      apiKey: orKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      maxRetries: 2,
+      timeout: 9e4,
+      defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+    });
+    const res = await orClient.chat.completions.create({
+      model: "anthropic/claude-sonnet-4.6",
+      messages,
+      temperature: 0.7,
+      max_tokens: 2e3
+    });
+    return res.choices[0]?.message?.content?.trim() ?? "";
+  }
 }
 async function generateBatch1(theme, redditContext, dayOfWeek) {
   const sys = `You are VEDD's daily growth ambassador. VEDD (veddbuild.com) is an AI-powered trading analysis platform. Your job is to generate high-converting social media content that drives traders to sign up.
@@ -36596,23 +36631,27 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     skippedSteps.push("Batch 2 AI Generation");
     await logStep(runDate, "Batch 2 AI Generation", "failed", e.message);
   }
-  try {
-    const imagePrompt = batch1?.imagePrompt ?? `Professional trading AI dashboard, ${theme.name} theme, dark background`;
-    imageUrl = await generateDalleImage(imagePrompt);
-    if (imageUrl) {
-      imageGenerated = true;
-      completedSteps.push("DALL-E Image Generation");
-      await logStep(runDate, "DALL-E Image Generation", "completed");
-    } else {
-      const skipReason = !process.env.OPENAI_API_KEY ? "OPENAI_API_KEY not set in server environment \u2014 DALL-E image generation requires it" : "DALL-E returned no image URL (check server logs for the API error)";
-      errors.push(`Image: ${skipReason}`);
-      skippedSteps.push("DALL-E Image Generation");
-      await logStep(runDate, "DALL-E Image Generation", "skipped", skipReason);
-    }
-  } catch (e) {
-    errors.push(`DALL-E: ${e.message}`);
+  if (!batch1) {
     skippedSteps.push("DALL-E Image Generation");
-    await logStep(runDate, "DALL-E Image Generation", "failed", e.message);
+    await logStep(runDate, "DALL-E Image Generation", "skipped", "skipped: upstream failure (Batch 1 AI Generation failed \u2014 no image prompt available)");
+  } else {
+    try {
+      imageUrl = await generateDalleImage(batch1.imagePrompt);
+      if (imageUrl) {
+        imageGenerated = true;
+        completedSteps.push("DALL-E Image Generation");
+        await logStep(runDate, "DALL-E Image Generation", "completed");
+      } else {
+        const skipReason = !process.env.OPENAI_API_KEY ? "OPENAI_API_KEY not set in server environment \u2014 DALL-E image generation requires it" : "DALL-E returned no image URL (check server logs for the API error)";
+        errors.push(`Image: ${skipReason}`);
+        skippedSteps.push("DALL-E Image Generation");
+        await logStep(runDate, "DALL-E Image Generation", "skipped", skipReason);
+      }
+    } catch (e) {
+      errors.push(`DALL-E: ${e.message}`);
+      skippedSteps.push("DALL-E Image Generation");
+      await logStep(runDate, "DALL-E Image Generation", "failed", e.message);
+    }
   }
   if (batch1?.tweets.length) {
     const hasTwitterKeys2 = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
@@ -36647,8 +36686,9 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     completedSteps.push(label);
     await logStep(runDate, label, "completed");
   } else {
+    const reason = !batch1 ? "skipped: upstream failure (Batch 1 AI Generation failed \u2014 no content available)" : "No tweets generated by Batch 1 AI (parsed 0 tweets)";
     skippedSteps.push("Twitter Content");
-    await logStep(runDate, "Twitter Content", "skipped", "No tweets generated");
+    await logStep(runDate, "Twitter Content", "skipped", reason);
   }
   if (batch1) {
     try {
@@ -36801,7 +36841,7 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
   }
   const hasTwitterKeys = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
   const hasLinkedInKey = !!process.env.LINKEDIN_ACCESS_TOKEN;
-  const emailSuccess = await sendAmbassadorPrimeReport({
+  const emailResult = await sendAmbassadorPrimeReport({
     runDate,
     dayName,
     theme,
@@ -36828,22 +36868,25 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     skippedSteps,
     errors
   });
-  if (emailSuccess) {
+  if (emailResult.success) {
     await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq10(ambassadorRunSummary.runDate, runDate));
     completedSteps.push("Email Report");
     await logStep(runDate, "Email Report", "completed");
   } else {
-    errors.push("Email report failed to send");
-    await logStep(runDate, "Email Report", "failed", "SendGrid error or missing key");
+    errors.push(`Email report failed to send: ${emailResult.reason ?? "Unknown error"}`);
+    await logStep(runDate, "Email Report", "failed", emailResult.reason ?? "Unknown SendGrid error");
   }
-  const success = emailSuccess;
+  const success = emailResult.success;
   const summary = `${theme.name} | ${tweetsPosted} tweets posted | ${linkedinPosts} LinkedIn | ${igCaptionsGenerated} IG captions | ${completedSteps.length} steps completed`;
   console.log(`[ambassador-prime] Run complete: ${summary}`);
   return { success, runDate, summary, completedSteps, skippedSteps, errors };
 }
 async function sendAmbassadorPrimeReport(data) {
   const sgKey = process.env.SENDGRID_API_KEY;
-  if (!sgKey) return false;
+  if (!sgKey) {
+    console.error("[ambassador-prime] SENDGRID_API_KEY not set in server environment \u2014 email report cannot be sent");
+    return { success: false, reason: "SENDGRID_API_KEY not set in server environment" };
+  }
   const noApiMode = !data.hasTwitterKeys && !data.hasLinkedInKey;
   const tweetLabel = data.hasTwitterKeys ? "Tweet" : "\u{1F426} Copy & post to Twitter";
   const tweetRows = data.tweets.map((t, i) => `
@@ -36965,10 +37008,12 @@ async function sendAmbassadorPrimeReport(data) {
       subject: `VEDD Ambassador Prime \u2014 ${data.theme.name} (${data.runDate})`,
       html
     });
-    return true;
+    return { success: true };
   } catch (e) {
-    console.error("[ambassador-prime] Email send error:", e.message);
-    return false;
+    const sgErrors = e?.response?.body?.errors;
+    const detail = Array.isArray(sgErrors) && sgErrors.length ? sgErrors.map((er) => er.message).join("; ") : e.message;
+    console.error("[ambassador-prime] Email send error:", detail);
+    return { success: false, reason: detail };
   }
 }
 function escHtml(s) {
