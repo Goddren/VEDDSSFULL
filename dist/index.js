@@ -55189,14 +55189,25 @@ Rules:
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
     let resolvedAccNum;
-    try {
-      const service = new TradeLockerService(accountType || "live", accountId, serverId);
-      await service.authenticate(email, password);
-      const accNum = service.getResolvedAccNum();
-      if (accNum && accNum !== "0") resolvedAccNum = accNum;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      return res.status(400).json({ error: `TradeLocker login failed: ${msg}` });
+    let resolvedAccountType = accountType === "demo" ? "demo" : "live";
+    const attemptOrder = resolvedAccountType === "demo" ? ["demo", "live"] : ["live", "demo"];
+    let lastErr = "Unknown error";
+    let authenticated = false;
+    for (const tryType of attemptOrder) {
+      try {
+        const service = new TradeLockerService(tryType, accountId, serverId);
+        await service.authenticate(email, password);
+        const accNum = service.getResolvedAccNum();
+        if (accNum && accNum !== "0") resolvedAccNum = accNum;
+        resolvedAccountType = tryType;
+        authenticated = true;
+        break;
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : "Unknown error";
+      }
+    }
+    if (!authenticated) {
+      return res.status(400).json({ error: `TradeLocker login failed: ${lastErr}` });
     }
     const encryptedPw = encryptPassword(password);
     const { brokerNameFromServerId: brokerNameFromServerId2 } = await Promise.resolve().then(() => (init_broker_lookup(), broker_lookup_exports));
@@ -55206,7 +55217,7 @@ Rules:
       encryptedPassword: encryptedPw,
       serverId,
       accountId,
-      accountType: accountType || "live",
+      accountType: resolvedAccountType,
       isActive: true,
       autoExecute: autoExecute || false,
       brokerName: brokerNameFromServerId2(serverId),
@@ -55220,7 +55231,12 @@ Rules:
       });
     }
     const { encryptedPassword: _, ...safeConnection } = connection2;
-    res.json({ ...safeConnection, accNum: resolvedAccNum || null });
+    const typeCorrected = resolvedAccountType !== (accountType === "demo" ? "demo" : "live");
+    res.json({
+      ...safeConnection,
+      accNum: resolvedAccNum || null,
+      ...typeCorrected ? { notice: `Connected as a ${resolvedAccountType} account \u2014 your ${accountType || "live"} selection didn't authenticate, so we tried ${resolvedAccountType} instead.` } : {}
+    });
   });
   app2.patch("/api/tradelocker/connection/:id", async (req, res) => {
     if (!req.isAuthenticated()) {

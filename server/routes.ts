@@ -14547,16 +14547,34 @@ Rules:
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
 
-    // Test connection FIRST — authenticate before encrypting anything
+    // Test connection FIRST — authenticate before encrypting anything.
+    // TradeLocker demo and live accounts live on entirely different API hosts
+    // (demo.tradelocker.com vs live.tradelocker.com) — the Account Type dropdown
+    // defaults to "Demo" and is easy to miss, so a live account with the demo
+    // type selected (or vice versa) fails auth with a generic error that looks
+    // like a credentials problem. Try the requested type first, then silently
+    // retry the other one before giving up, so a wrong dropdown selection
+    // doesn't block the connection.
     let resolvedAccNum: string | undefined;
-    try {
-      const service = new TradeLockerService(accountType || 'live', accountId, serverId);
-      await service.authenticate(email, password);
-      const accNum = service.getResolvedAccNum();
-      if (accNum && accNum !== '0') resolvedAccNum = accNum;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      return res.status(400).json({ error: `TradeLocker login failed: ${msg}` });
+    let resolvedAccountType: 'demo' | 'live' = accountType === 'demo' ? 'demo' : 'live';
+    const attemptOrder: Array<'demo' | 'live'> = resolvedAccountType === 'demo' ? ['demo', 'live'] : ['live', 'demo'];
+    let lastErr: string = 'Unknown error';
+    let authenticated = false;
+    for (const tryType of attemptOrder) {
+      try {
+        const service = new TradeLockerService(tryType, accountId, serverId);
+        await service.authenticate(email, password);
+        const accNum = service.getResolvedAccNum();
+        if (accNum && accNum !== '0') resolvedAccNum = accNum;
+        resolvedAccountType = tryType;
+        authenticated = true;
+        break;
+      } catch (err) {
+        lastErr = err instanceof Error ? err.message : 'Unknown error';
+      }
+    }
+    if (!authenticated) {
+      return res.status(400).json({ error: `TradeLocker login failed: ${lastErr}` });
     }
 
     // Encrypt password after successful auth
@@ -14569,13 +14587,13 @@ Rules:
       encryptedPassword: encryptedPw,
       serverId,
       accountId,
-      accountType: accountType || 'live',
+      accountType: resolvedAccountType,
       isActive: true,
       autoExecute: autoExecute || false,
       brokerName: brokerNameFromServerId(serverId),
       ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
     });
-    
+
     // Persist accNum and lastConnectedAt immediately
     if (resolvedAccNum) {
       await storage.updateTradelockerConnection(connection.id, {
@@ -14586,7 +14604,12 @@ Rules:
     }
     
     const { encryptedPassword: _, ...safeConnection } = connection;
-    res.json({ ...safeConnection, accNum: resolvedAccNum || null });
+    const typeCorrected = resolvedAccountType !== (accountType === 'demo' ? 'demo' : 'live');
+    res.json({
+      ...safeConnection,
+      accNum: resolvedAccNum || null,
+      ...(typeCorrected ? { notice: `Connected as a ${resolvedAccountType} account — your ${accountType || 'live'} selection didn't authenticate, so we tried ${resolvedAccountType} instead.` } : {}),
+    });
   });
 
   // PATCH by ID — update a specific connection (multi-account)

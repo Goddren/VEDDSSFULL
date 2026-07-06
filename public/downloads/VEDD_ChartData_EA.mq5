@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.94"
+#property version   "3.95"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -2932,34 +2932,50 @@ string BuildClosedTradesJson(int lookbackDays = 30)
 }
 
 //+------------------------------------------------------------------+
+//| Broker server time -> true GMT/UTC offset, in seconds.            |
+//| iTime()/TimeCurrent() return the BROKER's server clock, which for |
+//| most FX/CFD brokers is NOT UTC (commonly GMT+2/+3). The server's  |
+//| ORB 9:30 AM EST candle search assumes candle "t" timestamps are   |
+//| true UTC seconds — uncorrected, that search silently misses the   |
+//| opening-range candle on any broker not running GMT+0, so ORB      |
+//| high/low never populate even though live price ticks keep coming |
+//| through fine (those don't depend on exact timestamp matching).    |
+//+------------------------------------------------------------------+
+int GetBrokerGmtOffsetSeconds()
+{
+   return (int)(TimeGMT() - TimeCurrent());
+}
+
+//+------------------------------------------------------------------+
 //| Build JSON array of candles                                      |
 //+------------------------------------------------------------------+
 string BuildCandlesJson()
 {
    string json = "[";
    bool first = true;
-   
+   int gmtOffset = GetBrokerGmtOffsetSeconds();
+
    for(int i = 0; i < CANDLES_TO_SEND; i++)
    {
       datetime time = iTime(_Symbol, PERIOD_CURRENT, i);
       // Skip invalid candles (no data)
       if(time == 0) continue;
-      
+
       double open = iOpen(_Symbol, PERIOD_CURRENT, i);
       double high = iHigh(_Symbol, PERIOD_CURRENT, i);
       double low = iLow(_Symbol, PERIOD_CURRENT, i);
       double close = iClose(_Symbol, PERIOD_CURRENT, i);
       long volume = iVolume(_Symbol, PERIOD_CURRENT, i);
-      
+
       // Skip candles with no price data
       if(open == 0 && high == 0 && low == 0 && close == 0) continue;
-      
+
       if(!first) json += ",";
       first = false;
-      
+
       json += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
-         time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
+         time + gmtOffset, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
    }
    
@@ -3136,7 +3152,8 @@ string BuildMultiTimeframeJson()
 string BuildTimeframeData(ENUM_TIMEFRAMES tf)
 {
    int candleCount = 30; // Fewer candles for additional timeframes
-   
+   int gmtOffset = GetBrokerGmtOffsetSeconds();
+
    // Get candles - skip invalid ones
    string candlesJson = "[";
    bool first = true;
@@ -3145,22 +3162,22 @@ string BuildTimeframeData(ENUM_TIMEFRAMES tf)
       datetime time = iTime(_Symbol, tf, i);
       // Skip if no data for this timeframe
       if(time == 0) continue;
-      
+
       double open = iOpen(_Symbol, tf, i);
       double high = iHigh(_Symbol, tf, i);
       double low = iLow(_Symbol, tf, i);
       double close = iClose(_Symbol, tf, i);
       long volume = iVolume(_Symbol, tf, i);
-      
+
       // Skip candles with no price data
       if(open == 0 && high == 0 && low == 0 && close == 0) continue;
-      
+
       if(!first) candlesJson += ",";
       first = false;
-      
+
       candlesJson += StringFormat(
          "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
-         time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
+         time + gmtOffset, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
       );
    }
    candlesJson += "]";

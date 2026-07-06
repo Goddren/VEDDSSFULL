@@ -467,12 +467,15 @@ export default function WebhooksPage() {
       const res = await apiRequest('POST', '/api/tradelocker/connection', data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connections'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tradelocker/connection'] });
       setTLConnectionForm({ email: '', password: '', serverId: '', accountId: '', accountType: 'demo', autoExecute: false });
       setShowAddForm(false);
-      toast({ title: "TradeLocker connected", description: "Account linked for trade execution." });
+      toast({
+        title: "TradeLocker connected",
+        description: data?.notice || "Account linked for trade execution.",
+      });
     },
     onError: (error) => {
       // error.message is "400: {"error":"..."}" — extract the inner message
