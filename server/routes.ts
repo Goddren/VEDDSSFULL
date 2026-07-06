@@ -25336,6 +25336,47 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ─── SEO: sitemap.xml + robots.txt ──────────────────────────────────────────
+  const SEO_BASE_URL = 'https://veddbuild.com';
+
+  app.get("/sitemap.xml", async (_req, res) => {
+    try {
+      const posts = await storage.getBlogPosts({ isPublished: true });
+      const staticPaths = ['', '/blog', '/auth', '/about', '/contact', '/subscription'];
+      const urls: string[] = staticPaths.map(p => `
+  <url>
+    <loc>${SEO_BASE_URL}${p}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>${p === '' ? '1.0' : '0.6'}</priority>
+  </url>`);
+
+      for (const post of posts) {
+        const lastmod = new Date(post.updatedAt || post.publishedAt || post.createdAt).toISOString();
+        urls.push(`
+  <url>
+    <loc>${SEO_BASE_URL}/blog/${post.slug}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>`);
+      }
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}
+</urlset>`;
+
+      res.set('Content-Type', 'application/xml').send(xml);
+    } catch (err: any) {
+      res.status(500).send('');
+    }
+  });
+
+  app.get("/robots.txt", (_req, res) => {
+    res.set('Content-Type', 'text/plain').send(
+      `User-agent: *\nAllow: /\n\nSitemap: ${SEO_BASE_URL}/sitemap.xml\n`
+    );
+  });
+
   // ─── BLOG ───────────────────────────────────────────────────────────────────
 
   // GET /api/blog — list published posts (public)
@@ -25368,6 +25409,34 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       // Increment view count async (don't await)
       storage.incrementBlogPostViews(post.id).catch(() => {});
       res.json(post);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/blog/newsletter/subscribe — public email capture, no auth required
+  app.post("/api/blog/newsletter/subscribe", async (req, res) => {
+    try {
+      const { email, referralCode, sourceSlug } = req.body as { email?: string; referralCode?: string; sourceSlug?: string };
+      const trimmed = (email || "").trim().toLowerCase();
+      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+      if (!isValidEmail) return res.status(400).json({ error: "Please enter a valid email address" });
+
+      const existing = await storage.getBlogNewsletterSubscriberByEmail(trimmed);
+      if (existing) {
+        if (existing.status === 'unsubscribed') {
+          const resubscribed = await storage.resubscribeBlogNewsletter(trimmed);
+          return res.json({ subscribed: true, subscriber: resubscribed });
+        }
+        return res.json({ subscribed: true, alreadySubscribed: true, subscriber: existing });
+      }
+
+      const created = await storage.createBlogNewsletterSubscriber({
+        email: trimmed,
+        referralCode: referralCode || null,
+        sourceSlug: sourceSlug || null,
+      } as any);
+      res.status(201).json({ subscribed: true, subscriber: created });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

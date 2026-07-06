@@ -195,6 +195,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureOptionsTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure blog lead-gen tables exist (newsletter capture, etc.)
+  try {
+    const { ensureBlogTables } = await import('./services/ensure-blog-tables');
+    await ensureBlogTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureBlogTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

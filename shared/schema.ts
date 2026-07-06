@@ -2508,6 +2508,25 @@ export type BlogPost = typeof blogPosts.$inferSelect;
 export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
 export type InsertTokenInvestment = z.infer<typeof insertTokenInvestmentSchema>;
 
+// Anonymous blog newsletter capture — separate from user accounts. Lets a
+// visitor who isn't ready to sign up yet still leave an email, and lets us
+// track which referral code (if any) brought them in.
+export const blogNewsletterSubscribers = pgTable("blog_newsletter_subscribers", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  referralCode: text("referral_code"),
+  sourceSlug: text("source_slug"), // which article they subscribed from
+  status: text("status").notNull().default('subscribed'), // 'subscribed' | 'unsubscribed'
+  subscribedAt: timestamp("subscribed_at").defaultNow().notNull(),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+});
+
+export const insertBlogNewsletterSubscriberSchema = createInsertSchema(blogNewsletterSubscribers).omit({
+  id: true, subscribedAt: true, unsubscribedAt: true,
+});
+export type BlogNewsletterSubscriber = typeof blogNewsletterSubscribers.$inferSelect;
+export type InsertBlogNewsletterSubscriber = z.infer<typeof insertBlogNewsletterSubscriberSchema>;
+
 // ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────
 
 export const ambassadorJourney = pgTable("ambassador_journey", {

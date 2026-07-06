@@ -6,6 +6,7 @@ import { type Server } from "http";
 import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 import { SERVER_START_VERSION } from "./version";
+import { injectBlogSeoMeta } from "./services/blog-seo";
 
 const viteLogger = createLogger();
 // stable version stamp set once at server start — prevents Vite HMR infinite reload loop
@@ -61,7 +62,8 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`,
       );
-      const page = await vite.transformIndexHtml(url, template);
+      let page = await vite.transformIndexHtml(url, template);
+      page = await injectBlogSeoMeta(page, url);
       res.status(200).set({
         "Content-Type": "text/html",
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -144,7 +146,7 @@ export function serveStatic(app: Express) {
 })();
 </script>`;
 
-  app.use("*", async (_req, res) => {
+  app.use("*", async (req, res) => {
     try {
       res.set({
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -153,6 +155,7 @@ export function serveStatic(app: Express) {
         "Content-Type": "text/html; charset=utf-8",
       });
       let html = await fs.promises.readFile(indexPath, "utf-8");
+      html = await injectBlogSeoMeta(html, req.originalUrl);
       // Inject version check as the very first thing inside <head>
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);

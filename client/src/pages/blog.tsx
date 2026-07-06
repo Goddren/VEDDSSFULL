@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link } from 'wouter';
+import { Link, useParams, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -194,7 +194,7 @@ function SharePanel({ post, referralCode, onClose }: {
   const [tab,            setTab]            = useState<'breaking' | 'share'>('breaking');
 
   const signupUrl  = referralCode ? `${window.location.origin}/auth?ref=${referralCode}` : `${window.location.origin}/auth`;
-  const articleUrl = referralCode ? `${window.location.origin}/blog?ref=${referralCode}` : `${window.location.origin}/blog`;
+  const articleUrl = referralCode ? `${window.location.origin}/blog/${post.slug}?ref=${referralCode}` : `${window.location.origin}/blog/${post.slug}`;
   const plain      = post.excerpt || truncate(stripHtml(post.content || ''), 220);
   const snippet    = truncate(plain, 220);
 
@@ -394,9 +394,55 @@ function ContentGate({ referralCode }: { referralCode?: string | null }) {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-function Sidebar({ posts, referralCode, activeCategory, onCategory }: {
+function NewsletterForm({ referralCode, sourceSlug }: { referralCode?: string | null; sourceSlug?: string }) {
+  const [email, setEmail] = useState('');
+  const [state, setState] = useState<'idle' | 'success' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const subscribe = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/blog/newsletter/subscribe', { email, referralCode, sourceSlug });
+      return res.json();
+    },
+    onSuccess: () => { setState('success'); trackReward('newsletter_subscribe'); },
+    onError: (err: any) => { setState('error'); setErrorMsg(err?.message || 'Something went wrong — try again.'); },
+  });
+
+  if (state === 'success') {
+    return (
+      <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+        <Check className="h-3.5 w-3.5" /> You're in! Watch your inbox for market insights.
+      </p>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(e) => { e.preventDefault(); if (email.trim()) subscribe.mutate(); }}
+    >
+      <Input
+        type="email"
+        required
+        placeholder="you@email.com"
+        value={email}
+        onChange={(e) => { setEmail(e.target.value); setState('idle'); }}
+        className="h-8 text-xs bg-black/30 border-gray-600"
+      />
+      <Button type="submit" size="sm" disabled={subscribe.isPending} variant="outline"
+        className="w-full text-xs border-gray-600 hover:border-red-600 hover:text-red-400">
+        {subscribe.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Mail className="h-3 w-3 mr-1" />}
+        Subscribe Free
+      </Button>
+      {state === 'error' && <p className="text-[10px] text-red-400">{errorMsg}</p>}
+    </form>
+  );
+}
+
+function Sidebar({ posts, referralCode, activeCategory, onCategory, sourceSlug }: {
   posts: BlogPost[]; referralCode?: string | null;
   activeCategory: string; onCategory: (c: string) => void;
+  sourceSlug?: string;
 }) {
   const signupUrl = referralCode ? `/auth?ref=${referralCode}` : '/auth';
 
@@ -444,11 +490,7 @@ function Sidebar({ posts, referralCode, activeCategory, onCategory }: {
           <h3 className="text-sm font-bold text-white">Trading Alerts</h3>
         </div>
         <p className="text-xs text-gray-400">Get AI market insights & article drops delivered weekly.</p>
-        <Link href={signupUrl}>
-          <Button size="sm" variant="outline" className="w-full text-xs border-gray-600 hover:border-red-600 hover:text-red-400">
-            <Mail className="h-3 w-3 mr-1" /> Subscribe Free
-          </Button>
-        </Link>
+        <NewsletterForm referralCode={referralCode} sourceSlug={sourceSlug} />
       </div>
 
       {/* Categories */}
@@ -588,11 +630,9 @@ function HeroPost({ post, isAdmin, isAmbassador, referralCode, onDelete, onToggl
             <span className="flex items-center gap-1"><Eye className="h-3 w-3" />{post.viewCount ?? 0}</span>
           </div>
           <div className="flex items-center gap-2 ml-auto" onClick={e => e.stopPropagation()}>
-            {(isAmbassador || isAdmin) && (
-              <button onClick={() => setShareOpen(s => !s)} className="text-xs text-gray-400 hover:text-red-400 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-900/10 transition-all">
-                <Share2 className="h-3.5 w-3.5" /> Share
-              </button>
-            )}
+            <button onClick={() => setShareOpen(s => !s)} className="text-xs text-gray-400 hover:text-red-400 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-red-900/10 transition-all">
+              <Share2 className="h-3.5 w-3.5" /> Share
+            </button>
             <button onClick={() => onRead(post)} className="text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition-all"
               style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)', color: 'white' }}>
               <BookOpen className="h-3 w-3" /> Read Now
@@ -662,11 +702,9 @@ function PostCard({ post, isAdmin, isAmbassador, referralCode, onDelete, onToggl
             <span className="flex items-center gap-0.5 flex-shrink-0"><Clock className="h-2.5 w-2.5" />{post.readTime}</span>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-            {(isAmbassador || isAdmin) && (
-              <button onClick={() => setShareOpen(s => !s)} className={`p-1.5 rounded-lg transition-all ${shareOpen ? 'text-red-400 bg-red-900/20' : 'text-gray-600 hover:text-red-400 hover:bg-red-900/10'}`}>
-                <Share2 className="h-3.5 w-3.5" />
-              </button>
-            )}
+            <button onClick={() => setShareOpen(s => !s)} className={`p-1.5 rounded-lg transition-all ${shareOpen ? 'text-red-400 bg-red-900/20' : 'text-gray-600 hover:text-red-400 hover:bg-red-900/10'}`}>
+              <Share2 className="h-3.5 w-3.5" />
+            </button>
             <button onClick={() => onRead(post)} className="text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-0.5 transition-all"
               style={{ background: 'rgba(220,38,38,.15)', border: '1px solid rgba(220,38,38,.3)', color: '#f87171' }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,38,38,.3)'; }}
@@ -687,14 +725,23 @@ function PostCard({ post, isAdmin, isAmbassador, referralCode, onDelete, onToggl
 }
 
 // ─── Full Article Reader ───────────────────────────────────────────────────────
-function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare }: {
+function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare, allPosts = [], onOpenArticle }: {
   post: BlogPost; isLoggedIn: boolean; referralCode?: string | null;
   onClose: () => void; onShare: () => void;
+  allPosts?: BlogPost[]; onOpenArticle?: (post: BlogPost) => void;
 }) {
   const [shareOpen, setShareOpen] = useState(false);
   const cs = catStyle(post.category);
   const plain = stripHtml(post.content || '');
   const previewWords = plain.split(' ').slice(0, 80).join(' ') + '…';
+
+  const related = allPosts
+    .filter(p => p.id !== post.id)
+    .map(p => ({ p, score: p.category === post.category ? 2 : (p.tags || []).some(t => (post.tags || []).includes(t)) ? 1 : 0 }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map(x => x.p);
 
   return (
     <div className="fixed inset-0 z-[9999] overflow-y-auto" style={{ background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(6px)' }}>
@@ -768,6 +815,26 @@ function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare }: {
               {post.tags.map(t => (
                 <span key={t} className="text-[11px] text-gray-500 bg-gray-800/60 border border-gray-700 px-2 py-0.5 rounded-full">#{t}</span>
               ))}
+            </div>
+          )}
+
+          {/* Related articles */}
+          {related.length > 0 && (
+            <div className="mt-8 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,.06)' }}>
+              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2"><BookOpen className="h-4 w-4 text-red-400" /> Keep Reading</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {related.map(rp => (
+                  <button key={rp.id} onClick={() => onOpenArticle?.(rp)}
+                    className="text-left rounded-xl p-3 transition-all hover:border-red-700/50"
+                    style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)' }}>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: catStyle(rp.category).bg, color: catStyle(rp.category).text }}>
+                      {rp.category}
+                    </span>
+                    <p className="text-xs font-semibold text-white mt-2 leading-snug line-clamp-2">{rp.title}</p>
+                    <p className="text-[10px] text-gray-500 mt-1.5 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{rp.readTime}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -926,10 +993,38 @@ export default function BlogPage() {
   const [activeCategory, setActiveCategory]         = useState('All');
   const [readingPost,    setReadingPost]             = useState<BlogPost | null>(null);
 
+  // Real per-article route (/blog/:slug) so articles are deep-linkable,
+  // bookmarkable, and crawlable instead of living only in React state.
+  const params                = useParams<{ slug?: string }>();
+  const slug                  = params?.slug;
+  const [, setLocation]       = useLocation();
+
   const { data: posts = [], isLoading, isError } = useQuery<BlogPost[]>({
     queryKey: ['/api/blog'],
     queryFn: async () => { const res = await apiRequest('GET', '/api/blog'); return res.json(); },
   });
+
+  // Resolve the article for a direct /blog/:slug visit via the single-post
+  // endpoint (also increments its view count) rather than relying on it
+  // already being present in the listing query.
+  const { data: slugPost } = useQuery<BlogPost>({
+    queryKey: ['/api/blog/slug', slug],
+    queryFn: async () => { const res = await apiRequest('GET', `/api/blog/${slug}`); return res.json(); },
+    enabled: !!slug,
+  });
+
+  useEffect(() => {
+    if (slug && slugPost) {
+      setReadingPost(slugPost);
+      document.title = `${slugPost.title} | VEDD Trading AI`;
+    } else if (!slug) {
+      setReadingPost(null);
+      document.title = 'VEDD AI Trading Vault | Blog';
+    }
+  }, [slug, slugPost]);
+
+  const openArticle = (post: BlogPost) => setLocation(`/blog/${post.slug}`);
+  const closeArticle = () => setLocation('/blog');
 
   const deleteMutation      = useMutation({ mutationFn: async (id: number) => { await apiRequest('DELETE', `/api/blog/${id}`); }, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/blog'] }) });
   const togglePublishMut    = useMutation({ mutationFn: async (id: number) => { const r = await apiRequest('PATCH', `/api/blog/${id}/publish`); return r.json(); }, onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/blog'] }) });
@@ -953,8 +1048,10 @@ export default function BlogPage() {
               post={readingPost}
               isLoggedIn={isLoggedIn}
               referralCode={referralCode}
-              onClose={() => setReadingPost(null)}
+              onClose={closeArticle}
               onShare={() => {}}
+              allPosts={posts}
+              onOpenArticle={openArticle}
             />
           </motion.div>
         )}
@@ -1035,7 +1132,7 @@ export default function BlogPage() {
                   onDelete={id => { if(confirm('Delete?')) deleteMutation.mutate(id); }}
                   onTogglePublish={id => togglePublishMut.mutate(id)}
                   onToggleFeature={id => toggleFeatureMut.mutate(id)}
-                  onRead={setReadingPost}
+                  onRead={openArticle}
                 />
               )}
 
@@ -1049,7 +1146,7 @@ export default function BlogPage() {
                         onDelete={id => { if(confirm('Delete?')) deleteMutation.mutate(id); }}
                         onTogglePublish={id => togglePublishMut.mutate(id)}
                         onToggleFeature={id => toggleFeatureMut.mutate(id)}
-                        onRead={setReadingPost}
+                        onRead={openArticle}
                       />
                       {/* Inject ad banners after every 4 posts */}
                       {(idx + 1) % 4 === 0 && idx < gridPosts.length - 1 && (
@@ -1091,6 +1188,7 @@ export default function BlogPage() {
                 <Sidebar
                   posts={posts} referralCode={referralCode}
                   activeCategory={activeCategory} onCategory={setActiveCategory}
+                  sourceSlug={slug}
                 />
               </div>
             </div>

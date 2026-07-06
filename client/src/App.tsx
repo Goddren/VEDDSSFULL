@@ -209,6 +209,7 @@ function AppLayout() {
             <Route path="/reset-password" component={ResetPasswordPage} />
             <Route path="/subscription" component={SubscriptionPage} />
             <Route path="/blog" component={BlogPage} />
+            <Route path="/blog/:slug" component={BlogPage} />
             <Route path="/shared/:shareId" component={SharedAnalysisPage} />
             <Route path="/share/:slug" component={EASharePage} />
             <Route path="/volatility-meter" component={VolatilityMeterShowcase} />

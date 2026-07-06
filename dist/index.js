@@ -74,6 +74,7 @@ __export(schema_exports, {
   bizNameChecks: () => bizNameChecks,
   bizProfiles: () => bizProfiles,
   bizStatusEnum: () => bizStatusEnum,
+  blogNewsletterSubscribers: () => blogNewsletterSubscribers,
   blogPosts: () => blogPosts,
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
@@ -126,6 +127,7 @@ __export(schema_exports, {
   insertAnalysisFeedbackSchema: () => insertAnalysisFeedbackSchema,
   insertAuditLogSchema: () => insertAuditLogSchema,
   insertBiasReportSchema: () => insertBiasReportSchema,
+  insertBlogNewsletterSubscriberSchema: () => insertBlogNewsletterSubscriberSchema,
   insertBlogPostSchema: () => insertBlogPostSchema,
   insertChartAnalysisSchema: () => insertChartAnalysisSchema,
   insertCommunityPartnershipSchema: () => insertCommunityPartnershipSchema,
@@ -258,7 +260,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2644,6 +2646,22 @@ var init_schema = __esm({
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
     insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true });
+    blogNewsletterSubscribers = pgTable("blog_newsletter_subscribers", {
+      id: serial("id").primaryKey(),
+      email: text("email").notNull().unique(),
+      referralCode: text("referral_code"),
+      sourceSlug: text("source_slug"),
+      // which article they subscribed from
+      status: text("status").notNull().default("subscribed"),
+      // 'subscribed' | 'unsubscribed'
+      subscribedAt: timestamp("subscribed_at").defaultNow().notNull(),
+      unsubscribedAt: timestamp("unsubscribed_at")
+    });
+    insertBlogNewsletterSubscriberSchema = createInsertSchema(blogNewsletterSubscribers).omit({
+      id: true,
+      subscribedAt: true,
+      unsubscribedAt: true
+    });
     ambassadorJourney = pgTable("ambassador_journey", {
       id: serial("id").primaryKey(),
       userId: integer("user_id").references(() => users.id).notNull().unique(),
@@ -4984,6 +5002,18 @@ var init_storage = __esm({
       }
       async incrementBlogPostViews(id) {
         await db.execute(sql`UPDATE blog_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ${id}`);
+      }
+      async createBlogNewsletterSubscriber(sub) {
+        const [created] = await db.insert(blogNewsletterSubscribers).values(sub).returning();
+        return created;
+      }
+      async getBlogNewsletterSubscriberByEmail(email) {
+        const [sub] = await db.select().from(blogNewsletterSubscribers).where(eq(blogNewsletterSubscribers.email, email));
+        return sub;
+      }
+      async resubscribeBlogNewsletter(email) {
+        const [updated] = await db.update(blogNewsletterSubscribers).set({ status: "subscribed", unsubscribedAt: null }).where(eq(blogNewsletterSubscribers.email, email)).returning();
+        return updated;
       }
       // ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────
       async getAmbassadorJourney(userId) {
@@ -37032,6 +37062,38 @@ CREATE TABLE IF NOT EXISTS "options_engine_trades" (
   }
 });
 
+// server/services/ensure-blog-tables.ts
+var ensure_blog_tables_exports = {};
+__export(ensure_blog_tables_exports, {
+  ensureBlogTables: () => ensureBlogTables
+});
+async function ensureBlogTables() {
+  try {
+    await pool.query(DDL2);
+    console.log("[startup] Blog lead-gen tables ensured (blog_newsletter_subscribers).");
+  } catch (err) {
+    console.error("[startup] ensureBlogTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL2;
+var init_ensure_blog_tables = __esm({
+  "server/services/ensure-blog-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL2 = `
+CREATE TABLE IF NOT EXISTS "blog_newsletter_subscribers" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "email" text NOT NULL UNIQUE,
+  "referral_code" text,
+  "source_slug" text,
+  "status" text NOT NULL DEFAULT 'subscribed',
+  "subscribed_at" timestamp DEFAULT now() NOT NULL,
+  "unsubscribed_at" timestamp
+);
+`;
+  }
+});
+
 // server/services/options-scanner.ts
 var options_scanner_exports = {};
 __export(options_scanner_exports, {
@@ -63932,6 +63994,44 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ message: err.message });
     }
   });
+  const SEO_BASE_URL = "https://veddbuild.com";
+  app2.get("/sitemap.xml", async (_req, res) => {
+    try {
+      const posts = await storage.getBlogPosts({ isPublished: true });
+      const staticPaths = ["", "/blog", "/auth", "/about", "/contact", "/subscription"];
+      const urls = staticPaths.map((p) => `
+  <url>
+    <loc>${SEO_BASE_URL}${p}</loc>
+    <changefreq>weekly</changefreq>
+    <priority>${p === "" ? "1.0" : "0.6"}</priority>
+  </url>`);
+      for (const post of posts) {
+        const lastmod = new Date(post.updatedAt || post.publishedAt || post.createdAt).toISOString();
+        urls.push(`
+  <url>
+    <loc>${SEO_BASE_URL}/blog/${post.slug}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>`);
+      }
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join("")}
+</urlset>`;
+      res.set("Content-Type", "application/xml").send(xml);
+    } catch (err) {
+      res.status(500).send("");
+    }
+  });
+  app2.get("/robots.txt", (_req, res) => {
+    res.set("Content-Type", "text/plain").send(
+      `User-agent: *
+Allow: /
+
+Sitemap: ${SEO_BASE_URL}/sitemap.xml
+`
+    );
+  });
   app2.get("/api/blog", async (req, res) => {
     try {
       const category = typeof req.query.category === "string" ? req.query.category : void 0;
@@ -63957,6 +64057,30 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       storage.incrementBlogPostViews(post.id).catch(() => {
       });
       res.json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/blog/newsletter/subscribe", async (req, res) => {
+    try {
+      const { email, referralCode, sourceSlug } = req.body;
+      const trimmed = (email || "").trim().toLowerCase();
+      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+      if (!isValidEmail) return res.status(400).json({ error: "Please enter a valid email address" });
+      const existing = await storage.getBlogNewsletterSubscriberByEmail(trimmed);
+      if (existing) {
+        if (existing.status === "unsubscribed") {
+          const resubscribed = await storage.resubscribeBlogNewsletter(trimmed);
+          return res.json({ subscribed: true, subscriber: resubscribed });
+        }
+        return res.json({ subscribed: true, alreadySubscribed: true, subscriber: existing });
+      }
+      const created = await storage.createBlogNewsletterSubscriber({
+        email: trimmed,
+        referralCode: referralCode || null,
+        sourceSlug: sourceSlug || null
+      });
+      res.status(201).json({ subscribed: true, subscriber: created });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -66150,6 +66274,70 @@ var vite_config_default = defineConfig({
 
 // server/vite.ts
 import { nanoid } from "nanoid";
+
+// server/services/blog-seo.ts
+init_storage();
+var BASE_URL2 = "https://veddbuild.com";
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function stripHtml(html) {
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+async function injectBlogSeoMeta(html, url) {
+  const match = url.match(/^\/blog\/([^/?]+)/);
+  if (!match) return html;
+  let post;
+  try {
+    const slug = decodeURIComponent(match[1]);
+    post = await storage.getBlogPostBySlug(slug);
+  } catch {
+    return html;
+  }
+  if (!post || !post.isPublished) return html;
+  const title = escapeHtml(`${post.title} | VEDD AI Trading Vault`);
+  const description = escapeHtml(
+    (post.excerpt || stripHtml(post.content || "")).slice(0, 200)
+  );
+  const pageUrl = `${BASE_URL2}/blog/${post.slug}`;
+  const image = post.coverImage ? String(post.coverImage).startsWith("http") ? post.coverImage : `${BASE_URL2}${post.coverImage}` : `${BASE_URL2}/og-image.png`;
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    "headline": post.title,
+    "description": post.excerpt || void 0,
+    "image": image,
+    "datePublished": post.publishedAt ? new Date(post.publishedAt).toISOString() : void 0,
+    "dateModified": post.updatedAt ? new Date(post.updatedAt).toISOString() : void 0,
+    "author": { "@type": "Organization", "name": "VEDD AI" },
+    "publisher": {
+      "@type": "Organization",
+      "name": "VEDD AI Trading Vault",
+      "logo": { "@type": "ImageObject", "url": `${BASE_URL2}/icons/icon-192x192.png` }
+    },
+    "mainEntityOfPage": { "@type": "WebPage", "@id": pageUrl }
+  };
+  let out = html;
+  out = out.replace(/<title>.*?<\/title>/s, `<title>${title}</title>`);
+  out = out.replace(/<meta name="description" content=".*?"\s*\/>/s, `<meta name="description" content="${description}" />`);
+  out = out.replace(/<link rel="canonical" href=".*?"\s*\/>/s, `<link rel="canonical" href="${pageUrl}" />`);
+  out = out.replace(/<meta property="og:type" content=".*?"\s*\/>/s, `<meta property="og:type" content="article" />`);
+  out = out.replace(/<meta property="og:url" content=".*?"\s*\/>/s, `<meta property="og:url" content="${pageUrl}" />`);
+  out = out.replace(/<meta property="og:title" content=".*?"\s*\/>/s, `<meta property="og:title" content="${title}" />`);
+  out = out.replace(/<meta property="og:description" content=".*?"\s*\/>/s, `<meta property="og:description" content="${description}" />`);
+  out = out.replace(/<meta property="og:image" content=".*?"\s*\/>/s, `<meta property="og:image" content="${image}" />`);
+  out = out.replace(/<meta name="twitter:url" content=".*?"\s*\/>/s, `<meta name="twitter:url" content="${pageUrl}" />`);
+  out = out.replace(/<meta name="twitter:title" content=".*?"\s*\/>/s, `<meta name="twitter:title" content="${title}" />`);
+  out = out.replace(/<meta name="twitter:description" content=".*?"\s*\/>/s, `<meta name="twitter:description" content="${description}" />`);
+  out = out.replace(/<meta name="twitter:image" content=".*?"\s*\/>/s, `<meta name="twitter:image" content="${image}" />`);
+  out = out.replace(
+    /<script type="application\/ld\+json">[\s\S]*?<\/script>/,
+    `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`
+  );
+  return out;
+}
+
+// server/vite.ts
 var viteLogger = createLogger();
 var TEMPLATE_VERSION = nanoid();
 function log(message, source = "express") {
@@ -66194,7 +66382,8 @@ async function setupVite(app2, server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
       );
-      const page = await vite.transformIndexHtml(url, template);
+      let page = await vite.transformIndexHtml(url, template);
+      page = await injectBlogSeoMeta(page, url);
       res.status(200).set({
         "Content-Type": "text/html",
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -66256,7 +66445,7 @@ function serveStatic(app2) {
   }catch(e){}
 })();
 </script>`;
-  app2.use("*", async (_req, res) => {
+  app2.use("*", async (req, res) => {
     try {
       res.set({
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -66265,6 +66454,7 @@ function serveStatic(app2) {
         "Content-Type": "text/html; charset=utf-8"
       });
       let html = await fs10.promises.readFile(indexPath, "utf-8");
+      html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
     } catch {
@@ -67252,6 +67442,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureOptionsTables2();
   } catch (err) {
     console.error(`[startup] ensureOptionsTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureBlogTables: ensureBlogTables2 } = await Promise.resolve().then(() => (init_ensure_blog_tables(), ensure_blog_tables_exports));
+    await ensureBlogTables2();
+  } catch (err) {
+    console.error(`[startup] ensureBlogTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     await registerRoutes(app, httpServer);

@@ -74,6 +74,7 @@ import {
   type SocialLeadScan, type InsertSocialLeadScan,
   blogPosts,
   type BlogPost, type InsertBlogPost,
+  blogNewsletterSubscribers, type BlogNewsletterSubscriber, type InsertBlogNewsletterSubscriber,
   ambassadorJourney, ambassadorDailyActions,
   type AmbassadorJourney, type InsertAmbassadorJourney,
   type AmbassadorDailyAction,
@@ -539,6 +540,9 @@ export interface IStorage {
   updateBlogPost(id: number, data: Partial<InsertBlogPost>): Promise<BlogPost>;
   deleteBlogPost(id: number): Promise<void>;
   incrementBlogPostViews(id: number): Promise<void>;
+  createBlogNewsletterSubscriber(sub: InsertBlogNewsletterSubscriber): Promise<BlogNewsletterSubscriber>;
+  getBlogNewsletterSubscriberByEmail(email: string): Promise<BlogNewsletterSubscriber | undefined>;
+  resubscribeBlogNewsletter(email: string): Promise<BlogNewsletterSubscriber>;
 
   // Ambassador Free Path Journey
   getAmbassadorJourney(userId: number): Promise<AmbassadorJourney | undefined>;
@@ -3384,6 +3388,24 @@ export class DatabaseStorage implements IStorage {
 
   async incrementBlogPostViews(id: number): Promise<void> {
     await db.execute(sql`UPDATE blog_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ${id}`);
+  }
+
+  async createBlogNewsletterSubscriber(sub: InsertBlogNewsletterSubscriber): Promise<BlogNewsletterSubscriber> {
+    const [created] = await db.insert(blogNewsletterSubscribers).values(sub as any).returning();
+    return created;
+  }
+
+  async getBlogNewsletterSubscriberByEmail(email: string): Promise<BlogNewsletterSubscriber | undefined> {
+    const [sub] = await db.select().from(blogNewsletterSubscribers).where(eq(blogNewsletterSubscribers.email, email));
+    return sub;
+  }
+
+  async resubscribeBlogNewsletter(email: string): Promise<BlogNewsletterSubscriber> {
+    const [updated] = await db.update(blogNewsletterSubscribers)
+      .set({ status: 'subscribed', unsubscribedAt: null })
+      .where(eq(blogNewsletterSubscribers.email, email))
+      .returning();
+    return updated;
   }
 
   // ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────
