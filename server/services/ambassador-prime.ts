@@ -15,9 +15,11 @@ import {
   ambassadorBonusContent,
   ambassadorCommunityContent,
   ambassadorRunStepLog,
+  devotionals,
 } from '../../shared/schema';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql as drizzleSql } from 'drizzle-orm';
 import { OpenAI } from 'openai';
+import { saveMarketBriefing, currentWeekStartDate, clampConfidenceBoost, type BriefingPair } from './ambassador-market-briefing';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const REFERRAL_LINK = 'https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511';
@@ -231,7 +233,7 @@ async function scrapeRedditInsights(theme: string): Promise<{ posts: any[]; erro
 }
 
 // ── Free RSS news feed scraper (no key required) ─────────────────────────────
-async function scrapeNewsRSS(theme: string): Promise<string[]> {
+async function scrapeNewsRSS(theme: string, pairSymbols: string[] = []): Promise<string[]> {
   const headlines: string[] = [];
   const keywords = encodeURIComponent(`trading ${theme.split(' ').slice(0, 2).join(' ')}`);
 
@@ -240,6 +242,11 @@ async function scrapeNewsRSS(theme: string): Promise<string[]> {
     `https://news.google.com/rss/search?q=${keywords}+trading+forex&hl=en-US&gl=US&ceid=US:en`,
     // Yahoo Finance RSS
     `https://finance.yahoo.com/news/rssindex`,
+    // Pair-specific search — grounds the research in this week's ACTUAL
+    // pairs (from the weekly plan) instead of only the generic theme angle.
+    ...pairSymbols.slice(0, 3).map(sym =>
+      `https://news.google.com/rss/search?q=${encodeURIComponent(sym)}+forex&hl=en-US&gl=US&ceid=US:en`
+    ),
   ];
 
   const headers = { 'User-Agent': 'VEDD-Ambassador-Prime/1.0' };
@@ -440,6 +447,192 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
   }
 }
 
+// ── Weekly Market Briefing ────────────────────────────────────────────────────
+// Ties Ambassador Prime's content to the actual pairs traders picked for the
+// week, and feeds the resulting narrative + per-pair conviction back into the
+// SS AI Engine's confirmation prompt (see ambassador-market-briefing.ts and
+// its usage in openai.ts's buildConfirmationPrompt).
+
+interface WeeklyPairTally { symbol: string; direction: 'BUY' | 'SELL' | 'BOTH'; mentionCount: number }
+
+// Aggregates across EVERY user's weekly plan (global.mt5WeeklyStrategies),
+// not just one account — Ambassador Prime is a system-wide job, so "this
+// week's featured pairs" means whatever the VEDD community is actually
+// trading, not any single user's plan.
+function aggregateWeeklyPairs(): WeeklyPairTally[] {
+  const strategies = (global as any).mt5WeeklyStrategies || {};
+  const tally: Record<string, { symbol: string; directions: Record<string, number>; mentionCount: number }> = {};
+
+  for (const userId of Object.keys(strategies)) {
+    const weeklyPlan = strategies[userId]?.plan?.weeklyPlan;
+    if (!weeklyPlan) continue;
+    for (const day of Object.keys(weeklyPlan)) {
+      const pairs = weeklyPlan[day]?.pairs || [];
+      for (const p of pairs) {
+        const sym = (p.symbol || '').toUpperCase().replace('/', '');
+        // USD-quoted pairs only (EURUSD, GBPUSD, XAUUSD, etc.) — Ambassador
+        // Prime's content is scoped to USD majors, not cross-pairs (EURGBP),
+        // indices (US30), or other non-USD instruments the weekly plan may
+        // also include.
+        if (!sym || !sym.includes('USD')) continue;
+        if (!tally[sym]) tally[sym] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
+        tally[sym].mentionCount++;
+        const dir = (p.direction || 'BOTH').toUpperCase();
+        tally[sym].directions[dir] = (tally[sym].directions[dir] || 0) + 1;
+      }
+    }
+  }
+
+  return Object.values(tally)
+    .sort((a, b) => b.mentionCount - a.mentionCount)
+    .slice(0, 8) // top 8 most-featured pairs this week — keeps the AI prompt focused
+    .map(t => {
+      const bestDir = Object.entries(t.directions).sort((a, b) => b[1] - a[1])[0]?.[0] as 'BUY' | 'SELL' | 'BOTH' | undefined;
+      return { symbol: t.symbol, direction: bestDir || 'BOTH', mentionCount: t.mentionCount };
+    });
+}
+
+async function generateWeeklyBriefing(redditContext: string, weeklyPairs: WeeklyPairTally[]): Promise<{ narrativeText: string; pairs: BriefingPair[] }> {
+  if (weeklyPairs.length === 0) {
+    return { narrativeText: 'No weekly pairs selected across active accounts yet — check back once weekly plans are generated.', pairs: [] };
+  }
+
+  const pairsList = weeklyPairs.map(p => `${p.symbol} (${p.direction}, featured ${p.mentionCount}x this week)`).join(', ');
+  const sys = `You are VEDD's market analyst, writing for traders using VEDD AI Trading Vault (veddbuild.com). Be specific and grounded — no generic hype.`;
+  const raw = await callAI(sys, `This week's most-featured trading pairs across VEDD users: ${pairsList}
+Community + news context: ${redditContext}
+
+Return valid JSON (no markdown):
+{
+  "narrative": "2-3 paragraph story explaining what's driving these pairs this week, referencing the community/news context naturally — this becomes both marketing copy and market context for the AI trading engine",
+  "pairs": [
+    { "symbol": "EURUSD", "strategyIdea": "1-sentence VEDD-specific strategy angle for this pair this week", "confidenceBoost": 0 }
+  ]
+}
+confidenceBoost is an integer 0-5: how much extra conviction this week's research adds to trades on that pair (0 = neutral/no edge found, 5 = strongly supportive catalyst). Be conservative — most pairs should be 0-2. One "pairs" entry per pair listed above, using the exact symbol given.`);
+
+  try {
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    const parsedPairs: any[] = Array.isArray(parsed.pairs) ? parsed.pairs : [];
+    const pairs: BriefingPair[] = weeklyPairs.map(wp => {
+      const match = parsedPairs.find((p: any) => (p.symbol || '').toUpperCase().replace('/', '') === wp.symbol.toUpperCase().replace('/', ''));
+      return {
+        symbol: wp.symbol,
+        direction: wp.direction,
+        strategyIdea: match?.strategyIdea || '',
+        confidenceBoost: clampConfidenceBoost(Number(match?.confidenceBoost) || 0),
+        mentionCount: wp.mentionCount,
+      };
+    });
+    return { narrativeText: parsed.narrative || pairsList, pairs };
+  } catch {
+    return {
+      narrativeText: `This week's featured pairs across VEDD: ${pairsList}.`,
+      pairs: weeklyPairs.map(wp => ({ symbol: wp.symbol, direction: wp.direction, strategyIdea: '', confidenceBoost: 0, mentionCount: wp.mentionCount })),
+    };
+  }
+}
+
+// ── Trade Devotional ───────────────────────────────────────────────────────────
+// Reuses the same devotionals table the /api/devotionals/today route reads —
+// whichever caller (a user opening the Devotional page, or this job) runs
+// first for the day generates it; the unique `date` constraint + insert
+// conflict handling keeps it idempotent either way.
+async function getOrCreateTodayDevotional(today: string) {
+  const [existing] = await db.select().from(devotionals).where(eq(devotionals.date, today)).limit(1);
+  if (existing) return existing;
+  try {
+    const { generateDailyDevotional } = await import('../openai');
+    const generated = await generateDailyDevotional(today);
+    await db.insert(devotionals).values({ date: today, ...generated } as any).onConflictDoNothing();
+    const [inserted] = await db.select().from(devotionals).where(eq(devotionals.date, today)).limit(1);
+    return inserted ?? null;
+  } catch (e: any) {
+    console.error('[ambassador-prime] Devotional generation failed:', e.message);
+    return null;
+  }
+}
+
+// ── Weekly Results Stats ──────────────────────────────────────────────────────
+// Real, aggregated (not cherry-picked) trading performance across every
+// user's closed trades over the last 7 days — the basis for the "Results"
+// post's social proof, and honest even when the number isn't flattering.
+async function computeWeeklyResultsStats(): Promise<{ totalTrades: number; wins: number; winRate: number; totalPips: number; topSymbol: string | null }> {
+  try {
+    const rows = await db.execute(drizzleSql`
+      SELECT
+        COUNT(*) AS total_trades,
+        COUNT(*) FILTER (WHERE result = 'WIN') AS wins,
+        COALESCE(SUM(profit_loss_pips), 0) AS total_pips,
+        (SELECT symbol FROM ai_trade_results
+          WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+          GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE result = 'WIN') DESC LIMIT 1) AS top_symbol
+      FROM ai_trade_results
+      WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+    `);
+    const row: any = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0] ?? {};
+    const totalTrades = parseInt(row.total_trades) || 0;
+    const wins = parseInt(row.wins) || 0;
+    return {
+      totalTrades,
+      wins,
+      winRate: totalTrades > 0 ? Math.round((wins / totalTrades) * 1000) / 10 : 0,
+      totalPips: parseFloat(row.total_pips) || 0,
+      topSymbol: row.top_symbol || null,
+    };
+  } catch (e: any) {
+    console.error('[ambassador-prime] computeWeeklyResultsStats failed:', e.message);
+    return { totalTrades: 0, wins: 0, winRate: 0, totalPips: 0, topSymbol: null };
+  }
+}
+
+// ── Extra content: Knowledge / Results / Update posts ────────────────────────
+async function generateExtraPosts(
+  theme: typeof WEEKLY_THEMES[0],
+  redditContext: string,
+  results: { totalTrades: number; wins: number; winRate: number; totalPips: number; topSymbol: string | null },
+  devotional: { affirmation?: string; tradingTieIn?: string | null; theme?: string } | null
+): Promise<{ knowledgePost: string; resultsPost: string; updatePost: string }> {
+  const resultsLine = results.totalTrades > 0
+    ? `This week across VEDD: ${results.totalTrades} closed trades, ${results.winRate}% win rate, ${results.totalPips >= 0 ? '+' : ''}${results.totalPips.toFixed(0)} pips${results.topSymbol ? `, ${results.topSymbol} led the board` : ''}.`
+    : 'No closed trades recorded yet this week — be honest, don\'t fabricate a number.';
+  const devotionalLine = devotional
+    ? `Today's devotional theme: "${devotional.theme}". Affirmation: "${devotional.affirmation}". Trading tie-in: ${devotional.tradingTieIn || 'discipline and patience compound over time'}.`
+    : 'No devotional available today.';
+
+  const sys = `You are VEDD's content strategist writing three distinct short-form posts for veddbuild.com. Always include the referral link: ${REFERRAL_LINK}. Theme: ${theme.name} — ${theme.angle}. Never invent statistics — use only the real numbers given.`;
+  const raw = await callAI(sys, `Context:
+${redditContext}
+
+Real weekly results (use exactly as given, do not embellish): ${resultsLine}
+Devotional context: ${devotionalLine}
+This week's educational module: ${theme.modules[0]}
+
+Return valid JSON (no markdown):
+{
+  "knowledgePost": "An educational post teaching one concrete concept from '${theme.modules[0]}' — practical, not generic motivational fluff.",
+  "resultsPost": "A social-proof post built ONLY from the real results line above. If totalTrades is 0, write an honest 'building in public' post instead of pretending there's a result.",
+  "updatePost": "A forward-looking platform update: what VEDD is focused on this week and a concrete goal for the days ahead. Can reference the devotional's trading tie-in naturally."
+}`);
+
+  try {
+    const cleaned = raw.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      knowledgePost: parsed.knowledgePost || '',
+      resultsPost: parsed.resultsPost || resultsLine,
+      updatePost: parsed.updatePost || '',
+    };
+  } catch {
+    return {
+      knowledgePost: `Today's lesson: ${theme.modules[0]}. Master this, and VEDD's AI handles the rest. ${REFERRAL_LINK}`,
+      resultsPost: `${resultsLine} ${REFERRAL_LINK}`,
+      updatePost: `This week's focus: ${theme.name}. ${REFERRAL_LINK}`,
+    };
+  }
+}
+
 // ── Main run function ─────────────────────────────────────────────────────────
 export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   success: boolean;
@@ -471,16 +664,27 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   let engagementOpportunities = 0;
   let batch1: Awaited<ReturnType<typeof generateBatch1>> | null = null;
   let batch2: Awaited<ReturnType<typeof generateBatch2>> | null = null;
+  let devotionalPost = '';
+  let knowledgePost = '';
+  let resultsPost = '';
+  let updatePost = '';
+
+  // ── Step 0: Check the Weekly Plan FIRST ───────────────────────────────────
+  // Read this week's actual USD-pair selections from every user's weekly
+  // plan before running any research — so the Reddit/news scans below are
+  // grounded in the real pairs being traded, not just the generic day theme.
+  const weeklyPairs = aggregateWeeklyPairs();
 
   // ── Step 1: Free Research (Reddit JSON + News RSS — no API keys needed) ─────
   let redditContext = 'No community data available.';
   let redditPosts: any[] = [];
   let newsHeadlines: string[] = [];
   try {
-    // Run Reddit and news scraping in parallel — both free, no keys
+    // Run Reddit and news scraping in parallel — both free, no keys.
+    // News RSS now also searches this week's actual pair symbols.
     const [redditResult, headlines] = await Promise.all([
       scrapeRedditInsights(theme.angle),
-      scrapeNewsRSS(theme.angle),
+      scrapeNewsRSS(theme.angle, weeklyPairs.map(p => p.symbol)),
     ]);
 
     redditPosts = redditResult.posts;
@@ -512,6 +716,27 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     await logStep(runDate, 'Free Research (Reddit + News RSS)', 'failed', e.message);
   }
 
+  // ── Step 1.5: Weekly Market Briefing ──────────────────────────────────────
+  // Tells the story of the USD pairs checked in Step 0, using the pair-
+  // informed research above, and persists it so the SS AI Engine's
+  // confirmation prompt (openai.ts) can read the narrative and apply each
+  // pair's (small, bounded) confidenceBoost.
+  try {
+    const briefing = await generateWeeklyBriefing(redditContext, weeklyPairs);
+    await saveMarketBriefing(currentWeekStartDate(now), briefing.narrativeText, briefing.pairs);
+    // Fold the briefing narrative into redditContext so Batch 1/2 content
+    // naturally references this week's actual pairs, not just the day's theme.
+    if (weeklyPairs.length > 0) {
+      redditContext = `${redditContext}\n\nThis week's featured VEDD pairs: ${briefing.narrativeText}`;
+    }
+    completedSteps.push('Weekly Market Briefing');
+    await logStep(runDate, 'Weekly Market Briefing', 'completed');
+  } catch (e: any) {
+    errors.push(`Weekly Briefing: ${e.message}`);
+    skippedSteps.push('Weekly Market Briefing');
+    await logStep(runDate, 'Weekly Market Briefing', 'failed', e.message);
+  }
+
   // ── Step 2: Batch 1 AI Content Generation ─────────────────────────────────
   try {
     batch1 = await generateBatch1(theme, redditContext, themeDayIndex);
@@ -532,6 +757,39 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     errors.push(`Batch 2 AI: ${e.message}`);
     skippedSteps.push('Batch 2 AI Generation');
     await logStep(runDate, 'Batch 2 AI Generation', 'failed', e.message);
+  }
+
+  // ── Step 3.5: Devotional + Knowledge + Results + Update Posts ────────────
+  try {
+    const devotional = await getOrCreateTodayDevotional(runDate);
+    const results = await computeWeeklyResultsStats();
+    const extra = await generateExtraPosts(theme, redditContext, results, devotional as any);
+
+    knowledgePost = extra.knowledgePost;
+    resultsPost = extra.resultsPost;
+    updatePost = extra.updatePost;
+    if (devotional) {
+      devotionalPost = `${devotional.affirmation}\n\n${devotional.tradingTieIn || devotional.reflection}\n\n${REFERRAL_LINK}`;
+    }
+
+    const rows: Array<{ postType: string; text: string }> = [
+      ...(devotionalPost ? [{ postType: 'devotional_post', text: devotionalPost }] : []),
+      { postType: 'knowledge_post', text: knowledgePost },
+      { postType: 'results_post', text: resultsPost },
+      { postType: 'update_post', text: updatePost },
+    ];
+    for (const r of rows) {
+      await db.insert(ambassadorDailyContent).values({
+        runDate, platform: 'multi', postType: r.postType,
+        contentText: r.text, status: 'generated', referralLink: REFERRAL_LINK,
+      });
+    }
+    completedSteps.push('Devotional/Knowledge/Results/Update Posts');
+    await logStep(runDate, 'Devotional/Knowledge/Results/Update Posts', 'completed');
+  } catch (e: any) {
+    errors.push(`Extra posts: ${e.message}`);
+    skippedSteps.push('Devotional/Knowledge/Results/Update Posts');
+    await logStep(runDate, 'Devotional/Knowledge/Results/Update Posts', 'failed', e.message);
   }
 
   // ── Step 4: DALL-E Image ───────────────────────────────────────────────────
@@ -749,6 +1007,7 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     storyIdea: batch1?.storyIdea ?? '',
     bonusContent: batch2?.bonusContent ?? '',
     communityPrompt: batch1?.communityPrompt ?? '',
+    devotionalPost, knowledgePost, resultsPost, updatePost,
     completedSteps, skippedSteps, errors,
   });
 
@@ -778,6 +1037,7 @@ async function sendAmbassadorPrimeReport(data: {
   tweets: string[]; linkedinPost1: string; linkedinPost2: string;
   igCaptions: string[]; hooks: { A: string; B: string; C: string };
   reelScript: string; storyIdea: string; bonusContent: string; communityPrompt: string;
+  devotionalPost: string; knowledgePost: string; resultsPost: string; updatePost: string;
   completedSteps: string[]; skippedSteps: string[]; errors: string[];
 }): Promise<{ success: boolean; reason?: string }> {
   const sgKey = process.env.SENDGRID_API_KEY;
@@ -898,6 +1158,18 @@ async function sendAmbassadorPrimeReport(data: {
     <div style="font-size:13px;font-weight:600;color:#fff;margin:12px 0 8px;">🎁 Bonus Content (${data.dayName})</div>
     <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.bonusContent)}</div>
   </div>
+
+  <!-- Devotional / Knowledge / Results / Update -->
+  ${[
+    ['🙏', 'Trade Devotional', data.devotionalPost],
+    ['📚', 'Knowledge Post', data.knowledgePost],
+    ['📊', 'Results Post', data.resultsPost],
+    ['📢', 'Update Post', data.updatePost],
+  ].filter(([, , text]) => !!text).map(([icon, label, text]) => `
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">${icon} ${label}</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(text)}</div>
+  </div>`).join('')}
 
   <!-- Footer -->
   <div style="text-align:center;padding:20px;color:#444;font-size:11px;">

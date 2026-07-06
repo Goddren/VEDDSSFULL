@@ -2479,6 +2479,24 @@ export const ambassadorRunStepLog = pgTable("ambassador_run_step_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Ambassador Prime's weekly market briefing — aggregates the pairs selected
+// across ALL users' weekly plans, tells the "story" of why they matter using
+// the same Reddit + news research Ambassador Prime already gathers, and
+// feeds back into two places: (1) the AI confirmation prompt as market-context
+// text (marketNarrative), and (2) a small, bounded confidence nudge per pair
+// in signal generation (never enough alone to push a NEUTRAL signal live or
+// bypass Gate 0 account-safety checks — see confidenceBoost usage in openai.ts).
+export const ambassadorMarketBriefing = pgTable("ambassador_market_briefing", {
+  id: serial("id").primaryKey(),
+  weekStartDate: varchar("week_start_date", { length: 20 }).notNull().unique(), // ISO Monday of the week
+  narrativeText: text("narrative_text").notNull(),
+  // JSON array: [{ symbol, direction, strategyIdea, confidenceBoost, mentionCount }]
+  pairs: jsonb("pairs").notNull().default([]),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AmbassadorMarketBriefing = typeof ambassadorMarketBriefing.$inferSelect;
+
 // ─── BLOG POSTS ────────────────────────────────────────────────
 
 export const blogPosts = pgTable("blog_posts", {

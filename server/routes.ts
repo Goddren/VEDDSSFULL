@@ -9550,8 +9550,32 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
       // Fetch news context for the pair (used in AI confirmation and response)
-      let newsContextForAI: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] } | undefined;
+      let newsContextForAI: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[]; marketNarrative?: string } | undefined;
       let newsAlerts: any = null;
+
+      // Ambassador Prime's weekly market briefing — aggregated research across
+      // all users' weekly plans. Adds narrative context to the AI prompt and a
+      // small, bounded confidence nudge (0-5, see MAX_CONFIDENCE_BOOST) when
+      // this symbol was specifically flagged. Never touches Gate 0 safety
+      // checks below, and never fires on a NEUTRAL signal.
+      let weeklyBriefingBoost = 0;
+      try {
+        const { getLatestMarketBriefing, findBriefingPair } = await import('./services/ambassador-market-briefing');
+        const briefing = await getLatestMarketBriefing();
+        const briefingPair = findBriefingPair(briefing, sanitizedSymbol);
+        if (briefing?.narrativeText) {
+          newsContextForAI = { ...(newsContextForAI || {}), marketNarrative: briefing.narrativeText };
+        }
+        if (briefingPair && briefingPair.confidenceBoost > 0 && analysis.signal !== 'NEUTRAL') {
+          weeklyBriefingBoost = briefingPair.confidenceBoost;
+          const before = analysis.confidence;
+          analysis.confidence = Math.min(98, analysis.confidence + weeklyBriefingBoost);
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`VEDD Weekly Briefing: ${sanitizedSymbol} flagged this week — ${briefingPair.strategyIdea || 'featured pair'}. Confidence ${before}% → ${analysis.confidence}% (+${weeklyBriefingBoost})`);
+          console.log(`[Ambassador Briefing] ${sanitizedSymbol} confidence boosted +${weeklyBriefingBoost}% (${before}% → ${analysis.confidence}%) from weekly market briefing`);
+        }
+      } catch (_briefingErr) { /* non-critical — proceed without briefing context */ }
+
       try {
         const { newsService } = await import('./news-service');
         if (!newsService.isInitialized()) {

@@ -97,12 +97,20 @@ CREATE TABLE IF NOT EXISTS "ambassador_reddit_insights" (
   "engagement_opportunity" text,
   "created_at" timestamp DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS "ambassador_market_briefing" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "week_start_date" varchar(20) NOT NULL UNIQUE,
+  "narrative_text" text NOT NULL,
+  "pairs" jsonb NOT NULL DEFAULT '[]',
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
 `;
 
 export async function ensureAmbassadorPrimeTables(): Promise<void> {
   try {
     await pool.query(DDL);
-    console.log('[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar).');
+    console.log('[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).');
   } catch (err: any) {
     console.error('[startup] ensureAmbassadorPrimeTables failed (non-fatal):', err?.message ?? err);
   }

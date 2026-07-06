@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc7) => {
+var __copyProps = (to, from, except, desc8) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc7 = __getOwnPropDesc(from, key)) || desc7.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc8 = __getOwnPropDesc(from, key)) || desc8.enumerable });
   }
   return to;
 };
@@ -54,6 +54,7 @@ __export(schema_exports, {
   ambassadorEvents: () => ambassadorEvents,
   ambassadorHookVariations: () => ambassadorHookVariations,
   ambassadorJourney: () => ambassadorJourney,
+  ambassadorMarketBriefing: () => ambassadorMarketBriefing,
   ambassadorRedditInsights: () => ambassadorRedditInsights,
   ambassadorRunStepLog: () => ambassadorRunStepLog,
   ambassadorRunSummary: () => ambassadorRunSummary,
@@ -260,7 +261,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2619,6 +2620,15 @@ var init_schema = __esm({
       status: varchar("status", { length: 20 }).default("completed"),
       errorMessage: text("error_message"),
       createdAt: timestamp("created_at").defaultNow()
+    });
+    ambassadorMarketBriefing = pgTable("ambassador_market_briefing", {
+      id: serial("id").primaryKey(),
+      weekStartDate: varchar("week_start_date", { length: 20 }).notNull().unique(),
+      // ISO Monday of the week
+      narrativeText: text("narrative_text").notNull(),
+      // JSON array: [{ symbol, direction, strategyIdea, confidenceBoost, mentionCount }]
+      pairs: jsonb("pairs").notNull().default([]),
+      createdAt: timestamp("created_at").defaultNow().notNull()
     });
     blogPosts = pgTable("blog_posts", {
       id: serial("id").primaryKey(),
@@ -7685,6 +7695,11 @@ UPCOMING ECONOMIC EVENTS (potential volatility):`);
         parts.push(`  - [${e.impact?.toUpperCase()}] ${e.event} (${e.currency}) - ${timeUntil} at ${e.timeFormatted || "TBD"}`);
         if (e.potentialImpact) parts.push(`    Impact: ${e.potentialImpact}`);
       });
+    }
+    if (newsContext.marketNarrative) {
+      parts.push(`
+VEDD WEEKLY MARKET BRIEFING (from this week's community research \u2014 context only, not a trade signal):`);
+      parts.push(`  ${newsContext.marketNarrative}`);
     }
     if (parts.length > 0) {
       newsSection = `
@@ -15167,13 +15182,13 @@ async function getTLAccountValue(userId, conn) {
     const svc = await getOrCreateService(conn);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
-    const eq13 = info.equity || bal;
+    const eq14 = info.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq13;
+      g.tlAccountEquity[userId][acctId] = eq14;
       g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq13} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq13 };
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq14} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq14 };
     }
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
@@ -23363,8 +23378,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq13 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq13(uak.userId, userId), eq13(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq14 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(uak.userId, userId), eq14(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -25644,8 +25659,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq13 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq13(uak.userId, userId), eq13(uak.provider, openai2.provider)));
+        const { and: and7, eq: eq14 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(uak.userId, userId), eq14(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -27831,6 +27846,56 @@ var init_breakout_monitor = __esm({
   }
 });
 
+// server/services/ambassador-market-briefing.ts
+var ambassador_market_briefing_exports = {};
+__export(ambassador_market_briefing_exports, {
+  MAX_CONFIDENCE_BOOST: () => MAX_CONFIDENCE_BOOST,
+  clampConfidenceBoost: () => clampConfidenceBoost,
+  currentWeekStartDate: () => currentWeekStartDate,
+  findBriefingPair: () => findBriefingPair,
+  getLatestMarketBriefing: () => getLatestMarketBriefing,
+  saveMarketBriefing: () => saveMarketBriefing
+});
+import { desc as desc5 } from "drizzle-orm";
+function clampConfidenceBoost(n) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(MAX_CONFIDENCE_BOOST, Math.round(n)));
+}
+function currentWeekStartDate(now = /* @__PURE__ */ new Date()) {
+  const d = new Date(now);
+  const day = d.getUTCDay();
+  const diffToMonday = (day + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - diffToMonday);
+  return d.toISOString().split("T")[0];
+}
+async function saveMarketBriefing(weekStartDate, narrativeText, pairs) {
+  const safePairs = pairs.map((p) => ({ ...p, confidenceBoost: clampConfidenceBoost(p.confidenceBoost) }));
+  await db.insert(ambassadorMarketBriefing).values({ weekStartDate, narrativeText, pairs: safePairs }).onConflictDoUpdate({
+    target: ambassadorMarketBriefing.weekStartDate,
+    set: { narrativeText, pairs: safePairs }
+  });
+}
+async function getLatestMarketBriefing() {
+  const [row] = await db.select().from(ambassadorMarketBriefing).orderBy(desc5(ambassadorMarketBriefing.weekStartDate)).limit(1);
+  return row;
+}
+function findBriefingPair(briefing, symbol) {
+  if (!briefing) return null;
+  const norm = symbol.toUpperCase().replace("/", "");
+  const pairs = briefing.pairs || [];
+  const match = pairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === norm);
+  return match ?? null;
+}
+var MAX_CONFIDENCE_BOOST;
+var init_ambassador_market_briefing = __esm({
+  "server/services/ambassador-market-briefing.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    MAX_CONFIDENCE_BOOST = 5;
+  }
+});
+
 // server/services/broker-lookup.ts
 var broker_lookup_exports = {};
 __export(broker_lookup_exports, {
@@ -28374,8 +28439,8 @@ async function restoreEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq13, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq13(engineRunState2.userId, userId), eq13(engineRunState2.engine, "polymarket")));
+    const { eq: eq14, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq14(engineRunState2.userId, userId), eq14(engineRunState2.engine, "polymarket")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Polymarket] Restoring engine for user ${userId}`);
@@ -29539,8 +29604,8 @@ async function restoreKalshiEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq13, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq13(engineRunState2.userId, userId), eq13(engineRunState2.engine, "kalshi")));
+    const { eq: eq14, and: and7 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and7(eq14(engineRunState2.userId, userId), eq14(engineRunState2.engine, "kalshi")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
@@ -30484,7 +30549,7 @@ __export(sol_engine_exports, {
   triggerSolAIReview: () => triggerSolAIReview,
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
-import { eq as eq9 } from "drizzle-orm";
+import { eq as eq10 } from "drizzle-orm";
 import crypto10 from "crypto";
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
@@ -30573,7 +30638,7 @@ async function upsertPosition(userId, pos) {
 }
 async function loadEngineStateFromDb(userId, state) {
   try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+    const [settings] = await db.select().from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
     if (settings) {
       state.activeStrategy = settings.activeStrategy;
       state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
@@ -30608,7 +30673,7 @@ async function loadEngineStateFromDb(userId, state) {
         }
       }
     }
-    const positions = await db.select().from(solEnginePositions).where(eq9(solEnginePositions.userId, userId));
+    const positions = await db.select().from(solEnginePositions).where(eq10(solEnginePositions.userId, userId));
     for (const row of positions) {
       const pos = {
         id: row.positionId,
@@ -30644,7 +30709,7 @@ async function loadEngineStateFromDb(userId, state) {
 }
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -30740,7 +30805,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
 }
 async function executeServerSideBuy(userId, signal, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -31442,7 +31507,7 @@ async function refreshServerWalletBalance(userId, state) {
   if (now - state.lastWalletRefreshAt < 6e4) return;
   state.lastWalletRefreshAt = now;
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -31811,7 +31876,7 @@ async function startSolEngine(userId, config = {}) {
   }
   if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
       if (settings?.serverWalletKey) {
         const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
         const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -32345,11 +32410,11 @@ async function saveServerWallet(userId, privateKeyBase58) {
   }
 }
 async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq9(solEngineSettings.userId, userId));
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(solEngineSettings.userId, userId));
 }
 async function getServerWalletStatus(userId) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq9(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -36238,7 +36303,7 @@ __export(ambassador_prime_exports, {
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
 import crypto12 from "crypto";
-import { eq as eq10 } from "drizzle-orm";
+import { eq as eq11, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI6 } from "openai";
 async function logStep(runDate, stepName, status, error) {
   try {
@@ -36382,14 +36447,19 @@ async function scrapeRedditInsights(theme) {
   }
   return { posts };
 }
-async function scrapeNewsRSS(theme) {
+async function scrapeNewsRSS(theme, pairSymbols = []) {
   const headlines = [];
   const keywords = encodeURIComponent(`trading ${theme.split(" ").slice(0, 2).join(" ")}`);
   const feeds = [
     // Google News RSS — completely free
     `https://news.google.com/rss/search?q=${keywords}+trading+forex&hl=en-US&gl=US&ceid=US:en`,
     // Yahoo Finance RSS
-    `https://finance.yahoo.com/news/rssindex`
+    `https://finance.yahoo.com/news/rssindex`,
+    // Pair-specific search — grounds the research in this week's ACTUAL
+    // pairs (from the weekly plan) instead of only the generic theme angle.
+    ...pairSymbols.slice(0, 3).map(
+      (sym) => `https://news.google.com/rss/search?q=${encodeURIComponent(sym)}+forex&hl=en-US&gl=US&ceid=US:en`
+    )
   ];
   const headers = { "User-Agent": "VEDD-Ambassador-Prime/1.0" };
   for (const feed of feeds) {
@@ -36562,6 +36632,143 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
     return { insights: [], context: sample.slice(0, 500) };
   }
 }
+function aggregateWeeklyPairs() {
+  const strategies = global.mt5WeeklyStrategies || {};
+  const tally = {};
+  for (const userId of Object.keys(strategies)) {
+    const weeklyPlan = strategies[userId]?.plan?.weeklyPlan;
+    if (!weeklyPlan) continue;
+    for (const day of Object.keys(weeklyPlan)) {
+      const pairs = weeklyPlan[day]?.pairs || [];
+      for (const p of pairs) {
+        const sym = (p.symbol || "").toUpperCase().replace("/", "");
+        if (!sym || !sym.includes("USD")) continue;
+        if (!tally[sym]) tally[sym] = { symbol: p.symbol, directions: {}, mentionCount: 0 };
+        tally[sym].mentionCount++;
+        const dir = (p.direction || "BOTH").toUpperCase();
+        tally[sym].directions[dir] = (tally[sym].directions[dir] || 0) + 1;
+      }
+    }
+  }
+  return Object.values(tally).sort((a, b) => b.mentionCount - a.mentionCount).slice(0, 8).map((t) => {
+    const bestDir = Object.entries(t.directions).sort((a, b) => b[1] - a[1])[0]?.[0];
+    return { symbol: t.symbol, direction: bestDir || "BOTH", mentionCount: t.mentionCount };
+  });
+}
+async function generateWeeklyBriefing(redditContext, weeklyPairs) {
+  if (weeklyPairs.length === 0) {
+    return { narrativeText: "No weekly pairs selected across active accounts yet \u2014 check back once weekly plans are generated.", pairs: [] };
+  }
+  const pairsList = weeklyPairs.map((p) => `${p.symbol} (${p.direction}, featured ${p.mentionCount}x this week)`).join(", ");
+  const sys = `You are VEDD's market analyst, writing for traders using VEDD AI Trading Vault (veddbuild.com). Be specific and grounded \u2014 no generic hype.`;
+  const raw = await callAI(sys, `This week's most-featured trading pairs across VEDD users: ${pairsList}
+Community + news context: ${redditContext}
+
+Return valid JSON (no markdown):
+{
+  "narrative": "2-3 paragraph story explaining what's driving these pairs this week, referencing the community/news context naturally \u2014 this becomes both marketing copy and market context for the AI trading engine",
+  "pairs": [
+    { "symbol": "EURUSD", "strategyIdea": "1-sentence VEDD-specific strategy angle for this pair this week", "confidenceBoost": 0 }
+  ]
+}
+confidenceBoost is an integer 0-5: how much extra conviction this week's research adds to trades on that pair (0 = neutral/no edge found, 5 = strongly supportive catalyst). Be conservative \u2014 most pairs should be 0-2. One "pairs" entry per pair listed above, using the exact symbol given.`);
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    const parsedPairs = Array.isArray(parsed.pairs) ? parsed.pairs : [];
+    const pairs = weeklyPairs.map((wp) => {
+      const match = parsedPairs.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === wp.symbol.toUpperCase().replace("/", ""));
+      return {
+        symbol: wp.symbol,
+        direction: wp.direction,
+        strategyIdea: match?.strategyIdea || "",
+        confidenceBoost: clampConfidenceBoost(Number(match?.confidenceBoost) || 0),
+        mentionCount: wp.mentionCount
+      };
+    });
+    return { narrativeText: parsed.narrative || pairsList, pairs };
+  } catch {
+    return {
+      narrativeText: `This week's featured pairs across VEDD: ${pairsList}.`,
+      pairs: weeklyPairs.map((wp) => ({ symbol: wp.symbol, direction: wp.direction, strategyIdea: "", confidenceBoost: 0, mentionCount: wp.mentionCount }))
+    };
+  }
+}
+async function getOrCreateTodayDevotional(today) {
+  const [existing] = await db.select().from(devotionals).where(eq11(devotionals.date, today)).limit(1);
+  if (existing) return existing;
+  try {
+    const { generateDailyDevotional: generateDailyDevotional2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const generated = await generateDailyDevotional2(today);
+    await db.insert(devotionals).values({ date: today, ...generated }).onConflictDoNothing();
+    const [inserted] = await db.select().from(devotionals).where(eq11(devotionals.date, today)).limit(1);
+    return inserted ?? null;
+  } catch (e) {
+    console.error("[ambassador-prime] Devotional generation failed:", e.message);
+    return null;
+  }
+}
+async function computeWeeklyResultsStats() {
+  try {
+    const rows = await db.execute(drizzleSql`
+      SELECT
+        COUNT(*) AS total_trades,
+        COUNT(*) FILTER (WHERE result = 'WIN') AS wins,
+        COALESCE(SUM(profit_loss_pips), 0) AS total_pips,
+        (SELECT symbol FROM ai_trade_results
+          WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+          GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE result = 'WIN') DESC LIMIT 1) AS top_symbol
+      FROM ai_trade_results
+      WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+    `);
+    const row = rows[0]?.[0] ?? rows.rows?.[0] ?? {};
+    const totalTrades = parseInt(row.total_trades) || 0;
+    const wins = parseInt(row.wins) || 0;
+    return {
+      totalTrades,
+      wins,
+      winRate: totalTrades > 0 ? Math.round(wins / totalTrades * 1e3) / 10 : 0,
+      totalPips: parseFloat(row.total_pips) || 0,
+      topSymbol: row.top_symbol || null
+    };
+  } catch (e) {
+    console.error("[ambassador-prime] computeWeeklyResultsStats failed:", e.message);
+    return { totalTrades: 0, wins: 0, winRate: 0, totalPips: 0, topSymbol: null };
+  }
+}
+async function generateExtraPosts(theme, redditContext, results, devotional) {
+  const resultsLine = results.totalTrades > 0 ? `This week across VEDD: ${results.totalTrades} closed trades, ${results.winRate}% win rate, ${results.totalPips >= 0 ? "+" : ""}${results.totalPips.toFixed(0)} pips${results.topSymbol ? `, ${results.topSymbol} led the board` : ""}.` : "No closed trades recorded yet this week \u2014 be honest, don't fabricate a number.";
+  const devotionalLine = devotional ? `Today's devotional theme: "${devotional.theme}". Affirmation: "${devotional.affirmation}". Trading tie-in: ${devotional.tradingTieIn || "discipline and patience compound over time"}.` : "No devotional available today.";
+  const sys = `You are VEDD's content strategist writing three distinct short-form posts for veddbuild.com. Always include the referral link: ${REFERRAL_LINK}. Theme: ${theme.name} \u2014 ${theme.angle}. Never invent statistics \u2014 use only the real numbers given.`;
+  const raw = await callAI(sys, `Context:
+${redditContext}
+
+Real weekly results (use exactly as given, do not embellish): ${resultsLine}
+Devotional context: ${devotionalLine}
+This week's educational module: ${theme.modules[0]}
+
+Return valid JSON (no markdown):
+{
+  "knowledgePost": "An educational post teaching one concrete concept from '${theme.modules[0]}' \u2014 practical, not generic motivational fluff.",
+  "resultsPost": "A social-proof post built ONLY from the real results line above. If totalTrades is 0, write an honest 'building in public' post instead of pretending there's a result.",
+  "updatePost": "A forward-looking platform update: what VEDD is focused on this week and a concrete goal for the days ahead. Can reference the devotional's trading tie-in naturally."
+}`);
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    return {
+      knowledgePost: parsed.knowledgePost || "",
+      resultsPost: parsed.resultsPost || resultsLine,
+      updatePost: parsed.updatePost || ""
+    };
+  } catch {
+    return {
+      knowledgePost: `Today's lesson: ${theme.modules[0]}. Master this, and VEDD's AI handles the rest. ${REFERRAL_LINK}`,
+      resultsPost: `${resultsLine} ${REFERRAL_LINK}`,
+      updatePost: `This week's focus: ${theme.name}. ${REFERRAL_LINK}`
+    };
+  }
+}
 async function runAmbassadorPrime(triggeredBy = "scheduler") {
   const now = /* @__PURE__ */ new Date();
   const runDate = now.toISOString().split("T")[0];
@@ -36582,13 +36789,18 @@ async function runAmbassadorPrime(triggeredBy = "scheduler") {
   let engagementOpportunities = 0;
   let batch1 = null;
   let batch2 = null;
+  let devotionalPost = "";
+  let knowledgePost = "";
+  let resultsPost = "";
+  let updatePost = "";
+  const weeklyPairs = aggregateWeeklyPairs();
   let redditContext = "No community data available.";
   let redditPosts = [];
   let newsHeadlines = [];
   try {
     const [redditResult, headlines] = await Promise.all([
       scrapeRedditInsights(theme.angle),
-      scrapeNewsRSS(theme.angle)
+      scrapeNewsRSS(theme.angle, weeklyPairs.map((p) => p.symbol))
     ]);
     redditPosts = redditResult.posts;
     newsHeadlines = headlines;
@@ -36614,6 +36826,21 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     await logStep(runDate, "Free Research (Reddit + News RSS)", "failed", e.message);
   }
   try {
+    const briefing = await generateWeeklyBriefing(redditContext, weeklyPairs);
+    await saveMarketBriefing(currentWeekStartDate(now), briefing.narrativeText, briefing.pairs);
+    if (weeklyPairs.length > 0) {
+      redditContext = `${redditContext}
+
+This week's featured VEDD pairs: ${briefing.narrativeText}`;
+    }
+    completedSteps.push("Weekly Market Briefing");
+    await logStep(runDate, "Weekly Market Briefing", "completed");
+  } catch (e) {
+    errors.push(`Weekly Briefing: ${e.message}`);
+    skippedSteps.push("Weekly Market Briefing");
+    await logStep(runDate, "Weekly Market Briefing", "failed", e.message);
+  }
+  try {
     batch1 = await generateBatch1(theme, redditContext, themeDayIndex);
     completedSteps.push("Batch 1 AI Generation");
     await logStep(runDate, "Batch 1 AI Generation", "completed");
@@ -36630,6 +36857,43 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     errors.push(`Batch 2 AI: ${e.message}`);
     skippedSteps.push("Batch 2 AI Generation");
     await logStep(runDate, "Batch 2 AI Generation", "failed", e.message);
+  }
+  try {
+    const devotional = await getOrCreateTodayDevotional(runDate);
+    const results = await computeWeeklyResultsStats();
+    const extra = await generateExtraPosts(theme, redditContext, results, devotional);
+    knowledgePost = extra.knowledgePost;
+    resultsPost = extra.resultsPost;
+    updatePost = extra.updatePost;
+    if (devotional) {
+      devotionalPost = `${devotional.affirmation}
+
+${devotional.tradingTieIn || devotional.reflection}
+
+${REFERRAL_LINK}`;
+    }
+    const rows = [
+      ...devotionalPost ? [{ postType: "devotional_post", text: devotionalPost }] : [],
+      { postType: "knowledge_post", text: knowledgePost },
+      { postType: "results_post", text: resultsPost },
+      { postType: "update_post", text: updatePost }
+    ];
+    for (const r of rows) {
+      await db.insert(ambassadorDailyContent).values({
+        runDate,
+        platform: "multi",
+        postType: r.postType,
+        contentText: r.text,
+        status: "generated",
+        referralLink: REFERRAL_LINK
+      });
+    }
+    completedSteps.push("Devotional/Knowledge/Results/Update Posts");
+    await logStep(runDate, "Devotional/Knowledge/Results/Update Posts", "completed");
+  } catch (e) {
+    errors.push(`Extra posts: ${e.message}`);
+    skippedSteps.push("Devotional/Knowledge/Results/Update Posts");
+    await logStep(runDate, "Devotional/Knowledge/Results/Update Posts", "failed", e.message);
   }
   if (!batch1) {
     skippedSteps.push("DALL-E Image Generation");
@@ -36864,12 +37128,16 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
     storyIdea: batch1?.storyIdea ?? "",
     bonusContent: batch2?.bonusContent ?? "",
     communityPrompt: batch1?.communityPrompt ?? "",
+    devotionalPost,
+    knowledgePost,
+    resultsPost,
+    updatePost,
     completedSteps,
     skippedSteps,
     errors
   });
   if (emailResult.success) {
-    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq10(ambassadorRunSummary.runDate, runDate));
+    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq11(ambassadorRunSummary.runDate, runDate));
     completedSteps.push("Email Report");
     await logStep(runDate, "Email Report", "completed");
   } else {
@@ -36995,6 +37263,18 @@ async function sendAmbassadorPrimeReport(data) {
     <div style="font-size:12px;color:#ccc;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(data.bonusContent)}</div>
   </div>
 
+  <!-- Devotional / Knowledge / Results / Update -->
+  ${[
+    ["\u{1F64F}", "Trade Devotional", data.devotionalPost],
+    ["\u{1F4DA}", "Knowledge Post", data.knowledgePost],
+    ["\u{1F4CA}", "Results Post", data.resultsPost],
+    ["\u{1F4E2}", "Update Post", data.updatePost]
+  ].filter(([, , text2]) => !!text2).map(([icon, label, text2]) => `
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">${icon} ${label}</div>
+    <div style="font-size:12px;color:#ccc;white-space:pre-wrap;padding:8px;background:#0a0a0a;border-radius:4px;">${escHtml(text2)}</div>
+  </div>`).join("")}
+
   <!-- Footer -->
   <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
     <div>VEDD Ambassador Prime \u2022 ${data.runDate}</div>
@@ -37063,6 +37343,7 @@ var init_ambassador_prime = __esm({
     "use strict";
     init_db();
     init_schema();
+    init_ambassador_market_briefing();
     REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
     REPORT_EMAIL = "donchismkos@gmail.com";
     LINKEDIN_AUTHOR_URN = "urn:li:person:tmH3fnyYMl";
@@ -37303,7 +37584,7 @@ __export(ensure_ambassador_prime_tables_exports, {
 async function ensureAmbassadorPrimeTables() {
   try {
     await pool.query(DDL3);
-    console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar).");
+    console.log("[startup] Ambassador Prime tables ensured (run_summary, daily_content, daily_kpis, hook_variations, bonus_content, community_content, reddit_insights, run_step_log, weekly_calendar, market_briefing).");
   } catch (err) {
     console.error("[startup] ensureAmbassadorPrimeTables failed (non-fatal):", err?.message ?? err);
   }
@@ -37402,6 +37683,14 @@ CREATE TABLE IF NOT EXISTS "ambassador_reddit_insights" (
   "insight" text,
   "engagement_opportunity" text,
   "created_at" timestamp DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "ambassador_market_briefing" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "week_start_date" varchar(20) NOT NULL UNIQUE,
+  "narrative_text" text NOT NULL,
+  "pairs" jsonb NOT NULL DEFAULT '[]',
+  "created_at" timestamp DEFAULT now() NOT NULL
 );
 `;
   }
@@ -38006,7 +38295,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq11, and as and6, sql as sql8 } from "drizzle-orm";
+import { eq as eq12, and as and6, sql as sql8 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -45664,11 +45953,11 @@ Respond ONLY in valid JSON format with these exact keys:
               subscriptionPlanId: planId,
               subscriptionStatus: "active",
               stripeSubscriptionId: session3.subscription
-            }).where(eq11(users.id, userId));
+            }).where(eq12(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
             try {
-              const [updatedUser] = await db.select().from(users).where(eq11(users.id, userId));
-              const [plan] = await db.select().from(subscriptionPlans).where(eq11(subscriptionPlans.id, planId));
+              const [updatedUser] = await db.select().from(users).where(eq12(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq12(subscriptionPlans.id, planId));
               if (updatedUser?.email && plan?.name) {
                 sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
                 });
@@ -45689,7 +45978,7 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: sub.id,
               subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
               ...planId ? { subscriptionPlanId: planId } : {}
-            }).where(eq11(users.id, userId));
+            }).where(eq12(users.id, userId));
             console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
           }
           break;
@@ -45698,7 +45987,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const sub = event.data.object;
           const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
           if (userId) {
-            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq11(users.id, userId));
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq12(users.id, userId));
             console.log(`[Stripe] Subscription canceled for user ${userId}`);
           }
           break;
@@ -45706,7 +45995,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_succeeded": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "active" }).where(eq11(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq12(users.stripeSubscriptionId, invoice.subscription));
             console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
           }
           break;
@@ -45714,7 +46003,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_failed": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq11(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq12(users.stripeSubscriptionId, invoice.subscription));
             console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
           }
           break;
@@ -50932,6 +51221,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? "MT5 EA" : matchingEA?.name || "default"} | Session=${eaSettings?.sessionName || "N/A"}`);
       let newsContextForAI;
       let newsAlerts = null;
+      let weeklyBriefingBoost = 0;
+      try {
+        const { getLatestMarketBriefing: getLatestMarketBriefing2, findBriefingPair: findBriefingPair2 } = await Promise.resolve().then(() => (init_ambassador_market_briefing(), ambassador_market_briefing_exports));
+        const briefing = await getLatestMarketBriefing2();
+        const briefingPair = findBriefingPair2(briefing, sanitizedSymbol);
+        if (briefing?.narrativeText) {
+          newsContextForAI = { ...newsContextForAI || {}, marketNarrative: briefing.narrativeText };
+        }
+        if (briefingPair && briefingPair.confidenceBoost > 0 && analysis.signal !== "NEUTRAL") {
+          weeklyBriefingBoost = briefingPair.confidenceBoost;
+          const before = analysis.confidence;
+          analysis.confidence = Math.min(98, analysis.confidence + weeklyBriefingBoost);
+          analysis.alerts = analysis.alerts || [];
+          analysis.alerts.push(`VEDD Weekly Briefing: ${sanitizedSymbol} flagged this week \u2014 ${briefingPair.strategyIdea || "featured pair"}. Confidence ${before}% \u2192 ${analysis.confidence}% (+${weeklyBriefingBoost})`);
+          console.log(`[Ambassador Briefing] ${sanitizedSymbol} confidence boosted +${weeklyBriefingBoost}% (${before}% \u2192 ${analysis.confidence}%) from weekly market briefing`);
+        }
+      } catch (_briefingErr) {
+      }
       try {
         const { newsService: newsService2 } = await Promise.resolve().then(() => (init_news_service(), news_service_exports));
         if (!newsService2.isInitialized()) {
@@ -59208,11 +59515,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const cached2 = global.mt5AccountData?.[userId];
       const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
-      const eq13 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
+      const eq14 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const mt5Results = _allClosed.filter((t) => !_tlSources.has(t.source || "manual"));
       const dailyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-      mt5 = { balance: bal, equity: eq13, dailyPnl, weeklyPnl, isOnline };
+      mt5 = { balance: bal, equity: eq14, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
     }
@@ -62584,7 +62891,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -62649,7 +62956,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -62661,7 +62968,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq11(userApiKeys.userId, req.user.id), eq11(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -63205,7 +63512,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq13, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq14, and: and7, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -63218,7 +63525,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq13(wearToEarnClaims2.userId, userId), eq13(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq14(wearToEarnClaims2.userId, userId), eq14(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -63245,7 +63552,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq13(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq14(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql2`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -63254,7 +63561,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq13(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq14(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -63263,7 +63570,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql, eq: eq13, and: and7, desc: desc7 } = await import("drizzle-orm");
+    const { sql: drizzleSql2, eq: eq14, and: and7, desc: desc8 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -63272,7 +63579,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const rows = await db2.execute(drizzleSql`
+      const rows = await db2.execute(drizzleSql2`
         SELECT id, day_string, reward_amount, streak_day, checked_in_at
         FROM daily_checkins
         WHERE user_id = ${userId}
@@ -63299,7 +63606,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const existing = await db2.execute(drizzleSql`
+      const existing = await db2.execute(drizzleSql2`
         SELECT id FROM daily_checkins WHERE user_id = ${userId} AND day_string = ${today} LIMIT 1
       `);
       if ((existing.rows ?? existing).length > 0) {
@@ -63308,7 +63615,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const yesterday = /* @__PURE__ */ new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yStr = yesterday.toISOString().slice(0, 10);
-      const yRow = await db2.execute(drizzleSql`
+      const yRow = await db2.execute(drizzleSql2`
         SELECT streak_day FROM daily_checkins WHERE user_id = ${userId} AND day_string = ${yStr} LIMIT 1
       `);
       const yRows = yRow.rows ?? yRow;
@@ -63318,7 +63625,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (newStreak >= 100) reward += CHECKIN_STREAK_100;
       else if (newStreak >= 30) reward += CHECKIN_STREAK_30;
       else if (newStreak >= 7) reward += CHECKIN_STREAK_7;
-      await db2.execute(drizzleSql`
+      await db2.execute(drizzleSql2`
         INSERT INTO daily_checkins (user_id, day_string, reward_amount, streak_day)
         VALUES (${userId}, ${today}, ${reward}, ${newStreak})
         ON CONFLICT (user_id, day_string) DO NOTHING
@@ -63331,7 +63638,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const weekAgo = /* @__PURE__ */ new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
       const weekStart = weekAgo.toISOString().slice(0, 10);
-      const rows = await db2.execute(drizzleSql`
+      const rows = await db2.execute(drizzleSql2`
         SELECT
           u.id,
           u.username,
@@ -63357,7 +63664,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq13, and: and7, sql: drizzleSql } = await import("drizzle-orm");
+    const { eq: eq14, and: and7, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -63371,17 +63678,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         chipUid: nfcActivations2.chipUid,
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
-        ownedByMe: drizzleSql`false`
-      }).from(nfcActivations2).where(eq13(nfcActivations2.chipUid, uid2)).limit(1);
+        ownedByMe: drizzleSql2`false`
+      }).from(nfcActivations2).where(eq14(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq13(nfcActivations2.userId, userId)).orderBy(drizzleSql`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq14(nfcActivations2.userId, userId)).orderBy(drizzleSql2`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq13(nfcDailyTaps2.userId, userId), eq13(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq14(nfcDailyTaps2.userId, userId), eq14(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -63392,7 +63699,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq13(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq14(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -63425,13 +63732,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq13(nfcActivations2.chipUid, uid2), eq13(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq14(nfcActivations2.chipUid, uid2), eq14(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
       const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and7(
-        eq13(nfcDailyTaps2.userId, userId),
-        eq13(nfcDailyTaps2.chipUid, uid2),
-        eq13(nfcDailyTaps2.dayString, today)
+        eq14(nfcDailyTaps2.userId, userId),
+        eq14(nfcDailyTaps2.chipUid, uid2),
+        eq14(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -63458,7 +63765,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq13(nfcActivations2.id, activation.id));
+      }).where(eq14(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -66445,9 +66752,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc7 } = await import("drizzle-orm");
+      const { desc: desc8 } = await import("drizzle-orm");
       const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
-      const rows = await db2.select().from(leads2).orderBy(desc7(leads2.createdAt)).limit(limit);
+      const rows = await db2.select().from(leads2).orderBy(desc8(leads2.createdAt)).limit(limit);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66458,8 +66765,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc7 } = await import("drizzle-orm");
-      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc7(leadHunterRuns2.createdAt)).limit(20);
+      const { desc: desc8 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc8(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66470,8 +66777,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq13 } = await import("drizzle-orm");
-      const [lead] = await db2.select().from(leads2).where(eq13(leads2.id, req.params.id)).limit(1);
+      const { eq: eq14 } = await import("drizzle-orm");
+      const [lead] = await db2.select().from(leads2).where(eq14(leads2.id, req.params.id)).limit(1);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       const result = await outreachLead2(lead);
@@ -66479,7 +66786,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         status: "Contacted",
         autoEngaged: result.automated,
         engagementType: result.engagementType || (result.automated ? "auto" : "manual")
-      }).where(eq13(leads2.id, req.params.id));
+      }).where(eq14(leads2.id, req.params.id));
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66490,15 +66797,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq13, and: and7, gte: gte4, sql: dsql } = await import("drizzle-orm");
-      const rows = await db2.select().from(leads2).where(and7(eq13(leads2.status, "New"), gte4(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { eq: eq14, and: and7, gte: gte4, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and7(eq14(leads2.status, "New"), gte4(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       let engaged = 0, manualNeeded = 0;
       for (const lead of rows) {
         const r = await outreachLead2(lead).catch(() => null);
         if (r?.automated) {
           engaged++;
-          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq13(leads2.id, lead.id));
+          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq14(leads2.id, lead.id));
           await new Promise((rs) => setTimeout(rs, 1500));
         } else {
           manualNeeded++;
@@ -66514,8 +66821,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq13 } = await import("drizzle-orm");
-      await db2.update(leads2).set({ status: req.body.status }).where(eq13(leads2.id, req.params.id));
+      const { eq: eq14 } = await import("drizzle-orm");
+      await db2.update(leads2).set({ status: req.body.status }).where(eq14(leads2.id, req.params.id));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66533,11 +66840,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/today", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc7 } = await import("drizzle-orm");
+      const { desc: desc8 } = await import("drizzle-orm");
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq11(ambassadorRunSummary2.runDate, today)).limit(1);
-      const content = await db.select().from(ambassadorDailyContent2).where(eq11(ambassadorDailyContent2.runDate, today)).orderBy(desc7(ambassadorDailyContent2.createdAt));
-      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq11(ambassadorDailyKpis2.runDate, today)).limit(1);
+      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq12(ambassadorRunSummary2.runDate, today)).limit(1);
+      const content = await db.select().from(ambassadorDailyContent2).where(eq12(ambassadorDailyContent2.runDate, today)).orderBy(desc8(ambassadorDailyContent2.createdAt));
+      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq12(ambassadorDailyKpis2.runDate, today)).limit(1);
       res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66546,8 +66853,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/history", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc7 } = await import("drizzle-orm");
-      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc7(ambassadorRunSummary2.createdAt)).limit(30);
+      const { desc: desc8 } = await import("drizzle-orm");
+      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc8(ambassadorRunSummary2.createdAt)).limit(30);
       res.json({ runs });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66556,15 +66863,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/content/:date", async (req, res) => {
     try {
       const { ambassadorDailyContent: ambassadorDailyContent2, ambassadorHookVariations: ambassadorHookVariations2, ambassadorBonusContent: ambassadorBonusContent2, ambassadorCommunityContent: ambassadorCommunityContent2, ambassadorRedditInsights: ambassadorRedditInsights2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc7 } = await import("drizzle-orm");
+      const { desc: desc8 } = await import("drizzle-orm");
       const { date: date2 } = req.params;
       const [content, hooks, bonus, community, insights, steps] = await Promise.all([
-        db.select().from(ambassadorDailyContent2).where(eq11(ambassadorDailyContent2.runDate, date2)),
-        db.select().from(ambassadorHookVariations2).where(eq11(ambassadorHookVariations2.runDate, date2)),
-        db.select().from(ambassadorBonusContent2).where(eq11(ambassadorBonusContent2.runDate, date2)),
-        db.select().from(ambassadorCommunityContent2).where(eq11(ambassadorCommunityContent2.runDate, date2)),
-        db.select().from(ambassadorRedditInsights2).where(eq11(ambassadorRedditInsights2.runDate, date2)),
-        db.select().from(ambassadorRunStepLog2).where(eq11(ambassadorRunStepLog2.runDate, date2)).orderBy(desc7(ambassadorRunStepLog2.createdAt))
+        db.select().from(ambassadorDailyContent2).where(eq12(ambassadorDailyContent2.runDate, date2)),
+        db.select().from(ambassadorHookVariations2).where(eq12(ambassadorHookVariations2.runDate, date2)),
+        db.select().from(ambassadorBonusContent2).where(eq12(ambassadorBonusContent2.runDate, date2)),
+        db.select().from(ambassadorCommunityContent2).where(eq12(ambassadorCommunityContent2.runDate, date2)),
+        db.select().from(ambassadorRedditInsights2).where(eq12(ambassadorRedditInsights2.runDate, date2)),
+        db.select().from(ambassadorRunStepLog2).where(eq12(ambassadorRunStepLog2.runDate, date2)).orderBy(desc8(ambassadorRunStepLog2.createdAt))
       ]);
       res.json({ content, hooks, bonus, community, insights, steps });
     } catch (e) {
@@ -67293,7 +67600,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq12 } from "drizzle-orm";
+import { eq as eq13 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -67427,7 +67734,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq12(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq13(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -67783,8 +68090,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq13 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq13(engineRunState2.isRunning, true));
+    const { eq: eq14 } = await import("drizzle-orm");
+    const runningRows = await db2.select().from(engineRunState2).where(eq14(engineRunState2.isRunning, true));
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));

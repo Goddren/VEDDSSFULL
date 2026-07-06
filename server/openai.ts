@@ -1250,7 +1250,7 @@ Apply the rules appropriate for this strategy when evaluating the trade. Priorit
 async function buildConfirmationPrompt(
   candleData: any[], indicators: any, proposedSignal: string,
   proposedConfidence: number, tradePlan: any, symbol: string, timeframe: string,
-  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[]; marketNarrative?: string },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
@@ -1324,6 +1324,10 @@ async function buildConfirmationPrompt(
         parts.push(`  - [${e.impact?.toUpperCase()}] ${e.event} (${e.currency}) - ${timeUntil} at ${e.timeFormatted || 'TBD'}`);
         if (e.potentialImpact) parts.push(`    Impact: ${e.potentialImpact}`);
       });
+    }
+    if (newsContext.marketNarrative) {
+      parts.push(`\nVEDD WEEKLY MARKET BRIEFING (from this week's community research — context only, not a trade signal):`);
+      parts.push(`  ${newsContext.marketNarrative}`);
     }
     if (parts.length > 0) {
       newsSection = `\nNEWS & ECONOMIC EVENTS CONTEXT:\n${parts.join('\n')}`;
@@ -1807,7 +1811,7 @@ export async function getAiVisionConfirmation(
   symbol: string,
   timeframe: string,
   userId?: number,
-  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[] },
+  newsContext?: { sentiment?: any; upcomingEvents?: any[]; topHeadlines?: string[]; marketNarrative?: string },
   ictContext?: IctContext | null,
   smcContext?: SmcContext | null,
   htfLevels?: Array<{ timeframe: string; candles: Array<{ o: number; h: number; l: number; c: number; v?: number; t?: number }>; role?: string }>,
