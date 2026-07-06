@@ -36883,9 +36883,12 @@ Today's market headlines: ${newsHeadlines.slice(0, 5).join(" | ")}` : "";
 }
 async function sendAmbassadorPrimeReport(data) {
   const sgKey = process.env.SENDGRID_API_KEY;
-  if (!sgKey) {
-    console.error("[ambassador-prime] SENDGRID_API_KEY not set in server environment \u2014 email report cannot be sent");
-    return { success: false, reason: "SENDGRID_API_KEY not set in server environment" };
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (!sgKey && !(gmailUser && gmailPass)) {
+    const reason2 = "No email channel configured \u2014 set SENDGRID_API_KEY (requires a verified sender/domain), or GMAIL_USER + GMAIL_APP_PASSWORD for a free no-domain-verification alternative (create an App Password at myaccount.google.com/apppasswords).";
+    console.error("[ambassador-prime]", reason2);
+    return { success: false, reason: reason2 };
   }
   const noApiMode = !data.hasTwitterKeys && !data.hasLinkedInKey;
   const tweetLabel = data.hasTwitterKeys ? "Tweet" : "\u{1F426} Copy & post to Twitter";
@@ -36999,22 +37002,38 @@ async function sendAmbassadorPrimeReport(data) {
   </div>
 </div>
 </body></html>`;
-  try {
-    const { default: sgMail3 } = await import("@sendgrid/mail");
-    sgMail3.setApiKey(sgKey);
-    await sgMail3.send({
-      to: REPORT_EMAIL,
-      from: "noreply@veddbuild.com",
-      subject: `VEDD Ambassador Prime \u2014 ${data.theme.name} (${data.runDate})`,
-      html
-    });
-    return { success: true };
-  } catch (e) {
-    const sgErrors = e?.response?.body?.errors;
-    const detail = Array.isArray(sgErrors) && sgErrors.length ? sgErrors.map((er) => er.message).join("; ") : e.message;
-    console.error("[ambassador-prime] Email send error:", detail);
-    return { success: false, reason: detail };
+  const subject = `VEDD Ambassador Prime \u2014 ${data.theme.name} (${data.runDate})`;
+  const sgErrors = [];
+  if (sgKey) {
+    try {
+      const { default: sgMail3 } = await import("@sendgrid/mail");
+      sgMail3.setApiKey(sgKey);
+      await sgMail3.send({ to: REPORT_EMAIL, from: "noreply@veddbuild.com", subject, html });
+      return { success: true };
+    } catch (e) {
+      const errDetail = e?.response?.body?.errors;
+      const detail = Array.isArray(errDetail) && errDetail.length ? errDetail.map((er) => er.message).join("; ") : e.message;
+      console.error("[ambassador-prime] SendGrid send failed, trying Gmail fallback if configured:", detail);
+      sgErrors.push(`SendGrid: ${detail}`);
+    }
   }
+  if (gmailUser && gmailPass) {
+    const { sendGmail: sendGmail2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const plainSummary = `${data.theme.name} \u2014 ${data.dayName}, ${data.runDate}
+
+Tweets: ${data.tweetsPosted}/${data.tweets.length} | LinkedIn: ${data.linkedinPosts} | IG captions: ${data.igCaptionsGenerated}
+Completed steps: ${data.completedSteps.join(", ") || "none"}
+Skipped steps: ${data.skippedSteps.join(", ") || "none"}
+` + (data.errors.length ? `Errors: ${data.errors.join(" | ")}
+` : "") + `
+Full report is in the HTML body of this email.`;
+    const result = await sendGmail2(REPORT_EMAIL, subject, plainSummary, html);
+    if (result.success) return { success: true };
+    sgErrors.push(`Gmail: ${result.error}`);
+  }
+  const reason = sgErrors.join(" | ") || "No email channel configured";
+  console.error("[ambassador-prime] All email channels failed:", reason);
+  return { success: false, reason };
 }
 function escHtml(s) {
   return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

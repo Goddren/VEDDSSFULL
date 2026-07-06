@@ -781,9 +781,12 @@ async function sendAmbassadorPrimeReport(data: {
   completedSteps: string[]; skippedSteps: string[]; errors: string[];
 }): Promise<{ success: boolean; reason?: string }> {
   const sgKey = process.env.SENDGRID_API_KEY;
-  if (!sgKey) {
-    console.error('[ambassador-prime] SENDGRID_API_KEY not set in server environment — email report cannot be sent');
-    return { success: false, reason: 'SENDGRID_API_KEY not set in server environment' };
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (!sgKey && !(gmailUser && gmailPass)) {
+    const reason = 'No email channel configured — set SENDGRID_API_KEY (requires a verified sender/domain), or GMAIL_USER + GMAIL_APP_PASSWORD for a free no-domain-verification alternative (create an App Password at myaccount.google.com/apppasswords).';
+    console.error('[ambassador-prime]', reason);
+    return { success: false, reason };
   }
 
   const noApiMode = !data.hasTwitterKeys && !data.hasLinkedInKey;
@@ -904,27 +907,47 @@ async function sendAmbassadorPrimeReport(data: {
 </div>
 </body></html>`;
 
-  try {
-    const { default: sgMail } = await import('@sendgrid/mail');
-    sgMail.setApiKey(sgKey);
-    await sgMail.send({
-      to: REPORT_EMAIL,
-      from: 'noreply@veddbuild.com',
-      subject: `VEDD Ambassador Prime — ${data.theme.name} (${data.runDate})`,
-      html,
-    });
-    return { success: true };
-  } catch (e: any) {
-    // SendGrid returns structured per-error detail in e.response.body.errors —
-    // e.message alone is often just "Unauthorized" or "Bad Request", not
-    // useful for diagnosing e.g. an unverified sender identity.
-    const sgErrors = e?.response?.body?.errors;
-    const detail = Array.isArray(sgErrors) && sgErrors.length
-      ? sgErrors.map((er: any) => er.message).join('; ')
-      : e.message;
-    console.error('[ambassador-prime] Email send error:', detail);
-    return { success: false, reason: detail };
+  const subject = `VEDD Ambassador Prime — ${data.theme.name} (${data.runDate})`;
+  const sgErrors: string[] = [];
+
+  if (sgKey) {
+    try {
+      const { default: sgMail } = await import('@sendgrid/mail');
+      sgMail.setApiKey(sgKey);
+      await sgMail.send({ to: REPORT_EMAIL, from: 'noreply@veddbuild.com', subject, html });
+      return { success: true };
+    } catch (e: any) {
+      // SendGrid returns structured per-error detail in e.response.body.errors —
+      // e.message alone is often just "Unauthorized" or "Bad Request", not
+      // useful for diagnosing e.g. an unverified sender identity.
+      const errDetail = e?.response?.body?.errors;
+      const detail = Array.isArray(errDetail) && errDetail.length
+        ? errDetail.map((er: any) => er.message).join('; ')
+        : e.message;
+      console.error('[ambassador-prime] SendGrid send failed, trying Gmail fallback if configured:', detail);
+      sgErrors.push(`SendGrid: ${detail}`);
+    }
   }
+
+  // Free fallback — no domain verification required, just a Gmail account +
+  // App Password (myaccount.google.com/apppasswords). Tried when SendGrid
+  // isn't configured, or as a fallback when it just failed above.
+  if (gmailUser && gmailPass) {
+    const { sendGmail } = await import('../messaging');
+    const plainSummary = `${data.theme.name} — ${data.dayName}, ${data.runDate}\n\n` +
+      `Tweets: ${data.tweetsPosted}/${data.tweets.length} | LinkedIn: ${data.linkedinPosts} | IG captions: ${data.igCaptionsGenerated}\n` +
+      `Completed steps: ${data.completedSteps.join(', ') || 'none'}\n` +
+      `Skipped steps: ${data.skippedSteps.join(', ') || 'none'}\n` +
+      (data.errors.length ? `Errors: ${data.errors.join(' | ')}\n` : '') +
+      `\nFull report is in the HTML body of this email.`;
+    const result = await sendGmail(REPORT_EMAIL, subject, plainSummary, html);
+    if (result.success) return { success: true };
+    sgErrors.push(`Gmail: ${result.error}`);
+  }
+
+  const reason = sgErrors.join(' | ') || 'No email channel configured';
+  console.error('[ambassador-prime] All email channels failed:', reason);
+  return { success: false, reason };
 }
 
 function escHtml(s: string): string {
