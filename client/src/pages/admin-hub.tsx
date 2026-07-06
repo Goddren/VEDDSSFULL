@@ -7,7 +7,7 @@ import {
   Coins, Users, FileText, Wallet, Shield, Settings, ChevronRight,
   CheckCircle, Clock, AlertTriangle, TrendingUp, RefreshCw,
   Key, BookOpen, Zap, BarChart3, Gift, Lock, ExternalLink,
-  Copy, CheckSquare, Rocket, Star, UserCog, Search
+  Copy, CheckSquare, Rocket, Star, UserCog, Search, Mail, Download
 } from 'lucide-react';
 import { SiSolana } from 'react-icons/si';
 import { useState } from 'react';
@@ -36,6 +36,26 @@ interface AdminUser {
   walletAddress: string | null;
   subscriptionTier: string | null;
   createdAt: string | null;
+}
+
+interface NewsletterSubscriber {
+  id: number;
+  email: string;
+  referralCode: string | null;
+  sourceSlug: string | null;
+  status: string;
+  subscribedAt: string;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map(r => r.map(cell => `"${(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function CopyBtn({ text }: { text: string }) {
@@ -71,6 +91,12 @@ export default function AdminHub() {
 
   const { data: allUsers = [] } = useQuery<AdminUser[]>({
     queryKey: ['/api/admin/users'],
+    enabled: !!user?.isAdmin,
+    refetchInterval: 60000,
+  });
+
+  const { data: newsletterSubs = [] } = useQuery<NewsletterSubscriber[]>({
+    queryKey: ['/api/blog/newsletter/subscribers'],
     enabled: !!user?.isAdmin,
     refetchInterval: 60000,
   });
@@ -665,6 +691,54 @@ export default function AdminHub() {
             )}
           </div>
           <p className="text-[10px] text-gray-600 mt-2 text-center">Click "+ Amb" to grant ambassador access · ambassadors can access all ambassador routes and earn VEDD rewards</p>
+        </div>
+
+        {/* Blog Newsletter Subscribers */}
+        <div className="mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="section-title">Blog Newsletter Subscribers</p>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500">{newsletterSubs.length} total</span>
+              <button
+                onClick={() => downloadCsv(
+                  `vedd-newsletter-subscribers-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [
+                    ['Email', 'Status', 'Referral Code', 'Source Article', 'Subscribed At'],
+                    ...newsletterSubs.map(s => [s.email, s.status, s.referralCode || '', s.sourceSlug || '', s.subscribedAt]),
+                  ]
+                )}
+                disabled={newsletterSubs.length === 0}
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-white/10 text-gray-400 hover:text-amber-400 hover:border-amber-500/30 disabled:opacity-40 flex items-center gap-1.5"
+              >
+                <Download className="h-3 w-3" /> Export CSV
+              </button>
+            </div>
+          </div>
+          <div className="smart-card divide-y divide-white/05">
+            {newsletterSubs.slice(0, 100).map(s => (
+              <div key={s.id} className="flex items-center gap-3 px-4 py-3">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/20 to-emerald-500/20 flex items-center justify-center shrink-0">
+                  <Mail className="h-3.5 w-3.5 text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-white text-sm font-semibold truncate">{s.email}</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${s.status === 'subscribed' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20' : 'bg-gray-500/20 text-gray-400 border-gray-500/20'}`}>
+                      {s.status}
+                    </span>
+                    {s.referralCode && <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/20 px-1.5 py-0.5 rounded-full">ref: {s.referralCode}</span>}
+                  </div>
+                  <p className="text-gray-500 text-xs truncate">
+                    {s.sourceSlug ? `from /blog/${s.sourceSlug} · ` : ''}
+                    {new Date(s.subscribedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {newsletterSubs.length === 0 && (
+              <div className="px-4 py-6 text-center text-gray-500 text-sm">No newsletter signups yet</div>
+            )}
+          </div>
         </div>
 
       </div>

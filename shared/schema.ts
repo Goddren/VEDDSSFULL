@@ -2884,6 +2884,10 @@ export const copyRelationships = pgTable("copy_relationships", {
   maxLotSize: real("max_lot_size").notNull().default(0.01),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Added via idempotent ALTER TABLE in server/index.ts boot migration —
+  // declared here too so the Drizzle-typed side matches the raw-SQL side.
+  profitSharePct: real("profit_share_pct").notNull().default(20),
+  veddFeePaid: real("vedd_fee_paid").notNull().default(0),
 }, (t) => ({
   unq: unique().on(t.copierId, t.sourceUserId),
 }));
@@ -2906,6 +2910,7 @@ export const copyTradeLogs = pgTable("copy_trade_logs", {
   status: text("status").notNull().default("open"),
   openedAt: timestamp("opened_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
+  profitShareVedd: real("profit_share_vedd"),
 });
 
 export type CopyRelationship = typeof copyRelationships.$inferSelect;

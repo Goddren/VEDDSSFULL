@@ -543,6 +543,7 @@ export interface IStorage {
   createBlogNewsletterSubscriber(sub: InsertBlogNewsletterSubscriber): Promise<BlogNewsletterSubscriber>;
   getBlogNewsletterSubscriberByEmail(email: string): Promise<BlogNewsletterSubscriber | undefined>;
   resubscribeBlogNewsletter(email: string): Promise<BlogNewsletterSubscriber>;
+  getAllBlogNewsletterSubscribers(): Promise<BlogNewsletterSubscriber[]>;
 
   // Ambassador Free Path Journey
   getAmbassadorJourney(userId: number): Promise<AmbassadorJourney | undefined>;
@@ -3406,6 +3407,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(blogNewsletterSubscribers.email, email))
       .returning();
     return updated;
+  }
+
+  async getAllBlogNewsletterSubscribers(): Promise<BlogNewsletterSubscriber[]> {
+    return await db.select().from(blogNewsletterSubscribers).orderBy(desc(blogNewsletterSubscribers.subscribedAt));
   }
 
   // ─── AMBASSADOR FREE PATH JOURNEY ─────────────────────────────

@@ -110,3 +110,98 @@ export function TlOpenPositions({ compact = false }: { compact?: boolean }) {
     </div>
   );
 }
+
+// Closed TradeLocker trades — the backend already syncs these every 30s
+// (syncTradeLockerOutcomes) and serves them from /api/tradelocker/trades, but
+// no client component queried that endpoint, so closed P&L never surfaced.
+interface TlClosedTrade {
+  id: number | string;
+  symbol: string;
+  action?: string;
+  status: string;
+  result?: string;
+  profitLoss?: number;
+  entryPrice?: number;
+  exitPrice?: number;
+  closedAt?: string;
+  createdAt?: string;
+}
+
+export function TlClosedTrades({ compact = false }: { compact?: boolean }) {
+  const { data, isLoading, isFetching, refetch } = useQuery<TlClosedTrade[]>({
+    queryKey: ['/api/tradelocker/trades'],
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+
+  const closedTrades = (data ?? []).filter(t => t.status === 'closed').slice(0, compact ? 5 : 20);
+  const totalPl = closedTrades.reduce((sum, t) => sum + (t.profitLoss || 0), 0);
+
+  if (!isLoading && (data?.length ?? 0) === 0) return null; // no TL trade history — hide entirely
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-gray-200">Closed Trades (TradeLocker)</h3>
+          {closedTrades.length > 0 && (
+            <span className={`text-xs font-bold font-mono ${totalPl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {totalPl >= 0 ? '+' : ''}{totalPl.toFixed(2)} USD
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="p-1.5 rounded-md hover:bg-white/10 text-gray-500"
+          aria-label="Refresh closed trades"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-xs text-gray-500">Loading closed trades…</p>
+      ) : closedTrades.length === 0 ? (
+        <p className="text-xs text-gray-500">No closed trades yet</p>
+      ) : (
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full text-xs min-w-[480px]">
+            <thead>
+              <tr className="text-gray-500 text-left border-b border-gray-800">
+                <th className="py-1.5 pr-3 font-medium">Symbol</th>
+                <th className="py-1.5 pr-3 font-medium">Side</th>
+                <th className="py-1.5 pr-3 font-medium text-right">Entry</th>
+                <th className="py-1.5 pr-3 font-medium text-right">Exit</th>
+                <th className="py-1.5 pr-3 font-medium text-right">P/L</th>
+                {!compact && <th className="py-1.5 font-medium">Closed</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {closedTrades.map((t, i) => (
+                <tr key={`${t.id}-${i}`} className="border-b border-gray-800/50">
+                  <td className="py-1.5 pr-3 font-semibold text-gray-200">{t.symbol}</td>
+                  <td className="py-1.5 pr-3">
+                    <span className={`inline-flex items-center gap-1 font-bold uppercase ${t.action === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {t.action === 'BUY' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                      {t.action || '—'}
+                    </span>
+                  </td>
+                  <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{t.entryPrice ?? '—'}</td>
+                  <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{t.exitPrice ?? '—'}</td>
+                  <td className={`py-1.5 pr-3 text-right font-mono font-bold ${(t.profitLoss ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(t.profitLoss ?? 0) >= 0 ? '+' : ''}{(t.profitLoss ?? 0).toFixed(2)}
+                  </td>
+                  {!compact && (
+                    <td className="py-1.5 text-gray-500">
+                      {t.closedAt ? new Date(t.closedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}

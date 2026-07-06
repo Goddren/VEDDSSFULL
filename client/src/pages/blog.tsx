@@ -198,24 +198,36 @@ function SharePanel({ post, referralCode, onClose }: {
   const plain      = post.excerpt || truncate(stripHtml(post.content || ''), 220);
   const snippet    = truncate(plain, 220);
 
+  // Tag each share destination with utm_source so analytics can tell which
+  // platform (WhatsApp vs X vs copied link) actually drives signups — not
+  // just which referral code was attached.
+  const utmUrl = (source: string) => {
+    const u = new URL(articleUrl);
+    u.searchParams.set('utm_source', source);
+    u.searchParams.set('utm_medium', 'social_share');
+    u.searchParams.set('utm_campaign', 'blog_share');
+    return u.toString();
+  };
+  const copyLinkUrl = utmUrl('copy_link');
+
   const breakingText =
     `📡 BREAKING NEWS — VEDD AI Trading\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
     `📈 ${post.title}\n\n${truncate(plain, 180)}\n\n🔗 Join VEDD AI Trading now:\n${signupUrl}\n\n#VEDD #Trading #Forex #AI #BreakingNews`;
-  const fullMsg = `📈 ${post.title}\n\n${snippet}\n\nRead the full article on VEDD AI Trading 👇\n${articleUrl}`;
+  const fullMsgFor = (source: string) => `📈 ${post.title}\n\n${snippet}\n\nRead the full article on VEDD AI Trading 👇\n${utmUrl(source)}`;
+  const fullMsg = fullMsgFor('copy_link'); // preview/copy-message default
   const twitterMsg = `📈 ${post.title}\n\n${truncate(plain, 120)}\n\n#VEDD #Trading #Forex`;
 
   const eBreaking = encodeURIComponent(breakingText);
-  const eFull     = encodeURIComponent(fullMsg);
-  const eUrl      = encodeURIComponent(articleUrl);
+  const eFull     = encodeURIComponent(fullMsgFor('whatsapp'));
   const eTwitter  = encodeURIComponent(twitterMsg);
 
   const activeMsg = tab === 'breaking' ? breakingText : fullMsg;
 
   const platforms = [
     { name: 'WhatsApp', color: 'bg-green-700 hover:bg-green-600', emoji: '💬', url: `https://wa.me/?text=${tab === 'breaking' ? eBreaking : eFull}` },
-    { name: 'X / Twitter', color: 'bg-gray-800 hover:bg-gray-700 border border-gray-600', emoji: '𝕏', url: `https://twitter.com/intent/tweet?text=${eTwitter}&url=${eUrl}` },
-    { name: 'Facebook', color: 'bg-blue-700 hover:bg-blue-600', emoji: 'f', url: `https://www.facebook.com/sharer/sharer.php?u=${eUrl}&quote=${encodeURIComponent(activeMsg)}` },
-    { name: 'LinkedIn', color: 'bg-blue-600 hover:bg-blue-500', emoji: 'in', url: `https://www.linkedin.com/sharing/share-offsite/?url=${eUrl}&summary=${encodeURIComponent(activeMsg)}` },
+    { name: 'X / Twitter', color: 'bg-gray-800 hover:bg-gray-700 border border-gray-600', emoji: '𝕏', url: `https://twitter.com/intent/tweet?text=${eTwitter}&url=${encodeURIComponent(utmUrl('twitter'))}` },
+    { name: 'Facebook', color: 'bg-blue-700 hover:bg-blue-600', emoji: 'f', url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(utmUrl('facebook'))}&quote=${encodeURIComponent(activeMsg)}` },
+    { name: 'LinkedIn', color: 'bg-blue-600 hover:bg-blue-500', emoji: 'in', url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(utmUrl('linkedin'))}&summary=${encodeURIComponent(activeMsg)}` },
   ];
 
   const copy = async (text: string, which: 'msg' | 'link' | 'breaking') => {
@@ -261,14 +273,14 @@ function SharePanel({ post, referralCode, onClose }: {
             <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Preview</p>
             <p className="text-xs font-bold text-white">📈 {post.title}</p>
             <p className="text-xs text-gray-300">{snippet}</p>
-            <p className="text-xs text-emerald-400 font-mono truncate">{articleUrl}</p>
+            <p className="text-xs text-emerald-400 font-mono truncate">{copyLinkUrl}</p>
           </div>
           <div className="flex gap-2">
             <Button size="sm" onClick={() => copy(fullMsg, 'msg')} variant="outline"
               className={`flex-1 text-xs h-8 ${copiedMsg ? 'bg-emerald-700 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-600'}`}>
               {copiedMsg ? <><Check className="h-3.5 w-3.5 mr-1" />Copied!</> : <><Copy className="h-3.5 w-3.5 mr-1" />Copy Message</>}
             </Button>
-            <Button size="sm" onClick={() => copy(articleUrl, 'link')} variant="outline" title="Copy link"
+            <Button size="sm" onClick={() => copy(copyLinkUrl, 'link')} variant="outline" title="Copy link"
               className={`text-xs h-8 ${copiedLink ? 'bg-emerald-700 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700'}`}>
               {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </Button>
@@ -735,6 +747,26 @@ function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare, allPo
   const plain = stripHtml(post.content || '');
   const previewWords = plain.split(' ').slice(0, 80).join(' ') + '…';
 
+  // Scroll-depth capture — a second, less-naggy newsletter prompt for
+  // logged-out readers who are clearly engaged (past ~55% of the article)
+  // but haven't hit the ContentGate paywall trigger yet. Dismissible, shows
+  // once per article view, never on top of the sidebar form.
+  const readerScrollRef = useRef<HTMLDivElement>(null);
+  const [showScrollCapture, setShowScrollCapture] = useState(false);
+  const [scrollCaptureDismissed, setScrollCaptureDismissed] = useState(false);
+  useEffect(() => {
+    if (isLoggedIn) return;
+    const el = readerScrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (scrollCaptureDismissed || showScrollCapture) return;
+      const depth = (el.scrollTop + el.clientHeight) / el.scrollHeight;
+      if (depth >= 0.55) setShowScrollCapture(true);
+    };
+    el.addEventListener('scroll', onScroll);
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [isLoggedIn, scrollCaptureDismissed, showScrollCapture]);
+
   const related = allPosts
     .filter(p => p.id !== post.id)
     .map(p => ({ p, score: p.category === post.category ? 2 : (p.tags || []).some(t => (post.tags || []).includes(t)) ? 1 : 0 }))
@@ -744,7 +776,7 @@ function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare, allPo
     .map(x => x.p);
 
   return (
-    <div className="fixed inset-0 z-[9999] overflow-y-auto" style={{ background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(6px)' }}>
+    <div ref={readerScrollRef} className="fixed inset-0 z-[9999] overflow-y-auto" style={{ background: 'rgba(0,0,0,.85)', backdropFilter: 'blur(6px)' }}>
       <div className="min-h-screen flex flex-col">
         {/* Top bar */}
         <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3" style={{ background: 'rgba(8,8,18,.95)', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
@@ -851,6 +883,33 @@ function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare, allPo
           </div>
         </div>
       </div>
+
+      {/* Scroll-depth newsletter capture — engaged logged-out readers only */}
+      <AnimatePresence>
+        {showScrollCapture && !scrollCaptureDismissed && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 80, opacity: 0 }}
+            className="fixed bottom-0 left-0 right-0 z-[10000] px-4 pb-4"
+          >
+            <div className="max-w-md mx-auto rounded-2xl p-4 flex items-start gap-3" style={{
+              background: 'rgba(10,10,20,.97)', border: '1px solid rgba(220,38,38,.35)', backdropFilter: 'blur(8px)',
+              boxShadow: '0 -8px 30px rgba(0,0,0,.5)',
+            }}>
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
+                <Bell className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-white">Enjoying this? Get more like it.</p>
+                <p className="text-xs text-gray-400 mt-0.5 mb-2">AI market insights & article drops, weekly. No spam.</p>
+                <NewsletterForm referralCode={referralCode} sourceSlug={post.slug} />
+              </div>
+              <button onClick={() => setScrollCaptureDismissed(true)} className="text-gray-500 hover:text-gray-300 shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

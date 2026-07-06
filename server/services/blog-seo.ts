@@ -41,11 +41,14 @@ export async function injectBlogSeoMeta(html: string, url: string): Promise<stri
     (post.excerpt || stripHtml(post.content || '')).slice(0, 200)
   );
   const pageUrl = `${BASE_URL}/blog/${post.slug}`;
+  // Prefer an explicit cover image if the post has one; otherwise fall back to
+  // the auto-generated per-article social card (title + category), which is
+  // itself still a redirect to the static og-image.png if generation fails.
   const image = (post as any).coverImage
-    ? String((post as any).coverImage).startsWith('http')
+    ? (String((post as any).coverImage).startsWith('http')
       ? (post as any).coverImage
-      : `${BASE_URL}${(post as any).coverImage}`
-    : `${BASE_URL}/og-image.png`;
+      : `${BASE_URL}${(post as any).coverImage}`)
+    : `${BASE_URL}/og/blog/${post.slug}.png`;
 
   const jsonLd = {
     "@context": "https://schema.org",

@@ -10677,10 +10677,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const _positions = (global as any).mt5OpenPositions?.[token.userId]?.positions ?? [];
         const _floating = _positions.reduce((sum: number, p: any) => sum + (p.profit || 0), 0);
 
-        // 0a. Balance unknown/stale → cannot size risk safely → block
-        if (useRiskPercent && !_acctBalKnown) {
+        // 0a. Balance unknown/stale → margin/daily-loss/exposure/per-trade-cap checks
+        // below (0b-0e) all depend on a known balance and are skipped without one —
+        // that means a fixed-lot setup (useRiskPercent=false) with missing/stale
+        // account data previously got ZERO real-money protection. Block outright
+        // regardless of sizing mode; a live account must never trade blind.
+        if (!_acctBalKnown) {
           tlGateBlocked = true;
-          tlGateReason = 'Account balance unknown/stale (>15m) — risk-% sizing unsafe';
+          tlGateReason = 'Account balance unknown/stale (>15m) — cannot verify margin/exposure safely';
         }
 
         // 0b. Margin health — broker-reported free margin & margin level
@@ -10737,6 +10741,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
         if (tlGateBlocked) {
           analysis.signal = 'NEUTRAL'; // hard kill — stops EA broadcast AND TradeLocker
+          analysis.tradePlan = null;  // also clear the plan itself — belt-and-suspenders so
+                                       // mt5HasTradePlan can't stay true and let the EA's local
+                                       // fallback (ProcessAutoTrade) act on a stale plan
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`🛡️ RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
           console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
@@ -11511,6 +11518,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         }
       } catch (_pfErr) { /* non-critical */ }
+
+      // Belt-and-suspenders: any gate above (1, 2, 2b, 2c, 2d, 3) neutralises
+      // analysis.signal but doesn't necessarily clear tradePlan — clear it here too
+      // so mt5HasTradePlan can't stay true and let the EA's local ProcessAutoTrade()
+      // fallback act on a plan the server already decided to block.
+      if (tlGateBlocked) {
+        analysis.tradePlan = null;
+      }
 
       const shouldMT5Execute = !mt5CooldownActive &&
                                 !globalDailyCapBlocked &&
@@ -25371,6 +25386,28 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // GET /og/blog/:slug.png — per-article social share image (title + category
+  // card). Falls back to the static og-image.png if canvas isn't available
+  // on this host or the post doesn't exist, so a broken image never 404s.
+  app.get("/og/blog/:slug.png", async (req, res) => {
+    try {
+      const slug = req.params.slug.replace(/\.png$/i, '');
+      const post = await storage.getBlogPostBySlug(slug);
+      if (!post || !post.isPublished) {
+        return res.redirect(302, '/og-image.png');
+      }
+      const { generateBlogOgImage } = await import('./services/blog-og-image');
+      const buffer = await generateBlogOgImage(post.title, post.category || 'Trading');
+      res.set({
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
+      }).send(buffer);
+    } catch (err: any) {
+      console.error('[OG Image] Generation failed, falling back to static image:', err?.message);
+      res.redirect(302, '/og-image.png');
+    }
+  });
+
   app.get("/robots.txt", (_req, res) => {
     res.set('Content-Type', 'text/plain').send(
       `User-agent: *\nAllow: /\n\nSitemap: ${SEO_BASE_URL}/sitemap.xml\n`
@@ -25437,6 +25474,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         sourceSlug: sourceSlug || null,
       } as any);
       res.status(201).json({ subscribed: true, subscriber: created });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/blog/newsletter/subscribers — admin-only list for the admin hub
+  app.get("/api/blog/newsletter/subscribers", async (req, res) => {
+    if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const subscribers = await storage.getAllBlogNewsletterSubscribers();
+      res.json(subscribers);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -27807,7 +27855,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ambassador-prime/today", async (_req: Request, res: Response) => {
     try {
-      const { ambassadorRunSummary, ambassadorDailyContent, ambassadorDailyKpis } = await import('../../shared/schema');
+      const { ambassadorRunSummary, ambassadorDailyContent, ambassadorDailyKpis } = await import('../shared/schema');
       const { desc } = await import('drizzle-orm');
       const today = new Date().toISOString().split('T')[0];
       const [summary] = await db.select().from(ambassadorRunSummary).where(eq(ambassadorRunSummary.runDate, today)).limit(1);
@@ -27819,7 +27867,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ambassador-prime/history", async (_req: Request, res: Response) => {
     try {
-      const { ambassadorRunSummary, ambassadorRunStepLog } = await import('../../shared/schema');
+      const { ambassadorRunSummary, ambassadorRunStepLog } = await import('../shared/schema');
       const { desc } = await import('drizzle-orm');
       const runs = await db.select().from(ambassadorRunSummary).orderBy(desc(ambassadorRunSummary.createdAt)).limit(30);
       res.json({ runs });
@@ -27828,7 +27876,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ambassador-prime/content/:date", async (req: Request, res: Response) => {
     try {
-      const { ambassadorDailyContent, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRedditInsights, ambassadorRunStepLog } = await import('../../shared/schema');
+      const { ambassadorDailyContent, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRedditInsights, ambassadorRunStepLog } = await import('../shared/schema');
       const { desc } = await import('drizzle-orm');
       const { date } = req.params;
       const [content, hooks, bonus, community, insights, steps] = await Promise.all([

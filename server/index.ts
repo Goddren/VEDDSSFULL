@@ -203,6 +203,15 @@ async function withRetry<T>(
     console.error(`[startup] ensureBlogTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Ambassador Prime (Daily Growth Engine) tables exist — these were
+  // defined in schema.ts but never migrated, so the page always 500'd.
+  try {
+    const { ensureAmbassadorPrimeTables } = await import('./services/ensure-ambassador-prime-tables');
+    await ensureAmbassadorPrimeTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureAmbassadorPrimeTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

@@ -10,6 +10,8 @@ import { detectBOSCHOCH, detectWyckoff, type BOSCHOCHResult, type WyckoffResult 
 import { getPremiumDiscountContext } from '../utils/ictMacroUtils';
 import { buildTransitionMatrix } from './markov-chain';
 import { computeBreakoutScore } from '../utils/breakoutEngine';
+import { db } from '../db';
+import { sql } from 'drizzle-orm';
 
 interface HTFBiasData {
   trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -4635,6 +4637,53 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} — trade skipped` });
         return;
       }
+    }
+
+    // ── FX Paper Trading Mode ──────────────────────────────────────────────
+    // The paper-trading toggle (fx_paper_accounts.is_enabled, set from the
+    // Weekly Strategy page) previously did nothing — the engine only ever
+    // broadcast live MT5 signals / executed on TradeLocker and never checked
+    // it, so turning "paper mode" on had no effect. Check it here and, when
+    // enabled, log a simulated fx_paper_trades row instead of trading live.
+    try {
+      const _paperAcctRows = await db.execute(sql`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const _paperAcct = (_paperAcctRows as any)[0]?.[0] ?? (_paperAcctRows as any).rows?.[0];
+      if (_paperAcct?.is_enabled) {
+        const _paperTradeRows = await db.execute(sql`
+          INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
+          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
+          RETURNING id
+        `);
+        const _newPaperTradeId = (_paperTradeRows as any)[0]?.[0]?.id ?? (_paperTradeRows as any).rows?.[0]?.id;
+
+        // Mirror to active copiers — same logic as the POST /api/fx-paper/trades
+        // route handler, duplicated here since engine-generated signals bypass
+        // that route entirely.
+        try {
+          const _copiers = await db.execute(sql`
+            SELECT id, copier_id, max_lot_size FROM copy_relationships
+            WHERE source_user_id=${userId} AND is_active=true
+          `);
+          const _copierList: any[] = (_copiers as any)[0] ?? (_copiers as any).rows ?? [];
+          for (const rel of _copierList) {
+            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, lotSize || 0.01);
+            await db.execute(sql`
+              INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
+              VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${_newPaperTradeId ?? null}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${_mirrorLot}, 'open', now())
+            `);
+          }
+        } catch (_mirrorErr) { /* non-critical — don't fail the paper trade if mirroring errors */ }
+
+        addActivity(userId, {
+          type: 'trade',
+          symbol: decision.symbol,
+          message: `📝 PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? '—'} (${lotSize} lots, ${adjustedConfidence}% confidence) — simulated, no live order placed.`,
+          confidence: adjustedConfidence,
+        });
+        return; // paper mode — skip live MT5 broadcast + TradeLocker execution entirely
+      }
+    } catch (_paperErr) {
+      console.error(`[Paper Mode] Check failed for user ${userId} (non-critical, falling through to live path):`, (_paperErr as Error)?.message);
     }
 
     const mt5Signal: PendingMT5Signal = {
