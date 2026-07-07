@@ -16,6 +16,7 @@ import {
   ambassadorCommunityContent,
   ambassadorRunStepLog,
   devotionals,
+  weeklyStrategies,
 } from '../../shared/schema';
 import { eq, desc, sql as drizzleSql } from 'drizzle-orm';
 import { OpenAI } from 'openai';
@@ -455,16 +456,19 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
 
 interface WeeklyPairTally { symbol: string; direction: 'BUY' | 'SELL' | 'BOTH'; mentionCount: number }
 
-// Aggregates across EVERY user's weekly plan (global.mt5WeeklyStrategies),
-// not just one account — Ambassador Prime is a system-wide job, so "this
-// week's featured pairs" means whatever the VEDD community is actually
-// trading, not any single user's plan.
-function aggregateWeeklyPairs(): WeeklyPairTally[] {
-  const strategies = (global as any).mt5WeeklyStrategies || {};
+// Aggregates across EVERY user's ACTIVE weekly plan, read from the
+// persisted weekly_strategies table — not just one account, and not the
+// volatile global.mt5WeeklyStrategies in-memory cache (which this function
+// used to read). That cache only gets populated when a user actively loads
+// their weekly-strategy page during the CURRENT server process, so right
+// after any deploy/restart it's empty and the briefing had no content even
+// though real weekly plans existed in the database the whole time.
+async function aggregateWeeklyPairs(): Promise<WeeklyPairTally[]> {
+  const activePlans = await db.select().from(weeklyStrategies).where(eq(weeklyStrategies.isActive, true));
   const tally: Record<string, { symbol: string; directions: Record<string, number>; mentionCount: number }> = {};
 
-  for (const userId of Object.keys(strategies)) {
-    const weeklyPlan = strategies[userId]?.plan?.weeklyPlan;
+  for (const row of activePlans) {
+    const weeklyPlan = (row.plan as any)?.weeklyPlan;
     if (!weeklyPlan) continue;
     for (const day of Object.keys(weeklyPlan)) {
       const pairs = weeklyPlan[day]?.pairs || [];
@@ -482,6 +486,8 @@ function aggregateWeeklyPairs(): WeeklyPairTally[] {
       }
     }
   }
+
+  console.log(`[ambassador-prime] Weekly plan check: ${activePlans.length} active plan(s) reviewed, ${Object.keys(tally).length} distinct USD pair(s) found.`);
 
   return Object.values(tally)
     .sort((a, b) => b.mentionCount - a.mentionCount)
@@ -670,10 +676,21 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
   let updatePost = '';
 
   // ── Step 0: Check the Weekly Plan FIRST ───────────────────────────────────
-  // Read this week's actual USD-pair selections from every user's weekly
-  // plan before running any research — so the Reddit/news scans below are
-  // grounded in the real pairs being traded, not just the generic day theme.
-  const weeklyPairs = aggregateWeeklyPairs();
+  // Read this week's actual USD-pair selections from every user's ACTIVE
+  // weekly plan (persisted in the weekly_strategies table) before running
+  // any research — so the Reddit/news scans below are grounded in the real
+  // pairs being traded, not just the generic day theme.
+  let weeklyPairs: WeeklyPairTally[] = [];
+  try {
+    weeklyPairs = await aggregateWeeklyPairs();
+    completedSteps.push('Weekly Plan Review');
+    await logStep(runDate, 'Weekly Plan Review', 'completed',
+      weeklyPairs.length > 0 ? `Found ${weeklyPairs.length} featured pair(s): ${weeklyPairs.map(p => p.symbol).join(', ')}` : undefined);
+  } catch (e: any) {
+    errors.push(`Weekly Plan Review: ${e.message}`);
+    skippedSteps.push('Weekly Plan Review');
+    await logStep(runDate, 'Weekly Plan Review', 'failed', e.message);
+  }
 
   // ── Step 1: Free Research (Reddit JSON + News RSS — no API keys needed) ─────
   let redditContext = 'No community data available.';

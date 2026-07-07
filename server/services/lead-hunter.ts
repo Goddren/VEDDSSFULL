@@ -464,6 +464,13 @@ async function scoreLeads(rawLeads: RawLead[]): Promise<ScoredLead[]> {
   const remainder = rawLeads.slice(AI_SCORE_LIMIT); // stored with defaults, never dropped
   for (const lead of batch) {
     try {
+      // Outreach philosophy (Noah Kagan's "Million Dollar Weekend" cold-outreach
+      // pattern): lead with a genuine, SPECIFIC compliment or point of shared
+      // interest — never their "pain," never VEDD — to create one real human
+      // moment first. The pitch is never in this first message; if a real
+      // conversation starts, the offer surfaces naturally later, not here.
+      // This is also what keeps the automated reply from reading as a scripted
+      // sales script that gets reported as spam.
       const prompt = `You are an ambassador coach for VEDDBuild (veddbuild.com) — an AI trading platform with these features:
 - AI Chart Analysis (/analysis): reads charts, gives buy/sell signals
 - SS AI Engine (/weekly-strategy): auto-executes trades while you sleep, MT5 integration
@@ -483,12 +490,13 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "account_quality": <1-10>,
   "intent_score": <1-10: 10=actively asking for tool/solution, 7-9=frustrated with current tools, 4-6=general trading discussion, 1-3=generic interest>,
-  "pain_point": "<one sentence: what specific problem or frustration is this person expressing?>",
-  "vedd_feature": "<name of the ONE VEDDBuild feature that most directly solves their problem>",
+  "pain_point": "<one sentence: what specific problem or frustration is this person expressing? — internal reference only, never mentioned to the lead directly>",
+  "vedd_feature": "<name of the ONE VEDDBuild feature that would eventually fit their situation — internal reference for a LATER conversation, not this message>",
   "vedd_url": "<full URL to that feature, e.g. https://veddbuild.com/analysis>",
-  "opener": "<natural first message to send — address their specific pain, sound human not salesy, 1-2 sentences. For score <4: no VEDD mention. For 4-6: subtle bridge. For 7+: reference VEDDBuild naturally>",
-  "talking_points": ["<point 1 connecting their pain to the VEDD feature>", "<point 2>", "<point 3>"],
-  "suggested_reply": "<full outreach message that flows: acknowledge their pain → introduce the solution → invite them. ${lead.platform === 'X/Twitter' ? 'Under 250 chars.' : '3-5 sentences.'} Never say DM me or check this out.>"
+  "talking_points": ["<point 1 for a future conversation, if they engage>", "<point 2>", "<point 3>"],
+  "compliment_hook": "<the ONE specific, genuine thing in their post worth complimenting or being curious about — a sharp call they made, a specific number/result, their trading style, a clever line, something a real person would actually notice. Must be concrete and tied to THIS post, never generic ('nice post!', 'great insight!').>",
+  "opener": "<the actual first message to send. It is ONLY the compliment/curiosity moment from compliment_hook, phrased like a real trader talking to another trader — plus, if it fits naturally, ONE genuine follow-up question that invites them to keep talking. NO mention of VEDD, no pitch, no link, no 'check this out,' no 'DM me.' This message should read exactly the same whether VEDD existed or not — it has to stand on its own as something a real person would say. ${lead.platform === 'X/Twitter' ? 'Under 250 chars.' : '1-3 sentences.'}>",
+  "suggested_reply": "<identical to opener — this is the ONLY message actually sent automatically. The offer never appears here; it's earned in a later reply once/if the person responds to this one.>"
 }`;
 
       const raw = await aiChat([{ role: 'user', content: prompt }]);

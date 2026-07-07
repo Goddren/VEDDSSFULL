@@ -35933,12 +35933,13 @@ Return ONLY valid JSON (no markdown, no explanation):
 {
   "account_quality": <1-10>,
   "intent_score": <1-10: 10=actively asking for tool/solution, 7-9=frustrated with current tools, 4-6=general trading discussion, 1-3=generic interest>,
-  "pain_point": "<one sentence: what specific problem or frustration is this person expressing?>",
-  "vedd_feature": "<name of the ONE VEDDBuild feature that most directly solves their problem>",
+  "pain_point": "<one sentence: what specific problem or frustration is this person expressing? \u2014 internal reference only, never mentioned to the lead directly>",
+  "vedd_feature": "<name of the ONE VEDDBuild feature that would eventually fit their situation \u2014 internal reference for a LATER conversation, not this message>",
   "vedd_url": "<full URL to that feature, e.g. https://veddbuild.com/analysis>",
-  "opener": "<natural first message to send \u2014 address their specific pain, sound human not salesy, 1-2 sentences. For score <4: no VEDD mention. For 4-6: subtle bridge. For 7+: reference VEDDBuild naturally>",
-  "talking_points": ["<point 1 connecting their pain to the VEDD feature>", "<point 2>", "<point 3>"],
-  "suggested_reply": "<full outreach message that flows: acknowledge their pain \u2192 introduce the solution \u2192 invite them. ${lead.platform === "X/Twitter" ? "Under 250 chars." : "3-5 sentences."} Never say DM me or check this out.>"
+  "talking_points": ["<point 1 for a future conversation, if they engage>", "<point 2>", "<point 3>"],
+  "compliment_hook": "<the ONE specific, genuine thing in their post worth complimenting or being curious about \u2014 a sharp call they made, a specific number/result, their trading style, a clever line, something a real person would actually notice. Must be concrete and tied to THIS post, never generic ('nice post!', 'great insight!').>",
+  "opener": "<the actual first message to send. It is ONLY the compliment/curiosity moment from compliment_hook, phrased like a real trader talking to another trader \u2014 plus, if it fits naturally, ONE genuine follow-up question that invites them to keep talking. NO mention of VEDD, no pitch, no link, no 'check this out,' no 'DM me.' This message should read exactly the same whether VEDD existed or not \u2014 it has to stand on its own as something a real person would say. ${lead.platform === "X/Twitter" ? "Under 250 chars." : "1-3 sentences."}>",
+  "suggested_reply": "<identical to opener \u2014 this is the ONLY message actually sent automatically. The offer never appears here; it's earned in a later reply once/if the person responds to this one.>"
 }`;
       const raw = await aiChat([{ role: "user", content: prompt }]);
       let parsed = {};
@@ -36632,11 +36633,11 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
     return { insights: [], context: sample.slice(0, 500) };
   }
 }
-function aggregateWeeklyPairs() {
-  const strategies = global.mt5WeeklyStrategies || {};
+async function aggregateWeeklyPairs() {
+  const activePlans = await db.select().from(weeklyStrategies).where(eq11(weeklyStrategies.isActive, true));
   const tally = {};
-  for (const userId of Object.keys(strategies)) {
-    const weeklyPlan = strategies[userId]?.plan?.weeklyPlan;
+  for (const row of activePlans) {
+    const weeklyPlan = row.plan?.weeklyPlan;
     if (!weeklyPlan) continue;
     for (const day of Object.keys(weeklyPlan)) {
       const pairs = weeklyPlan[day]?.pairs || [];
@@ -36650,6 +36651,7 @@ function aggregateWeeklyPairs() {
       }
     }
   }
+  console.log(`[ambassador-prime] Weekly plan check: ${activePlans.length} active plan(s) reviewed, ${Object.keys(tally).length} distinct USD pair(s) found.`);
   return Object.values(tally).sort((a, b) => b.mentionCount - a.mentionCount).slice(0, 8).map((t) => {
     const bestDir = Object.entries(t.directions).sort((a, b) => b[1] - a[1])[0]?.[0];
     return { symbol: t.symbol, direction: bestDir || "BOTH", mentionCount: t.mentionCount };
@@ -36793,7 +36795,21 @@ async function runAmbassadorPrime(triggeredBy = "scheduler") {
   let knowledgePost = "";
   let resultsPost = "";
   let updatePost = "";
-  const weeklyPairs = aggregateWeeklyPairs();
+  let weeklyPairs = [];
+  try {
+    weeklyPairs = await aggregateWeeklyPairs();
+    completedSteps.push("Weekly Plan Review");
+    await logStep(
+      runDate,
+      "Weekly Plan Review",
+      "completed",
+      weeklyPairs.length > 0 ? `Found ${weeklyPairs.length} featured pair(s): ${weeklyPairs.map((p) => p.symbol).join(", ")}` : void 0
+    );
+  } catch (e) {
+    errors.push(`Weekly Plan Review: ${e.message}`);
+    skippedSteps.push("Weekly Plan Review");
+    await logStep(runDate, "Weekly Plan Review", "failed", e.message);
+  }
   let redditContext = "No community data available.";
   let redditPosts = [];
   let newsHeadlines = [];
