@@ -2150,6 +2150,59 @@ export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOut
   providerUsed?: string;
 };
 
+// ── Brain Data Marketplace ────────────────────────────────────────────────────
+// Sellers list a frozen snapshot of their ai_confirmation_outcomes history —
+// priced in VEDD by age/pairs/trades/win-rate — so a buyer can merge a copy
+// into their own learning brain (confirmation-learning.ts) without the
+// seller losing access to their own data. See server/services/brain-marketplace.ts
+// for the pricing formula and server/routes.ts's /api/brain-marketplace/* for
+// the buy flow that imports the snapshot with tradeSource='purchased_brain'.
+export const brainDataListings = pgTable("brain_data_listings", {
+  id: serial("id").primaryKey(),
+  sellerId: integer("seller_id").references(() => users.id).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  priceVedd: integer("price_vedd").notNull(),
+  suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
+  snapshotData: jsonb("snapshot_data").notNull(), // frozen array of outcome rows at listing time
+  tradeCount: integer("trade_count").notNull(),
+  distinctPairs: integer("distinct_pairs").notNull(),
+  ageDays: integer("age_days").notNull(),
+  winRate: real("win_rate"), // 0..1, null if too few closed trades
+  oldestTradeAt: timestamp("oldest_trade_at").notNull(),
+  newestTradeAt: timestamp("newest_trade_at").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  purchaseCount: integer("purchase_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const brainDataPurchases = pgTable("brain_data_purchases", {
+  id: serial("id").primaryKey(),
+  listingId: integer("listing_id").references(() => brainDataListings.id).notNull(),
+  sellerId: integer("seller_id").references(() => users.id).notNull(),
+  buyerId: integer("buyer_id").references(() => users.id).notNull(),
+  priceVeddPaid: integer("price_vedd_paid").notNull(),
+  tradesImported: integer("trades_imported").notNull(),
+  purchasedAt: timestamp("purchased_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    uniquePurchase: unique().on(table.listingId, table.buyerId),
+  };
+});
+
+export const insertBrainDataListingSchema = createInsertSchema(brainDataListings).omit({
+  id: true, purchaseCount: true, createdAt: true, updatedAt: true,
+});
+export const insertBrainDataPurchaseSchema = createInsertSchema(brainDataPurchases).omit({
+  id: true, purchasedAt: true,
+});
+
+export type BrainDataListing = typeof brainDataListings.$inferSelect;
+export type InsertBrainDataListing = z.infer<typeof insertBrainDataListingSchema>;
+export type BrainDataPurchase = typeof brainDataPurchases.$inferSelect;
+export type InsertBrainDataPurchase = z.infer<typeof insertBrainDataPurchaseSchema>;
+
 // ── Grants & Funding ─────────────────────────────────────────────────────────
 
 export const grants = pgTable("grants", {

@@ -45,6 +45,7 @@ import MobileAlerts from "@/pages/mobile-alerts";
 import MyEAsPage from "@/pages/my-eas";
 import MySubscriptionsPage from "@/pages/my-subscriptions";
 import EAMarketplacePage from "@/pages/ea-marketplace";
+import BrainDataMarketplacePage from "@/pages/brain-data-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
@@ -264,6 +265,7 @@ function AppLayout() {
             <ProtectedRoute path="/my-eas" component={MyEAsPage} />
             <ProtectedRoute path="/my-subscriptions" component={MySubscriptionsPage} />
             <ProtectedRoute path="/ea-marketplace" component={EAMarketplacePage} />
+            <ProtectedRoute path="/brain-marketplace" component={BrainDataMarketplacePage} />
             <ProtectedRoute path="/social-hub" component={SocialHub} />
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />

@@ -27649,6 +27649,168 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Brain Data Marketplace ─────────────────────────────────────────────────
+  // Sellers list a frozen snapshot of their AI confirmation-outcome history,
+  // priced in VEDD; buyers get a copy merged into their own learning brain.
+  // See shared/schema.ts's brainDataListings comment + server/services/
+  // brain-marketplace.ts for the pricing/snapshot design rationale.
+
+  // POST /api/brain-marketplace/list — list (or re-list) your own trade history
+  app.post("/api/brain-marketplace/list", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const { title, description, priceVedd } = req.body as { title?: string; description?: string; priceVedd?: number };
+      if (!title) return res.status(400).json({ error: "title is required" });
+
+      const { computeListingStats, clampPrice, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
+      const rows = await storage.getOutcomesForListing(userId);
+      if (rows.length < MIN_TRADES_TO_LIST) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} trades to list (you have ${rows.length}).` });
+      }
+
+      const stats = computeListingStats(rows);
+      const finalPrice = clampPrice(priceVedd ?? stats.suggestedPriceVedd);
+
+      // Only one active listing per seller — re-listing replaces it with a fresh snapshot.
+      const existing = await storage.getUserActiveBrainListing(userId);
+      if (existing) await storage.deactivateBrainListing(existing.id);
+
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        title,
+        description: description || null,
+        priceVedd: finalPrice,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt,
+      } as any);
+
+      const { snapshotData: _omit, ...safeListing } = listing;
+      res.status(201).json(safeListing);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/brain-marketplace/my-listings/preview — suggested price/stats from
+  // current live data, without creating a listing (for the "list" form preview)
+  app.get("/api/brain-marketplace/my-listings/preview", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const { computeListingStats, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
+      const rows = await storage.getOutcomesForListing(userId);
+      if (rows.length < MIN_TRADES_TO_LIST) {
+        return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST });
+      }
+      const stats = computeListingStats(rows);
+      res.json({ eligible: true, ...stats });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/brain-marketplace — browse active listings
+  app.get("/api/brain-marketplace", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+      const listings = await storage.getActiveBrainListings(limit);
+      const enriched = await Promise.all(listings.map(async (l) => {
+        const seller = await storage.getUser(l.sellerId);
+        const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
+        const { snapshotData: _omit, ...safe } = l;
+        return {
+          ...safe,
+          sellerUsername: seller?.username || 'Unknown',
+          alreadyPurchased: !!purchase,
+          isOwnListing: l.sellerId === userId,
+        };
+      }));
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/brain-marketplace/my-listings — seller's own listing history
+  app.get("/api/brain-marketplace/my-listings", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const listings = await storage.getUserBrainListings(userId);
+      const safe = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/brain-marketplace/my-purchases — buyer's purchase history
+  app.get("/api/brain-marketplace/my-purchases", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const purchases = await storage.getUserBrainPurchases(userId);
+      const safe = purchases.map(p => {
+        const { snapshotData: _omit, ...safeListing } = p.listing;
+        return { ...p, listing: safeListing };
+      });
+      res.json(safe);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/brain-marketplace/:id/buy — purchase + merge into buyer's own brain
+  app.post("/api/brain-marketplace/:id/buy", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const buyerId = (req.user as User).id;
+    const listingId = parseInt(req.params.id, 10);
+    if (isNaN(listingId)) return res.status(400).json({ error: "Invalid listing id" });
+
+    try {
+      const listing = await storage.getBrainListing(listingId);
+      if (!listing) return res.status(404).json({ error: "Listing not found" });
+      if (!listing.isActive) return res.status(400).json({ error: "This listing is no longer active" });
+      if (listing.sellerId === buyerId) return res.status(400).json({ error: "You can't buy your own listing" });
+
+      const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
+      if (existingPurchase) return res.status(400).json({ error: "You already purchased this listing" });
+
+      const buyerWallet = await storage.getInternalWallet(buyerId);
+      const buyerBalance = buyerWallet?.veddBalance ?? 0;
+      if (buyerBalance < listing.priceVedd) {
+        return res.status(402).json({
+          error: `Insufficient VEDD balance. Need ${listing.priceVedd}, have ${buyerBalance.toFixed(1)}.`,
+          required: listing.priceVedd,
+          balance: buyerBalance,
+        });
+      }
+
+      await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
+      await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
+
+      const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
+      await storage.createBrainPurchase({
+        listingId, sellerId: listing.sellerId, buyerId,
+        priceVeddPaid: listing.priceVedd, tradesImported,
+      } as any);
+      await storage.incrementBrainListingPurchaseCount(listingId);
+
+      res.json({ success: true, tradesImported, veddCharged: listing.priceVedd });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Sports Predictions ────────────────────────────────────────────────────────
 
   app.get("/api/sports/predictions", async (_req: Request, res: Response) => {

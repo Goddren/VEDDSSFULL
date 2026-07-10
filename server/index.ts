@@ -212,6 +212,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureAmbassadorPrimeTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Brain Data Marketplace tables exist
+  try {
+    const { ensureBrainMarketplaceTables } = await import('./services/ensure-brain-marketplace-tables');
+    await ensureBrainMarketplaceTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

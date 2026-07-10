@@ -34,6 +34,7 @@ const aiToolItems = [
   { name: 'Tokenomics',  path: '/vedd-tokenomics',            icon: Coins,        color: '#f59e0b' },
   { name: 'Analysis',    path: '/analysis',                   icon: LineChart,    color: '#ef4444' },
   { name: 'AI Models',   path: '/ai-trading-models',          icon: Brain,        color: '#8b5cf6' },
+  { name: 'Brain Market',path: '/brain-marketplace',          icon: Brain,        color: '#a855f7' },
   { name: 'Webhooks',    path: '/webhooks',                   icon: Webhook,      color: '#3b82f6' },
   { name: 'Live Monitor',path: '/live-monitor',               icon: Radio,        color: '#22c55e' },
 ];

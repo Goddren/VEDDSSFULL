@@ -77,6 +77,8 @@ __export(schema_exports, {
   bizStatusEnum: () => bizStatusEnum,
   blogNewsletterSubscribers: () => blogNewsletterSubscribers,
   blogPosts: () => blogPosts,
+  brainDataListings: () => brainDataListings,
+  brainDataPurchases: () => brainDataPurchases,
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
   connectedSocialAccounts: () => connectedSocialAccounts,
@@ -130,6 +132,8 @@ __export(schema_exports, {
   insertBiasReportSchema: () => insertBiasReportSchema,
   insertBlogNewsletterSubscriberSchema: () => insertBlogNewsletterSubscriberSchema,
   insertBlogPostSchema: () => insertBlogPostSchema,
+  insertBrainDataListingSchema: () => insertBrainDataListingSchema,
+  insertBrainDataPurchaseSchema: () => insertBrainDataPurchaseSchema,
   insertChartAnalysisSchema: () => insertChartAnalysisSchema,
   insertCommunityPartnershipSchema: () => insertCommunityPartnershipSchema,
   insertConnectedSocialAccountSchema: () => insertConnectedSocialAccountSchema,
@@ -261,7 +265,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2319,6 +2323,50 @@ var init_schema = __esm({
       closedAt: true,
       tradeOutcome: true,
       actualPips: true
+    });
+    brainDataListings = pgTable("brain_data_listings", {
+      id: serial("id").primaryKey(),
+      sellerId: integer("seller_id").references(() => users.id).notNull(),
+      title: text("title").notNull(),
+      description: text("description"),
+      priceVedd: integer("price_vedd").notNull(),
+      suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
+      snapshotData: jsonb("snapshot_data").notNull(),
+      // frozen array of outcome rows at listing time
+      tradeCount: integer("trade_count").notNull(),
+      distinctPairs: integer("distinct_pairs").notNull(),
+      ageDays: integer("age_days").notNull(),
+      winRate: real("win_rate"),
+      // 0..1, null if too few closed trades
+      oldestTradeAt: timestamp("oldest_trade_at").notNull(),
+      newestTradeAt: timestamp("newest_trade_at").notNull(),
+      isActive: boolean("is_active").default(true).notNull(),
+      purchaseCount: integer("purchase_count").default(0).notNull(),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    brainDataPurchases = pgTable("brain_data_purchases", {
+      id: serial("id").primaryKey(),
+      listingId: integer("listing_id").references(() => brainDataListings.id).notNull(),
+      sellerId: integer("seller_id").references(() => users.id).notNull(),
+      buyerId: integer("buyer_id").references(() => users.id).notNull(),
+      priceVeddPaid: integer("price_vedd_paid").notNull(),
+      tradesImported: integer("trades_imported").notNull(),
+      purchasedAt: timestamp("purchased_at").defaultNow().notNull()
+    }, (table) => {
+      return {
+        uniquePurchase: unique().on(table.listingId, table.buyerId)
+      };
+    });
+    insertBrainDataListingSchema = createInsertSchema(brainDataListings).omit({
+      id: true,
+      purchaseCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    insertBrainDataPurchaseSchema = createInsertSchema(brainDataPurchases).omit({
+      id: true,
+      purchasedAt: true
     });
     grants = pgTable("grants", {
       id: serial("id").primaryKey(),
@@ -4666,6 +4714,85 @@ var init_storage = __esm({
         const newBalance = Math.max(0, (wallet.veddBalance || 0) + delta);
         const [result] = await db.update(internalWallets).set({ veddBalance: newBalance, lastActivityAt: /* @__PURE__ */ new Date() }).where(eq(internalWallets.userId, userId)).returning();
         return result;
+      }
+      // Brain Data Marketplace
+      async getActiveBrainListings(limit) {
+        const query = db.select().from(brainDataListings).where(eq(brainDataListings.isActive, true)).orderBy(sql`${brainDataListings.purchaseCount} DESC`);
+        if (limit) return await query.limit(limit);
+        return await query;
+      }
+      async getBrainListing(id) {
+        const [listing] = await db.select().from(brainDataListings).where(eq(brainDataListings.id, id));
+        return listing;
+      }
+      async getUserActiveBrainListing(sellerId) {
+        const [listing] = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)));
+        return listing;
+      }
+      async getUserBrainListings(sellerId) {
+        return await db.select().from(brainDataListings).where(eq(brainDataListings.sellerId, sellerId)).orderBy(desc(brainDataListings.createdAt));
+      }
+      async createBrainListing(listing) {
+        const [created] = await db.insert(brainDataListings).values(listing).returning();
+        return created;
+      }
+      async deactivateBrainListing(id) {
+        await db.update(brainDataListings).set({ isActive: false, updatedAt: /* @__PURE__ */ new Date() }).where(eq(brainDataListings.id, id));
+      }
+      async incrementBrainListingPurchaseCount(id) {
+        await db.execute(sql`UPDATE brain_data_listings SET purchase_count = COALESCE(purchase_count, 0) + 1 WHERE id = ${id}`);
+      }
+      async getBrainPurchaseByListingAndBuyer(listingId, buyerId) {
+        const [purchase] = await db.select().from(brainDataPurchases).where(and(eq(brainDataPurchases.listingId, listingId), eq(brainDataPurchases.buyerId, buyerId)));
+        return purchase;
+      }
+      async createBrainPurchase(purchase) {
+        const [created] = await db.insert(brainDataPurchases).values(purchase).returning();
+        return created;
+      }
+      async getUserBrainPurchases(buyerId) {
+        const purchases = await db.select().from(brainDataPurchases).where(eq(brainDataPurchases.buyerId, buyerId)).orderBy(desc(brainDataPurchases.purchasedAt));
+        const result = [];
+        for (const p of purchases) {
+          const listing = await this.getBrainListing(p.listingId);
+          if (listing) result.push({ ...p, listing });
+        }
+        return result;
+      }
+      async getOutcomesForListing(userId) {
+        return await db.select().from(aiConfirmationOutcomes).where(and(
+          eq(aiConfirmationOutcomes.userId, userId),
+          sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
+        ));
+      }
+      async importBrainDataSnapshot(buyerId, snapshotData) {
+        if (!snapshotData.length) return 0;
+        const rows = snapshotData.map((r) => ({
+          userId: buyerId,
+          symbol: r.symbol,
+          timeframe: r.timeframe ?? null,
+          direction: r.direction,
+          confluenceGrade: r.confluenceGrade ?? null,
+          confluenceScore: r.confluenceScore ?? null,
+          session: r.session ?? null,
+          ictMacroValid: r.ictMacroValid ?? null,
+          smcVerdict: r.smcVerdict ?? null,
+          adxValue: r.adxValue ?? null,
+          rsiValue: r.rsiValue ?? null,
+          macdDirection: r.macdDirection ?? null,
+          htfAligned: r.htfAligned ?? null,
+          newsConflict: r.newsConflict ?? null,
+          aiDecision: r.aiDecision ?? null,
+          aiConfidence: r.aiConfidence ?? null,
+          proposedConfidence: r.proposedConfidence ?? null,
+          tradeOutcome: r.tradeOutcome ?? "PENDING",
+          actualPips: r.actualPips ?? null,
+          modelUsed: r.modelUsed ?? null,
+          providerUsed: r.providerUsed ?? null,
+          tradeSource: "purchased_brain"
+        }));
+        const inserted = await db.insert(aiConfirmationOutcomes).values(rows).returning();
+        return inserted.length;
       }
       // Withdrawal Request methods
       async createWithdrawalRequest(userId, amount, destinationWallet) {
@@ -34947,6 +35074,48 @@ var init_blog_og_image = __esm({
   }
 });
 
+// server/services/brain-marketplace.ts
+var brain_marketplace_exports = {};
+__export(brain_marketplace_exports, {
+  MAX_PRICE_VEDD: () => MAX_PRICE_VEDD,
+  MIN_PRICE_VEDD: () => MIN_PRICE_VEDD,
+  MIN_TRADES_TO_LIST: () => MIN_TRADES_TO_LIST,
+  clampPrice: () => clampPrice,
+  computeListingStats: () => computeListingStats
+});
+function clampPrice(n) {
+  if (!Number.isFinite(n)) return MIN_PRICE_VEDD;
+  return Math.max(MIN_PRICE_VEDD, Math.min(MAX_PRICE_VEDD, Math.round(n)));
+}
+function computeListingStats(rows) {
+  const tradeCount = rows.length;
+  const distinctPairs = new Set(rows.map((r) => (r.symbol || "").toUpperCase())).size;
+  const timestamps = rows.map((r) => new Date(r.confirmedAt).getTime()).filter((t) => !Number.isNaN(t));
+  const oldestMs = timestamps.length ? Math.min(...timestamps) : Date.now();
+  const newestMs = timestamps.length ? Math.max(...timestamps) : Date.now();
+  const oldestTradeAt = new Date(oldestMs);
+  const newestTradeAt = new Date(newestMs);
+  const ageDays = Math.max(0, Math.round((newestMs - oldestMs) / 864e5));
+  const closed = rows.filter((r) => r.tradeOutcome && r.tradeOutcome !== "PENDING");
+  const wins = closed.filter((r) => r.tradeOutcome === "WIN");
+  const winRate2 = closed.length > 0 ? wins.length / closed.length : null;
+  const ageMultiplier = 1 + Math.min(ageDays / 30, 2);
+  const pairsMultiplier = 1 + Math.min(distinctPairs * 0.15, 1.5);
+  const tradesMultiplier = 1 + Math.min(tradeCount / 50, 2);
+  const winRateMultiplier = 0.5 + Math.min(winRate2 ?? 0.5, 1);
+  const suggestedPriceVedd = clampPrice(5 * ageMultiplier * pairsMultiplier * tradesMultiplier * winRateMultiplier);
+  return { tradeCount, distinctPairs, ageDays, winRate: winRate2, oldestTradeAt, newestTradeAt, suggestedPriceVedd };
+}
+var MIN_TRADES_TO_LIST, MIN_PRICE_VEDD, MAX_PRICE_VEDD;
+var init_brain_marketplace = __esm({
+  "server/services/brain-marketplace.ts"() {
+    "use strict";
+    MIN_TRADES_TO_LIST = 10;
+    MIN_PRICE_VEDD = 5;
+    MAX_PRICE_VEDD = 500;
+  }
+});
+
 // server/services/sports-predictor.ts
 var sports_predictor_exports = {};
 __export(sports_predictor_exports, {
@@ -37707,6 +37876,59 @@ CREATE TABLE IF NOT EXISTS "ambassador_market_briefing" (
   "narrative_text" text NOT NULL,
   "pairs" jsonb NOT NULL DEFAULT '[]',
   "created_at" timestamp DEFAULT now() NOT NULL
+);
+`;
+  }
+});
+
+// server/services/ensure-brain-marketplace-tables.ts
+var ensure_brain_marketplace_tables_exports = {};
+__export(ensure_brain_marketplace_tables_exports, {
+  ensureBrainMarketplaceTables: () => ensureBrainMarketplaceTables
+});
+async function ensureBrainMarketplaceTables() {
+  try {
+    await pool.query(DDL4);
+    console.log("[startup] Brain Data Marketplace tables ensured (brain_data_listings, brain_data_purchases).");
+  } catch (err) {
+    console.error("[startup] ensureBrainMarketplaceTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL4;
+var init_ensure_brain_marketplace_tables = __esm({
+  "server/services/ensure-brain-marketplace-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL4 = `
+CREATE TABLE IF NOT EXISTS "brain_data_listings" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "seller_id" integer NOT NULL REFERENCES "users"("id"),
+  "title" text NOT NULL,
+  "description" text,
+  "price_vedd" integer NOT NULL,
+  "suggested_price_vedd" integer NOT NULL,
+  "snapshot_data" jsonb NOT NULL,
+  "trade_count" integer NOT NULL,
+  "distinct_pairs" integer NOT NULL,
+  "age_days" integer NOT NULL,
+  "win_rate" real,
+  "oldest_trade_at" timestamp NOT NULL,
+  "newest_trade_at" timestamp NOT NULL,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "purchase_count" integer NOT NULL DEFAULT 0,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "listing_id" integer NOT NULL REFERENCES "brain_data_listings"("id"),
+  "seller_id" integer NOT NULL REFERENCES "users"("id"),
+  "buyer_id" integer NOT NULL REFERENCES "users"("id"),
+  "price_vedd_paid" integer NOT NULL,
+  "trades_imported" integer NOT NULL,
+  "purchased_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("listing_id", "buyer_id")
 );
 `;
   }
@@ -66613,6 +66835,140 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/brain-marketplace/list", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const { title, description, priceVedd } = req.body;
+      if (!title) return res.status(400).json({ error: "title is required" });
+      const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+      const rows = await storage.getOutcomesForListing(userId);
+      if (rows.length < MIN_TRADES_TO_LIST2) {
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} trades to list (you have ${rows.length}).` });
+      }
+      const stats = computeListingStats2(rows);
+      const finalPrice = clampPrice2(priceVedd ?? stats.suggestedPriceVedd);
+      const existing = await storage.getUserActiveBrainListing(userId);
+      if (existing) await storage.deactivateBrainListing(existing.id);
+      const listing = await storage.createBrainListing({
+        sellerId: userId,
+        title,
+        description: description || null,
+        priceVedd: finalPrice,
+        suggestedPriceVedd: stats.suggestedPriceVedd,
+        snapshotData: rows,
+        tradeCount: stats.tradeCount,
+        distinctPairs: stats.distinctPairs,
+        ageDays: stats.ageDays,
+        winRate: stats.winRate,
+        oldestTradeAt: stats.oldestTradeAt,
+        newestTradeAt: stats.newestTradeAt
+      });
+      const { snapshotData: _omit, ...safeListing } = listing;
+      res.status(201).json(safeListing);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/brain-marketplace/my-listings/preview", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
+      const rows = await storage.getOutcomesForListing(userId);
+      if (rows.length < MIN_TRADES_TO_LIST2) {
+        return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
+      }
+      const stats = computeListingStats2(rows);
+      res.json({ eligible: true, ...stats });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/brain-marketplace", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit, 10) : 50;
+      const listings = await storage.getActiveBrainListings(limit);
+      const enriched = await Promise.all(listings.map(async (l) => {
+        const seller = await storage.getUser(l.sellerId);
+        const purchase = await storage.getBrainPurchaseByListingAndBuyer(l.id, userId);
+        const { snapshotData: _omit, ...safe } = l;
+        return {
+          ...safe,
+          sellerUsername: seller?.username || "Unknown",
+          alreadyPurchased: !!purchase,
+          isOwnListing: l.sellerId === userId
+        };
+      }));
+      res.json(enriched);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/brain-marketplace/my-listings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const listings = await storage.getUserBrainListings(userId);
+      const safe = listings.map(({ snapshotData: _omit, ...rest }) => rest);
+      res.json(safe);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/brain-marketplace/my-purchases", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const purchases = await storage.getUserBrainPurchases(userId);
+      const safe = purchases.map((p) => {
+        const { snapshotData: _omit, ...safeListing } = p.listing;
+        return { ...p, listing: safeListing };
+      });
+      res.json(safe);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/brain-marketplace/:id/buy", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const buyerId = req.user.id;
+    const listingId = parseInt(req.params.id, 10);
+    if (isNaN(listingId)) return res.status(400).json({ error: "Invalid listing id" });
+    try {
+      const listing = await storage.getBrainListing(listingId);
+      if (!listing) return res.status(404).json({ error: "Listing not found" });
+      if (!listing.isActive) return res.status(400).json({ error: "This listing is no longer active" });
+      if (listing.sellerId === buyerId) return res.status(400).json({ error: "You can't buy your own listing" });
+      const existingPurchase = await storage.getBrainPurchaseByListingAndBuyer(listingId, buyerId);
+      if (existingPurchase) return res.status(400).json({ error: "You already purchased this listing" });
+      const buyerWallet = await storage.getInternalWallet(buyerId);
+      const buyerBalance = buyerWallet?.veddBalance ?? 0;
+      if (buyerBalance < listing.priceVedd) {
+        return res.status(402).json({
+          error: `Insufficient VEDD balance. Need ${listing.priceVedd}, have ${buyerBalance.toFixed(1)}.`,
+          required: listing.priceVedd,
+          balance: buyerBalance
+        });
+      }
+      await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
+      await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
+      const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
+      await storage.createBrainPurchase({
+        listingId,
+        sellerId: listing.sellerId,
+        buyerId,
+        priceVeddPaid: listing.priceVedd,
+        tradesImported
+      });
+      await storage.incrementBrainListingPurchaseCount(listingId);
+      res.json({ success: true, tradesImported, veddCharged: listing.priceVedd });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/sports/predictions", async (_req, res) => {
     try {
       const { getSportsPredictions: getSportsPredictions2 } = await Promise.resolve().then(() => (init_sports_predictor(), sports_predictor_exports));
@@ -68137,6 +68493,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureAmbassadorPrimeTables2();
   } catch (err) {
     console.error(`[startup] ensureAmbassadorPrimeTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureBrainMarketplaceTables: ensureBrainMarketplaceTables2 } = await Promise.resolve().then(() => (init_ensure_brain_marketplace_tables(), ensure_brain_marketplace_tables_exports));
+    await ensureBrainMarketplaceTables2();
+  } catch (err) {
+    console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     await registerRoutes(app, httpServer);

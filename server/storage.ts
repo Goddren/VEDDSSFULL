@@ -75,6 +75,8 @@ import {
   blogPosts,
   type BlogPost, type InsertBlogPost,
   blogNewsletterSubscribers, type BlogNewsletterSubscriber, type InsertBlogNewsletterSubscriber,
+  brainDataListings, type BrainDataListing, type InsertBrainDataListing,
+  brainDataPurchases, type BrainDataPurchase, type InsertBrainDataPurchase,
   ambassadorJourney, ambassadorDailyActions,
   type AmbassadorJourney, type InsertAmbassadorJourney,
   type AmbassadorDailyAction,
@@ -544,6 +546,20 @@ export interface IStorage {
   getBlogNewsletterSubscriberByEmail(email: string): Promise<BlogNewsletterSubscriber | undefined>;
   resubscribeBlogNewsletter(email: string): Promise<BlogNewsletterSubscriber>;
   getAllBlogNewsletterSubscribers(): Promise<BlogNewsletterSubscriber[]>;
+
+  // Brain Data Marketplace
+  getActiveBrainListings(limit?: number): Promise<BrainDataListing[]>;
+  getBrainListing(id: number): Promise<BrainDataListing | undefined>;
+  getUserActiveBrainListing(sellerId: number): Promise<BrainDataListing | undefined>;
+  getUserBrainListings(sellerId: number): Promise<BrainDataListing[]>;
+  createBrainListing(listing: InsertBrainDataListing): Promise<BrainDataListing>;
+  deactivateBrainListing(id: number): Promise<void>;
+  incrementBrainListingPurchaseCount(id: number): Promise<void>;
+  getBrainPurchaseByListingAndBuyer(listingId: number, buyerId: number): Promise<BrainDataPurchase | undefined>;
+  createBrainPurchase(purchase: InsertBrainDataPurchase): Promise<BrainDataPurchase>;
+  getUserBrainPurchases(buyerId: number): Promise<(BrainDataPurchase & { listing: BrainDataListing })[]>;
+  getOutcomesForListing(userId: number): Promise<AiConfirmationOutcome[]>;
+  importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number>;
 
   // Ambassador Free Path Journey
   getAmbassadorJourney(userId: number): Promise<AmbassadorJourney | undefined>;
@@ -2870,6 +2886,106 @@ export class DatabaseStorage implements IStorage {
       .where(eq(internalWallets.userId, userId))
       .returning();
     return result;
+  }
+
+  // Brain Data Marketplace
+  async getActiveBrainListings(limit?: number): Promise<BrainDataListing[]> {
+    const query = db.select().from(brainDataListings)
+      .where(eq(brainDataListings.isActive, true))
+      .orderBy(sql`${brainDataListings.purchaseCount} DESC`);
+    if (limit) return await query.limit(limit);
+    return await query;
+  }
+
+  async getBrainListing(id: number): Promise<BrainDataListing | undefined> {
+    const [listing] = await db.select().from(brainDataListings).where(eq(brainDataListings.id, id));
+    return listing;
+  }
+
+  async getUserActiveBrainListing(sellerId: number): Promise<BrainDataListing | undefined> {
+    const [listing] = await db.select().from(brainDataListings)
+      .where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)));
+    return listing;
+  }
+
+  async getUserBrainListings(sellerId: number): Promise<BrainDataListing[]> {
+    return await db.select().from(brainDataListings)
+      .where(eq(brainDataListings.sellerId, sellerId))
+      .orderBy(desc(brainDataListings.createdAt));
+  }
+
+  async createBrainListing(listing: InsertBrainDataListing): Promise<BrainDataListing> {
+    const [created] = await db.insert(brainDataListings).values(listing as any).returning();
+    return created;
+  }
+
+  async deactivateBrainListing(id: number): Promise<void> {
+    await db.update(brainDataListings).set({ isActive: false, updatedAt: new Date() }).where(eq(brainDataListings.id, id));
+  }
+
+  async incrementBrainListingPurchaseCount(id: number): Promise<void> {
+    await db.execute(sql`UPDATE brain_data_listings SET purchase_count = COALESCE(purchase_count, 0) + 1 WHERE id = ${id}`);
+  }
+
+  async getBrainPurchaseByListingAndBuyer(listingId: number, buyerId: number): Promise<BrainDataPurchase | undefined> {
+    const [purchase] = await db.select().from(brainDataPurchases)
+      .where(and(eq(brainDataPurchases.listingId, listingId), eq(brainDataPurchases.buyerId, buyerId)));
+    return purchase;
+  }
+
+  async createBrainPurchase(purchase: InsertBrainDataPurchase): Promise<BrainDataPurchase> {
+    const [created] = await db.insert(brainDataPurchases).values(purchase as any).returning();
+    return created;
+  }
+
+  async getUserBrainPurchases(buyerId: number): Promise<(BrainDataPurchase & { listing: BrainDataListing })[]> {
+    const purchases = await db.select().from(brainDataPurchases)
+      .where(eq(brainDataPurchases.buyerId, buyerId))
+      .orderBy(desc(brainDataPurchases.purchasedAt));
+    const result: (BrainDataPurchase & { listing: BrainDataListing })[] = [];
+    for (const p of purchases) {
+      const listing = await this.getBrainListing(p.listingId);
+      if (listing) result.push({ ...p, listing });
+    }
+    return result;
+  }
+
+  async getOutcomesForListing(userId: number): Promise<AiConfirmationOutcome[]> {
+    return await db.select().from(aiConfirmationOutcomes)
+      .where(and(
+        eq(aiConfirmationOutcomes.userId, userId),
+        sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
+      ));
+  }
+
+  async importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number> {
+    if (!snapshotData.length) return 0;
+    const rows = snapshotData.map((r: any) => ({
+      userId: buyerId,
+      symbol: r.symbol,
+      timeframe: r.timeframe ?? null,
+      direction: r.direction,
+      confluenceGrade: r.confluenceGrade ?? null,
+      confluenceScore: r.confluenceScore ?? null,
+      session: r.session ?? null,
+      ictMacroValid: r.ictMacroValid ?? null,
+      smcVerdict: r.smcVerdict ?? null,
+      adxValue: r.adxValue ?? null,
+      rsiValue: r.rsiValue ?? null,
+      macdDirection: r.macdDirection ?? null,
+      htfAligned: r.htfAligned ?? null,
+      newsConflict: r.newsConflict ?? null,
+      aiDecision: r.aiDecision ?? null,
+      aiConfidence: r.aiConfidence ?? null,
+      proposedConfidence: r.proposedConfidence ?? null,
+      tradeOutcome: r.tradeOutcome ?? 'PENDING',
+      actualPips: r.actualPips ?? null,
+      modelUsed: r.modelUsed ?? null,
+      providerUsed: r.providerUsed ?? null,
+      tradeSource: 'purchased_brain',
+    }));
+    const inserted = await db.insert(aiConfirmationOutcomes).values(rows as any).returning();
+    return inserted.length;
   }
 
   // Withdrawal Request methods

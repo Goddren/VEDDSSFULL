@@ -291,6 +291,7 @@ const Header: React.FC = () => {
     { name: 'Multi-TF EA', path: '/multi-timeframe', active: location === '/multi-timeframe', icon: <Clock className="h-4 w-4 mr-2" /> },
     { name: 'My EAs', path: '/my-eas', active: location === '/my-eas', icon: <Briefcase className="h-4 w-4 mr-2" /> },
     { name: 'Marketplace', path: '/ea-marketplace', active: location === '/ea-marketplace', icon: <Zap className="h-4 w-4 mr-2" /> },
+    { name: 'Brain Marketplace', path: '/brain-marketplace', active: location === '/brain-marketplace', icon: <Brain className="h-4 w-4 mr-2" /> },
     { name: 'Live Monitor', path: '/live-monitor', active: location === '/live-monitor', icon: <Radio className="h-4 w-4 mr-2" /> },
     { name: 'Futures Connect', path: '/futures-connect', active: location === '/futures-connect', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Futures Live Feed', path: '/futures-live-feed', active: location === '/futures-live-feed', icon: <Activity className="h-4 w-4 mr-2" /> },
