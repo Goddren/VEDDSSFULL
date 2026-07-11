@@ -220,6 +220,30 @@ async function withRetry<T>(
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure content-image columns exist (devotionals, ambassador daily/bonus/community content)
+  try {
+    const { ensureContentImageColumns } = await import('./services/ensure-content-image-columns');
+    await ensureContentImageColumns();
+  } catch (err: any) {
+    console.error(`[startup] ensureContentImageColumns import error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Ensure copy trading execution columns exist (real-mode broker execution + paper-mode mirroring)
+  try {
+    const { ensureCopyTradingExecutionColumns } = await import('./services/ensure-copy-trading-execution-columns');
+    await ensureCopyTradingExecutionColumns();
+  } catch (err: any) {
+    console.error(`[startup] ensureCopyTradingExecutionColumns import error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Ensure Deep Reasoning Mode + prop firm phase tables exist
+  try {
+    const { ensureReasoningPropFirmTables } = await import('./services/ensure-reasoning-propfirm-tables');
+    await ensureReasoningPropFirmTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureReasoningPropFirmTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);
@@ -1132,6 +1156,10 @@ async function withRetry<T>(
     // Start live TradeLocker balance sync (keeps balances fresh like MT5)
     const { startTradeLockerSync } = await import('./services/tradelocker-sync');
     startTradeLockerSync();
+
+    // Start Paper Trade AI Journal resolver (auto-closes pending paper trades against live price)
+    const { startPaperTradeResolverLoop } = await import('./services/paper-trade-resolver-loop');
+    startPaperTradeResolverLoop();
 
     // Start Options AI Engine scan loop (produces the live decision feed)
     const { startOptionsEngineScanner } = await import('./services/options-scanner');

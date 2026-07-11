@@ -2133,6 +2133,12 @@ export const aiConfirmationOutcomes = pgTable("ai_confirmation_outcomes", {
   tradeSource: text('trade_source').default('ai_confirmation'),
   modelUsed: text('model_used'),   // e.g. 'gpt-4o', 'claude-3-5-sonnet', 'llama-4-scout'
   providerUsed: text('provider_used'), // e.g. 'openai', 'anthropic', 'groq'
+  // Deep Reasoning Mode trail — populated only when the Bull/Bear/Veteran-Judge
+  // debate pipeline ran instead of the single fast-path confirmation call.
+  reasoningText: text('reasoning_text'),
+  bullCase: text('bull_case'),
+  bearCase: text('bear_case'),
+  deepReasoningUsed: boolean('deep_reasoning_used').default(false),
 });
 
 export const insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmationOutcomes).omit({
@@ -2149,6 +2155,28 @@ export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOut
   modelUsed?: string;
   providerUsed?: string;
 };
+
+// Persisted prop-firm challenge phase tracking — the in-memory PropFirmContext
+// (server/openai.ts) is lost on every restart, so a multi-day/multi-week
+// challenge had no durable record of which phase an account is in. This lets
+// Gate 0 and the reasoning pipeline get more conservative automatically as an
+// account nears its drawdown limit or profit target, the way an experienced
+// prop-firm trader manages a challenge.
+export const propFirmAccountState = pgTable("prop_firm_account_state", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  connectionId: integer("connection_id").notNull(), // references the MT5/TradeLocker/Tradovate connection this state is for
+  connectionType: text("connection_type").notNull().default('tradelocker'), // 'mt5' | 'tradelocker' | 'tradovate'
+  phase: text("phase").notNull().default('phase1'), // 'phase1' | 'phase2' | 'funded'
+  phaseStartBalance: real("phase_start_balance").notNull(),
+  profitTarget: real("profit_target"), // $ target to graduate this phase (null = no target, e.g. funded)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.connectionId, t.connectionType),
+}));
+
+export type PropFirmAccountState = typeof propFirmAccountState.$inferSelect;
 
 // ── Brain Data Marketplace ────────────────────────────────────────────────────
 // Sellers list a frozen snapshot of their ai_confirmation_outcomes history —
@@ -2451,6 +2479,7 @@ export const ambassadorDailyContent = pgTable("ambassador_daily_content", {
   postId: varchar("post_id", { length: 255 }),
   status: varchar("status", { length: 50 }).default('generated'),
   referralLink: text("referral_link"),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2512,6 +2541,7 @@ export const ambassadorBonusContent = pgTable("ambassador_bonus_content", {
   dayOfWeek: varchar("day_of_week", { length: 20 }),
   contentType: varchar("content_type", { length: 50 }),
   contentText: text("content_text"),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2520,6 +2550,7 @@ export const ambassadorCommunityContent = pgTable("ambassador_community_content"
   runDate: varchar("run_date", { length: 20 }).notNull(),
   contentType: varchar("content_type", { length: 50 }),
   contentText: text("content_text"),
+  imageUrl: text("image_url"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -2656,6 +2687,7 @@ export const devotionals = pgTable("devotionals", {
   prayerPoints: jsonb("prayer_points").default([]), // string[]
   affirmation: text("affirmation").notNull(),
   tradingTieIn: text("trading_tie_in"), // how mindset applies to trading
+  heroImage: text("hero_image"), // on-brand generated cover image (DALL-E/FLUX)
   minimumMinutes: integer("minimum_minutes").default(5),
   aiGenerated: boolean("ai_generated").default(true),
   isPublished: boolean("is_published").default(true),
@@ -2959,6 +2991,9 @@ export const copyRelationships = pgTable("copy_relationships", {
   // declared here too so the Drizzle-typed side matches the raw-SQL side.
   profitSharePct: real("profit_share_pct").notNull().default(20),
   veddFeePaid: real("vedd_fee_paid").notNull().default(0),
+  // Which of the copier's own TradeLocker connections real-mode copying
+  // executes on. Required (enforced at the route level) when accountType='real'.
+  copierConnectionId: integer("copier_connection_id"),
 }, (t) => ({
   unq: unique().on(t.copierId, t.sourceUserId),
 }));
@@ -2982,6 +3017,13 @@ export const copyTradeLogs = pgTable("copy_trade_logs", {
   openedAt: timestamp("opened_at").defaultNow().notNull(),
   closedAt: timestamp("closed_at"),
   profitShareVedd: real("profit_share_vedd"),
+  // Paper mode: links to the mirrored row in the copier's OWN fx_paper_trades
+  // table so their personal paper account actually reflects the copy.
+  copierFxTradeId: integer("copier_fx_trade_id"),
+  // Real mode: the actual broker order placed on the copier's account.
+  brokerOrderId: text("broker_order_id"),
+  executionStatus: text("execution_status").default('pending'), // 'pending' | 'placed' | 'failed' | 'skipped'
+  executionError: text("execution_error"),
 });
 
 export type CopyRelationship = typeof copyRelationships.$inferSelect;

@@ -10252,7 +10252,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, newsContextForAI, ictContext, smcContext,
                 htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
-                symbolPerfStats, learnedInsights, resolvedStrategyMode
+                symbolPerfStats, learnedInsights, resolvedStrategyMode,
+                !!_stratEngineState?.config?.deepReasoningMode
               );
             }
 
@@ -10538,8 +10539,41 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   tradeOutcome: 'PENDING',
                   modelUsed: (aiConfirmation as any).modelUsed || (modelInfo?.name) || undefined,
                   providerUsed: (aiConfirmation as any).providerUsed || undefined,
-                });
+                  reasoningText: (aiConfirmation as any).thinkingTrace || aiConfirmation.reasoning || undefined,
+                  bullCase: (aiConfirmation as any).bullCase || undefined,
+                  bearCase: (aiConfirmation as any).bearCase || undefined,
+                  deepReasoningUsed: !!(aiConfirmation as any).deepReasoningUsed,
+                } as any);
               } catch (_dbErr) { /* non-critical — never block the trade */ }
+
+              // Record every confirmed AI decision as a paper trade so the
+              // "Paper Trade AI Journal" page has real data and the Brain gets
+              // historical accuracy context back (getAIAccuracyContext).
+              if (aiConfirmation.confirmed && analysis.tradePlan) {
+                try {
+                  const { createPaperTrade } = await import('./services/paper-trade-tracker');
+                  const _bullCase = (aiConfirmation as any).bullCase;
+                  const _bearCase = (aiConfirmation as any).bearCase;
+                  const _fullReasoning = (aiConfirmation as any).deepReasoningUsed
+                    ? `[Deep Reasoning Mode — Veteran Judge]\n${aiConfirmation.reasoning}\n\nBULL CASE: ${_bullCase || 'n/a'}\n\nBEAR CASE: ${_bearCase || 'n/a'}`
+                    : aiConfirmation.reasoning;
+                  await createPaperTrade({
+                    userId: token.userId,
+                    symbol: sanitizedSymbol,
+                    timeframe: sanitizedTimeframe,
+                    direction: analysis.signal as 'BUY' | 'SELL',
+                    entryPrice: analysis.tradePlan.entry,
+                    stopLoss: analysis.tradePlan.stopLoss,
+                    takeProfit: analysis.tradePlan.takeProfit,
+                    aiConfidence: aiConfirmation.aiConfidence,
+                    aiModel: (aiConfirmation as any).modelUsed || modelInfo?.name || undefined,
+                    aiProvider: (aiConfirmation as any).providerUsed || undefined,
+                    aiReasoning: _fullReasoning,
+                    confluenceScore: aiConfirmation.confluenceScore ?? undefined,
+                    confluenceGrade: aiConfirmation.confluenceGrade ?? undefined,
+                  });
+                } catch (_ptErr) { /* non-critical — never block the trade */ }
+              }
 
               // ── Back-fill aiConfidence on any PENDING trade records for this symbol/direction ──
               // Trades opened by the MT5 copier (via openPositions sync or /api/mt5-signal) are
@@ -23766,6 +23800,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       consistencyEnforcementEnabled: cfg.consistencyEnforcementEnabled,
       consistencyMinProfitableDays: cfg.consistencyMinProfitableDays || 10,
       consistencyPeriodDays: cfg.consistencyPeriodDays || 15,
+      maxDailyProfitPctOfTotal: cfg.maxDailyProfitPctOfTotal || 0,
+      deepReasoningMode: cfg.deepReasoningMode || false,
       profitableDays,
       totalTradingDays,
       daysRemaining,
@@ -23791,6 +23827,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       consistencyPeriodDays,
       dailyProfitTarget,
       propFirmDailyDrawdownLimit,
+      maxDailyProfitPctOfTotal,
+      deepReasoningMode,
     } = req.body;
     const updates: Record<string, any> = {};
     if (typeof challengeSessionFilterEnabled === 'boolean') updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
@@ -23799,6 +23837,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (typeof consistencyPeriodDays === 'number') updates.consistencyPeriodDays = consistencyPeriodDays;
     if (typeof dailyProfitTarget === 'number') updates.dailyProfitTarget = dailyProfitTarget;
     if (typeof propFirmDailyDrawdownLimit === 'number') updates.propFirmDailyDrawdownLimit = propFirmDailyDrawdownLimit;
+    if (typeof maxDailyProfitPctOfTotal === 'number') updates.maxDailyProfitPctOfTotal = maxDailyProfitPctOfTotal;
+    if (typeof deepReasoningMode === 'boolean') updates.deepReasoningMode = deepReasoningMode;
     updateLiveEngineConfig(userId, updates);
     res.json({ success: true, updates });
   });
@@ -25544,9 +25584,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { topic, save } = req.body as { topic?: string; save?: boolean };
       const userId = (req.user as any).id;
       const generated = await generateVeddBlogPost(topic, userId);
+
+      // Best-effort on-brand cover image (DALL-E, falling back to Replicate
+      // FLUX) — never blocks the post itself if image gen fails.
+      let coverImage: string | undefined;
+      try {
+        const { generateContentImage } = await import('./services/image-generation');
+        const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+        coverImage = image?.url;
+      } catch (err: any) {
+        console.error('[blog/generate] cover image generation failed (non-fatal):', err.message);
+      }
+
       if (save) {
         const saved = await storage.createBlogPost({
           ...generated,
+          coverImage,
           isPublished: true,
           isFeatured: false,
           aiGenerated: true,
@@ -25555,7 +25608,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         } as any);
         return res.json({ saved: true, post: saved });
       }
-      res.json({ saved: false, post: generated });
+      res.json({ saved: false, post: { ...generated, coverImage } });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25571,6 +25624,36 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       const post = await storage.createBlogPost(data);
       res.status(201).json(post);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/content-studio/generate-image — on-brand background image for a
+  // Content Studio card (lesson/signal/scripture/update/testimony). Ambassador
+  // or admin only, matching content-studio.tsx's own access gate.
+  app.post("/api/content-studio/generate-image", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { contentType, subject } = req.body as { contentType?: string; subject?: string };
+      if (!subject) return res.status(400).json({ error: "subject is required" });
+
+      const typePrompts: Record<string, string> = {
+        lesson: `An educational trading lesson graphic background about: ${subject}`,
+        signal: `A live trading signal chart background related to: ${subject}`,
+        scripture: `A calm, reflective devotional background evoking: ${subject}`,
+        update: `A bold company announcement/news background about: ${subject}`,
+        testimony: `A celebratory success/results background evoking: ${subject}`,
+      };
+      const prompt = typePrompts[contentType || ''] ?? `A social media post background about: ${subject}`;
+
+      const { generateContentImage } = await import('./services/image-generation');
+      const image = await generateContentImage(prompt);
+      if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
+      res.json(image);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25709,21 +25792,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // NOTE: with drizzle-orm/postgres-js, db.execute() returns rows as the array itself (no .rows property)
   async function insertDevotional(d: {
     date: string; title: string; theme: string; scripture: string; scriptureText: string;
-    reflection: string; prayerPoints: string[]; affirmation: string; tradingTieIn: string;
+    reflection: string; prayerPoints: string[]; affirmation: string; tradingTieIn: string; heroImage?: string | null;
   }) {
     const prayerJson = JSON.stringify(d.prayerPoints);
     const result = await db.execute(
-      sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+      sql`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, hero_image, minimum_minutes, ai_generated, is_published)
           VALUES (
             ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
             ${d.reflection}, ${sql.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
-            ${d.affirmation}, ${d.tradingTieIn}, 5, true, true
+            ${d.affirmation}, ${d.tradingTieIn}, ${d.heroImage ?? null}, 5, true, true
           )
           ON CONFLICT (date) DO UPDATE SET
             title = EXCLUDED.title, theme = EXCLUDED.theme, reflection = EXCLUDED.reflection,
             scripture = EXCLUDED.scripture, scripture_text = EXCLUDED.scripture_text,
             prayer_points = EXCLUDED.prayer_points, affirmation = EXCLUDED.affirmation,
-            trading_tie_in = EXCLUDED.trading_tie_in
+            trading_tie_in = EXCLUDED.trading_tie_in, hero_image = EXCLUDED.hero_image
           RETURNING *`
     );
     return Array.isArray(result) ? result : (result as any).rows || [];
@@ -25742,7 +25825,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       // Auto-generate via AI
       const generated = await generateDailyDevotional(today);
-      const inserted = await insertDevotional({ date: today, ...generated });
+
+      // Best-effort on-brand hero image — never blocks the devotional itself.
+      let heroImage: string | undefined;
+      try {
+        const { generateContentImage } = await import('./services/image-generation');
+        const image = await generateContentImage(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`);
+        heroImage = image?.url;
+      } catch (err: any) {
+        console.error('[devotional] hero image generation failed (non-fatal):', err.message);
+      }
+
+      const inserted = await insertDevotional({ date: today, ...generated, heroImage });
       res.json(inserted[0] || inserted);
     } catch (err: any) {
       console.error('[devotional] GET today failed:', err);
@@ -27235,6 +27329,57 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Paper Trade AI Journal ─────────────────────────────────────────────────
+  // Every confirmed AI signal is logged here (paper-trade-tracker.ts) purely
+  // to self-evaluate the Brain's real-world accuracy over time — separate
+  // from the FX Paper Trading simulated-account feature below.
+  app.get("/api/paper-trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getPaperTradeStats } = await import('./services/paper-trade-tracker');
+      const stats = await getPaperTradeStats((req.user as User).id);
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/paper-trades/list", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db } = await import('./db');
+      const { paperTrades } = await import('../shared/schema');
+      const { eq, desc } = await import('drizzle-orm');
+      const trades = await db.select().from(paperTrades)
+        .where(eq(paperTrades.userId, (req.user as User).id))
+        .orderBy(desc(paperTrades.createdAt))
+        .limit(100);
+      res.json(trades);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/paper-trades/:id/outcome", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { outcome, pnlPips } = req.body as { outcome: 'win' | 'loss' | 'breakeven'; pnlPips?: number };
+      if (!['win', 'loss', 'breakeven'].includes(outcome)) return res.status(400).json({ error: "Invalid outcome" });
+      const { db } = await import('./db');
+      const { paperTrades } = await import('../shared/schema');
+      const { eq, and } = await import('drizzle-orm');
+      const [updated] = await db.update(paperTrades)
+        .set({ outcome, pnlPips, resolvedAt: new Date() })
+        .where(and(eq(paperTrades.id, id), eq(paperTrades.userId, (req.user as User).id)))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Paper trade not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── FX Paper Trading ──────────────────────────────────────────────────────
   // GET  /api/fx-paper/account         — fetch paper account (balance, enabled, stats)
   // POST /api/fx-paper/account         — update balance or toggle enabled
@@ -27345,19 +27490,31 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       `);
       const newTradeId = (tradeRows as any)[0]?.[0]?.id ?? (tradeRows as any).rows?.[0]?.id;
 
-      // Mirror trade to all active copiers
+      // Mirror trade to all active copiers — actually executes on the
+      // copier's own account (paper mirror or real broker order), not just
+      // a database log row.
       try {
         const copiers = await db.execute(sql`
-          SELECT id, copier_id, max_lot_size FROM copy_relationships
-          WHERE source_user_id=${userId} AND is_active=true
+          SELECT id, copier_id, account_type, max_lot_size, profit_share_pct, copier_connection_id
+          FROM copy_relationships WHERE source_user_id=${userId} AND is_active=true
         `);
         const copierList: any[] = (copiers as any)[0] ?? (copiers as any).rows ?? [];
+        const { executeCopyTradeOpen } = await import('./services/copy-trade-execution');
         for (const rel of copierList) {
           const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
-          await db.execute(sql`
+          const logRows = await db.execute(sql`
             INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
+            RETURNING id
           `);
+          const copyLogId = (logRows as any)[0]?.[0]?.id ?? (logRows as any).rows?.[0]?.id;
+          if (copyLogId) {
+            await executeCopyTradeOpen(rel, {
+              tradeId: newTradeId, pair, direction, entryPrice,
+              stopLoss: stopLoss ?? null, takeProfit: takeProfit ?? null,
+              lotSize: parseFloat(String(lotSize)) || 0.01,
+            }, copyLogId).catch((e: any) => console.error('[CopyTrading] executeCopyTradeOpen failed (non-fatal):', e.message));
+          }
         }
       } catch { /* non-critical — don't fail the trade if mirroring errors */ }
 
@@ -27387,47 +27544,57 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
         `);
       }
-      // Close mirrored copy trades and pay profit share to source trader in VEDD tokens
+      // Close mirrored copy trades (actually closing the copier's own paper
+      // row / real broker position, not just a DB log) and pay profit share
+      // to the source trader in VEDD tokens, scaled to each copier's OWN P&L.
       try {
-        // Fetch open copy logs for this trade along with the relationship's profit share %
+        const sourceTradeRows = await db.execute(sql`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
+        const sourceTrade = (sourceTradeRows as any)[0]?.[0] ?? (sourceTradeRows as any).rows?.[0];
+        const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
+
         const copyLogs = await db.execute(sql`
-          SELECT ctl.id, ctl.copier_id, ctl.lot_size, cr.profit_share_pct
+          SELECT ctl.id, ctl.copier_id, ctl.lot_size, ctl.copier_fx_trade_id, ctl.broker_order_id,
+                 cr.id AS relationship_id, cr.account_type, cr.copier_connection_id, cr.profit_share_pct
           FROM copy_trade_logs ctl
           JOIN copy_relationships cr ON cr.id = ctl.relationship_id
           WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
         `);
         const logs: any[] = (copyLogs as any)[0] ?? (copyLogs as any).rows ?? [];
 
-        // Close all open mirrored logs
-        await db.execute(sql`
-          UPDATE copy_trade_logs
-          SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
-          WHERE original_trade_id=${tradeId} AND source_user_id=${userId} AND status='open'
-        `);
+        const { executeCopyTradeClose } = await import('./services/copy-trade-execution');
+        const { storage: _stor } = await import('./storage');
+        const VEDD_PER_USD = 10; // VEDD per $1 of profit share (rate can be tuned)
+        let totalVeddEarned = 0;
 
-        // Pay VEDD profit share to the source trader for each profitable copy
-        if (typeof pnl === 'number' && pnl > 0) {
-          const { storage: _stor } = await import('./storage');
-          // 10 VEDD per $1 of profit share (rate can be tuned)
-          const VEDD_PER_USD = 10;
-          let totalVeddEarned = 0;
-          for (const log of logs) {
+        for (const log of logs) {
+          const rel = {
+            id: log.relationship_id, copier_id: log.copier_id, source_user_id: userId,
+            account_type: log.account_type, max_lot_size: log.lot_size,
+            profit_share_pct: log.profit_share_pct, copier_connection_id: log.copier_connection_id,
+          };
+          const copierPnl = typeof pnl === 'number'
+            ? await executeCopyTradeClose(rel, log, exitPrice, pnl, sourceLotSize)
+            : 0;
+
+          await db.execute(sql`
+            UPDATE copy_trade_logs
+            SET status='closed', exit_price=${exitPrice}, pnl=${copierPnl}, pnl_pips=${pnlPips ?? null}, closed_at=now()
+            WHERE id=${log.id}
+          `);
+
+          if (copierPnl > 0) {
             const sharePct = parseFloat(log.profit_share_pct) || 20;
-            // Scale P&L by lot ratio (copier may have smaller lot than source)
-            const lotRatio = parseFloat(log.lot_size) > 0 ? parseFloat(log.lot_size) / (parseFloat(String(lotSize)) || parseFloat(log.lot_size)) : 1;
-            const copierPnl = pnl * Math.min(1, lotRatio);
             const shareUsd = copierPnl * (sharePct / 100);
             const veddToTrader = Math.round(shareUsd * VEDD_PER_USD * 100) / 100;
             if (veddToTrader > 0) {
               await _stor.addToWalletBalance(userId, veddToTrader);
               totalVeddEarned += veddToTrader;
-              // Record profit share on the log
               await db.execute(sql`UPDATE copy_trade_logs SET profit_share_vedd=${veddToTrader} WHERE id=${log.id}`);
             }
           }
-          if (totalVeddEarned > 0) {
-            console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
-          }
+        }
+        if (totalVeddEarned > 0) {
+          console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
         }
       } catch (e: any) {
         console.log('[CopyTrading] Profit share error (non-critical):', e.message);
@@ -27534,9 +27701,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.post("/api/copy/relationships", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
-    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20 } = req.body;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20, copierConnectionId = null } = req.body;
     if (!sourceUserId || sourceUserId === userId) {
       return res.status(400).json({ error: "Invalid sourceUserId" });
+    }
+    if (accountType === "real") {
+      if (!copierConnectionId) {
+        return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
+      }
+      const conn = await storage.getTradelockerConnection(copierConnectionId);
+      if (!conn || conn.userId !== userId || !conn.isActive) {
+        return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
+      }
     }
 
     const COPY_SUBSCRIPTION_FEE_VEDD = 10; // VEDD tokens to subscribe
@@ -27562,10 +27738,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const clampedPct = Math.min(50, Math.max(5, Number(profitSharePct) || 20));
       await db.execute(sql`
-        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, vedd_fee_paid, is_active, created_at)
-        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, copier_connection_id, vedd_fee_paid, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${copierConnectionId}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
         ON CONFLICT (copier_id, source_user_id)
         DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}, profit_share_pct=${clampedPct},
+                      copier_connection_id=${copierConnectionId},
                       vedd_fee_paid=copy_relationships.vedd_fee_paid+${COPY_SUBSCRIPTION_FEE_VEDD}
       `);
       res.json({ success: true, veddCharged: COPY_SUBSCRIPTION_FEE_VEDD, profitSharePct: clampedPct });
@@ -27578,13 +27755,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     const relId = parseInt(req.params.id);
-    const { maxLotSize, accountType } = req.body;
+    const { maxLotSize, accountType, copierConnectionId } = req.body;
     try {
+      if (accountType === "real") {
+        const targetConnId = copierConnectionId ?? (await db.execute(sql`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`) as any)[0]?.[0]?.copier_connection_id;
+        if (!targetConnId) return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
+        const conn = await storage.getTradelockerConnection(targetConnId);
+        if (!conn || conn.userId !== userId || !conn.isActive) {
+          return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
+        }
+      }
       if (typeof maxLotSize === "number") {
         await db.execute(sql`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
       }
       if (accountType) {
         await db.execute(sql`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      if (typeof copierConnectionId === "number") {
+        await db.execute(sql`UPDATE copy_relationships SET copier_connection_id=${copierConnectionId} WHERE id=${relId} AND copier_id=${userId}`);
       }
       res.json({ success: true });
     } catch (e: any) {

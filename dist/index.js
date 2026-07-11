@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc8) => {
+var __copyProps = (to, from, except, desc9) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc8 = __getOwnPropDesc(from, key)) || desc8.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc9 = __getOwnPropDesc(from, key)) || desc9.enumerable });
   }
   return to;
 };
@@ -219,6 +219,7 @@ __export(schema_exports, {
   optionsEngineTrades: () => optionsEngineTrades,
   paperTrades: () => paperTrades,
   priceAlerts: () => priceAlerts,
+  propFirmAccountState: () => propFirmAccountState,
   quizLeads: () => quizLeads,
   referralVisits: () => referralVisits,
   referrals: () => referrals2,
@@ -265,7 +266,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2314,8 +2315,14 @@ var init_schema = __esm({
       tradeSource: text("trade_source").default("ai_confirmation"),
       modelUsed: text("model_used"),
       // e.g. 'gpt-4o', 'claude-3-5-sonnet', 'llama-4-scout'
-      providerUsed: text("provider_used")
+      providerUsed: text("provider_used"),
       // e.g. 'openai', 'anthropic', 'groq'
+      // Deep Reasoning Mode trail — populated only when the Bull/Bear/Veteran-Judge
+      // debate pipeline ran instead of the single fast-path confirmation call.
+      reasoningText: text("reasoning_text"),
+      bullCase: text("bull_case"),
+      bearCase: text("bear_case"),
+      deepReasoningUsed: boolean("deep_reasoning_used").default(false)
     });
     insertAiConfirmationOutcomeSchema = createInsertSchema(aiConfirmationOutcomes).omit({
       id: true,
@@ -2324,6 +2331,23 @@ var init_schema = __esm({
       tradeOutcome: true,
       actualPips: true
     });
+    propFirmAccountState = pgTable("prop_firm_account_state", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      connectionId: integer("connection_id").notNull(),
+      // references the MT5/TradeLocker/Tradovate connection this state is for
+      connectionType: text("connection_type").notNull().default("tradelocker"),
+      // 'mt5' | 'tradelocker' | 'tradovate'
+      phase: text("phase").notNull().default("phase1"),
+      // 'phase1' | 'phase2' | 'funded'
+      phaseStartBalance: real("phase_start_balance").notNull(),
+      profitTarget: real("profit_target"),
+      // $ target to graduate this phase (null = no target, e.g. funded)
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    }, (t) => ({
+      unq: unique().on(t.connectionId, t.connectionType)
+    }));
     brainDataListings = pgTable("brain_data_listings", {
       id: serial("id").primaryKey(),
       sellerId: integer("seller_id").references(() => users.id).notNull(),
@@ -2597,6 +2621,7 @@ var init_schema = __esm({
       postId: varchar("post_id", { length: 255 }),
       status: varchar("status", { length: 50 }).default("generated"),
       referralLink: text("referral_link"),
+      imageUrl: text("image_url"),
       createdAt: timestamp("created_at").defaultNow()
     });
     ambassadorRedditInsights = pgTable("ambassador_reddit_insights", {
@@ -2652,6 +2677,7 @@ var init_schema = __esm({
       dayOfWeek: varchar("day_of_week", { length: 20 }),
       contentType: varchar("content_type", { length: 50 }),
       contentText: text("content_text"),
+      imageUrl: text("image_url"),
       createdAt: timestamp("created_at").defaultNow()
     });
     ambassadorCommunityContent = pgTable("ambassador_community_content", {
@@ -2659,6 +2685,7 @@ var init_schema = __esm({
       runDate: varchar("run_date", { length: 20 }).notNull(),
       contentType: varchar("content_type", { length: 50 }),
       contentText: text("content_text"),
+      imageUrl: text("image_url"),
       createdAt: timestamp("created_at").defaultNow()
     });
     ambassadorRunStepLog = pgTable("ambassador_run_step_log", {
@@ -2772,6 +2799,8 @@ var init_schema = __esm({
       affirmation: text("affirmation").notNull(),
       tradingTieIn: text("trading_tie_in"),
       // how mindset applies to trading
+      heroImage: text("hero_image"),
+      // on-brand generated cover image (DALL-E/FLUX)
       minimumMinutes: integer("minimum_minutes").default(5),
       aiGenerated: boolean("ai_generated").default(true),
       isPublished: boolean("is_published").default(true),
@@ -3036,7 +3065,10 @@ var init_schema = __esm({
       // Added via idempotent ALTER TABLE in server/index.ts boot migration —
       // declared here too so the Drizzle-typed side matches the raw-SQL side.
       profitSharePct: real("profit_share_pct").notNull().default(20),
-      veddFeePaid: real("vedd_fee_paid").notNull().default(0)
+      veddFeePaid: real("vedd_fee_paid").notNull().default(0),
+      // Which of the copier's own TradeLocker connections real-mode copying
+      // executes on. Required (enforced at the route level) when accountType='real'.
+      copierConnectionId: integer("copier_connection_id")
     }, (t) => ({
       unq: unique().on(t.copierId, t.sourceUserId)
     }));
@@ -3058,7 +3090,15 @@ var init_schema = __esm({
       status: text("status").notNull().default("open"),
       openedAt: timestamp("opened_at").defaultNow().notNull(),
       closedAt: timestamp("closed_at"),
-      profitShareVedd: real("profit_share_vedd")
+      profitShareVedd: real("profit_share_vedd"),
+      // Paper mode: links to the mirrored row in the copier's OWN fx_paper_trades
+      // table so their personal paper account actually reflects the copy.
+      copierFxTradeId: integer("copier_fx_trade_id"),
+      // Real mode: the actual broker order placed on the copier's account.
+      brokerOrderId: text("broker_order_id"),
+      executionStatus: text("execution_status").default("pending"),
+      // 'pending' | 'placed' | 'failed' | 'skipped'
+      executionError: text("execution_error")
     });
     engineRunState = pgTable("engine_run_state", {
       id: serial("id").primaryKey(),
@@ -6849,6 +6889,7 @@ __export(openai_exports, {
   isBreakoutModeEnabled: () => isBreakoutModeEnabled,
   isICTStrategyEnabled: () => isICTStrategyEnabled,
   isPropFirmModeEnabled: () => isPropFirmModeEnabled,
+  isReasoningModel: () => isReasoningModel,
   isSMCStrategyEnabled: () => isSMCStrategyEnabled,
   isTrailingStopEnabled: () => isTrailingStopEnabled,
   openai: () => openai,
@@ -8257,6 +8298,32 @@ async function callMistralConfirmation(prompt, model, apiKey) {
   if (!choice || !("message" in choice)) return "";
   return typeof choice.message.content === "string" ? choice.message.content : "";
 }
+function isReasoningModel(modelId) {
+  const m = (modelId || "").toLowerCase();
+  return m.includes("r1") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
+}
+function extractThinkingTrace(content) {
+  const match = content.match(/<think>([\s\S]*?)<\/think>/i);
+  if (!match) return { thinking: null, rest: content };
+  return { thinking: match[1].trim(), rest: content.slice(match.index + match[0].length) };
+}
+async function callOpenRouterConfirmation(prompt, model, apiKey) {
+  const client2 = buildOpenAICompatClient("openrouter", apiKey);
+  const reasoning = isReasoningModel(model);
+  const response = await client2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    max_tokens: reasoning ? 2e3 : 1e3,
+    // reasoning models spend tokens on <think> before the answer
+    temperature: reasoning ? 1 : 0.3
+  });
+  const raw = response.choices?.[0]?.message?.content || "";
+  const { thinking, rest } = extractThinkingTrace(raw);
+  return { content: rest, thinking };
+}
 async function getUserApiKeyForProvider(userId, provider) {
   try {
     const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
@@ -8270,7 +8337,99 @@ async function getUserApiKeyForProvider(userId, provider) {
   }
   return null;
 }
-async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, strategyMode) {
+async function runDeepReasoningDebate(prompt, userId) {
+  let bullCase = "";
+  let bearCase = "";
+  try {
+    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const debateModel = debateClient.defaultModel || "gpt-4o-mini";
+    const debateResponse = await debateClient.chat.completions.create({
+      model: debateModel,
+      messages: [
+        {
+          role: "system",
+          content: 'You are a trading debate simulator. Given the market data and rules below, produce genuinely rigorous arguments \u2014 a bad setup should get a devastating bear case, a great setup should get a compelling bull case. Return ONLY valid JSON: {"bullCase": "2-4 sentences arguing FOR taking this trade", "bearCase": "2-4 sentences arguing AGAINST taking this trade"}'
+        },
+        { role: "user", content: prompt.user }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 600,
+      temperature: 0.6
+    });
+    const raw = debateResponse.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+    bullCase = parsed.bullCase || "";
+    bearCase = parsed.bearCase || "";
+  } catch (e) {
+    console.error("[Deep Reasoning] Debate pass failed (non-fatal, judge proceeds without it):", e.message);
+  }
+  const judgeApiKey = (userId ? await getUserApiKeyForProvider(userId, "openrouter") : null) || process.env.OPENROUTER_API_KEY;
+  if (!judgeApiKey) {
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: "Deep Reasoning Mode requires an OpenRouter key (platform or user) for the Veteran-Judge reasoning pass. Add one on the AI Provider Keys page.",
+      bullCase,
+      bearCase,
+      deepReasoningUsed: false
+    };
+  }
+  const judgeUser = `${prompt.user}
+
+## BULL CASE
+${bullCase || "(debate pass unavailable)"}
+
+## BEAR CASE
+${bearCase || "(debate pass unavailable)"}
+
+Weigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
+  try {
+    const result = await callOpenRouterConfirmation(
+      { system: `${VETERAN_PERSONA}
+
+${prompt.system}`, user: judgeUser },
+      VETERAN_JUDGE_MODEL,
+      judgeApiKey
+    );
+    if (!result.content) throw new Error("No response from Veteran-Judge model");
+    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);
+    const validTrailValues = ["NONE", "TIGHT", "STANDARD", "WIDE", "AGGRESSIVE"];
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: parsed.direction || "NEUTRAL",
+      aiConfidence: typeof parsed.confidence === "number" ? parsed.confidence : 50,
+      reasoning: parsed.reasoning || "No reasoning provided",
+      adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
+      adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
+      adjustedTakeProfit: typeof parsed.adjustedTakeProfit === "number" ? parsed.adjustedTakeProfit : void 0,
+      trailRecommendation: validTrailValues.includes(parsed.trailRecommendation) ? parsed.trailRecommendation : void 0,
+      ictMacroValid: typeof parsed.ictMacroValid === "boolean" ? parsed.ictMacroValid : void 0,
+      smcVerdict: ["CONFIRM", "REQUIRE_BETTER_PRICE", "PASS"].includes(parsed.smcVerdict) ? parsed.smcVerdict : null,
+      propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : void 0,
+      propFirmReason: typeof parsed.propFirmReason === "string" ? parsed.propFirmReason : void 0,
+      modelUsed: VETERAN_JUDGE_MODEL,
+      providerUsed: "openrouter",
+      thinkingTrace: result.thinking,
+      bullCase,
+      bearCase,
+      deepReasoningUsed: true
+    };
+  } catch (e) {
+    console.error("[Deep Reasoning] Veteran-Judge pass failed:", e.message);
+    return {
+      confirmed: false,
+      aiDirection: "NEUTRAL",
+      aiConfidence: 0,
+      reasoning: `Deep Reasoning Mode error: ${e.message}`,
+      bullCase,
+      bearCase,
+      deepReasoningUsed: false
+    };
+  }
+}
+async function getAiVisionConfirmation(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, userId, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, strategyMode, deepReasoningMode) {
   try {
     const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
     const selectedModel = resolveVisionModel(rawModel);
@@ -8312,10 +8471,33 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       }
     }
     const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
+    if (deepReasoningMode) {
+      console.log(`[AI Vision Confirmation] Deep Reasoning Mode \u2014 running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
+      const debateResult = await runDeepReasoningDebate(prompt, userId);
+      return {
+        ...debateResult,
+        confluenceScore: confluenceResult.score,
+        confluenceGrade: confluenceResult.grade
+      };
+    }
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
     let content = "";
+    let thinkingTrace = null;
     if (provider === "openai") {
       content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+    } else if (provider === "openrouter") {
+      const apiKey = (userId ? await getUserApiKeyForProvider(userId, "openrouter") : null) || process.env.OPENROUTER_API_KEY;
+      if (!apiKey) {
+        return {
+          confirmed: false,
+          aiDirection: "NEUTRAL",
+          aiConfidence: 0,
+          reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
+        };
+      }
+      const result2 = await callOpenRouterConfirmation(prompt, selectedModel, apiKey);
+      content = result2.content;
+      thinkingTrace = result2.thinking;
     } else if (userId) {
       const apiKey = await getUserApiKeyForProvider(userId, provider);
       if (!apiKey) {
@@ -8373,7 +8555,8 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
       newsBlocked: false,
       newsProximityMinutes: null,
       modelUsed: selectedModel,
-      providerUsed: provider
+      providerUsed: provider,
+      thinkingTrace
     };
   } catch (error) {
     const errMsg = error?.message || String(error);
@@ -10178,7 +10361,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, VISION_FALLBACK, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs, logIdCounter, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, VISION_FALLBACK, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -10247,6 +10430,13 @@ var init_openai = __esm({
     propFirmContextMap = /* @__PURE__ */ new Map();
     aiConfirmationLogs = /* @__PURE__ */ new Map();
     logIdCounter = 1;
+    VETERAN_JUDGE_MODEL = "deepseek/deepseek-r1:free";
+    VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime \u2014 bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
+- Capital preservation is priority #1, always \u2014 profit is priority #2.
+- You are far more likely to skip a setup than take it. Most trades that look "pretty good" get passed on. You only act on genuine, high-probability confluence.
+- Consistency beats occasional brilliance \u2014 you would rather bank ten small, disciplined wins than swing for one big one and risk the account.
+- You have zero ego. If the Bear Case is stronger than the Bull Case, you say no, full stop, regardless of how the setup "feels."
+- You never revenge trade, never widen risk to chase a loss back, and never let a strong bull case override a real structural risk.`;
     PROVIDER_MODELS = {
       openai: "gpt-4o",
       groq: "openai/gpt-oss-120b",
@@ -15309,13 +15499,13 @@ async function getTLAccountValue(userId, conn) {
     const svc = await getOrCreateService(conn);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
-    const eq14 = info.equity || bal;
+    const eq17 = info.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq14;
+      g.tlAccountEquity[userId][acctId] = eq17;
       g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq14} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq14 };
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq17} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq17 };
     }
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
@@ -16415,6 +16605,48 @@ function cache2() {
 function markTlUserActive(userId) {
   activeUsers.set(userId, Date.now());
 }
+async function syncTradeLockerTrades(userId, conn, svc) {
+  const cacheKey = `${userId}:${conn.accountId}`;
+  const openPositions = await svc.getPositionsNormalized().catch(() => []);
+  const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
+  for (const p of openPositions) {
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+    if (existing) continue;
+    await storage.createAiTradeResult({
+      userId,
+      symbol: p.symbol,
+      direction: (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
+      entryPrice: p.avgPrice || 0,
+      aiConfidence: 0,
+      result: "PENDING",
+      source: "tradelocker_auto",
+      connectionId: conn.id,
+      mt5Ticket: ticket
+    });
+  }
+  const previousTickets = lastOpenTickets.get(cacheKey);
+  if (previousTickets) {
+    const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
+    if (closedTicketIds.length > 0) {
+      const closed = await svc.getClosedPositions().catch(() => []);
+      const closedById = new Map(closed.map((c) => [`tl_${conn.accountId}_${c.id}`, c]));
+      for (const ticket of closedTicketIds) {
+        const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+        if (!existing || existing.result !== "PENDING") continue;
+        const match = closedById.get(ticket);
+        const profit = match ? match.profit : 0;
+        const result = profit > 0 ? "WIN" : profit < 0 ? "LOSS" : "BREAKEVEN";
+        await storage.updateAiTradeResult(existing.id, userId, {
+          result,
+          profitLoss: profit,
+          closedAt: /* @__PURE__ */ new Date()
+        });
+      }
+    }
+  }
+  lastOpenTickets.set(cacheKey, currentTickets);
+}
 async function syncUserTradeLocker(userId, force = false) {
   const now = Date.now();
   if (!force) {
@@ -16456,6 +16688,9 @@ async function syncUserTradeLocker(userId, force = false) {
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
         if (info.balance > 0) global.tlAccountBalances[userId][conn.accountId] = info.balance;
+        await syncTradeLockerTrades(userId, conn, svc).catch(
+          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
+        );
       } catch (err) {
         const prev = store[userId][conn.accountId];
         store[userId][conn.accountId] = {
@@ -16518,12 +16753,13 @@ function startTradeLockerSync() {
   }, SYNC_INTERVAL_MS);
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
-var activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
+var lastOpenTickets, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
     init_storage();
     init_tradelocker();
+    lastOpenTickets = /* @__PURE__ */ new Map();
     activeUsers = /* @__PURE__ */ new Map();
     ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
     SYNC_INTERVAL_MS = 20 * 1e3;
@@ -23505,8 +23741,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq14 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(uak.userId, userId), eq14(uak.provider, openai2.provider)));
+        const { and: and8, eq: eq17 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and8(eq17(uak.userId, userId), eq17(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -23601,6 +23837,8 @@ function getDefaultConfig(userId) {
     consistencyEnforcementEnabled: false,
     consistencyMinProfitableDays: 10,
     consistencyPeriodDays: 15,
+    maxDailyProfitPctOfTotal: 0,
+    deepReasoningMode: false,
     directionFilter: "both",
     pairDirectionOverrides: {},
     pairLotOverrides: {},
@@ -23938,6 +24176,32 @@ async function scanMarkets(userId) {
     state._consistencyRiskOverride = consistencyRiskMultiplier;
   } else {
     delete state._consistencyRiskOverride;
+  }
+  if (state.config.propFirmMode) {
+    const totalProfitAllTime = Object.values(state.challengeDailyPnL).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    const todayProfit = Math.max(0, state.pnlToday);
+    if ((state.config.maxDailyProfitPctOfTotal ?? 0) > 0 && totalProfitAllTime > 0 && todayProfit > 0) {
+      const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+      if (todayPctOfTotal >= state.config.maxDailyProfitPctOfTotal && !state.dailyProfitHalted) {
+        state.dailyProfitHalted = true;
+        state.dailyProfitHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+        addActivity2(userId, {
+          type: "info",
+          message: `\u2696\uFE0F Consistency Rule: today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit: ${state.config.maxDailyProfitPctOfTotal}%) \u2014 halting new trades today to protect payout eligibility.`
+        });
+      }
+    }
+    if ((state.config.weeklyProfitTarget ?? 0) > 0 && consistencyRiskMultiplier === 1) {
+      const pctOfTarget = totalProfitAllTime / state.config.weeklyProfitTarget * 100;
+      if (pctOfTarget >= 80) {
+        consistencyRiskMultiplier = 0.5;
+        state._consistencyRiskOverride = consistencyRiskMultiplier;
+        addActivity2(userId, {
+          type: "info",
+          message: `\u{1F3AF} Near Target: ${pctOfTarget.toFixed(0)}% of profit target reached \u2014 risk trimmed to 50% to protect gains.`
+        });
+      }
+    }
   }
   const ms = state.mindState;
   if (ms && ms.coolOffUntil > Date.now()) {
@@ -24649,11 +24913,11 @@ function generateRuleBasedSignals(indicators, config, symbol) {
   const effectiveTpDist = Math.max(atr2 * tpMult, effectiveSlDist * 2);
   const sl = direction === "BUY" ? entry - effectiveSlDist : entry + effectiveSlDist;
   const tp = direction === "BUY" ? entry + effectiveTpDist : entry - effectiveTpDist;
-  let lotSize2 = config.baseLotSize;
+  let lotSize = config.baseLotSize;
   if (config.useKellyCriterion && !config.lockSettings) {
     const pct2 = winningScore / 7;
     const fractionalKelly = pct2 * 0.25;
-    lotSize2 = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
+    lotSize = Math.min(config.maxLotSize, Math.max(config.baseLotSize, parseFloat((config.baseLotSize * (1 + fractionalKelly)).toFixed(2))));
   }
   const trade = {
     action: "OPEN_TRADE",
@@ -24666,7 +24930,7 @@ function generateRuleBasedSignals(indicators, config, symbol) {
     entryPrice: entry,
     stopLoss: sl,
     takeProfit: tp,
-    lotSize: lotSize2,
+    lotSize,
     holdTime: "30min",
     urgency: "IMMEDIATE"
   };
@@ -25012,8 +25276,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     let _usingGroq = false;
     if (aiMode === "economy" && process.env.GROQ_API_KEY) {
       try {
-        const OpenAI7 = (await import("openai")).default;
-        const groqClient = new OpenAI7({
+        const OpenAI8 = (await import("openai")).default;
+        const groqClient = new OpenAI8({
           apiKey: process.env.GROQ_API_KEY,
           baseURL: "https://api.groq.com/openai/v1",
           maxRetries: 4,
@@ -25786,8 +26050,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and7, eq: eq14 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(uak.userId, userId), eq14(uak.provider, openai2.provider)));
+        const { and: and8, eq: eq17 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and8(eq17(uak.userId, userId), eq17(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -26153,13 +26417,15 @@ async function processDecision(userId, decision, newsCtx) {
           return;
         }
         const _bal = _snap.balance > 0 ? _snap.balance : config.accountBalance || 0;
-        if ((config.dailyLossLimit ?? 0) > 0 && _bal > 0) {
+        const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0 ? config.propFirmDailyDrawdownLimit * 0.8 : config.dailyLossLimit ?? 0;
+        if (_effectiveDailyLimit > 0 && _bal > 0) {
           const _positions = global.mt5OpenPositions?.[userId]?.positions ?? [];
           const _floating = _positions.reduce((s, p) => s + (p.profit || 0), 0);
           const _realized = typeof _snap.dailyPnL === "number" ? _snap.dailyPnL : 0;
           const _lossPct = (_realized + _floating) / _bal * 100;
-          if (_lossPct <= -config.dailyLossLimit) {
-            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 -${config.dailyLossLimit}% (incl. floating) \u2014 trade skipped` });
+          if (_lossPct <= -_effectiveDailyLimit) {
+            const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
+            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% \u2264 ${_limitLabel} (incl. floating) \u2014 trade skipped` });
             return;
           }
         }
@@ -26664,12 +26930,12 @@ async function processDecision(userId, decision, newsCtx) {
       });
     }
     const _pairHardLot = (config.pairLotOverrides || {})[decision.symbol];
-    const lotSize2 = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
-    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize2) {
+    const lotSize = _pairHardLot && _pairHardLot > 0 ? Math.min(volCappedLot, _pairHardLot) : volCappedLot;
+    if (_pairHardLot && _pairHardLot > 0 && volCappedLot !== lotSize) {
       addActivity2(userId, {
         type: "info",
         symbol: decision.symbol,
-        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize2} lots (user set ${_pairHardLot} max for ${decision.symbol})`
+        message: `\u{1F512} PAIR LOT BLOCK [${decision.symbol}]: engine sized ${volCappedLot} lots \u2192 hard-blocked to ${lotSize} lots (user set ${_pairHardLot} max for ${decision.symbol})`
       });
     }
     {
@@ -26680,9 +26946,9 @@ async function processDecision(userId, decision, newsCtx) {
         const _pipVal = getPipValue(decision.symbol);
         if (_pipSz > 0 && _pipVal > 0 && _slDist > 0) {
           const _slPips = _slDist / _pipSz;
-          const _potentialLoss = lotSize2 * _slPips * _pipVal;
+          const _potentialLoss = lotSize * _slPips * _pipVal;
           if (_potentialLoss > _riskBal * 0.05) {
-            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize2} lots \xD7 ${_slPips.toFixed(0)} pips) \u2014 trade skipped` });
+            addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${(_riskBal * 0.05).toFixed(0)} (${lotSize} lots \xD7 ${_slPips.toFixed(0)} pips) \u2014 trade skipped` });
             return;
           }
         }
@@ -26690,8 +26956,8 @@ async function processDecision(userId, decision, newsCtx) {
       const _posAgg = global.mt5OpenPositions?.[userId]?.positions ?? [];
       const _openLots = _posAgg.reduce((s, p) => s + (p.lots || p.volume || p.size || 0), 0);
       const _aggCap = safeMaxLot * (config.maxOpenTrades || 3) * 1.5;
-      if (_openLots + lotSize2 > _aggCap) {
-        addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize2).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
+      if (_openLots + lotSize > _aggCap) {
+        addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6E1}\uFE0F RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} \u2014 trade skipped` });
         return;
       }
     }
@@ -26701,7 +26967,7 @@ async function processDecision(userId, decision, newsCtx) {
       if (_paperAcct?.is_enabled) {
         const _paperTradeRows = await db.execute(sql6`
           INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
-          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize2}, ${adjustedConfidence}, 'ss_engine', 'open', now())
+          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
           RETURNING id
         `);
         const _newPaperTradeId = _paperTradeRows[0]?.[0]?.id ?? _paperTradeRows.rows?.[0]?.id;
@@ -26712,7 +26978,7 @@ async function processDecision(userId, decision, newsCtx) {
           `);
           const _copierList = _copiers[0] ?? _copiers.rows ?? [];
           for (const rel of _copierList) {
-            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, lotSize2 || 0.01);
+            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, lotSize || 0.01);
             await db.execute(sql6`
               INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
               VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${_newPaperTradeId ?? null}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${_mirrorLot}, 'open', now())
@@ -26723,7 +26989,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity2(userId, {
           type: "trade",
           symbol: decision.symbol,
-          message: `\u{1F4DD} PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? "\u2014"} (${lotSize2} lots, ${adjustedConfidence}% confidence) \u2014 simulated, no live order placed.`,
+          message: `\u{1F4DD} PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? "\u2014"} (${lotSize} lots, ${adjustedConfidence}% confidence) \u2014 simulated, no live order placed.`,
           confidence: adjustedConfidence
         });
         return;
@@ -26737,7 +27003,7 @@ async function processDecision(userId, decision, newsCtx) {
       symbol: decision.symbol,
       direction: decision.direction,
       action: "OPEN",
-      lotSize: lotSize2,
+      lotSize,
       entryPrice: entryPrice || null,
       stopLoss: stopLoss || null,
       takeProfit: takeProfit || null,
@@ -26806,7 +27072,7 @@ async function processDecision(userId, decision, newsCtx) {
         symbol: decision.symbol,
         direction: decision.direction,
         action: "OPEN",
-        volume: lotSize2,
+        volume: lotSize,
         entryPrice: entryPrice || null,
         stopLoss: stopLoss || null,
         takeProfit: takeProfit || null,
@@ -26838,15 +27104,15 @@ async function processDecision(userId, decision, newsCtx) {
               acctSizeLabel = ` (risk ${_risk.riskPercent}% of $${_tlAcctEq.toLocaleString()} \u2014 default 20pip SL)`;
             } else if (_refBal > 0) {
               const ratio = _tlAcctEq / _refBal;
-              acctLot = Math.max(0.01, Math.round(lotSize2 * ratio * 100) / 100);
+              acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
               acctSizeLabel = ` (risk% fallback\u2192proportional ${ratio.toFixed(2)}\xD7)`;
             } else {
-              acctLot = Math.max(0.01, Math.round(lotSize2 * 100) / 100);
+              acctLot = Math.max(0.01, Math.round(lotSize * 100) / 100);
               acctSizeLabel = ` (risk% \u2014 no SL or reference balance, copying MT5 lot)`;
             }
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal > 0) {
             const ratio = _tlAcctEq / _refBal;
-            acctLot = Math.max(0.01, Math.round(lotSize2 * ratio * 100) / 100);
+            acctLot = Math.max(0.01, Math.round(lotSize * ratio * 100) / 100);
             acctSizeLabel = ` (proportional ${ratio.toFixed(2)}\xD7 \u2014 $${_tlAcctEq.toLocaleString()}/$${_refBal.toLocaleString()})`;
           } else if (config.copyMode === "proportional" && _tlAcctEq && _tlAcctEq > 0 && _refBal <= 0 && _slPips > 0 && _pipValue > 0) {
             const autoRiskPct = _risk.riskPercent > 0 ? _risk.riskPercent : 1;
@@ -26855,7 +27121,7 @@ async function processDecision(userId, decision, newsCtx) {
             acctSizeLabel = ` (\u26A0\uFE0F auto ${autoRiskPct}% risk of $${_tlAcctEq.toLocaleString()} \u2014 set Reference Balance to enable proportional copy)`;
           } else {
             const acctMult = typeof tlConn.lotMultiplier === "number" && tlConn.lotMultiplier > 0 ? tlConn.lotMultiplier : 1;
-            acctLot = Math.max(0.01, Math.round(lotSize2 * acctMult * 100) / 100);
+            acctLot = Math.max(0.01, Math.round(lotSize * acctMult * 100) / 100);
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
@@ -26902,7 +27168,7 @@ async function processDecision(userId, decision, newsCtx) {
               direction: decision.direction,
               confidence: adjustedConfidence,
               message: `TRADE EXECUTED via TradeLocker ${acctLabel}: ${decision.direction} ${decision.symbol} | Type: ${resolvedOrderType.toUpperCase()} | Entry: ${entryPrice || "market"} | Lot: ${executedLot}${multLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"} | Order: ${tradeResult.orderId}`,
-              details: { orderId: tradeResult.orderId, lotSize: lotSize2, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
+              details: { orderId: tradeResult.orderId, lotSize, stopLoss, takeProfit, orderType: resolvedOrderType, confluences: decision.confluences }
             });
           } else {
             addActivity2(userId, {
@@ -28023,6 +28289,168 @@ var init_ambassador_market_briefing = __esm({
   }
 });
 
+// server/services/paper-trade-tracker.ts
+var paper_trade_tracker_exports = {};
+__export(paper_trade_tracker_exports, {
+  createPaperTrade: () => createPaperTrade,
+  getAIAccuracyContext: () => getAIAccuracyContext,
+  getPaperTradeStats: () => getPaperTradeStats,
+  resolvePaperTrade: () => resolvePaperTrade
+});
+import { eq as eq10, desc as desc6, and as and6, sql as sql7 } from "drizzle-orm";
+async function createPaperTrade(data) {
+  try {
+    const [trade] = await db.insert(paperTrades).values({
+      ...data,
+      outcome: "pending"
+    }).returning();
+    console.log(`[PaperTrade] Created #${trade.id} \u2014 ${data.symbol} ${data.direction} @ ${data.entryPrice} (confidence: ${data.aiConfidence}%)`);
+    return trade;
+  } catch (e) {
+    console.error("[PaperTrade] Failed to create:", e);
+    return null;
+  }
+}
+async function resolvePaperTrade(tradeId, currentPrice) {
+  try {
+    const [trade] = await db.select().from(paperTrades).where(eq10(paperTrades.id, tradeId));
+    if (!trade || trade.outcome !== "pending") return;
+    const now = /* @__PURE__ */ new Date();
+    const ageHours = (now.getTime() - trade.createdAt.getTime()) / (1e3 * 60 * 60);
+    const updates = {};
+    if (ageHours >= 1 && !trade.priceAt1h) updates.priceAt1h = currentPrice;
+    if (ageHours >= 4 && !trade.priceAt4h) updates.priceAt4h = currentPrice;
+    if (ageHours >= 24 && !trade.priceAt24h) {
+      updates.priceAt24h = currentPrice;
+      const entry = trade.entryPrice;
+      const priceDiff = trade.direction === "BUY" ? currentPrice - entry : entry - currentPrice;
+      const pnlPips = Math.round(priceDiff * 1e4) / 10;
+      const pnlPercent = priceDiff / entry * 100;
+      let outcome = "breakeven";
+      if (trade.takeProfit && trade.stopLoss) {
+        const tpDist = Math.abs(trade.takeProfit - entry);
+        const slDist = Math.abs(trade.stopLoss - entry);
+        if (priceDiff >= tpDist * 0.5) outcome = "win";
+        else if (priceDiff <= -slDist * 0.5) outcome = "loss";
+      } else {
+        if (pnlPips > 5) outcome = "win";
+        else if (pnlPips < -5) outcome = "loss";
+      }
+      updates.outcome = outcome;
+      updates.pnlPips = pnlPips;
+      updates.pnlPercent = pnlPercent;
+      updates.resolvedAt = now;
+      console.log(`[PaperTrade] Resolved #${tradeId} \u2014 ${trade.symbol} ${trade.direction}: ${outcome.toUpperCase()} (${pnlPips > 0 ? "+" : ""}${pnlPips} pips)`);
+    }
+    if (Object.keys(updates).length > 0) {
+      await db.update(paperTrades).set(updates).where(eq10(paperTrades.id, tradeId));
+    }
+  } catch (e) {
+    console.error("[PaperTrade] Failed to resolve:", e);
+  }
+}
+async function getAIAccuracyContext(userId, symbol) {
+  try {
+    const conditions = [eq10(paperTrades.userId, userId)];
+    if (symbol) {
+      const cleanSymbol = symbol.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+      conditions.push(sql7`UPPER(REPLACE(${paperTrades.symbol}, '/', '')) = ${cleanSymbol}`);
+    }
+    const trades = await db.select().from(paperTrades).where(and6(...conditions)).orderBy(desc6(paperTrades.createdAt)).limit(50);
+    const resolved = trades.filter((t) => t.outcome !== "pending");
+    if (resolved.length < 3) return "";
+    const wins = resolved.filter((t) => t.outcome === "win").length;
+    const losses = resolved.filter((t) => t.outcome === "loss").length;
+    const total = resolved.length;
+    const winRate2 = Math.round(wins / total * 100);
+    const lossedBuys = resolved.filter((t) => t.outcome === "loss" && t.direction === "BUY").length;
+    const lossedSells = resolved.filter((t) => t.outcome === "loss" && t.direction === "SELL").length;
+    const avgLossConfidence = resolved.filter((t) => t.outcome === "loss").reduce((sum, t) => sum + (t.aiConfidence || 0), 0) / (losses || 1);
+    const avgWinConfidence = resolved.filter((t) => t.outcome === "win").reduce((sum, t) => sum + (t.aiConfidence || 0), 0) / (wins || 1);
+    const symbolLabel = symbol ? `on ${symbol}` : "overall";
+    let context = `
+## YOUR HISTORICAL PAPER TRADE ACCURACY ${symbolLabel.toUpperCase()}
+- Total recorded trades: ${total} | Win rate: ${winRate2}% (${wins}W / ${losses}L)
+- Avg confidence on WINS: ${Math.round(avgWinConfidence)}% | On LOSSES: ${Math.round(avgLossConfidence)}%`;
+    if (lossedBuys > lossedSells * 1.5) {
+      context += `
+\u26A0 PATTERN: BUY signals have been losing more often \u2014 be extra cautious on bullish calls`;
+    } else if (lossedSells > lossedBuys * 1.5) {
+      context += `
+\u26A0 PATTERN: SELL signals have been losing more often \u2014 be extra cautious on bearish calls`;
+    }
+    if (avgLossConfidence > avgWinConfidence) {
+      context += `
+\u26A0 PATTERN: High confidence signals have been losing \u2014 consider being more conservative`;
+    }
+    if (winRate2 < 40) {
+      context += `
+\u{1F534} ACCURACY ALERT: Win rate is low (${winRate2}%). Increase confirmation requirements.`;
+    } else if (winRate2 > 65) {
+      context += `
+\u{1F7E2} STRONG ACCURACY: Win rate is ${winRate2}%. Current strategy is performing well.`;
+    }
+    const last5 = resolved.slice(0, 5);
+    const last5Summary = last5.map(
+      (t) => `${t.direction} ${t.symbol} @ ${t.entryPrice} \u2192 ${t.outcome?.toUpperCase()} (${t.pnlPips ? (t.pnlPips > 0 ? "+" : "") + t.pnlPips + " pips" : "N/A"})`
+    ).join("\n  ");
+    context += `
+
+Last ${last5.length} trades:
+  ${last5Summary}`;
+    return context;
+  } catch (e) {
+    console.error("[PaperTrade] Failed to get accuracy context:", e);
+    return "";
+  }
+}
+async function getPaperTradeStats(userId) {
+  try {
+    const trades = await db.select().from(paperTrades).where(eq10(paperTrades.userId, userId)).orderBy(desc6(paperTrades.createdAt));
+    const resolved = trades.filter((t) => t.outcome !== "pending");
+    const wins = resolved.filter((t) => t.outcome === "win");
+    const losses = resolved.filter((t) => t.outcome === "loss");
+    const pending = trades.filter((t) => t.outcome === "pending");
+    const symbolStats = {};
+    for (const t of resolved) {
+      if (!symbolStats[t.symbol]) symbolStats[t.symbol] = { wins: 0, losses: 0, total: 0 };
+      symbolStats[t.symbol].total++;
+      if (t.outcome === "win") symbolStats[t.symbol].wins++;
+      if (t.outcome === "loss") symbolStats[t.symbol].losses++;
+    }
+    const modelStats = {};
+    for (const t of resolved) {
+      const key = t.aiModel || "unknown";
+      if (!modelStats[key]) modelStats[key] = { wins: 0, losses: 0, total: 0 };
+      modelStats[key].total++;
+      if (t.outcome === "win") modelStats[key].wins++;
+      if (t.outcome === "loss") modelStats[key].losses++;
+    }
+    return {
+      total: trades.length,
+      resolved: resolved.length,
+      pending: pending.length,
+      wins: wins.length,
+      losses: losses.length,
+      winRate: resolved.length > 0 ? Math.round(wins.length / resolved.length * 100) : 0,
+      totalPnlPips: resolved.reduce((sum, t) => sum + (t.pnlPips || 0), 0),
+      symbolStats,
+      modelStats,
+      recentTrades: trades.slice(0, 20)
+    };
+  } catch (e) {
+    console.error("[PaperTrade] Failed to get stats:", e);
+    return null;
+  }
+}
+var init_paper_trade_tracker = __esm({
+  "server/services/paper-trade-tracker.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+  }
+});
+
 // server/services/broker-lookup.ts
 var broker_lookup_exports = {};
 __export(broker_lookup_exports, {
@@ -28566,8 +28994,8 @@ async function restoreEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq14, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq14(engineRunState2.userId, userId), eq14(engineRunState2.engine, "polymarket")));
+    const { eq: eq17, and: and8 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and8(eq17(engineRunState2.userId, userId), eq17(engineRunState2.engine, "polymarket")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Polymarket] Restoring engine for user ${userId}`);
@@ -29731,8 +30159,8 @@ async function restoreKalshiEngineStateFromDb(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq14, and: and7 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and7(eq14(engineRunState2.userId, userId), eq14(engineRunState2.engine, "kalshi")));
+    const { eq: eq17, and: and8 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and8(eq17(engineRunState2.userId, userId), eq17(engineRunState2.engine, "kalshi")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
@@ -30676,7 +31104,7 @@ __export(sol_engine_exports, {
   triggerSolAIReview: () => triggerSolAIReview,
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
-import { eq as eq10 } from "drizzle-orm";
+import { eq as eq11 } from "drizzle-orm";
 import crypto10 from "crypto";
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
@@ -30765,7 +31193,7 @@ async function upsertPosition(userId, pos) {
 }
 async function loadEngineStateFromDb(userId, state) {
   try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+    const [settings] = await db.select().from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
     if (settings) {
       state.activeStrategy = settings.activeStrategy;
       state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
@@ -30800,7 +31228,7 @@ async function loadEngineStateFromDb(userId, state) {
         }
       }
     }
-    const positions = await db.select().from(solEnginePositions).where(eq10(solEnginePositions.userId, userId));
+    const positions = await db.select().from(solEnginePositions).where(eq11(solEnginePositions.userId, userId));
     for (const row of positions) {
       const pos = {
         id: row.positionId,
@@ -30836,7 +31264,7 @@ async function loadEngineStateFromDb(userId, state) {
 }
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -30932,7 +31360,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
 }
 async function executeServerSideBuy(userId, signal, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -31320,8 +31748,8 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     if (useEconomy) {
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
-        const OpenAI7 = (await import("openai")).default;
-        openai2 = new OpenAI7({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        const OpenAI8 = (await import("openai")).default;
+        openai2 = new OpenAI8({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         openai2.defaultModel = "openai/gpt-oss-120b";
         modelLabel = "Groq Llama";
         addActivity3(state, {
@@ -31634,7 +32062,7 @@ async function refreshServerWalletBalance(userId, state) {
   if (now - state.lastWalletRefreshAt < 6e4) return;
   state.lastWalletRefreshAt = now;
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -32003,7 +32431,7 @@ async function startSolEngine(userId, config = {}) {
   }
   if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
       if (settings?.serverWalletKey) {
         const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
         const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -32537,11 +32965,11 @@ async function saveServerWallet(userId, privateKeyBase58) {
   }
 }
 async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq10(solEngineSettings.userId, userId));
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq11(solEngineSettings.userId, userId));
 }
 async function getServerWalletStatus(userId) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq10(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq11(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -35074,6 +35502,254 @@ var init_blog_og_image = __esm({
   }
 });
 
+// server/services/image-generation.ts
+var image_generation_exports = {};
+__export(image_generation_exports, {
+  BRAND_STYLE_SUFFIX: () => BRAND_STYLE_SUFFIX,
+  generateContentImage: () => generateContentImage
+});
+import { OpenAI as OpenAI5 } from "openai";
+async function generateDalleImage(prompt) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const openai2 = new OpenAI5({ apiKey, maxRetries: 2, timeout: 6e4 });
+    const res = await openai2.images.generate({
+      model: "dall-e-3",
+      prompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard"
+    });
+    return res.data?.[0]?.url ?? null;
+  } catch (e) {
+    const status = e?.status ?? e?.statusCode;
+    if (status === 429 || /quota|insufficient_quota/i.test(e?.message || "")) {
+      console.error("[image-generation] DALL-E quota exceeded \u2014 check OpenAI billing/plan:", e.message);
+    } else {
+      console.error("[image-generation] DALL-E error:", e.message);
+    }
+    return null;
+  }
+}
+async function generateFluxImage(prompt) {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) return null;
+  try {
+    const res = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Prefer: "wait"
+      },
+      body: JSON.stringify({ input: { prompt, aspect_ratio: "1:1", output_format: "png" } }),
+      signal: AbortSignal.timeout(6e4)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[image-generation] Replicate FLUX error:", res.status, body.slice(0, 300));
+      return null;
+    }
+    let data = await res.json();
+    const getUrl = data?.urls?.get;
+    for (let i = 0; i < 20 && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 3e3));
+      const poll = await fetch(getUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      data = await poll.json();
+    }
+    if (data.status !== "succeeded") {
+      console.error("[image-generation] Replicate FLUX did not complete in time:", data.status, data.error ?? "");
+      return null;
+    }
+    const output = data?.output;
+    const url = Array.isArray(output) ? output[0] : output;
+    return url ?? null;
+  } catch (e) {
+    console.error("[image-generation] Replicate FLUX error:", e.message);
+    return null;
+  }
+}
+async function generateContentImage(prompt) {
+  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}`;
+  const dalleUrl = await generateDalleImage(brandedPrompt);
+  if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
+  const fluxUrl = await generateFluxImage(brandedPrompt);
+  if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
+  return null;
+}
+var BRAND_STYLE_SUFFIX;
+var init_image_generation = __esm({
+  "server/services/image-generation.ts"() {
+    "use strict";
+    BRAND_STYLE_SUFFIX = ", in the visual style of a modern fintech trading platform: deep navy and charcoal background, vivid orange-red accent highlights, clean sharp UI elements, professional dark-mode dashboard aesthetic, high contrast, no clutter";
+  }
+});
+
+// server/services/copy-trade-execution.ts
+var copy_trade_execution_exports = {};
+__export(copy_trade_execution_exports, {
+  executeCopyTradeClose: () => executeCopyTradeClose,
+  executeCopyTradeOpen: () => executeCopyTradeOpen
+});
+import { eq as eq12 } from "drizzle-orm";
+async function checkRealModeSafety(rel, mirrorLot) {
+  if (!rel.copier_connection_id) {
+    return { ok: false, reason: "No TradeLocker account selected for real-mode copying" };
+  }
+  const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
+  if (!conn || conn.userId !== rel.copier_id || !conn.isActive) {
+    return { ok: false, reason: "Selected TradeLocker connection is missing or inactive" };
+  }
+  const tlCache = global.tlAccountData?.[rel.copier_id]?.[conn.accountId];
+  if (!tlCache || !tlCache.lastUpdated) {
+    return { ok: false, reason: "No live account data available yet for this connection" };
+  }
+  const ageMs = Date.now() - new Date(tlCache.lastUpdated).getTime();
+  if (ageMs > STALE_CACHE_MS || tlCache.error) {
+    return { ok: false, reason: `Account data stale or errored (${tlCache.error || "no fresh data"})` };
+  }
+  if (!(tlCache.balance > 0)) {
+    return { ok: false, reason: "Copier account has no balance" };
+  }
+  if (tlCache.freeMargin !== void 0 && tlCache.freeMargin <= 0) {
+    return { ok: false, reason: "No free margin available on copier account" };
+  }
+  if (tlCache.margin > 0) {
+    const marginLevel = tlCache.equity / tlCache.margin * 100;
+    if (marginLevel < MARGIN_LEVEL_FLOOR_PCT) {
+      return { ok: false, reason: `Margin level ${marginLevel.toFixed(0)}% below ${MARGIN_LEVEL_FLOOR_PCT}% safety floor` };
+    }
+  }
+  const cappedLot = Math.min(mirrorLot, parseFloat(String(rel.max_lot_size)) || 0.01);
+  if (cappedLot <= 0) {
+    return { ok: false, reason: "Resolved lot size is zero" };
+  }
+  const today = /* @__PURE__ */ new Date();
+  today.setHours(0, 0, 0, 0);
+  const todaysLogs = await db.select().from(copyTradeLogs).where(eq12(copyTradeLogs.relationshipId, rel.id));
+  const realizedToday = todaysLogs.filter((l) => l.status === "closed" && l.closedAt && l.closedAt >= today).reduce((sum, l) => sum + (l.pnl || 0), 0);
+  const lossPct = realizedToday / tlCache.balance * 100;
+  if (lossPct <= -DAILY_LOSS_BACKSTOP_PCT) {
+    return { ok: false, reason: `Daily loss backstop hit (${lossPct.toFixed(1)}% \u2264 -${DAILY_LOSS_BACKSTOP_PCT}%) \u2014 real-mode copying paused for today` };
+  }
+  return { ok: true };
+}
+async function executeCopyTradeOpen(rel, source, copyLogId) {
+  const mirrorLot = Math.min(parseFloat(String(rel.max_lot_size)) || 0.01, source.lotSize || 0.01);
+  if (rel.account_type === "real") {
+    const safety = await checkRealModeSafety(rel, mirrorLot);
+    if (!safety.ok) {
+      await db.update(copyTradeLogs).set({
+        status: "closed",
+        executionStatus: "skipped",
+        executionError: safety.reason,
+        closedAt: /* @__PURE__ */ new Date()
+      }).where(eq12(copyTradeLogs.id, copyLogId));
+      return;
+    }
+    try {
+      const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
+      const result = await executeMT5SignalOnTradeLocker(conn, {
+        action: "OPEN",
+        symbol: source.pair,
+        direction: source.direction,
+        volume: mirrorLot,
+        stopLoss: source.stopLoss,
+        takeProfit: source.takeProfit,
+        orderType: "market"
+      });
+      await db.update(copyTradeLogs).set({
+        executionStatus: result.success ? "placed" : "failed",
+        brokerOrderId: result.orderId,
+        executionError: result.error
+      }).where(eq12(copyTradeLogs.id, copyLogId));
+    } catch (e) {
+      await db.update(copyTradeLogs).set({
+        executionStatus: "failed",
+        executionError: e.message
+      }).where(eq12(copyTradeLogs.id, copyLogId));
+    }
+    return;
+  }
+  try {
+    const { sql: sql12 } = await import("drizzle-orm");
+    const acctRows = await db.execute(sql12`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
+    const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
+    if (!acct) {
+      await db.execute(sql12`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
+    }
+    const tradeRows = await db.execute(sql12`
+      INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, source, status, opened_at)
+      VALUES (${rel.copier_id}, ${source.pair}, ${source.direction}, ${source.entryPrice}, ${source.stopLoss}, ${source.takeProfit}, ${mirrorLot}, 'copy_trade', 'open', now())
+      RETURNING id
+    `);
+    const copierFxTradeId = tradeRows[0]?.[0]?.id ?? tradeRows.rows?.[0]?.id;
+    await db.update(copyTradeLogs).set({
+      copierFxTradeId,
+      executionStatus: "placed"
+    }).where(eq12(copyTradeLogs.id, copyLogId));
+  } catch (e) {
+    await db.update(copyTradeLogs).set({
+      executionStatus: "failed",
+      executionError: e.message
+    }).where(eq12(copyTradeLogs.id, copyLogId));
+  }
+}
+async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sourceLotSize) {
+  const lotRatio = sourceLotSize > 0 ? log2.lotSize / sourceLotSize : 1;
+  const copierPnl = sourcePnl * lotRatio;
+  if (rel.account_type === "real") {
+    if (log2.brokerOrderId && rel.copier_connection_id) {
+      try {
+        const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
+        await executeMT5SignalOnTradeLocker(conn, {
+          action: "CLOSE",
+          symbol: "",
+          direction: "",
+          volume: 0,
+          positionId: log2.brokerOrderId
+        });
+      } catch (e) {
+        console.error(`[copy-trade-execution] Real-mode close failed for copy log ${log2.id} (non-fatal, position may need manual close):`, e.message);
+      }
+    }
+    return copierPnl;
+  }
+  if (log2.copierFxTradeId) {
+    try {
+      const { sql: sql12 } = await import("drizzle-orm");
+      await db.execute(sql12`
+        UPDATE fx_paper_trades SET status='closed', exit_price=${sourceExitPrice}, pnl=${copierPnl}, closed_at=now()
+        WHERE id=${log2.copierFxTradeId}
+      `);
+      await db.execute(sql12`
+        UPDATE fx_paper_accounts SET balance=balance+${copierPnl}, updated_at=now() WHERE user_id=${rel.copier_id}
+      `);
+    } catch (e) {
+      console.error(`[copy-trade-execution] Paper-mode close failed for copy log ${log2.id} (non-fatal):`, e.message);
+    }
+  }
+  return copierPnl;
+}
+var DAILY_LOSS_BACKSTOP_PCT, MARGIN_LEVEL_FLOOR_PCT, STALE_CACHE_MS;
+var init_copy_trade_execution = __esm({
+  "server/services/copy-trade-execution.ts"() {
+    "use strict";
+    init_db();
+    init_storage();
+    init_schema();
+    init_tradelocker();
+    DAILY_LOSS_BACKSTOP_PCT = 10;
+    MARGIN_LEVEL_FLOOR_PCT = 200;
+    STALE_CACHE_MS = 2 * 60 * 1e3;
+  }
+});
+
 // server/services/brain-marketplace.ts
 var brain_marketplace_exports = {};
 __export(brain_marketplace_exports, {
@@ -35727,14 +36403,14 @@ __export(lead_hunter_exports, {
   runLeadHunter: () => runLeadHunter,
   startLeadHunterScheduler: () => startLeadHunterScheduler
 });
-import OpenAI5 from "openai";
-import { sql as sql7 } from "drizzle-orm";
+import OpenAI6 from "openai";
+import { sql as sql8 } from "drizzle-orm";
 import sgMail2 from "@sendgrid/mail";
 function getAI() {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
-  if (groq) return new OpenAI5({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" });
-  if (oai) return new OpenAI5({ apiKey: oai });
+  if (groq) return new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" });
+  if (oai) return new OpenAI6({ apiKey: oai });
   return null;
 }
 async function aiChat(messages) {
@@ -36049,7 +36725,7 @@ function isBotOrSpam(lead) {
 async function getExistingKeys() {
   try {
     const rows = await db.execute(
-      sql7`SELECT DISTINCT (platform || '|' || lower(username)) as dedup_key FROM leads WHERE date >= CURRENT_DATE - INTERVAL '30 days'`
+      sql8`SELECT DISTINCT (platform || '|' || lower(username)) as dedup_key FROM leads WHERE date >= CURRENT_DATE - INTERVAL '30 days'`
     );
     const set = /* @__PURE__ */ new Set();
     for (const row of rows.rows || rows) {
@@ -36358,7 +37034,7 @@ async function runLeadHunter() {
       platformBreakdown: JSON.stringify(platformBreakdown),
       errorLog: errors.length > 0 ? errors.join("\n") : null,
       completedAt: /* @__PURE__ */ new Date()
-    }).where(sql7`id = ${runId}`);
+    }).where(sql8`id = ${runId}`);
   } catch {
   }
   await sendDigest(
@@ -36473,8 +37149,8 @@ __export(ambassador_prime_exports, {
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
 import crypto12 from "crypto";
-import { eq as eq11, sql as drizzleSql } from "drizzle-orm";
-import { OpenAI as OpenAI6 } from "openai";
+import { eq as eq13, sql as drizzleSql } from "drizzle-orm";
+import { OpenAI as OpenAI7 } from "openai";
 async function logStep(runDate, stepName, status, error) {
   try {
     await db.insert(ambassadorRunStepLog).values({ runDate, stepName, status, errorMessage: error ?? null });
@@ -36565,29 +37241,6 @@ async function postLinkedIn(text2) {
     return null;
   }
 }
-async function generateDalleImage(prompt) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const openai2 = new OpenAI6({ apiKey, maxRetries: 2, timeout: 6e4 });
-    const res = await openai2.images.generate({
-      model: "dall-e-3",
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard"
-    });
-    return res.data[0]?.url ?? null;
-  } catch (e) {
-    const status = e?.status ?? e?.statusCode;
-    if (status === 429 || /quota|insufficient_quota/i.test(e?.message || "")) {
-      console.error("[ambassador-prime] DALL-E quota exceeded \u2014 check OpenAI billing/plan:", e.message);
-    } else {
-      console.error("[ambassador-prime] DALL-E error:", e.message);
-    }
-    return null;
-  }
-}
 async function scrapeRedditInsights(theme) {
   const subreddits = ["Forex", "Daytrading", "algotrading", "Trading", "stocks"];
   const posts = [];
@@ -36658,7 +37311,7 @@ async function callAI(systemPrompt, userPrompt) {
     { role: "user", content: userPrompt }
   ];
   try {
-    const client2 = new OpenAI6({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
+    const client2 = new OpenAI7({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
     const res = await client2.chat.completions.create({
       model: "gpt-4o",
       messages,
@@ -36674,7 +37327,7 @@ async function callAI(systemPrompt, userPrompt) {
       throw e;
     }
     console.warn("[ambassador-prime] OpenAI failed (quota/rate-limit) \u2014 failing over to OpenRouter/Claude:", e.message);
-    const orClient = new OpenAI6({
+    const orClient = new OpenAI7({
       apiKey: orKey,
       baseURL: "https://openrouter.ai/api/v1",
       maxRetries: 2,
@@ -36803,7 +37456,7 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
   }
 }
 async function aggregateWeeklyPairs() {
-  const activePlans = await db.select().from(weeklyStrategies).where(eq11(weeklyStrategies.isActive, true));
+  const activePlans = await db.select().from(weeklyStrategies).where(eq13(weeklyStrategies.isActive, true));
   const tally = {};
   for (const row of activePlans) {
     const weeklyPlan = row.plan?.weeklyPlan;
@@ -36866,13 +37519,13 @@ confidenceBoost is an integer 0-5: how much extra conviction this week's researc
   }
 }
 async function getOrCreateTodayDevotional(today) {
-  const [existing] = await db.select().from(devotionals).where(eq11(devotionals.date, today)).limit(1);
+  const [existing] = await db.select().from(devotionals).where(eq13(devotionals.date, today)).limit(1);
   if (existing) return existing;
   try {
     const { generateDailyDevotional: generateDailyDevotional2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const generated = await generateDailyDevotional2(today);
     await db.insert(devotionals).values({ date: today, ...generated }).onConflictDoNothing();
-    const [inserted] = await db.select().from(devotionals).where(eq11(devotionals.date, today)).limit(1);
+    const [inserted] = await db.select().from(devotionals).where(eq13(devotionals.date, today)).limit(1);
     return inserted ?? null;
   } catch (e) {
     console.error("[ambassador-prime] Devotional generation failed:", e.message);
@@ -37081,25 +37734,26 @@ ${REFERRAL_LINK}`;
     await logStep(runDate, "Devotional/Knowledge/Results/Update Posts", "failed", e.message);
   }
   if (!batch1) {
-    skippedSteps.push("DALL-E Image Generation");
-    await logStep(runDate, "DALL-E Image Generation", "skipped", "skipped: upstream failure (Batch 1 AI Generation failed \u2014 no image prompt available)");
+    skippedSteps.push("Image Generation");
+    await logStep(runDate, "Image Generation", "skipped", "skipped: upstream failure (Batch 1 AI Generation failed \u2014 no image prompt available)");
   } else {
     try {
-      imageUrl = await generateDalleImage(batch1.imagePrompt);
-      if (imageUrl) {
+      const generated = await generateContentImage(batch1.imagePrompt);
+      imageUrl = generated?.url ?? null;
+      if (generated) {
         imageGenerated = true;
-        completedSteps.push("DALL-E Image Generation");
-        await logStep(runDate, "DALL-E Image Generation", "completed");
+        completedSteps.push("Image Generation");
+        await logStep(runDate, "Image Generation", "completed", `provider: ${generated.provider}`);
       } else {
-        const skipReason = !process.env.OPENAI_API_KEY ? "OPENAI_API_KEY not set in server environment \u2014 DALL-E image generation requires it" : "DALL-E returned no image URL (check server logs for the API error)";
+        const skipReason = !process.env.OPENAI_API_KEY && !process.env.REPLICATE_API_TOKEN ? "Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN set \u2014 image generation requires at least one" : "Both DALL-E and Replicate FLUX failed to return an image URL (check server logs for the API error)";
         errors.push(`Image: ${skipReason}`);
-        skippedSteps.push("DALL-E Image Generation");
-        await logStep(runDate, "DALL-E Image Generation", "skipped", skipReason);
+        skippedSteps.push("Image Generation");
+        await logStep(runDate, "Image Generation", "skipped", skipReason);
       }
     } catch (e) {
-      errors.push(`DALL-E: ${e.message}`);
-      skippedSteps.push("DALL-E Image Generation");
-      await logStep(runDate, "DALL-E Image Generation", "failed", e.message);
+      errors.push(`Image: ${e.message}`);
+      skippedSteps.push("Image Generation");
+      await logStep(runDate, "Image Generation", "failed", e.message);
     }
   }
   if (batch1?.tweets.length) {
@@ -37249,6 +37903,15 @@ ${REFERRAL_LINK}`;
       errors.push(`Community content: ${e.message}`);
     }
   }
+  if (imageUrl) {
+    try {
+      await db.update(ambassadorDailyContent).set({ imageUrl }).where(eq13(ambassadorDailyContent.runDate, runDate));
+      await db.update(ambassadorBonusContent).set({ imageUrl }).where(eq13(ambassadorBonusContent.runDate, runDate));
+      await db.update(ambassadorCommunityContent).set({ imageUrl }).where(eq13(ambassadorCommunityContent.runDate, runDate));
+    } catch (e) {
+      console.error("[ambassador-prime] Backfilling imageUrl onto content rows failed (non-fatal):", e.message);
+    }
+  }
   try {
     await db.insert(ambassadorRunSummary).values({
       runDate,
@@ -37322,7 +37985,7 @@ ${REFERRAL_LINK}`;
     errors
   });
   if (emailResult.success) {
-    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq11(ambassadorRunSummary.runDate, runDate));
+    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq13(ambassadorRunSummary.runDate, runDate));
     completedSteps.push("Email Report");
     await logStep(runDate, "Email Report", "completed");
   } else {
@@ -37529,6 +38192,7 @@ var init_ambassador_prime = __esm({
     init_db();
     init_schema();
     init_ambassador_market_briefing();
+    init_image_generation();
     REFERRAL_LINK = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
     REPORT_EMAIL = "donchismkos@gmail.com";
     LINKEDIN_AUTHOR_URN = "urn:li:person:tmH3fnyYMl";
@@ -37931,6 +38595,149 @@ CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
   UNIQUE("listing_id", "buyer_id")
 );
 `;
+  }
+});
+
+// server/services/ensure-content-image-columns.ts
+var ensure_content_image_columns_exports = {};
+__export(ensure_content_image_columns_exports, {
+  ensureContentImageColumns: () => ensureContentImageColumns
+});
+async function ensureContentImageColumns() {
+  try {
+    await pool.query(DDL5);
+    console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
+  } catch (err) {
+    console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL5;
+var init_ensure_content_image_columns = __esm({
+  "server/services/ensure-content-image-columns.ts"() {
+    "use strict";
+    init_db();
+    DDL5 = `
+ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
+ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
+ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
+ALTER TABLE "ambassador_community_content" ADD COLUMN IF NOT EXISTS "image_url" text;
+`;
+  }
+});
+
+// server/services/ensure-copy-trading-execution-columns.ts
+var ensure_copy_trading_execution_columns_exports = {};
+__export(ensure_copy_trading_execution_columns_exports, {
+  ensureCopyTradingExecutionColumns: () => ensureCopyTradingExecutionColumns
+});
+async function ensureCopyTradingExecutionColumns() {
+  try {
+    await pool.query(DDL6);
+    console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
+  } catch (err) {
+    console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL6;
+var init_ensure_copy_trading_execution_columns = __esm({
+  "server/services/ensure-copy-trading-execution-columns.ts"() {
+    "use strict";
+    init_db();
+    DDL6 = `
+ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
+ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
+ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
+ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "execution_status" text DEFAULT 'pending';
+ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "execution_error" text;
+`;
+  }
+});
+
+// server/services/ensure-reasoning-propfirm-tables.ts
+var ensure_reasoning_propfirm_tables_exports = {};
+__export(ensure_reasoning_propfirm_tables_exports, {
+  ensureReasoningPropFirmTables: () => ensureReasoningPropFirmTables
+});
+async function ensureReasoningPropFirmTables() {
+  try {
+    await pool.query(DDL7);
+    console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
+  } catch (err) {
+    console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL7;
+var init_ensure_reasoning_propfirm_tables = __esm({
+  "server/services/ensure-reasoning-propfirm-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL7 = `
+ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
+ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
+ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
+ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "deep_reasoning_used" boolean DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "connection_type" text NOT NULL DEFAULT 'tradelocker',
+  "phase" text NOT NULL DEFAULT 'phase1',
+  "phase_start_balance" real NOT NULL,
+  "profit_target" real,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("connection_id", "connection_type")
+);
+`;
+  }
+});
+
+// server/services/paper-trade-resolver-loop.ts
+var paper_trade_resolver_loop_exports = {};
+__export(paper_trade_resolver_loop_exports, {
+  startPaperTradeResolverLoop: () => startPaperTradeResolverLoop
+});
+import { eq as eq16 } from "drizzle-orm";
+async function pollOnce() {
+  const pending = await db.select().from(paperTrades).where(eq16(paperTrades.outcome, "pending"));
+  if (pending.length === 0) return;
+  const uniqueSymbols = Array.from(new Set(pending.map((t) => t.symbol)));
+  const priceBySymbol = /* @__PURE__ */ new Map();
+  for (const symbol of uniqueSymbols) {
+    try {
+      const assetType = marketDataService.detectAssetType(symbol);
+      const result = await marketDataService.fetchMarketData({ symbol, assetType, timeframe: "5m", limit: 2 });
+      const lastBar = result.bars?.[result.bars.length - 1];
+      if (lastBar) priceBySymbol.set(symbol, lastBar.close);
+    } catch (e) {
+      console.error(`[paper-trade-resolver] Price fetch failed for ${symbol} (non-fatal):`, e.message);
+    }
+  }
+  for (const trade of pending) {
+    const price = priceBySymbol.get(trade.symbol);
+    if (price === void 0) continue;
+    await resolvePaperTrade(trade.id, price);
+  }
+}
+function startPaperTradeResolverLoop() {
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS / 6e4}min interval).`);
+  setInterval(() => {
+    pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
+  }, POLL_INTERVAL_MS);
+  setTimeout(() => {
+    pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
+  }, 3e4);
+}
+var POLL_INTERVAL_MS;
+var init_paper_trade_resolver_loop = __esm({
+  "server/services/paper-trade-resolver-loop.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_service();
+    init_paper_trade_tracker();
+    POLL_INTERVAL_MS = 10 * 60 * 1e3;
   }
 });
 
@@ -38533,7 +39340,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq12, and as and6, sql as sql8 } from "drizzle-orm";
+import { eq as eq14, and as and7, sql as sql9 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -41900,8 +42707,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   let _usingGroq = false;
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
-      const OpenAI7 = (await import("openai")).default;
-      const groq = new OpenAI7({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      const OpenAI8 = (await import("openai")).default;
+      const groq = new OpenAI8({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
       groq.defaultModel = "openai/gpt-oss-120b";
       openai2 = groq;
       _usingGroq = true;
@@ -46191,11 +46998,11 @@ Respond ONLY in valid JSON format with these exact keys:
               subscriptionPlanId: planId,
               subscriptionStatus: "active",
               stripeSubscriptionId: session3.subscription
-            }).where(eq12(users.id, userId));
+            }).where(eq14(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
             try {
-              const [updatedUser] = await db.select().from(users).where(eq12(users.id, userId));
-              const [plan] = await db.select().from(subscriptionPlans).where(eq12(subscriptionPlans.id, planId));
+              const [updatedUser] = await db.select().from(users).where(eq14(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq14(subscriptionPlans.id, planId));
               if (updatedUser?.email && plan?.name) {
                 sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
                 });
@@ -46216,7 +47023,7 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: sub.id,
               subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
               ...planId ? { subscriptionPlanId: planId } : {}
-            }).where(eq12(users.id, userId));
+            }).where(eq14(users.id, userId));
             console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
           }
           break;
@@ -46225,7 +47032,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const sub = event.data.object;
           const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
           if (userId) {
-            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq12(users.id, userId));
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq14(users.id, userId));
             console.log(`[Stripe] Subscription canceled for user ${userId}`);
           }
           break;
@@ -46233,7 +47040,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_succeeded": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "active" }).where(eq12(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq14(users.stripeSubscriptionId, invoice.subscription));
             console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
           }
           break;
@@ -46241,7 +47048,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_failed": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq12(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq14(users.stripeSubscriptionId, invoice.subscription));
             console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
           }
           break;
@@ -47418,7 +48225,7 @@ For summary, write a 1-sentence human-readable description of the plan.`;
       sessions,
       direction,
       strategyType,
-      lotSize: lotSize2,
+      lotSize,
       riskLevel,
       tradingDays,
       maxTradesPerDay
@@ -47459,7 +48266,7 @@ USER SPECIFICATIONS (follow these EXACTLY):
 - Account balance: $${accountBalance}
 - Daily target: $${dailyTarget}
 - Trading days: ${planDays.join(", ")}
-- Lot size: ${lotSize2 || "AI-calculated based on risk"}
+- Lot size: ${lotSize || "AI-calculated based on risk"}
 - Risk level: ${riskLevel || "moderate"}
 ${maxTradesPerDay ? `- Max trades per day: ${maxTradesPerDay}` : ""}
 
@@ -47485,7 +48292,7 @@ IMPORTANT:
 - Set skip:true for days NOT in the trading days list
 - Direction should match user's preference (${direction || "BOTH"})
 - entryCondition must describe a ${strategyType || "breakout"} setup specifically
-- Keep lotSize at ${lotSize2 || "calculate: risk 1-2% of $" + accountBalance} per trade`;
+- Keep lotSize at ${lotSize || "calculate: risk 1-2% of $" + accountBalance} per trade`;
       const planCompletion = await aiClient.chat.completions.create({
         model: aiClient.defaultModel || "gpt-4o",
         messages: [
@@ -47531,7 +48338,7 @@ IMPORTANT:
           accountBalance: parseFloat(accountBalance),
           pairs: mergedPairs,
           riskLevel: riskLevel || existingStrategy.riskLevel || "moderate",
-          lotSize: lotSize2 ? parseFloat(lotSize2) : existingStrategy.lotSize ?? null,
+          lotSize: lotSize ? parseFloat(lotSize) : existingStrategy.lotSize ?? null,
           plan: mergedPlan,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
@@ -47551,7 +48358,7 @@ IMPORTANT:
           accountBalance: parseFloat(accountBalance),
           pairs: cleanPairs,
           riskLevel: riskLevel || "moderate",
-          lotSize: lotSize2 ? parseFloat(lotSize2) : null,
+          lotSize: lotSize ? parseFloat(lotSize) : null,
           plan: planData,
           pairStats,
           generatedAt: /* @__PURE__ */ new Date(),
@@ -47572,7 +48379,7 @@ IMPORTANT:
         accountBalance: savedStrategy?.accountBalance ?? parseFloat(accountBalance),
         pairs: savedStrategy?.pairs || cleanPairs,
         riskLevel: savedStrategy?.riskLevel || riskLevel || "moderate",
-        lotSize: savedStrategy?.lotSize ?? (lotSize2 ? parseFloat(lotSize2) : null),
+        lotSize: savedStrategy?.lotSize ?? (lotSize ? parseFloat(lotSize) : null),
         plan: savedStrategy?.plan || planData,
         strategyMode: hftMode || savedStrategy?.strategyType || "aggressive",
         pairStats,
@@ -52081,7 +52888,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 propFirmCtx,
                 symbolPerfStats,
                 learnedInsights,
-                resolvedStrategyMode
+                resolvedStrategyMode,
+                !!_stratEngineState?.config?.deepReasoningMode
               );
             }
             {
@@ -52332,9 +53140,42 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   newsConflict: logExtraContext?.newsConflict ?? null,
                   tradeOutcome: "PENDING",
                   modelUsed: aiConfirmation.modelUsed || modelInfo?.name || void 0,
-                  providerUsed: aiConfirmation.providerUsed || void 0
+                  providerUsed: aiConfirmation.providerUsed || void 0,
+                  reasoningText: aiConfirmation.thinkingTrace || aiConfirmation.reasoning || void 0,
+                  bullCase: aiConfirmation.bullCase || void 0,
+                  bearCase: aiConfirmation.bearCase || void 0,
+                  deepReasoningUsed: !!aiConfirmation.deepReasoningUsed
                 });
               } catch (_dbErr) {
+              }
+              if (aiConfirmation.confirmed && analysis.tradePlan) {
+                try {
+                  const { createPaperTrade: createPaperTrade2 } = await Promise.resolve().then(() => (init_paper_trade_tracker(), paper_trade_tracker_exports));
+                  const _bullCase = aiConfirmation.bullCase;
+                  const _bearCase = aiConfirmation.bearCase;
+                  const _fullReasoning = aiConfirmation.deepReasoningUsed ? `[Deep Reasoning Mode \u2014 Veteran Judge]
+${aiConfirmation.reasoning}
+
+BULL CASE: ${_bullCase || "n/a"}
+
+BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
+                  await createPaperTrade2({
+                    userId: token.userId,
+                    symbol: sanitizedSymbol,
+                    timeframe: sanitizedTimeframe,
+                    direction: analysis.signal,
+                    entryPrice: analysis.tradePlan.entry,
+                    stopLoss: analysis.tradePlan.stopLoss,
+                    takeProfit: analysis.tradePlan.takeProfit,
+                    aiConfidence: aiConfirmation.aiConfidence,
+                    aiModel: aiConfirmation.modelUsed || modelInfo?.name || void 0,
+                    aiProvider: aiConfirmation.providerUsed || void 0,
+                    aiReasoning: _fullReasoning,
+                    confluenceScore: aiConfirmation.confluenceScore ?? void 0,
+                    confluenceGrade: aiConfirmation.confluenceGrade ?? void 0
+                  });
+                } catch (_ptErr) {
+                }
               }
               try {
                 const recentPending = await storage.getAiTradeResults(token.userId, 10);
@@ -54163,7 +55004,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   app2.post("/api/weekly-strategy/generate", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { profitTarget, pairs, accountBalance, riskLevel, lotSize: lotSize2, strategyMode, tradingDays, pairDayAssignments, smartEscalation, highConfidenceOverride } = req.body;
+    const { profitTarget, pairs, accountBalance, riskLevel, lotSize, strategyMode, tradingDays, pairDayAssignments, smartEscalation, highConfidenceOverride } = req.body;
     if (!profitTarget || !pairs || !Array.isArray(pairs) || pairs.length === 0 || !accountBalance) {
       return res.status(400).json({ error: "profitTarget, pairs (array), and accountBalance are required" });
     }
@@ -54266,7 +55107,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let selectedRisk = riskLevel && riskInstructions[riskLevel] ? riskLevel : "";
       if (!selectedRisk) {
         try {
-          const [_gpRow] = await db.execute(sql8`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+          const [_gpRow] = await db.execute(sql9`SELECT risk_profile, current_phase, current_balance FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
           if (_gpRow && _gpRow.risk_profile) {
             const _gpProfile = _gpRow.risk_profile.toLowerCase();
             if (riskInstructions[_gpProfile]) {
@@ -54294,7 +55135,7 @@ ACCOUNT GROWTH CHALLENGE:
 - Starting Balance: $${accountBalance}
 - Weekly Profit Target: $${profitTarget}
 - Goal Balance: $${(parseFloat(accountBalance) + parseFloat(profitTarget)).toFixed(2)} (${growthMultiplier}x growth)
-- Preferred Lot Size: ${lotSize2 || "AI decides optimal sizing based on risk level above"}
+- Preferred Lot Size: ${lotSize || "AI decides optimal sizing based on risk level above"}
 - Selected Pairs: ${pairs.join(", ")}
 - ACTIVE TRADING DAYS: ${activeTradingDays.join(", ")} \u2014 DO NOT generate trades for any other days${pinnedInstructions ? `
 - PAIR DAY CONSTRAINTS:
@@ -54459,7 +55300,7 @@ Respond with ONLY valid JSON:
         riskLevel: selectedRisk,
         tradingDays: activeTradingDays,
         pairDayAssignments: pinnedPairs,
-        lotSize: lotSize2 || "auto",
+        lotSize: lotSize || "auto",
         strategyMode: hftMode,
         plan,
         pairStats,
@@ -54715,7 +55556,7 @@ Respond with ONLY valid JSON:
   app2.post("/api/goal-pacing/set-ai-path", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { pathType, pairs, lotSize: lotSize2, enabled } = req.body;
+    const { pathType, pairs, lotSize, enabled } = req.body;
     global.veddAiPathControl = global.veddAiPathControl || {};
     if (!enabled) {
       global.veddAiPathControl[userId] = { enabled: false };
@@ -54723,7 +55564,7 @@ Respond with ONLY valid JSON:
     }
     let resolvedPathType = pathType || "AUTO";
     let resolvedPairs = pairs || [];
-    let resolvedLotMult = lotSize2 || 1;
+    let resolvedLotMult = lotSize || 1;
     if (resolvedPathType === "AUTO") {
       const gi = global.veddGoalIntelligence?.[userId];
       const paceRatio = gi?.paceRatio ?? 1;
@@ -59696,7 +60537,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const recordType = req.query.type || "best_daily_pnl";
     try {
       const rows = await db.execute(
-        sql8`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+        sql9`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
       const row = rows[0]?.[0] ?? rows.rows?.[0];
       if (!row) return res.json({ value: null, achievedAt: null });
@@ -59712,12 +60553,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
     try {
       const rows = await db.execute(
-        sql8`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
+        sql9`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
       const existing = rows[0]?.[0] ?? rows.rows?.[0];
       const currentVal = existing ? parseFloat(existing.value) : null;
       if (currentVal === null || value > currentVal) {
-        await db.execute(sql8`
+        await db.execute(sql9`
           INSERT INTO all_time_records (user_id, record_type, value, achieved_at, updated_at)
           VALUES (${userId}, ${recordType}, ${value}, now(), now())
           ON CONFLICT (user_id, record_type)
@@ -59753,11 +60594,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const cached2 = global.mt5AccountData?.[userId];
       const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
       const bal = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
-      const eq14 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
+      const eq17 = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? bal;
       const mt5Results = _allClosed.filter((t) => !_tlSources.has(t.source || "manual"));
       const dailyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-      mt5 = { balance: bal, equity: eq14, dailyPnl, weeklyPnl, isOnline };
+      mt5 = { balance: bal, equity: eq17, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
     }
@@ -60440,8 +61281,8 @@ Format your response as JSON with exactly these keys:
         if (!lesson) {
           return res.status(404).json({ error: "Lesson not found" });
         }
-        const OpenAI7 = (await import("openai")).default;
-        const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
+        const OpenAI8 = (await import("openai")).default;
+        const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
         const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
         for (const platform of platforms) {
           const completion = await openai2.chat.completions.create({
@@ -60550,8 +61391,8 @@ Generate a JSON object with these fields:
       });
     }
     if (weekChallenges.length === 0) {
-      const OpenAI7 = (await import("openai")).default;
-      const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI8 = (await import("openai")).default;
+      const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
       const challengeTypes = [
         { type: "content", title: "Content Creator Challenge" },
         { type: "engagement", title: "Community Engagement Challenge" },
@@ -60814,8 +61655,8 @@ Generate a JSON object with:
       });
     }
     if (weekEvents.length === 0) {
-      const OpenAI7 = (await import("openai")).default;
-      const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI8 = (await import("openai")).default;
+      const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
       const eventTypes = [
         { type: "live_session", title: "Weekly Live Trading Session" },
         { type: "ama", title: "Ask Me Anything Session" },
@@ -61394,8 +62235,8 @@ Generate a JSON object with:
           const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
           const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
           if (lesson) {
-            const OpenAI7 = (await import("openai")).default;
-            const openai2 = new OpenAI7({ apiKey: process.env.OPENAI_API_KEY });
+            const OpenAI8 = (await import("openai")).default;
+            const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
             const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
             for (const platform of platforms) {
               try {
@@ -63129,7 +63970,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(userApiKeys.userId, req.user.id), eq14(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -63194,7 +64035,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and7(eq14(userApiKeys.userId, req.user.id), eq14(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -63206,7 +64047,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and6(eq12(userApiKeys.userId, req.user.id), eq12(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and7(eq14(userApiKeys.userId, req.user.id), eq14(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -63489,6 +64330,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       consistencyEnforcementEnabled: cfg.consistencyEnforcementEnabled,
       consistencyMinProfitableDays: cfg.consistencyMinProfitableDays || 10,
       consistencyPeriodDays: cfg.consistencyPeriodDays || 15,
+      maxDailyProfitPctOfTotal: cfg.maxDailyProfitPctOfTotal || 0,
+      deepReasoningMode: cfg.deepReasoningMode || false,
       profitableDays,
       totalTradingDays,
       daysRemaining,
@@ -63512,7 +64355,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       consistencyMinProfitableDays,
       consistencyPeriodDays,
       dailyProfitTarget,
-      propFirmDailyDrawdownLimit
+      propFirmDailyDrawdownLimit,
+      maxDailyProfitPctOfTotal,
+      deepReasoningMode
     } = req.body;
     const updates = {};
     if (typeof challengeSessionFilterEnabled === "boolean") updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
@@ -63521,6 +64366,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (typeof consistencyPeriodDays === "number") updates.consistencyPeriodDays = consistencyPeriodDays;
     if (typeof dailyProfitTarget === "number") updates.dailyProfitTarget = dailyProfitTarget;
     if (typeof propFirmDailyDrawdownLimit === "number") updates.propFirmDailyDrawdownLimit = propFirmDailyDrawdownLimit;
+    if (typeof maxDailyProfitPctOfTotal === "number") updates.maxDailyProfitPctOfTotal = maxDailyProfitPctOfTotal;
+    if (typeof deepReasoningMode === "boolean") updates.deepReasoningMode = deepReasoningMode;
     updateLiveEngineConfig3(userId, updates);
     res.json({ success: true, updates });
   });
@@ -63750,7 +64597,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq14, and: and7, sql: drizzleSql2 } = await import("drizzle-orm");
+    const { eq: eq17, and: and8, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -63763,7 +64610,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and7(eq14(wearToEarnClaims2.userId, userId), eq14(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and8(eq17(wearToEarnClaims2.userId, userId), eq17(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -63790,7 +64637,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq14(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql2`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq17(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql2`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -63799,7 +64646,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq14(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq17(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -63808,7 +64655,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql2, eq: eq14, and: and7, desc: desc8 } = await import("drizzle-orm");
+    const { sql: drizzleSql2, eq: eq17, and: and8, desc: desc9 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -63902,7 +64749,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq14, and: and7, sql: drizzleSql2 } = await import("drizzle-orm");
+    const { eq: eq17, and: and8, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -63917,16 +64764,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
         ownedByMe: drizzleSql2`false`
-      }).from(nfcActivations2).where(eq14(nfcActivations2.chipUid, uid2)).limit(1);
+      }).from(nfcActivations2).where(eq17(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq14(nfcActivations2.userId, userId)).orderBy(drizzleSql2`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq17(nfcActivations2.userId, userId)).orderBy(drizzleSql2`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and7(eq14(nfcDailyTaps2.userId, userId), eq14(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and8(eq17(nfcDailyTaps2.userId, userId), eq17(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -63937,7 +64784,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq14(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq17(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -63970,13 +64817,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and7(eq14(nfcActivations2.chipUid, uid2), eq14(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and8(eq17(nfcActivations2.chipUid, uid2), eq17(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and7(
-        eq14(nfcDailyTaps2.userId, userId),
-        eq14(nfcDailyTaps2.chipUid, uid2),
-        eq14(nfcDailyTaps2.dayString, today)
+      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and8(
+        eq17(nfcDailyTaps2.userId, userId),
+        eq17(nfcDailyTaps2.chipUid, uid2),
+        eq17(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -64003,7 +64850,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq14(nfcActivations2.id, activation.id));
+      }).where(eq17(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -64052,7 +64899,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     try {
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT
           a.id, a.chip_uid AS "chipUid", a.garment_name AS "garmentName",
           a.activated_at AS "activatedAt", a.total_taps AS "totalTaps",
@@ -64083,7 +64930,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const garmentId = parseInt(req.params.id);
     const { icon, dropName, sizeInfo, garmentCode } = req.body;
     try {
-      await db.execute(sql8`
+      await db.execute(sql9`
         UPDATE nfc_activations SET
           icon = COALESCE(${icon ?? null}, icon),
           drop_name = COALESCE(${dropName ?? null}, drop_name),
@@ -64103,7 +64950,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (typeof lat !== "number" || typeof lon !== "number") return res.status(400).json({ error: "lat and lon required" });
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return res.status(400).json({ error: "Invalid coordinates" });
     try {
-      await db.execute(sql8`
+      await db.execute(sql9`
         UPDATE users SET home_lat = ${lat}, home_lon = ${lon}, home_set_at = NOW()
         WHERE id = ${userId}
       `);
@@ -64116,7 +64963,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
     const userId = req.user.id;
     try {
-      const [row] = await db.execute(sql8`
+      const [row] = await db.execute(sql9`
         SELECT home_lat AS lat, home_lon AS lon, home_set_at AS "setAt"
         FROM users WHERE id = ${userId} LIMIT 1
       `).then((r) => r.rows ?? r);
@@ -64139,14 +64986,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const tapLat = typeof req.body?.lat === "number" ? req.body.lat : null;
     const tapLon = typeof req.body?.lon === "number" ? req.body.lon : null;
     try {
-      const [activation] = await db.execute(sql8`
+      const [activation] = await db.execute(sql9`
         SELECT * FROM nfc_activations
         WHERE user_id = ${userId} AND (chip_uid = ${uid2} OR garment_code = ${uid2})
         LIMIT 1
       `).then((r) => r.rows ?? r);
       if (!activation) return res.status(403).json({ error: "Garment not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const [alreadyTapped] = await db.execute(sql8`
+      const [alreadyTapped] = await db.execute(sql9`
         SELECT id FROM nfc_daily_taps
         WHERE user_id = ${userId} AND chip_uid = ${activation.chip_uid} AND day_string = ${today}
         LIMIT 1
@@ -64154,7 +65001,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
       }
-      const [userRow] = await db.execute(sql8`
+      const [userRow] = await db.execute(sql9`
         SELECT home_lat, home_lon FROM users WHERE id = ${userId} LIMIT 1
       `).then((r) => r.rows ?? r);
       let distanceMiles = null;
@@ -64162,7 +65009,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
       }
       const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
-      await db.execute(sql8`
+      await db.execute(sql9`
         INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
         VALUES (${userId}, ${activation.chip_uid}, ${reward}, ${today})
       `);
@@ -64171,7 +65018,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const wasYesterday = activation.last_tap_at && new Date(activation.last_tap_at).toISOString().slice(0, 10) === yesterday.toISOString().slice(0, 10);
       const newStreak = wasYesterday ? activation.current_streak + 1 : 1;
       const newBest = Math.max(newStreak, activation.best_streak || 0);
-      await db.execute(sql8`
+      await db.execute(sql9`
         UPDATE nfc_activations SET
           total_taps = total_taps + 1,
           total_earned = total_earned + ${reward},
@@ -64181,7 +65028,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         WHERE id = ${activation.id}
       `);
       await storage.addToWalletBalance(userId, reward, false);
-      const [insertedEvent] = await db.execute(sql8`
+      const [insertedEvent] = await db.execute(sql9`
         INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
         VALUES (
           ${userId}, 'nfc_tap', ${reward},
@@ -64196,7 +65043,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         reverseGeocode(tapLat, tapLon).then(async (city) => {
           if (city) {
             try {
-              await db.execute(sql8`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
+              await db.execute(sql9`UPDATE vedd_earn_events SET location = ${city} WHERE id = ${eventId}`);
             } catch {
             }
           }
@@ -64223,7 +65070,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const since = /* @__PURE__ */ new Date();
       since.setDate(since.getDate() - days);
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT id, type, amount, label, location,
                distance_miles AS "distanceMiles",
                created_at AS "createdAt"
@@ -64241,7 +65088,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT sequence_index AS "sequenceIndex"
         FROM vedd_popup_sequence
         WHERE user_id = ${userId}
@@ -64257,7 +65104,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const idx = parseInt(req.body?.sequence_index ?? req.body?.sequenceIndex ?? -1);
     if (isNaN(idx) || idx < 0) return res.status(400).json({ error: "Invalid sequence_index" });
     try {
-      await db.execute(sql8`
+      await db.execute(sql9`
         INSERT INTO vedd_popup_sequence(user_id, sequence_index)
         VALUES (${userId}, ${idx})
         ON CONFLICT (user_id, sequence_index) DO NOTHING
@@ -64996,9 +65843,18 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { topic, save } = req.body;
       const userId = req.user.id;
       const generated = await generateVeddBlogPost(topic, userId);
+      let coverImage;
+      try {
+        const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+        const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+        coverImage = image?.url;
+      } catch (err) {
+        console.error("[blog/generate] cover image generation failed (non-fatal):", err.message);
+      }
       if (save) {
         const saved = await storage.createBlogPost({
           ...generated,
+          coverImage,
           isPublished: true,
           isFeatured: false,
           aiGenerated: true,
@@ -65007,7 +65863,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         });
         return res.json({ saved: true, post: saved });
       }
-      res.json({ saved: false, post: generated });
+      res.json({ saved: false, post: { ...generated, coverImage } });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -65021,6 +65877,30 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       const post = await storage.createBlogPost(data);
       res.status(201).json(post);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/generate-image", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { contentType, subject } = req.body;
+      if (!subject) return res.status(400).json({ error: "subject is required" });
+      const typePrompts = {
+        lesson: `An educational trading lesson graphic background about: ${subject}`,
+        signal: `A live trading signal chart background related to: ${subject}`,
+        scripture: `A calm, reflective devotional background evoking: ${subject}`,
+        update: `A bold company announcement/news background about: ${subject}`,
+        testimony: `A celebratory success/results background evoking: ${subject}`
+      };
+      const prompt = typePrompts[contentType || ""] ?? `A social media post background about: ${subject}`;
+      const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+      const image = await generateContentImage2(prompt);
+      if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
+      res.json(image);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -65135,17 +66015,17 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   async function insertDevotional(d) {
     const prayerJson = JSON.stringify(d.prayerPoints);
     const result = await db.execute(
-      sql8`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, minimum_minutes, ai_generated, is_published)
+      sql9`INSERT INTO devotionals (date, title, theme, scripture, scripture_text, reflection, prayer_points, affirmation, trading_tie_in, hero_image, minimum_minutes, ai_generated, is_published)
           VALUES (
             ${d.date}, ${d.title}, ${d.theme}, ${d.scripture}, ${d.scriptureText},
-            ${d.reflection}, ${sql8.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
-            ${d.affirmation}, ${d.tradingTieIn}, 5, true, true
+            ${d.reflection}, ${sql9.raw(`'${prayerJson.replace(/'/g, "''")}'::jsonb`)},
+            ${d.affirmation}, ${d.tradingTieIn}, ${d.heroImage ?? null}, 5, true, true
           )
           ON CONFLICT (date) DO UPDATE SET
             title = EXCLUDED.title, theme = EXCLUDED.theme, reflection = EXCLUDED.reflection,
             scripture = EXCLUDED.scripture, scripture_text = EXCLUDED.scripture_text,
             prayer_points = EXCLUDED.prayer_points, affirmation = EXCLUDED.affirmation,
-            trading_tie_in = EXCLUDED.trading_tie_in
+            trading_tie_in = EXCLUDED.trading_tie_in, hero_image = EXCLUDED.hero_image
           RETURNING *`
     );
     return Array.isArray(result) ? result : result.rows || [];
@@ -65154,14 +66034,22 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const existingRaw = await db.execute(
-        sql8`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
+        sql9`SELECT * FROM devotionals WHERE date = ${today} AND is_published = true LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
         return res.json(existing[0]);
       }
       const generated = await generateDailyDevotional(today);
-      const inserted = await insertDevotional({ date: today, ...generated });
+      let heroImage;
+      try {
+        const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+        const image = await generateContentImage2(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`);
+        heroImage = image?.url;
+      } catch (err) {
+        console.error("[devotional] hero image generation failed (non-fatal):", err.message);
+      }
+      const inserted = await insertDevotional({ date: today, ...generated, heroImage });
       res.json(inserted[0] || inserted);
     } catch (err) {
       console.error("[devotional] GET today failed:", err);
@@ -65171,7 +66059,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/devotionals", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql8`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
+        sql9`SELECT * FROM devotionals WHERE is_published = true ORDER BY date DESC LIMIT 30`
       );
       const rows = Array.isArray(raw) ? raw : raw.rows || [];
       res.json(rows);
@@ -65200,7 +66088,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { devotionalId, groupId } = req.body;
       if (!devotionalId) return res.status(400).json({ error: "devotionalId required" });
       const existingRaw = await db.execute(
-        sql8`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
+        sql9`SELECT id FROM devotional_sessions WHERE user_id = ${userId} AND devotional_id = ${devotionalId} AND is_completed = false LIMIT 1`
       );
       const existing = Array.isArray(existingRaw) ? existingRaw : existingRaw.rows || [];
       if (existing.length > 0) {
@@ -65208,7 +66096,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       const isGroupSession = !!groupId;
       const insertedRaw = await db.execute(
-        sql8`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
+        sql9`INSERT INTO devotional_sessions (user_id, devotional_id, group_id, is_group_session, started_at)
             VALUES (${userId}, ${devotionalId}, ${groupId || null}, ${isGroupSession}, NOW())
             RETURNING *`
       );
@@ -65216,7 +66104,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const session3 = inserted[0];
       if (groupId) {
         await db.execute(
-          sql8`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
+          sql9`UPDATE devotional_groups SET participant_count = participant_count + 1 WHERE id = ${groupId}`
         );
       }
       res.json({ sessionId: session3.id, resumed: false });
@@ -65233,7 +66121,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { sessionId } = req.params;
       const { durationSeconds } = req.body;
       const sessionRaw = await db.execute(
-        sql8`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
+        sql9`SELECT * FROM devotional_sessions WHERE id = ${parseInt(sessionId)} AND user_id = ${userId} LIMIT 1`
       );
       const sessionRows = Array.isArray(sessionRaw) ? sessionRaw : sessionRaw.rows || [];
       if (!sessionRows.length) return res.status(404).json({ error: "Session not found" });
@@ -65260,13 +66148,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         }
       }
       await db.execute(
-        sql8`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
+        sql9`UPDATE devotional_sessions SET is_completed = true, completed_at = NOW(), duration_seconds = ${durationSeconds},
             reward_earned = ${rewardEarned}, reward_amount = ${rewardAmount}
             WHERE id = ${parseInt(sessionId)}`
       );
       if (session3.group_id) {
         await db.execute(
-          sql8`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
+          sql9`UPDATE devotional_groups SET completed_count = completed_count + 1 WHERE id = ${session3.group_id}`
         );
       }
       res.json({ completed: true, rewardEarned, rewardAmount, actionType });
@@ -65287,7 +66175,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       let inviteCode = "";
       for (let i = 0; i < 6; i++) inviteCode += chars[Math.floor(Math.random() * chars.length)];
       const insertedRaw = await db.execute(
-        sql8`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
+        sql9`INSERT INTO devotional_groups (devotional_id, created_by, invite_code, city, is_active, participant_count)
             VALUES (${devotionalId}, ${userId}, ${inviteCode}, ${city || null}, true, 1)
             RETURNING *`
       );
@@ -65300,7 +66188,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/devotionals/groups/:inviteCode", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql8`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
+        sql9`SELECT dg.*, d.title as devotional_title, d.theme, d.date, u.username as host_name
             FROM devotional_groups dg
             JOIN devotionals d ON dg.devotional_id = d.id
             JOIN users u ON dg.created_by = u.id
@@ -65319,7 +66207,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const userId = req.user.id;
       const statsRaw = await db.execute(
-        sql8`SELECT
+        sql9`SELECT
               COUNT(*) FILTER (WHERE is_completed = true) as total_completed,
               COUNT(*) FILTER (WHERE is_completed = true AND is_group_session = true) as group_completed,
               COALESCE(SUM(reward_amount) FILTER (WHERE is_completed = true), 0) as total_vedd_earned,
@@ -65329,7 +66217,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const statsRows = Array.isArray(statsRaw) ? statsRaw : statsRaw.rows || [];
       const row = statsRows[0] || {};
       const datesRaw = await db.execute(
-        sql8`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
+        sql9`SELECT DISTINCT DATE(completed_at)::text as d FROM devotional_sessions
             WHERE user_id = ${userId} AND is_completed = true AND completed_at IS NOT NULL
             ORDER BY d DESC LIMIT 60`
       );
@@ -65346,7 +66234,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const todaySessionRaw = await db.execute(
-        sql8`SELECT ds.*, dg.invite_code as group_invite_code
+        sql9`SELECT ds.*, dg.invite_code as group_invite_code
             FROM devotional_sessions ds
             LEFT JOIN devotional_groups dg ON ds.group_id = dg.id
             WHERE ds.user_id = ${userId} AND DATE(ds.created_at) = ${todayStr}::date
@@ -65368,7 +66256,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/devotionals/leaderboard", async (req, res) => {
     try {
       const raw = await db.execute(
-        sql8`SELECT u.username, u.id as user_id,
+        sql9`SELECT u.username, u.id as user_id,
               COUNT(*) FILTER (WHERE ds.is_completed = true) as completions,
               COALESCE(SUM(ds.reward_amount), 0) as vedd_earned,
               COUNT(*) FILTER (WHERE ds.is_group_session = true AND ds.is_completed = true) as group_completions
@@ -66050,10 +66938,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      const [plan] = await db.execute(sql8`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [plan] = await db.execute(sql9`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = plan.rows ?? plan;
       if (!rows || rows.length === 0) return res.json({ plan: null });
-      const trades = await db.execute(sql8`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
+      const trades = await db.execute(sql9`SELECT * FROM growth_plan_trades WHERE user_id = ${userId} ORDER BY opened_at DESC LIMIT 200`);
       const tradeRows = trades.rows ?? trades;
       res.json({ plan: rows[0], trades: tradeRows });
     } catch (err) {
@@ -66091,7 +66979,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const bal = Number(startingBalance);
       const phase = _gpPhaseFromBal(bal);
       const profile = riskProfile || "conservative";
-      await db.execute(sql8`
+      await db.execute(sql9`
         INSERT INTO account_growth_plans (user_id, starting_balance, current_balance, goal_balance, risk_profile, trading_style, current_phase, weekly_target_pct)
         VALUES (${userId}, ${bal}, ${bal}, ${Number(goalBalance)}, ${profile}, ${tradingStyle || "day"}, ${phase}, ${Number(weeklyTargetPct) || 3})
         ON CONFLICT (user_id) DO UPDATE SET
@@ -66104,7 +66992,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           weekly_target_pct = EXCLUDED.weekly_target_pct,
           updated_at = now()
       `);
-      const [updated] = await db.execute(sql8`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [updated] = await db.execute(sql9`SELECT * FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const rows = updated.rows ?? updated;
       await _syncGrowthPlanToEngine(userId, phase, profile);
       res.json({ success: true, plan: rows[0], currentPhase: phase });
@@ -66118,13 +67006,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const { currentBalance } = req.body;
     if (currentBalance === void 0) return res.status(400).json({ error: "currentBalance required" });
     try {
-      const [before] = await db.execute(sql8`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [before] = await db.execute(sql9`SELECT current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const beforeRows = before.rows ?? before;
       const oldPhase = beforeRows[0]?.current_phase ?? 1;
       const riskProfile = beforeRows[0]?.risk_profile ?? "conservative";
       const bal = Number(currentBalance);
       const newPhase = _gpPhaseFromBal(bal);
-      await db.execute(sql8`
+      await db.execute(sql9`
         UPDATE account_growth_plans SET current_balance = ${bal}, current_phase = ${newPhase}, updated_at = now()
         WHERE user_id = ${userId}
       `);
@@ -66140,22 +67028,22 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/growth-plan/trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize: lotSize2, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
+    const { symbol, direction, entryPrice, exitPrice, stopLoss, lotSize, pnlUsd, pnlPct, riskUsd, phaseAtEntry, notes } = req.body;
     if (!symbol) return res.status(400).json({ error: "symbol required" });
     try {
-      const [planResult] = await db.execute(sql8`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
+      const [planResult] = await db.execute(sql9`SELECT id, current_phase, risk_profile FROM account_growth_plans WHERE user_id = ${userId} LIMIT 1`);
       const planRows = planResult.rows ?? planResult;
       const planId = planRows[0]?.id || null;
       const oldPhase = planRows[0]?.current_phase || 1;
       const riskProfile = planRows[0]?.risk_profile || "conservative";
-      await db.execute(sql8`
+      await db.execute(sql9`
         INSERT INTO growth_plan_trades (user_id, plan_id, symbol, direction, entry_price, exit_price, stop_loss, lot_size, pnl_usd, pnl_pct, risk_usd, phase_at_entry, notes, status, closed_at)
-        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize2 || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
+        VALUES (${userId}, ${planId}, ${symbol}, ${direction || "long"}, ${entryPrice || null}, ${exitPrice || null}, ${stopLoss || null}, ${lotSize || null}, ${pnlUsd || null}, ${pnlPct || null}, ${riskUsd || null}, ${phaseAtEntry || oldPhase}, ${notes || null}, ${exitPrice ? "closed" : "open"}, ${exitPrice ? /* @__PURE__ */ new Date() : null})
       `);
       let phaseChanged = false;
       let newPhase = oldPhase;
       if (pnlUsd) {
-        const [afterUpdate] = await db.execute(sql8`
+        const [afterUpdate] = await db.execute(sql9`
           UPDATE account_growth_plans
           SET current_balance = current_balance + ${Number(pnlUsd)}, updated_at = now()
           WHERE user_id = ${userId}
@@ -66166,7 +67054,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         if (newBal !== null) {
           newPhase = _gpPhaseFromBal(Number(newBal));
           if (newPhase !== oldPhase && newPhase > oldPhase) {
-            await db.execute(sql8`
+            await db.execute(sql9`
               UPDATE account_growth_plans SET current_phase = ${newPhase}, updated_at = now()
               WHERE user_id = ${userId}
             `);
@@ -66185,7 +67073,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     try {
-      await db.execute(sql8`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
+      await db.execute(sql9`DELETE FROM growth_plan_trades WHERE id = ${Number(req.params.id)} AND user_id = ${userId}`);
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -66445,7 +67333,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/micro-growth/dispatch-signal", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
     const userId = req.user.id;
-    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize: lotSize2, accountAlias } = req.body;
+    const { symbol, direction, orderType, entryPrice, slPips, tpPips, lotSize, accountAlias } = req.body;
     if (!symbol || !direction) return res.status(400).json({ message: "symbol and direction required" });
     try {
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
@@ -66465,7 +67353,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         entryPrice: entryPrice ?? null,
         stopLoss: slPips ?? null,
         takeProfit: tpPips ?? null,
-        lotSize: lotSize2 ?? 0.01,
+        lotSize: lotSize ?? 0.01,
         source: "micro_growth",
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       }, accountAlias ?? "default");
@@ -66474,11 +67362,49 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(503).json({ message: "MT5 signal dispatcher not available \u2014 ensure live engine is running" });
     }
   });
+  app2.get("/api/paper-trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getPaperTradeStats: getPaperTradeStats2 } = await Promise.resolve().then(() => (init_paper_trade_tracker(), paper_trade_tracker_exports));
+      const stats = await getPaperTradeStats2(req.user.id);
+      res.json(stats);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/paper-trades/list", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { paperTrades: paperTrades2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq17, desc: desc9 } = await import("drizzle-orm");
+      const trades = await db2.select().from(paperTrades2).where(eq17(paperTrades2.userId, req.user.id)).orderBy(desc9(paperTrades2.createdAt)).limit(100);
+      res.json(trades);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.put("/api/paper-trades/:id/outcome", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { outcome, pnlPips } = req.body;
+      if (!["win", "loss", "breakeven"].includes(outcome)) return res.status(400).json({ error: "Invalid outcome" });
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { paperTrades: paperTrades2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq17, and: and8 } = await import("drizzle-orm");
+      const [updated] = await db2.update(paperTrades2).set({ outcome, pnlPips, resolvedAt: /* @__PURE__ */ new Date() }).where(and8(eq17(paperTrades2.id, id), eq17(paperTrades2.userId, req.user.id))).returning();
+      if (!updated) return res.status(404).json({ error: "Paper trade not found" });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/fx-paper/account", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT id, balance, initial_balance, is_enabled, updated_at
         FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
       `);
@@ -66486,7 +67412,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!row) {
         return res.json({ balance: 1e4, initialBalance: 1e4, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
       }
-      const statsRows = await db.execute(sql8`
+      const statsRows = await db.execute(sql9`
         SELECT
           COUNT(*) FILTER (WHERE status='open') AS open_trades,
           COUNT(*) FILTER (WHERE status='closed') AS closed_trades,
@@ -66511,20 +67437,20 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     const { balance, isEnabled } = req.body;
     try {
-      const existing = await db.execute(sql8`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const existing = await db.execute(sql9`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
       const row = existing[0]?.[0] ?? existing.rows?.[0];
       if (!row) {
         const initBalance = typeof balance === "number" ? balance : 1e4;
-        await db.execute(sql8`
+        await db.execute(sql9`
           INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at)
           VALUES (${userId}, ${initBalance}, ${initBalance}, ${!!isEnabled}, now())
         `);
       } else {
         if (typeof balance === "number") {
-          await db.execute(sql8`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
+          await db.execute(sql9`UPDATE fx_paper_accounts SET balance=${balance}, initial_balance=${balance}, updated_at=now() WHERE user_id=${userId}`);
         }
         if (typeof isEnabled === "boolean") {
-          await db.execute(sql8`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
+          await db.execute(sql9`UPDATE fx_paper_accounts SET is_enabled=${isEnabled}, updated_at=now() WHERE user_id=${userId}`);
         }
       }
       res.json({ success: true });
@@ -66539,11 +67465,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       let rows;
       if (status === "open") {
-        rows = await db.execute(sql8`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
+        rows = await db.execute(sql9`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='open' ORDER BY opened_at DESC`);
       } else if (status === "closed") {
-        rows = await db.execute(sql8`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
+        rows = await db.execute(sql9`SELECT * FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 100`);
       } else {
-        rows = await db.execute(sql8`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
+        rows = await db.execute(sql9`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
       }
       const trades = rows[0] ?? rows.rows ?? [];
       res.json(trades);
@@ -66554,34 +67480,48 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/fx-paper/trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize: lotSize2 = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
+    const { pair, direction, entryPrice, stopLoss, takeProfit, lotSize = 0.01, confidence: confidence2, source = "fx_paper_engine" } = req.body;
     if (!pair || !direction || typeof entryPrice !== "number") {
       return res.status(400).json({ error: "pair, direction, and entryPrice are required" });
     }
     try {
-      const acctRows = await db.execute(sql8`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const acctRows = await db.execute(sql9`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
       const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
       if (!acct) {
-        await db.execute(sql8`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
+        await db.execute(sql9`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
       }
-      const tradeRows = await db.execute(sql8`
+      const tradeRows = await db.execute(sql9`
         INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
-        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize2}, ${confidence2 ?? null}, ${source}, 'open', now())
+        VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
         RETURNING id
       `);
       const newTradeId = tradeRows[0]?.[0]?.id ?? tradeRows.rows?.[0]?.id;
       try {
-        const copiers = await db.execute(sql8`
-          SELECT id, copier_id, max_lot_size FROM copy_relationships
-          WHERE source_user_id=${userId} AND is_active=true
+        const copiers = await db.execute(sql9`
+          SELECT id, copier_id, account_type, max_lot_size, profit_share_pct, copier_connection_id
+          FROM copy_relationships WHERE source_user_id=${userId} AND is_active=true
         `);
         const copierList = copiers[0] ?? copiers.rows ?? [];
+        const { executeCopyTradeOpen: executeCopyTradeOpen2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
         for (const rel of copierList) {
-          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize2)) || 0.01);
-          await db.execute(sql8`
+          const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
+          const logRows = await db.execute(sql9`
             INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
+            RETURNING id
           `);
+          const copyLogId = logRows[0]?.[0]?.id ?? logRows.rows?.[0]?.id;
+          if (copyLogId) {
+            await executeCopyTradeOpen2(rel, {
+              tradeId: newTradeId,
+              pair,
+              direction,
+              entryPrice,
+              stopLoss: stopLoss ?? null,
+              takeProfit: takeProfit ?? null,
+              lotSize: parseFloat(String(lotSize)) || 0.01
+            }, copyLogId).catch((e) => console.error("[CopyTrading] executeCopyTradeOpen failed (non-fatal):", e.message));
+          }
         }
       } catch {
       }
@@ -66599,48 +67539,61 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(400).json({ error: "tradeId and exitPrice required" });
     }
     try {
-      await db.execute(sql8`
+      await db.execute(sql9`
         UPDATE fx_paper_trades
         SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
         WHERE id=${tradeId} AND user_id=${userId}
       `);
       if (typeof pnl === "number") {
-        await db.execute(sql8`
+        await db.execute(sql9`
           UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${userId}
         `);
       }
       try {
-        const copyLogs = await db.execute(sql8`
-          SELECT ctl.id, ctl.copier_id, ctl.lot_size, cr.profit_share_pct
+        const sourceTradeRows = await db.execute(sql9`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
+        const sourceTrade = sourceTradeRows[0]?.[0] ?? sourceTradeRows.rows?.[0];
+        const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
+        const copyLogs = await db.execute(sql9`
+          SELECT ctl.id, ctl.copier_id, ctl.lot_size, ctl.copier_fx_trade_id, ctl.broker_order_id,
+                 cr.id AS relationship_id, cr.account_type, cr.copier_connection_id, cr.profit_share_pct
           FROM copy_trade_logs ctl
           JOIN copy_relationships cr ON cr.id = ctl.relationship_id
           WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
         `);
         const logs = copyLogs[0] ?? copyLogs.rows ?? [];
-        await db.execute(sql8`
-          UPDATE copy_trade_logs
-          SET status='closed', exit_price=${exitPrice}, pnl=${pnl ?? null}, pnl_pips=${pnlPips ?? null}, closed_at=now()
-          WHERE original_trade_id=${tradeId} AND source_user_id=${userId} AND status='open'
-        `);
-        if (typeof pnl === "number" && pnl > 0) {
-          const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
-          const VEDD_PER_USD = 10;
-          let totalVeddEarned = 0;
-          for (const log2 of logs) {
+        const { executeCopyTradeClose: executeCopyTradeClose2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
+        const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+        const VEDD_PER_USD = 10;
+        let totalVeddEarned = 0;
+        for (const log2 of logs) {
+          const rel = {
+            id: log2.relationship_id,
+            copier_id: log2.copier_id,
+            source_user_id: userId,
+            account_type: log2.account_type,
+            max_lot_size: log2.lot_size,
+            profit_share_pct: log2.profit_share_pct,
+            copier_connection_id: log2.copier_connection_id
+          };
+          const copierPnl = typeof pnl === "number" ? await executeCopyTradeClose2(rel, log2, exitPrice, pnl, sourceLotSize) : 0;
+          await db.execute(sql9`
+            UPDATE copy_trade_logs
+            SET status='closed', exit_price=${exitPrice}, pnl=${copierPnl}, pnl_pips=${pnlPips ?? null}, closed_at=now()
+            WHERE id=${log2.id}
+          `);
+          if (copierPnl > 0) {
             const sharePct = parseFloat(log2.profit_share_pct) || 20;
-            const lotRatio = parseFloat(log2.lot_size) > 0 ? parseFloat(log2.lot_size) / (parseFloat(String(lotSize)) || parseFloat(log2.lot_size)) : 1;
-            const copierPnl = pnl * Math.min(1, lotRatio);
             const shareUsd = copierPnl * (sharePct / 100);
             const veddToTrader = Math.round(shareUsd * VEDD_PER_USD * 100) / 100;
             if (veddToTrader > 0) {
               await _stor.addToWalletBalance(userId, veddToTrader);
               totalVeddEarned += veddToTrader;
-              await db.execute(sql8`UPDATE copy_trade_logs SET profit_share_vedd=${veddToTrader} WHERE id=${log2.id}`);
+              await db.execute(sql9`UPDATE copy_trade_logs SET profit_share_vedd=${veddToTrader} WHERE id=${log2.id}`);
             }
           }
-          if (totalVeddEarned > 0) {
-            console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
-          }
+        }
+        if (totalVeddEarned > 0) {
+          console.log(`[CopyTrading] Trader ${userId} earned ${totalVeddEarned.toFixed(2)} VEDD from ${logs.length} copier(s)`);
         }
       } catch (e) {
         console.log("[CopyTrading] Profit share error (non-critical):", e.message);
@@ -66654,7 +67607,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      await db.execute(sql8`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
+      await db.execute(sql9`DELETE FROM fx_paper_trades WHERE user_id=${userId} AND status='closed'`);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66663,7 +67616,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/copy/leaderboard", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT
           u.id AS user_id,
           u.username,
@@ -66716,7 +67669,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT cr.id, cr.source_user_id, cr.account_type, cr.max_lot_size, cr.is_active, cr.created_at,
                u.username AS source_username
         FROM copy_relationships cr
@@ -66733,9 +67686,18 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/copy/relationships", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
-    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20 } = req.body;
+    const { sourceUserId, accountType = "paper", maxLotSize = 0.01, profitSharePct = 20, copierConnectionId = null } = req.body;
     if (!sourceUserId || sourceUserId === userId) {
       return res.status(400).json({ error: "Invalid sourceUserId" });
+    }
+    if (accountType === "real") {
+      if (!copierConnectionId) {
+        return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
+      }
+      const conn = await storage.getTradelockerConnection(copierConnectionId);
+      if (!conn || conn.userId !== userId || !conn.isActive) {
+        return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
+      }
     }
     const COPY_SUBSCRIPTION_FEE_VEDD = 10;
     const COPY_MIN_VEDD_BALANCE = 10;
@@ -66753,11 +67715,12 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       await _stor.updateInternalWalletBalance(userId, -COPY_SUBSCRIPTION_FEE_VEDD);
       await _stor.addToWalletBalance(sourceUserId, COPY_SUBSCRIPTION_FEE_VEDD);
       const clampedPct = Math.min(50, Math.max(5, Number(profitSharePct) || 20));
-      await db.execute(sql8`
-        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, vedd_fee_paid, is_active, created_at)
-        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
+      await db.execute(sql9`
+        INSERT INTO copy_relationships (copier_id, source_user_id, account_type, max_lot_size, profit_share_pct, copier_connection_id, vedd_fee_paid, is_active, created_at)
+        VALUES (${userId}, ${sourceUserId}, ${accountType}, ${maxLotSize}, ${clampedPct}, ${copierConnectionId}, ${COPY_SUBSCRIPTION_FEE_VEDD}, true, now())
         ON CONFLICT (copier_id, source_user_id)
         DO UPDATE SET is_active=true, account_type=${accountType}, max_lot_size=${maxLotSize}, profit_share_pct=${clampedPct},
+                      copier_connection_id=${copierConnectionId},
                       vedd_fee_paid=copy_relationships.vedd_fee_paid+${COPY_SUBSCRIPTION_FEE_VEDD}
       `);
       res.json({ success: true, veddCharged: COPY_SUBSCRIPTION_FEE_VEDD, profitSharePct: clampedPct });
@@ -66769,13 +67732,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     const relId = parseInt(req.params.id);
-    const { maxLotSize, accountType } = req.body;
+    const { maxLotSize, accountType, copierConnectionId } = req.body;
     try {
+      if (accountType === "real") {
+        const targetConnId = copierConnectionId ?? (await db.execute(sql9`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`))[0]?.[0]?.copier_connection_id;
+        if (!targetConnId) return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
+        const conn = await storage.getTradelockerConnection(targetConnId);
+        if (!conn || conn.userId !== userId || !conn.isActive) {
+          return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
+        }
+      }
       if (typeof maxLotSize === "number") {
-        await db.execute(sql8`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
+        await db.execute(sql9`UPDATE copy_relationships SET max_lot_size=${maxLotSize} WHERE id=${relId} AND copier_id=${userId}`);
       }
       if (accountType) {
-        await db.execute(sql8`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+        await db.execute(sql9`UPDATE copy_relationships SET account_type=${accountType} WHERE id=${relId} AND copier_id=${userId}`);
+      }
+      if (typeof copierConnectionId === "number") {
+        await db.execute(sql9`UPDATE copy_relationships SET copier_connection_id=${copierConnectionId} WHERE id=${relId} AND copier_id=${userId}`);
       }
       res.json({ success: true });
     } catch (e) {
@@ -66787,7 +67761,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const userId = req.user.id;
     const relId = parseInt(req.params.id);
     try {
-      await db.execute(sql8`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
+      await db.execute(sql9`UPDATE copy_relationships SET is_active=false WHERE id=${relId} AND copier_id=${userId}`);
       res.json({ success: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -66799,7 +67773,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
       const wallet = await _stor.getInternalWallet(userId);
-      const earnedRows = await db.execute(sql8`
+      const earnedRows = await db.execute(sql9`
         SELECT COALESCE(SUM(profit_share_vedd), 0) AS total_vedd_earned,
                COUNT(*) FILTER (WHERE profit_share_vedd > 0) AS trades_earned
         FROM copy_trade_logs WHERE source_user_id=${userId} AND status='closed'
@@ -66821,7 +67795,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const rows = await db.execute(sql8`
+      const rows = await db.execute(sql9`
         SELECT ctl.*, u.username AS source_username
         FROM copy_trade_logs ctl
         JOIN users u ON u.id = ctl.source_user_id
@@ -67124,9 +68098,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc8 } = await import("drizzle-orm");
+      const { desc: desc9 } = await import("drizzle-orm");
       const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
-      const rows = await db2.select().from(leads2).orderBy(desc8(leads2.createdAt)).limit(limit);
+      const rows = await db2.select().from(leads2).orderBy(desc9(leads2.createdAt)).limit(limit);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67137,8 +68111,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc8 } = await import("drizzle-orm");
-      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc8(leadHunterRuns2.createdAt)).limit(20);
+      const { desc: desc9 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc9(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67149,8 +68123,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq14 } = await import("drizzle-orm");
-      const [lead] = await db2.select().from(leads2).where(eq14(leads2.id, req.params.id)).limit(1);
+      const { eq: eq17 } = await import("drizzle-orm");
+      const [lead] = await db2.select().from(leads2).where(eq17(leads2.id, req.params.id)).limit(1);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       const result = await outreachLead2(lead);
@@ -67158,7 +68132,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         status: "Contacted",
         autoEngaged: result.automated,
         engagementType: result.engagementType || (result.automated ? "auto" : "manual")
-      }).where(eq14(leads2.id, req.params.id));
+      }).where(eq17(leads2.id, req.params.id));
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67169,15 +68143,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq14, and: and7, gte: gte4, sql: dsql } = await import("drizzle-orm");
-      const rows = await db2.select().from(leads2).where(and7(eq14(leads2.status, "New"), gte4(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { eq: eq17, and: and8, gte: gte4, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and8(eq17(leads2.status, "New"), gte4(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       let engaged = 0, manualNeeded = 0;
       for (const lead of rows) {
         const r = await outreachLead2(lead).catch(() => null);
         if (r?.automated) {
           engaged++;
-          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq14(leads2.id, lead.id));
+          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq17(leads2.id, lead.id));
           await new Promise((rs) => setTimeout(rs, 1500));
         } else {
           manualNeeded++;
@@ -67193,8 +68167,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq14 } = await import("drizzle-orm");
-      await db2.update(leads2).set({ status: req.body.status }).where(eq14(leads2.id, req.params.id));
+      const { eq: eq17 } = await import("drizzle-orm");
+      await db2.update(leads2).set({ status: req.body.status }).where(eq17(leads2.id, req.params.id));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67212,11 +68186,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/today", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc8 } = await import("drizzle-orm");
+      const { desc: desc9 } = await import("drizzle-orm");
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq12(ambassadorRunSummary2.runDate, today)).limit(1);
-      const content = await db.select().from(ambassadorDailyContent2).where(eq12(ambassadorDailyContent2.runDate, today)).orderBy(desc8(ambassadorDailyContent2.createdAt));
-      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq12(ambassadorDailyKpis2.runDate, today)).limit(1);
+      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq14(ambassadorRunSummary2.runDate, today)).limit(1);
+      const content = await db.select().from(ambassadorDailyContent2).where(eq14(ambassadorDailyContent2.runDate, today)).orderBy(desc9(ambassadorDailyContent2.createdAt));
+      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq14(ambassadorDailyKpis2.runDate, today)).limit(1);
       res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67225,8 +68199,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/history", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc8 } = await import("drizzle-orm");
-      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc8(ambassadorRunSummary2.createdAt)).limit(30);
+      const { desc: desc9 } = await import("drizzle-orm");
+      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc9(ambassadorRunSummary2.createdAt)).limit(30);
       res.json({ runs });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -67235,15 +68209,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/content/:date", async (req, res) => {
     try {
       const { ambassadorDailyContent: ambassadorDailyContent2, ambassadorHookVariations: ambassadorHookVariations2, ambassadorBonusContent: ambassadorBonusContent2, ambassadorCommunityContent: ambassadorCommunityContent2, ambassadorRedditInsights: ambassadorRedditInsights2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc8 } = await import("drizzle-orm");
+      const { desc: desc9 } = await import("drizzle-orm");
       const { date: date2 } = req.params;
       const [content, hooks, bonus, community, insights, steps] = await Promise.all([
-        db.select().from(ambassadorDailyContent2).where(eq12(ambassadorDailyContent2.runDate, date2)),
-        db.select().from(ambassadorHookVariations2).where(eq12(ambassadorHookVariations2.runDate, date2)),
-        db.select().from(ambassadorBonusContent2).where(eq12(ambassadorBonusContent2.runDate, date2)),
-        db.select().from(ambassadorCommunityContent2).where(eq12(ambassadorCommunityContent2.runDate, date2)),
-        db.select().from(ambassadorRedditInsights2).where(eq12(ambassadorRedditInsights2.runDate, date2)),
-        db.select().from(ambassadorRunStepLog2).where(eq12(ambassadorRunStepLog2.runDate, date2)).orderBy(desc8(ambassadorRunStepLog2.createdAt))
+        db.select().from(ambassadorDailyContent2).where(eq14(ambassadorDailyContent2.runDate, date2)),
+        db.select().from(ambassadorHookVariations2).where(eq14(ambassadorHookVariations2.runDate, date2)),
+        db.select().from(ambassadorBonusContent2).where(eq14(ambassadorBonusContent2.runDate, date2)),
+        db.select().from(ambassadorCommunityContent2).where(eq14(ambassadorCommunityContent2.runDate, date2)),
+        db.select().from(ambassadorRedditInsights2).where(eq14(ambassadorRedditInsights2.runDate, date2)),
+        db.select().from(ambassadorRunStepLog2).where(eq14(ambassadorRunStepLog2.runDate, date2)).orderBy(desc9(ambassadorRunStepLog2.createdAt))
       ]);
       res.json({ content, hooks, bonus, community, insights, steps });
     } catch (e) {
@@ -67972,7 +68946,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq13 } from "drizzle-orm";
+import { eq as eq15 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -68106,7 +69080,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq13(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq15(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -68238,7 +69212,7 @@ async function seedVeddRewardConfig() {
 // server/blog-seed.ts
 init_db();
 init_schema();
-import { sql as sql9 } from "drizzle-orm";
+import { sql as sql10 } from "drizzle-orm";
 var staticArticles = [
   {
     title: "Master Chart Pattern Recognition with AI",
@@ -68326,7 +69300,7 @@ var staticArticles = [
 ];
 async function seedBlogPosts() {
   try {
-    const result = await db.execute(sql9`SELECT COUNT(*) as count FROM blog_posts`);
+    const result = await db.execute(sql10`SELECT COUNT(*) as count FROM blog_posts`);
     const rows = result;
     const count = Number(rows[0]?.count ?? 0);
     if (count > 0) {
@@ -68359,7 +69333,7 @@ async function seedBlogPosts() {
 init_market_data();
 init_db();
 import { execSync } from "child_process";
-import { sql as sql10 } from "drizzle-orm";
+import { sql as sql11 } from "drizzle-orm";
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });
@@ -68462,8 +69436,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq14 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq14(engineRunState2.isRunning, true));
+    const { eq: eq17 } = await import("drizzle-orm");
+    const runningRows = await db2.select().from(engineRunState2).where(eq17(engineRunState2.isRunning, true));
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
@@ -68499,6 +69473,24 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureBrainMarketplaceTables2();
   } catch (err) {
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureContentImageColumns: ensureContentImageColumns2 } = await Promise.resolve().then(() => (init_ensure_content_image_columns(), ensure_content_image_columns_exports));
+    await ensureContentImageColumns2();
+  } catch (err) {
+    console.error(`[startup] ensureContentImageColumns import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureCopyTradingExecutionColumns: ensureCopyTradingExecutionColumns2 } = await Promise.resolve().then(() => (init_ensure_copy_trading_execution_columns(), ensure_copy_trading_execution_columns_exports));
+    await ensureCopyTradingExecutionColumns2();
+  } catch (err) {
+    console.error(`[startup] ensureCopyTradingExecutionColumns import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureReasoningPropFirmTables: ensureReasoningPropFirmTables2 } = await Promise.resolve().then(() => (init_ensure_reasoning_propfirm_tables(), ensure_reasoning_propfirm_tables_exports));
+    await ensureReasoningPropFirmTables2();
+  } catch (err) {
+    console.error(`[startup] ensureReasoningPropFirmTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     await registerRoutes(app, httpServer);
@@ -68644,14 +69636,14 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         )`
       ];
       for (const m of migrations) {
-        await db.execute(sql10.raw(m));
+        await db.execute(sql11.raw(m));
       }
       console.log("[startup] Schema check complete.");
     } catch (err) {
       console.error("[startup] Schema migration check failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10.raw(`
+      await db.execute(sql11.raw(`
         CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
@@ -68671,7 +69663,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] ai_model_configs table creation failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10.raw(`
+      await db.execute(sql11.raw(`
         CREATE TABLE IF NOT EXISTS stop_orders (
           id              SERIAL PRIMARY KEY,
           user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -68690,7 +69682,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `));
-      await db.execute(sql10.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      await db.execute(sql11.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
       console.log("[startup] stop_orders table ready.");
     } catch (err) {
       console.error("[startup] stop_orders table creation failed (non-fatal):", err.message);
@@ -68703,23 +69695,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Full schema sync failed (non-fatal, critical columns already added above):", err.message?.slice(0, 200));
     }
     try {
-      await db.execute(sql10`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
-      await db.execute(sql10`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
-      await db.execute(sql10`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
-      await db.execute(sql10`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
+      await db.execute(sql11`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+      await db.execute(sql11`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql11`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql11`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error("[startup] Lifetime\u2192Yearly migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
     } catch (err) {
       console.error("[startup] AI settings columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS referral_visits (
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS referral_visits (
         id serial PRIMARY KEY,
         referral_code text NOT NULL,
         referrer_id integer REFERENCES users(id),
@@ -68734,7 +69726,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reminder_sent boolean DEFAULT false,
         reminder_sent_at timestamp
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS dm_keywords (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS dm_keywords (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         keyword text NOT NULL,
@@ -68751,7 +69743,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Referral/DM tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS investment_pools (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS investment_pools (
         id serial PRIMARY KEY,
         name text NOT NULL,
         slug text NOT NULL UNIQUE,
@@ -68771,7 +69763,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS token_investments (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS token_investments (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         pool_id integer REFERENCES investment_pools(id) NOT NULL,
@@ -68791,7 +69783,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Investment pool tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS grants (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -68813,7 +69805,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS grant_applications (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS grant_applications (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id),
         grant_id integer REFERENCES grants(id),
@@ -68830,7 +69822,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
         id serial PRIMARY KEY,
         triggered_by integer REFERENCES users(id),
         scan_type text NOT NULL,
@@ -68847,7 +69839,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Grants tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
@@ -68863,7 +69855,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS quiz_leads (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS quiz_leads (
         id SERIAL PRIMARY KEY,
         quiz_id INTEGER REFERENCES landing_page_quizzes(id),
         ambassador_id INTEGER REFERENCES users(id) NOT NULL,
@@ -68885,7 +69877,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS social_lead_scans (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS social_lead_scans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         platform TEXT NOT NULL,
@@ -68900,7 +69892,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador lead generation tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS leads (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS leads (
         id VARCHAR(500) PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         platform VARCHAR(50) NOT NULL,
@@ -68921,7 +69913,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         engagement_type VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
         id SERIAL PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         status VARCHAR(50) DEFAULT 'running',
@@ -68939,23 +69931,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Lead Hunter tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
-      await db.execute(sql10`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
-      await db.execute(sql10`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
+      await db.execute(sql11`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
+      await db.execute(sql11`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
+      await db.execute(sql11`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
       console.log("[startup] Copy trading VEDD columns verified.");
     } catch (err) {
     }
     try {
-      await db.execute(sql10`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
-      await db.execute(sql10`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
-      await db.execute(sql10`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
-      await db.execute(sql10`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql11`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
       console.log("[startup] Prop-firm linkage columns verified.");
     } catch (err) {
       console.error("[startup] Prop-firm linkage migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS blog_posts (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -68990,7 +69982,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         `published_at TIMESTAMP`,
         `updated_at TIMESTAMP DEFAULT NOW()`
       ]) {
-        await db.execute(sql10.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
+        await db.execute(sql11.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
         });
       }
       console.log("[startup] blog_posts table created/verified.");
@@ -68998,7 +69990,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS ambassador_journey (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS ambassador_journey (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
         current_day INTEGER DEFAULT 1 NOT NULL,
@@ -69019,7 +70011,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         day INTEGER NOT NULL,
@@ -69036,7 +70028,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador journey tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         public_key TEXT NOT NULL UNIQUE,
@@ -69047,7 +70039,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         last_sync_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_reward_config (
         id SERIAL PRIMARY KEY,
         action_type TEXT NOT NULL UNIQUE,
         base_amount REAL NOT NULL DEFAULT 0,
@@ -69059,7 +70051,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         action_type TEXT NOT NULL,
@@ -69075,7 +70067,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         security_flag TEXT,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
@@ -69092,7 +70084,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         processed_at TIMESTAMP
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
@@ -69106,7 +70098,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] VEDD token tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS devotionals (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS devotionals (
         id SERIAL PRIMARY KEY,
         date TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
@@ -69122,7 +70114,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         is_published BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS devotional_groups (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS devotional_groups (
         id SERIAL PRIMARY KEY,
         devotional_id INTEGER REFERENCES devotionals(id),
         created_by INTEGER REFERENCES users(id),
@@ -69133,7 +70125,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         completed_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS devotional_sessions (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS devotional_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
@@ -69147,7 +70139,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reward_amount INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql10`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+      await db.execute(sql11`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
           ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
           ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
@@ -69165,7 +70157,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Devotional tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS sol_engine_settings (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         active_strategy text DEFAULT 'momentum_surfer',
@@ -69184,7 +70176,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         token_address text NOT NULL,
@@ -69205,7 +70197,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS account_growth_plans (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS account_growth_plans (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         starting_balance real NOT NULL DEFAULT 0,
@@ -69220,7 +70212,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS growth_plan_trades (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         plan_id integer REFERENCES account_growth_plans(id),
@@ -69244,7 +70236,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Account Growth Plan tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS nfc_activations (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS nfc_activations (
         id serial PRIMARY KEY,
         chip_uid text NOT NULL UNIQUE,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -69256,7 +70248,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         current_streak integer NOT NULL DEFAULT 0,
         best_streak integer NOT NULL DEFAULT 0
       )`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         chip_uid text NOT NULL,
@@ -69264,18 +70256,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         tapped_at timestamp DEFAULT now() NOT NULL,
         day_string text NOT NULL
       )`);
-      await db.execute(sql10`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
-      await db.execute(sql10`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
-      await db.execute(sql10`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
-      await db.execute(sql10`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
-      await db.execute(sql10`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
-      await db.execute(sql10`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
+      await db.execute(sql11`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql11`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql11`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql11`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql11`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql11`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_earn_events (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         type text NOT NULL,
@@ -69288,26 +70280,26 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql10`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
-      await db.execute(sql10`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
-      await db.execute(sql10`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
-      await db.execute(sql10`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+      await db.execute(sql11`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql11`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql11`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
+      await db.execute(sql11`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         sequence_index integer NOT NULL,
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
-      await db.execute(sql10`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql11`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
     } catch (err) {
       console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS daily_checkins (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS daily_checkins (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -69321,7 +70313,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily check-in table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql10`CREATE TABLE IF NOT EXISTS engine_run_state (
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         engine text NOT NULL,
@@ -69337,9 +70329,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");
     try {
-      const existing = await db.execute(sql10`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      const existing = await db.execute(sql11`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
       if ((existing.rows ?? existing).length === 0) {
-        await db.execute(sql10`
+        await db.execute(sql11`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
         `);
@@ -69360,6 +70352,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startAmbassadorPrimeScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     startTradeLockerSync2();
+    const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));
+    startPaperTradeResolverLoop2();
     const { startOptionsEngineScanner: startOptionsEngineScanner2 } = await Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports));
     startOptionsEngineScanner2();
   })().catch((err) => {

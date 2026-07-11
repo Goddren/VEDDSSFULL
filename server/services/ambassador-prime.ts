@@ -21,6 +21,7 @@ import {
 import { eq, desc, sql as drizzleSql } from 'drizzle-orm';
 import { OpenAI } from 'openai';
 import { saveMarketBriefing, currentWeekStartDate, clampConfidenceBoost, type BriefingPair } from './ambassador-market-briefing';
+import { generateContentImage } from './image-generation';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const REFERRAL_LINK = 'https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511';
@@ -169,31 +170,6 @@ async function postLinkedIn(text: string): Promise<string | null> {
     return data?.id ?? 'posted';
   } catch (e: any) {
     console.error('[ambassador-prime] LinkedIn error:', e.message);
-    return null;
-  }
-}
-
-// ── DALL-E image generation ───────────────────────────────────────────────────
-async function generateDalleImage(prompt: string): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-  try {
-    const openai = new OpenAI({ apiKey, maxRetries: 2, timeout: 60000 });
-    const res = await openai.images.generate({
-      model: 'dall-e-3',
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      quality: 'standard',
-    });
-    return res.data[0]?.url ?? null;
-  } catch (e: any) {
-    const status = e?.status ?? e?.statusCode;
-    if (status === 429 || /quota|insufficient_quota/i.test(e?.message || '')) {
-      console.error('[ambassador-prime] DALL-E quota exceeded — check OpenAI billing/plan:', e.message);
-    } else {
-      console.error('[ambassador-prime] DALL-E error:', e.message);
-    }
     return null;
   }
 }
@@ -809,32 +785,33 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
     await logStep(runDate, 'Devotional/Knowledge/Results/Update Posts', 'failed', e.message);
   }
 
-  // ── Step 4: DALL-E Image ───────────────────────────────────────────────────
+  // ── Step 4: Image generation (DALL-E, falling back to Replicate FLUX) ──────
   if (!batch1) {
     // Batch 1 failed upstream — there's no real image prompt to work from, so
-    // don't burn a DALL-E call on a generic fallback prompt unrelated to
+    // don't burn an image-gen call on a generic fallback prompt unrelated to
     // today's actual content.
-    skippedSteps.push('DALL-E Image Generation');
-    await logStep(runDate, 'DALL-E Image Generation', 'skipped', 'skipped: upstream failure (Batch 1 AI Generation failed — no image prompt available)');
+    skippedSteps.push('Image Generation');
+    await logStep(runDate, 'Image Generation', 'skipped', 'skipped: upstream failure (Batch 1 AI Generation failed — no image prompt available)');
   } else {
     try {
-      imageUrl = await generateDalleImage(batch1.imagePrompt);
-      if (imageUrl) {
+      const generated = await generateContentImage(batch1.imagePrompt);
+      imageUrl = generated?.url ?? null;
+      if (generated) {
         imageGenerated = true;
-        completedSteps.push('DALL-E Image Generation');
-        await logStep(runDate, 'DALL-E Image Generation', 'completed');
+        completedSteps.push('Image Generation');
+        await logStep(runDate, 'Image Generation', 'completed', `provider: ${generated.provider}`);
       } else {
-        const skipReason = !process.env.OPENAI_API_KEY
-          ? 'OPENAI_API_KEY not set in server environment — DALL-E image generation requires it'
-          : 'DALL-E returned no image URL (check server logs for the API error)';
+        const skipReason = !process.env.OPENAI_API_KEY && !process.env.REPLICATE_API_TOKEN
+          ? 'Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN set — image generation requires at least one'
+          : 'Both DALL-E and Replicate FLUX failed to return an image URL (check server logs for the API error)';
         errors.push(`Image: ${skipReason}`);
-        skippedSteps.push('DALL-E Image Generation');
-        await logStep(runDate, 'DALL-E Image Generation', 'skipped', skipReason);
+        skippedSteps.push('Image Generation');
+        await logStep(runDate, 'Image Generation', 'skipped', skipReason);
       }
     } catch (e: any) {
-      errors.push(`DALL-E: ${e.message}`);
-      skippedSteps.push('DALL-E Image Generation');
-      await logStep(runDate, 'DALL-E Image Generation', 'failed', e.message);
+      errors.push(`Image: ${e.message}`);
+      skippedSteps.push('Image Generation');
+      await logStep(runDate, 'Image Generation', 'failed', e.message);
     }
   }
 
@@ -961,6 +938,19 @@ export async function runAmbassadorPrime(triggeredBy = 'scheduler'): Promise<{
       await logStep(runDate, 'Community Content', 'completed');
     } catch (e: any) {
       errors.push(`Community content: ${e.message}`);
+    }
+  }
+
+  // Backfill today's generated image onto every daily/bonus/community content
+  // row for this run — done as one pass at the end so insert ordering across
+  // steps (some of which run before Step 4's image generation) doesn't matter.
+  if (imageUrl) {
+    try {
+      await db.update(ambassadorDailyContent).set({ imageUrl }).where(eq(ambassadorDailyContent.runDate, runDate));
+      await db.update(ambassadorBonusContent).set({ imageUrl }).where(eq(ambassadorBonusContent.runDate, runDate));
+      await db.update(ambassadorCommunityContent).set({ imageUrl }).where(eq(ambassadorCommunityContent.runDate, runDate));
+    } catch (e: any) {
+      console.error('[ambassador-prime] Backfilling imageUrl onto content rows failed (non-fatal):', e.message);
     }
   }
 

@@ -458,6 +458,7 @@ export default function AmbassadorPrimePage() {
                     { key: 'TWITTER_ACCESS_TOKEN_SECRET', desc: 'Twitter access token secret', required: true },
                     { key: 'LINKEDIN_ACCESS_TOKEN', desc: 'LinkedIn OAuth 2.0 access token', required: true },
                     { key: 'OPENAI_API_KEY', desc: 'OpenAI key (for DALL-E 3 images + content AI)', required: true },
+                    { key: 'REPLICATE_API_TOKEN', desc: 'Replicate token (FLUX.1 image fallback if DALL-E fails/quota)', required: false },
                     { key: 'APIFY_API_TOKEN', desc: 'Apify token (Reddit scraping)', required: false },
                     { key: 'SENDGRID_API_KEY', desc: 'SendGrid key (daily email report)', required: true },
                   ].map(({ key, desc, required }) => (

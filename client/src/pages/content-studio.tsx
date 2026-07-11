@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
@@ -113,9 +113,42 @@ function buildCaption(type: ContentType, item: any, referralCode: string | null,
   }
 }
 
+// Builds a short subject line per content type for the AI image prompt —
+// separate from buildCaption() since the image prompt wants a subject, not
+// the full formatted caption text.
+function buildImageSubject(type: ContentType, item: any): string {
+  switch (type) {
+    case 'lesson': return item?.title || 'trading education';
+    case 'signal': return `${item?.symbol || 'forex'} ${item?.direction || ''} trade setup`;
+    case 'scripture': return item?.scriptureReference || item?.title || 'faith and trading';
+    case 'update': return item?.headline || 'VEDD platform update';
+    case 'testimony': return item?.result || 'trader success story';
+    default: return 'trading';
+  }
+}
+
+// Shared card shell — lays the optional AI-generated background image behind
+// the existing per-type gradient (dimmed to keep text readable on top of it)
+// so cards keep their brand look whether or not an image was generated.
+function CardShell({ gradient, color, bgImage, children }: {
+  gradient: string; color: string; bgImage?: string | null; children: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl w-full aspect-square relative overflow-hidden" style={{ border: `1px solid ${color}44` }}>
+      {bgImage && (
+        <div className="absolute inset-0" style={{ backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+      )}
+      <div className="absolute inset-0" style={{ background: gradient, opacity: bgImage ? 0.82 : 1 }} />
+      <div className="relative z-10 p-4 w-full h-full flex flex-col">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ── VEDD Branded Post Card ─────────────────────────────────────────────────────
-function BrandedCard({ type, item, referralCode }: {
-  type: ContentType; item: any; referralCode: string | null;
+function BrandedCard({ type, item, referralCode, bgImage }: {
+  type: ContentType; item: any; referralCode: string | null; bgImage?: string | null;
 }) {
   const signupUrl = referralCode ? `veddbuild.com/auth?ref=${referralCode}` : 'veddbuild.com';
   const cfg = CONTENT_TYPES.find(c => c.id === type)!;
@@ -147,7 +180,7 @@ function BrandedCard({ type, item, referralCode }: {
   );
 
   if (type === 'lesson') return (
-    <div className="rounded-2xl p-4 w-full aspect-square flex flex-col" style={{ background: 'linear-gradient(160deg,#0a0a14 0%,#0d0a1a 60%,#0a0f0a 100%)', border: `1px solid ${cfg.color}44` }}>
+    <CardShell gradient="linear-gradient(160deg,#0a0a14 0%,#0d0a1a 60%,#0a0f0a 100%)" color={cfg.color} bgImage={bgImage}>
       <Header />
       <div className="flex-1 flex flex-col justify-center">
         <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: cfg.color }}>📚 Trading Lesson</p>
@@ -163,11 +196,11 @@ function BrandedCard({ type, item, referralCode }: {
         )}
       </div>
       <Footer />
-    </div>
+    </CardShell>
   );
 
   if (type === 'signal') return (
-    <div className="rounded-2xl p-4 w-full aspect-square flex flex-col" style={{ background: 'linear-gradient(160deg,#020f08 0%,#061a12 60%,#0a0a14 100%)', border: `1px solid ${cfg.color}44` }}>
+    <CardShell gradient="linear-gradient(160deg,#020f08 0%,#061a12 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
       <Header />
       {/* Live badge */}
       <div className="flex items-center gap-2 mb-3">
@@ -211,11 +244,11 @@ function BrandedCard({ type, item, referralCode }: {
         </div>
       </div>
       <Footer />
-    </div>
+    </CardShell>
   );
 
   if (type === 'scripture') return (
-    <div className="rounded-2xl p-4 w-full aspect-square flex flex-col" style={{ background: 'linear-gradient(160deg,#0d0a1a 0%,#120a14 60%,#0a0a14 100%)', border: `1px solid ${cfg.color}44` }}>
+    <CardShell gradient="linear-gradient(160deg,#0d0a1a 0%,#120a14 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
       <Header />
       <div className="flex-1 flex flex-col justify-center">
         <div className="rounded-xl p-3 mb-3" style={{ background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.25)' }}>
@@ -227,11 +260,11 @@ function BrandedCard({ type, item, referralCode }: {
         <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.tradingLesson || item?.content || 'Apply wisdom and patience to every trade. Faith and discipline build lasting wealth.', 160)}</p>
       </div>
       <Footer />
-    </div>
+    </CardShell>
   );
 
   if (type === 'update') return (
-    <div className="rounded-2xl p-4 w-full aspect-square flex flex-col" style={{ background: 'linear-gradient(160deg,#0f0a05 0%,#1a0f05 60%,#0a0a14 100%)', border: `1px solid ${cfg.color}44` }}>
+    <CardShell gradient="linear-gradient(160deg,#0f0a05 0%,#1a0f05 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
       <Header />
       {/* Breaking bar */}
       <div className="flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(249,115,22,.12)', border: '1px solid rgba(249,115,22,.3)' }}>
@@ -245,11 +278,11 @@ function BrandedCard({ type, item, referralCode }: {
         <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.body || '', 200)}</p>
       </div>
       <Footer />
-    </div>
+    </CardShell>
   );
 
   if (type === 'testimony') return (
-    <div className="rounded-2xl p-4 w-full aspect-square flex flex-col" style={{ background: 'linear-gradient(160deg,#0f0f05 0%,#1a140a 60%,#0a0a14 100%)', border: `1px solid ${cfg.color}44` }}>
+    <CardShell gradient="linear-gradient(160deg,#0f0f05 0%,#1a140a 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
       <Header />
       {/* Result badge */}
       <div className="flex items-center justify-center mb-3">
@@ -268,7 +301,7 @@ function BrandedCard({ type, item, referralCode }: {
         </div>
       </div>
       <Footer />
-    </div>
+    </CardShell>
   );
 
   return null;
@@ -555,6 +588,9 @@ export default function ContentStudioPage() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [caption, setCaption] = useState('');
   const [showPreview, setShowPreview] = useState(true);
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [generatingImage, setGeneratingImage] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
   if (!isAmbassador && !isAdmin) return <Redirect to="/dashboard" />;
@@ -566,10 +602,35 @@ export default function ContentStudioPage() {
     if (selectedItem) setCaption(buildCaption(activeType, selectedItem, referralCode, referralData?.url));
   }, [selectedItem, activeType, referralCode, referralData?.url]);
 
+  // A new selection invalidates any previously-generated background
+  useEffect(() => {
+    setBgImage(null);
+    setImageError(null);
+  }, [selectedItem, activeType]);
+
   const handleTypeSwitch = (type: ContentType) => {
     setActiveType(type);
     setSelectedItem(null);
     setCaption('');
+  };
+
+  const generateBackground = async () => {
+    if (!selectedItem || generatingImage) return;
+    setGeneratingImage(true);
+    setImageError(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/generate-image', {
+        contentType: activeType,
+        subject: buildImageSubject(activeType, selectedItem),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Image generation failed');
+      setBgImage(data.url);
+    } catch (err: any) {
+      setImageError(err.message || 'Image generation failed');
+    } finally {
+      setGeneratingImage(false);
+    }
   };
 
   return (
@@ -822,7 +883,7 @@ export default function ContentStudioPage() {
                     transition={{ duration: 0.2 }}
                   >
                     {selectedItem ? (
-                      <BrandedCard type={activeType} item={selectedItem} referralCode={referralCode} />
+                      <BrandedCard type={activeType} item={selectedItem} referralCode={referralCode} bgImage={bgImage} />
                     ) : (
                       <div className="rounded-2xl aspect-square flex flex-col items-center justify-center gap-3"
                         style={{ background: 'rgba(255,255,255,.02)', border: '1px dashed rgba(255,255,255,.1)' }}>
@@ -834,12 +895,25 @@ export default function ContentStudioPage() {
                 </AnimatePresence>
 
                 {selectedItem && (
-                  <div className="mt-3 flex items-center gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)' }}>
-                    <ImageIcon className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
-                    <p className="text-[10px] text-gray-500 leading-relaxed">
-                      <span className="text-white font-semibold">Screenshot this card</span> (iPhone: Side+Volume / Android: Power+Volume) then post the image + paste the caption below.
-                    </p>
-                  </div>
+                  <>
+                    <button
+                      onClick={generateBackground}
+                      disabled={generatingImage}
+                      className="w-full mt-3 flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-60"
+                      style={{ background: 'rgba(168,85,247,.12)', border: '1px solid rgba(168,85,247,.35)', color: '#c084fc' }}
+                    >
+                      {generatingImage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {generatingImage ? 'Generating background…' : bgImage ? 'Regenerate AI Background' : 'Generate AI Background'}
+                    </button>
+                    {imageError && <p className="text-[10px] text-red-400 mt-1.5 px-1">{imageError}</p>}
+
+                    <div className="mt-3 flex items-center gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)' }}>
+                      <ImageIcon className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
+                      <p className="text-[10px] text-gray-500 leading-relaxed">
+                        <span className="text-white font-semibold">Screenshot this card</span> (iPhone: Side+Volume / Android: Power+Volume) then post the image + paste the caption below.
+                      </p>
+                    </div>
+                  </>
                 )}
               </div>
             )}

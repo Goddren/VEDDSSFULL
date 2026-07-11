@@ -35,6 +35,8 @@ interface DashboardData {
   consistencyEnforcementEnabled: boolean;
   consistencyMinProfitableDays: number;
   consistencyPeriodDays: number;
+  maxDailyProfitPctOfTotal: number;
+  deepReasoningMode: boolean;
   profitableDays: number;
   totalTradingDays: number;
   daysRemaining: number;
@@ -131,6 +133,8 @@ export default function PropFirmChallengePage() {
     consistencyPeriodDays: 15,
     dailyProfitTarget: 2,
     propFirmDailyDrawdownLimit: 4,
+    maxDailyProfitPctOfTotal: 0,
+    deepReasoningMode: false,
   });
 
   const { data: mindData, refetch: refetchMind } = useQuery<any>({
@@ -178,6 +182,8 @@ export default function PropFirmChallengePage() {
           consistencyPeriodDays: d.consistencyPeriodDays,
           dailyProfitTarget: d.dailyProfitTargetPct || 2,
           propFirmDailyDrawdownLimit: d.dailyLossLimitPct,
+          maxDailyProfitPctOfTotal: d.maxDailyProfitPctOfTotal || 0,
+          deepReasoningMode: d.deepReasoningMode || false,
         }));
       }
       return d;
@@ -361,6 +367,36 @@ export default function PropFirmChallengePage() {
                       className="bg-slate-900 border-slate-600 text-white text-sm h-8 w-24"
                     />
                     <span className="text-slate-400 text-sm">% of account per day</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                  <Label className="text-sm font-semibold text-white">Max Single-Day Profit (Consistency Rule)</Label>
+                  <p className="text-xs text-slate-400">Halts new trades once today's profit reaches this % of your total challenge profit — protects payout eligibility on firms with a consistency rule</p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number" min={0} max={100} step={5}
+                      value={form.maxDailyProfitPctOfTotal}
+                      onChange={e => setForm(f => ({ ...f, maxDailyProfitPctOfTotal: parseFloat(e.target.value) || 0 }))}
+                      className="bg-slate-900 border-slate-600 text-white text-sm h-8 w-24"
+                    />
+                    <span className="text-slate-400 text-sm">% of total profit</span>
+                    <span className="text-xs text-slate-500">(0 = disabled)</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-sm font-semibold text-white flex items-center gap-1.5">
+                        <Brain className="w-3.5 h-3.5 text-purple-400" /> Deep Reasoning Mode
+                      </Label>
+                      <p className="text-xs text-slate-400 mt-0.5">Runs a Bull Case → Bear Case → Veteran-Judge debate (30-year-trader persona, real reasoning model) before every confirmation instead of one fast pass. Higher conviction, slower and more expensive per trade.</p>
+                    </div>
+                    <Switch
+                      checked={form.deepReasoningMode}
+                      onCheckedChange={v => setForm(f => ({ ...f, deepReasoningMode: v }))}
+                    />
                   </div>
                 </div>
               </div>

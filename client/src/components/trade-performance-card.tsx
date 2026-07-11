@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { TrendingUp, TrendingDown, Activity, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, Activity, RefreshCw, Zap } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 export interface TlAccountPerf {
@@ -201,6 +201,12 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
           {/* TradeLocker accounts — tied to prop firm accounts, live balance + per-account P&L */}
           {(data!.tradelockerAccounts?.length ?? 0) > 0 && (
             <div className="mb-3">
+              <div className="flex items-start gap-1.5 mb-1.5 px-2 py-1.5 rounded-lg" style={{ background: 'rgba(6,182,212,.08)', border: '1px solid rgba(6,182,212,.2)' }}>
+                <Zap className="w-3 h-3 text-cyan-400 flex-shrink-0 mt-0.5" />
+                <p className="text-[9px] text-cyan-200/80 leading-relaxed">
+                  Every trade on these accounts is now detected and logged automatically — no manual entry needed. Look for the <span className="font-semibold text-cyan-300">Auto-Synced</span> tag below.
+                </p>
+              </div>
               <p className="text-[9px] text-gray-500 mb-1 uppercase tracking-wide">TradeLocker Accounts {(data!.propFirm?.accounts.length ?? 0) > 0 ? "· Prop Firm" : ""}</p>
               <div className="space-y-1.5">
                 {data!.tradelockerAccounts!.map((a) => (
@@ -251,7 +257,9 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
                         : t.result === "LOSS" ? "bg-red-500/20 text-red-400"
                         : "bg-gray-700/50 text-gray-400"
                       }`}>{t.result}</span>
-                      <span className="text-[8px] px-1 rounded bg-gray-800/60 text-gray-500 flex-shrink-0">{t.source}</span>
+                      <span className={`text-[8px] px-1 rounded flex-shrink-0 ${t.source === 'tradelocker_auto' || t.source === 'mt5_copier' ? 'bg-cyan-900/40 text-cyan-400' : 'bg-gray-800/60 text-gray-500'}`}>
+                        {t.source === 'tradelocker_auto' ? 'Auto-Synced' : t.source === 'mt5_copier' ? 'Auto (MT5)' : t.source}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-1">
                       <span className="font-bold" style={{ color: pnlColor(t.profitLoss) }}>{usd(t.profitLoss)}</span>

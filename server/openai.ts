@@ -564,6 +564,10 @@ export interface AiVisionConfirmation {
   breakoutQuality?: 'ELITE' | 'STRONG' | 'DEVELOPING';
   modelUsed?: string;
   providerUsed?: string;
+  thinkingTrace?: string | null;
+  bullCase?: string;
+  bearCase?: string;
+  deepReasoningUsed?: boolean;
 }
 
 export interface AiConfirmationLogEntry {
@@ -1788,6 +1792,41 @@ async function callMistralConfirmation(prompt: { system: string; user: string },
   return typeof choice.message.content === 'string' ? choice.message.content : '';
 }
 
+// True chain-of-thought reasoning models (DeepSeek R1, OpenAI o-series) need
+// temperature=1 (not the 0.3 used for plain chat models) and emit a
+// <think>...</think> block before their answer that regex JSON-extraction
+// would otherwise silently discard.
+export function isReasoningModel(modelId: string): boolean {
+  const m = (modelId || '').toLowerCase();
+  return m.includes('r1') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4');
+}
+
+function extractThinkingTrace(content: string): { thinking: string | null; rest: string } {
+  const match = content.match(/<think>([\s\S]*?)<\/think>/i);
+  if (!match) return { thinking: null, rest: content };
+  return { thinking: match[1].trim(), rest: content.slice(match.index! + match[0].length) };
+}
+
+// OpenRouter — hosts DeepSeek R1/V3 (free tier) and dozens of other models.
+// Falls back to the platform-wide key so free-tier reasoning models work
+// without every user needing their own OpenRouter account.
+async function callOpenRouterConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<{ content: string; thinking: string | null }> {
+  const client = buildOpenAICompatClient('openrouter', apiKey);
+  const reasoning = isReasoningModel(model);
+  const response = await (client as any).chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: prompt.system },
+      { role: "user", content: prompt.user }
+    ],
+    max_tokens: reasoning ? 2000 : 1000, // reasoning models spend tokens on <think> before the answer
+    temperature: reasoning ? 1 : 0.3,
+  });
+  const raw = response.choices?.[0]?.message?.content || '';
+  const { thinking, rest } = extractThinkingTrace(raw);
+  return { content: rest, thinking };
+}
+
 async function getUserApiKeyForProvider(userId: number, provider: string): Promise<string | null> {
   try {
     const { storage } = await import('./storage');
@@ -1800,6 +1839,107 @@ async function getUserApiKeyForProvider(userId: number, provider: string): Promi
     console.error(`Error fetching user API key for ${provider}:`, e);
   }
   return null;
+}
+
+// ── Deep Reasoning Mode ────────────────────────────────────────────────────
+// Two-pass debate instead of one fast single-call decision: a Debate pass
+// argues both sides of the trade, then a Veteran-Judge pass — run on an
+// actual chain-of-thought reasoning model — weighs them with the discipline
+// of a trader who has been consistently profitable for 30+ years: extreme
+// selectivity, capital preservation over frequency, no bias toward "yes."
+const VETERAN_JUDGE_MODEL = 'deepseek/deepseek-r1:free';
+
+const VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime — bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
+- Capital preservation is priority #1, always — profit is priority #2.
+- You are far more likely to skip a setup than take it. Most trades that look "pretty good" get passed on. You only act on genuine, high-probability confluence.
+- Consistency beats occasional brilliance — you would rather bank ten small, disciplined wins than swing for one big one and risk the account.
+- You have zero ego. If the Bear Case is stronger than the Bull Case, you say no, full stop, regardless of how the setup "feels."
+- You never revenge trade, never widen risk to chase a loss back, and never let a strong bull case override a real structural risk.`;
+
+async function runDeepReasoningDebate(
+  prompt: { system: string; user: string },
+  userId?: number
+): Promise<AiVisionConfirmation> {
+  // Pass 1 — Debate: argue both sides using a fast model (no need for a
+  // reasoning model here, just genuine adversarial argument quality).
+  let bullCase = '';
+  let bearCase = '';
+  try {
+    const debateClient = userId ? await getUniversalAIClientForUser(userId) : getOpenAIInstance();
+    const debateModel = (debateClient as any).defaultModel || 'gpt-4o-mini';
+    const debateResponse = await (debateClient as any).chat.completions.create({
+      model: debateModel,
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a trading debate simulator. Given the market data and rules below, produce genuinely rigorous arguments — a bad setup should get a devastating bear case, a great setup should get a compelling bull case. Return ONLY valid JSON: {"bullCase": "2-4 sentences arguing FOR taking this trade", "bearCase": "2-4 sentences arguing AGAINST taking this trade"}',
+        },
+        { role: 'user', content: prompt.user },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 600,
+      temperature: 0.6,
+    });
+    const raw = debateResponse.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+    bullCase = parsed.bullCase || '';
+    bearCase = parsed.bearCase || '';
+  } catch (e: any) {
+    console.error('[Deep Reasoning] Debate pass failed (non-fatal, judge proceeds without it):', e.message);
+  }
+
+  // Pass 2 — Veteran Judge: a real reasoning model weighs both cases.
+  const judgeApiKey = (userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null) || process.env.OPENROUTER_API_KEY;
+  if (!judgeApiKey) {
+    return {
+      confirmed: false,
+      aiDirection: 'NEUTRAL',
+      aiConfidence: 0,
+      reasoning: 'Deep Reasoning Mode requires an OpenRouter key (platform or user) for the Veteran-Judge reasoning pass. Add one on the AI Provider Keys page.',
+      bullCase, bearCase, deepReasoningUsed: false,
+    };
+  }
+
+  const judgeUser = `${prompt.user}\n\n## BULL CASE\n${bullCase || '(debate pass unavailable)'}\n\n## BEAR CASE\n${bearCase || '(debate pass unavailable)'}\n\nWeigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
+
+  try {
+    const result = await callOpenRouterConfirmation(
+      { system: `${VETERAN_PERSONA}\n\n${prompt.system}`, user: judgeUser },
+      VETERAN_JUDGE_MODEL,
+      judgeApiKey
+    );
+    if (!result.content) throw new Error('No response from Veteran-Judge model');
+    const jsonMatch = result.content.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);
+    const validTrailValues = ['NONE', 'TIGHT', 'STANDARD', 'WIDE', 'AGGRESSIVE'];
+    return {
+      confirmed: !!parsed.confirmed,
+      aiDirection: parsed.direction || 'NEUTRAL',
+      aiConfidence: typeof parsed.confidence === 'number' ? parsed.confidence : 50,
+      reasoning: parsed.reasoning || 'No reasoning provided',
+      adjustedEntry: typeof parsed.adjustedEntry === 'number' ? parsed.adjustedEntry : undefined,
+      adjustedStopLoss: typeof parsed.adjustedStopLoss === 'number' ? parsed.adjustedStopLoss : undefined,
+      adjustedTakeProfit: typeof parsed.adjustedTakeProfit === 'number' ? parsed.adjustedTakeProfit : undefined,
+      trailRecommendation: validTrailValues.includes(parsed.trailRecommendation) ? parsed.trailRecommendation : undefined,
+      ictMacroValid: typeof parsed.ictMacroValid === 'boolean' ? parsed.ictMacroValid : undefined,
+      smcVerdict: ['CONFIRM', 'REQUIRE_BETTER_PRICE', 'PASS'].includes(parsed.smcVerdict) ? parsed.smcVerdict : null,
+      propFirmVerdict: ['SAFE', 'WARNING', 'BLOCK'].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : undefined,
+      propFirmReason: typeof parsed.propFirmReason === 'string' ? parsed.propFirmReason : undefined,
+      modelUsed: VETERAN_JUDGE_MODEL,
+      providerUsed: 'openrouter',
+      thinkingTrace: result.thinking,
+      bullCase, bearCase, deepReasoningUsed: true,
+    };
+  } catch (e: any) {
+    console.error('[Deep Reasoning] Veteran-Judge pass failed:', e.message);
+    return {
+      confirmed: false,
+      aiDirection: 'NEUTRAL',
+      aiConfidence: 0,
+      reasoning: `Deep Reasoning Mode error: ${e.message}`,
+      bullCase, bearCase, deepReasoningUsed: false,
+    };
+  }
 }
 
 export async function getAiVisionConfirmation(
@@ -1818,7 +1958,8 @@ export async function getAiVisionConfirmation(
   propFirmContext?: PropFirmContext | null,
   performanceStats?: PerformanceStats,
   learnedInsights?: string,
-  strategyMode?: string
+  strategyMode?: string,
+  deepReasoningMode?: boolean
 ): Promise<AiVisionConfirmation> {
   try {
     // Always resolve to a vision-capable model — text-only models (Groq Llama 3.3, Mixtral)
@@ -1868,12 +2009,38 @@ export async function getAiVisionConfirmation(
 
     const prompt = await buildConfirmationPrompt(candleData, indicators, proposedSignal, proposedConfidence, tradePlan, symbol, timeframe, newsContext, ictContext, smcContext, htfLevels, propFirmContext, performanceStats, learnedInsights, userId, strategyMode);
 
+    if (deepReasoningMode) {
+      console.log(`[AI Vision Confirmation] Deep Reasoning Mode — running Bull/Bear/Veteran-Judge debate for ${symbol} ${proposedSignal}`);
+      const debateResult = await runDeepReasoningDebate(prompt, userId);
+      return {
+        ...debateResult,
+        confluenceScore: confluenceResult.score,
+        confluenceGrade: confluenceResult.grade,
+      };
+    }
+
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
 
     let content = '';
+    let thinkingTrace: string | null = null;
 
     if (provider === 'openai') {
       content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+    } else if (provider === 'openrouter') {
+      // Free-tier models (DeepSeek R1/V3 etc.) shouldn't require every user
+      // to bring their own OpenRouter key — fall back to the platform key.
+      const apiKey = (userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null) || process.env.OPENROUTER_API_KEY;
+      if (!apiKey) {
+        return {
+          confirmed: false,
+          aiDirection: 'NEUTRAL',
+          aiConfidence: 0,
+          reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`,
+        };
+      }
+      const result = await callOpenRouterConfirmation(prompt, selectedModel, apiKey);
+      content = result.content;
+      thinkingTrace = result.thinking;
     } else if (userId) {
       const apiKey = await getUserApiKeyForProvider(userId, provider);
       if (!apiKey) {
@@ -1935,6 +2102,7 @@ export async function getAiVisionConfirmation(
       newsProximityMinutes: null,
       modelUsed: selectedModel,
       providerUsed: provider,
+      thinkingTrace,
     };
   } catch (error: any) {
     const errMsg = error?.message || String(error);

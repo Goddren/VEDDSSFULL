@@ -9,6 +9,12 @@
 import { storage } from '../storage';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 
+// accountId -> Set of open-position ticket ids seen on the previous sync pass.
+// Used to detect closures (a ticket that was open last cycle and is gone now)
+// without needing a webhook — TradeLocker has no EA-style push, so this is
+// the only way to auto-detect a trade closing.
+const lastOpenTickets = new Map<string, Set<string>>();
+
 export interface TlLiveAccount {
   accountId: string;
   connectionId: number;
@@ -42,6 +48,59 @@ function cache(): Record<number, Record<string, TlLiveAccount>> {
 /** Mark a user as active so the background loop keeps their balances fresh. */
 export function markTlUserActive(userId: number): void {
   activeUsers.set(userId, Date.now());
+}
+
+/**
+ * Auto-log every open/closed TradeLocker trade into aiTradeResults — the same
+ * table MT5 trades land in — so the trade feed stays current with zero
+ * manual entry. Dedup key mirrors MT5's mt5Ticket pattern: `tl_<accountId>_<positionId>`.
+ */
+async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promise<void> {
+  const cacheKey = `${userId}:${conn.accountId}`;
+  const openPositions = await svc.getPositionsNormalized().catch(() => [] as any[]);
+  const currentTickets = new Set<string>(openPositions.map((p: any) => `tl_${conn.accountId}_${p.id}`));
+
+  // New/still-open positions — create if we haven't logged this ticket yet
+  for (const p of openPositions) {
+    const ticket = `tl_${conn.accountId}_${p.id}`;
+    const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+    if (existing) continue;
+    await storage.createAiTradeResult({
+      userId,
+      symbol: p.symbol,
+      direction: (p.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
+      entryPrice: p.avgPrice || 0,
+      aiConfidence: 0,
+      result: 'PENDING',
+      source: 'tradelocker_auto',
+      connectionId: conn.id,
+      mt5Ticket: ticket,
+    } as any);
+  }
+
+  // Positions that were open last cycle but are gone now → closed. Look up
+  // realized P&L from filled orders/closed positions to fill in the outcome.
+  const previousTickets = lastOpenTickets.get(cacheKey);
+  if (previousTickets) {
+    const closedTicketIds = Array.from(previousTickets).filter(t => !currentTickets.has(t));
+    if (closedTicketIds.length > 0) {
+      const closed = await svc.getClosedPositions().catch(() => [] as any[]);
+      const closedById = new Map<string, any>(closed.map((c: any) => [`tl_${conn.accountId}_${c.id}`, c] as [string, any]));
+      for (const ticket of closedTicketIds) {
+        const existing = await storage.getAiTradeResultByTicket(userId, ticket);
+        if (!existing || existing.result !== 'PENDING') continue;
+        const match = closedById.get(ticket);
+        const profit = match ? match.profit : 0;
+        const result = profit > 0 ? 'WIN' : profit < 0 ? 'LOSS' : 'BREAKEVEN';
+        await storage.updateAiTradeResult(existing.id, userId, {
+          result,
+          profitLoss: profit,
+          closedAt: new Date(),
+        } as any);
+      }
+    }
+  }
+  lastOpenTickets.set(cacheKey, currentTickets);
 }
 
 /**
@@ -94,6 +153,13 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
         (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
         (global as any).tlAccountBalances[userId] = (global as any).tlAccountBalances[userId] || {};
         if (info.balance > 0) (global as any).tlAccountBalances[userId][conn.accountId] = info.balance;
+
+        // Auto-log this account's trades — no manual entry, no EA/webhook
+        // needed. TradeLocker has no push mechanism like MT5's EA, so this
+        // poll-and-diff is the only way to detect a trade closing.
+        await syncTradeLockerTrades(userId, conn, svc).catch(err =>
+          console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
+        );
       } catch (err: any) {
         const prev = store[userId][conn.accountId];
         store[userId][conn.accountId] = {

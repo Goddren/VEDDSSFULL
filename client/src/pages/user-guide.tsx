@@ -1594,6 +1594,117 @@ const guideSections: GuideSection[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'brain-marketplace',
+    title: 'Brain Data Marketplace',
+    icon: Store,
+    description: 'Buy and sell AI trading brain data — bootstrap your AI with proven trade history',
+    content: [
+      {
+        heading: 'What the Brain Data Marketplace Is',
+        steps: [
+          'Every trade the AI confirms for you builds your personal "learning brain" — the history the AI studies to find your winning patterns',
+          'Established traders can sell a snapshot copy of their trade history for VEDD tokens — they keep their own data, buyers get a copy',
+          'Newcomers can buy a proven trader\'s history to instantly bootstrap their AI\'s pattern recognition instead of starting from zero',
+          'Prices are computed automatically from data age, number of pairs, trade count, and win rate (5–500 VEDD range)'
+        ],
+        tips: ['Purchased data is tagged separately from your own trades, so the AI always knows which patterns came from where', 'You need at least 10 completed trades before you can list your own data']
+      },
+      {
+        heading: 'Buying and Selling',
+        steps: [
+          'Open Brain Marketplace from the navigation menu',
+          'To sell: review your live price preview, add a title and description, then click "List My Data"',
+          'To buy: browse listings, check the trades/pairs/age/win-rate stats, and click Buy — VEDD is deducted from your wallet and the data merges into your brain instantly',
+          'Sellers earn the full listing price every time someone buys — the same listing can sell to unlimited buyers'
+        ],
+        tips: ['You can\'t re-sell data you purchased — only your own organic trade history counts toward a listing']
+      }
+    ]
+  },
+  {
+    id: 'auto-trade-logging',
+    title: 'Automatic Trade Logging',
+    icon: TrendingUp,
+    description: 'Every trade on every connected account logs itself — no manual entry ever',
+    content: [
+      {
+        heading: 'How Automatic Logging Works',
+        steps: [
+          'Connect a TradeLocker or MT5 account once — that\'s the only setup',
+          'VEDD checks your open positions every 20 seconds and records any new trade automatically',
+          'When a position closes, VEDD detects it, pulls the real profit or loss from your broker, and marks the trade WIN, LOSS, or BREAKEVEN',
+          'Auto-logged trades show an "Auto-Synced" tag in your Trade Performance feed so you can tell them apart from manual entries'
+        ],
+        tips: ['A complete trade record is what powers the AI Brain\'s learning — automatic logging means no gaps and no cherry-picking']
+      },
+      {
+        heading: 'The Paper Trade AI Journal',
+        steps: [
+          'Every trade the AI confirms is also recorded as a paper trade — a parallel journal tracking what the AI\'s calls would have produced',
+          'Open Paper Trades from the menu to see win rate, P&L in pips, and per-symbol / per-model accuracy breakdowns',
+          'Pending entries resolve automatically against live prices at the 1-hour, 4-hour, and 24-hour marks — no manual outcome entry needed',
+          'The AI reads its own historical accuracy back into future decisions, so a weak streak automatically makes it more cautious'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'copy-trading-guide',
+    title: 'Copy Trading',
+    icon: Users,
+    description: 'Mirror top traders automatically — on a paper account or your real broker account',
+    content: [
+      {
+        heading: 'Starting a Copy Relationship',
+        steps: [
+          'Open Copy Trading and browse the leaderboard — traders ranked by real win rate',
+          'Click Copy on a trader, set your Max Lot Size (your trades never exceed this, regardless of the leader\'s size)',
+          'Choose Paper mode (mirrors into your simulated account — zero risk) or Real mode (places live orders on your connected TradeLocker account)',
+          'A one-time VEDD subscription fee goes to the trader, plus a profit share on winning copied trades'
+        ],
+        tips: ['Start in Paper mode to evaluate a trader\'s real performance on your own account before committing real money']
+      },
+      {
+        heading: 'Real-Mode Safety Gates',
+        steps: [
+          'Real-mode copying requires selecting a specific connected account and explicitly confirming you understand live orders will be placed automatically',
+          'Every copied trade is checked before execution: your account must have fresh data, positive balance, free margin, and a margin level above the 200% safety floor',
+          'Your Max Lot Size is a hard cap enforced on every single trade',
+          'A daily-loss backstop automatically pauses real-mode copying for the rest of the day if copied trades lose 10% of your account'
+        ],
+        tips: ['If a copied trade is skipped by a safety gate, the reason is recorded on the trade log so you always know why']
+      }
+    ]
+  },
+  {
+    id: 'deep-reasoning-prop-firm',
+    title: 'Deep Reasoning & Prop Firm Tools',
+    icon: Cpu,
+    description: 'Veteran-trader AI reasoning and the rules that pass prop firm challenges',
+    content: [
+      {
+        heading: 'Deep Reasoning Mode',
+        steps: [
+          'Toggle Deep Reasoning Mode on from the Prop Firm Challenge dashboard settings',
+          'Instead of one fast AI pass, every trade confirmation runs a full debate: a Bull Case argues for the trade, a Bear Case argues against it',
+          'A Veteran Judge — an AI persona modeled on a trader with 30+ years of consistent profitability — weighs both sides using a true chain-of-thought reasoning model and makes the final call',
+          'The complete reasoning trail (bull case, bear case, and the judge\'s thinking) is saved with every decision so you can audit exactly why a trade was taken or skipped'
+        ],
+        tips: ['Deep Reasoning is slower and costs more per confirmation — best used on live accounts and prop firm challenges where every decision matters', 'The Veteran Judge is deliberately biased toward skipping marginal setups — capital preservation first, exactly like a real 30-year veteran']
+      },
+      {
+        heading: 'Prop Firm Consistency Rules',
+        steps: [
+          'Prop Firm Mode makes the engine respect your firm\'s actual daily drawdown limit — and it stops trading at 80% of the limit, leaving a buffer instead of riding the edge',
+          'Consistency Enforcement tracks your profitable-days quota (e.g. 10 of 15 days) and automatically cuts risk when you can\'t afford another losing day',
+          'Max Single-Day Profit rule: set a cap on how much of your total challenge profit can come from one day — the engine halts for the day once you reach it, protecting payout eligibility on firms with consistency requirements',
+          'Near-target protection: once you\'ve banked 80% of your profit target, risk is automatically trimmed to half — protecting gains the way an experienced challenge-passer does'
+        ],
+        tips: ['Set the Max Single-Day Profit % to match your firm\'s rule (commonly 30–50%)', 'These rules work together: the goal is passing consistently, not passing fast']
+      }
+    ]
   }
 ];
 

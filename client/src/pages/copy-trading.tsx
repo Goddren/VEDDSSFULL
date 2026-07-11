@@ -53,6 +53,13 @@ export default function CopyTradingPage() {
   const [copyingUserId, setCopyingUserId] = useState<number | null>(null);
   const [newMaxLot, setNewMaxLot] = useState("0.01");
   const [newAccountType, setNewAccountType] = useState("paper");
+  const [newConnectionId, setNewConnectionId] = useState<number | null>(null);
+  const [realModeConfirmed, setRealModeConfirmed] = useState(false);
+
+  const { data: tlConnections = [] } = useQuery<any[]>({
+    queryKey: ["/api/tradelocker/connections"],
+  });
+  const activeTlConnections = tlConnections.filter((c: any) => c.isActive);
   const [logFilter, setLogFilter] = useState<"all" | "open" | "closed">("all");
   const [profitSharePct, setProfitSharePct] = useState(20);
 
@@ -83,14 +90,16 @@ export default function CopyTradingPage() {
   });
 
   const startCopyMutation = useMutation({
-    mutationFn: async ({ sourceUserId, accountType, maxLotSize, profitSharePct }: { sourceUserId: number; accountType: string; maxLotSize: number; profitSharePct: number }) => {
-      const res = await apiRequest("POST", "/api/copy/relationships", { sourceUserId, accountType, maxLotSize, profitSharePct });
+    mutationFn: async ({ sourceUserId, accountType, maxLotSize, profitSharePct, copierConnectionId }: { sourceUserId: number; accountType: string; maxLotSize: number; profitSharePct: number; copierConnectionId?: number | null }) => {
+      const res = await apiRequest("POST", "/api/copy/relationships", { sourceUserId, accountType, maxLotSize, profitSharePct, copierConnectionId });
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/copy/relationships"] });
       queryClient.invalidateQueries({ queryKey: ["/api/copy/vedd-status"] });
       setCopyingUserId(null);
+      setNewConnectionId(null);
+      setRealModeConfirmed(false);
       toast({ title: "Copy started", description: `${data.veddCharged} VEDD charged · ${data.profitSharePct}% profit share active.` });
     },
     onError: (err: any) => {
@@ -381,7 +390,7 @@ export default function CopyTradingPage() {
                                   </span>
                                 ) : canCopy ? (
                                   <button
-                                    onClick={() => { setCopyingUserId(isExpanded ? null : trader.user_id); setNewMaxLot("0.01"); setNewAccountType("paper"); }}
+                                    onClick={() => { setCopyingUserId(isExpanded ? null : trader.user_id); setNewMaxLot("0.01"); setNewAccountType("paper"); setNewConnectionId(null); setRealModeConfirmed(false); }}
                                     style={{ padding: "4px 12px", borderRadius: 8, background: "#a855f7", border: "none", color: "#fff", fontWeight: 700, fontSize: 11, cursor: "pointer" }}
                                   >
                                     <Copy size={10} style={{ display: "inline", marginRight: 4 }} />Copy
@@ -404,18 +413,48 @@ export default function CopyTradingPage() {
                                     </div>
                                     <div>
                                       <label style={{ fontSize: 11, color: "#9ca3af", display: "block", marginBottom: 4 }}>Account Type</label>
-                                      <select value={newAccountType} onChange={e => setNewAccountType(e.target.value)}
+                                      <select value={newAccountType} onChange={e => { setNewAccountType(e.target.value); setNewConnectionId(null); setRealModeConfirmed(false); }}
                                         style={{ background: "#1f2937", border: "1px solid #374151", color: "#fff", height: 32, padding: "0 8px", fontSize: 13, borderRadius: 6 }}>
                                         <option value="paper">Paper</option>
                                         <option value="real">Real</option>
                                       </select>
                                     </div>
-                                    <Button size="sm" onClick={() => startCopyMutation.mutate({ sourceUserId: trader.user_id, accountType: newAccountType, maxLotSize: parseFloat(newMaxLot) || 0.01, profitSharePct })}
-                                      disabled={startCopyMutation.isPending} className="h-8 bg-purple-600 hover:bg-purple-700">
+                                    {newAccountType === "real" && (
+                                      <div>
+                                        <label style={{ fontSize: 11, color: "#9ca3af", display: "block", marginBottom: 4 }}>Execute On</label>
+                                        <select value={newConnectionId ?? ""} onChange={e => setNewConnectionId(e.target.value ? parseInt(e.target.value, 10) : null)}
+                                          style={{ background: "#1f2937", border: "1px solid #374151", color: "#fff", height: 32, padding: "0 8px", fontSize: 13, borderRadius: 6, minWidth: 180 }}>
+                                          <option value="">Select account…</option>
+                                          {activeTlConnections.map((c: any) => (
+                                            <option key={c.id} value={c.id}>{c.brokerName || "TradeLocker"} — {c.email} ({c.accountType})</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
+                                    <Button size="sm"
+                                      onClick={() => startCopyMutation.mutate({ sourceUserId: trader.user_id, accountType: newAccountType, maxLotSize: parseFloat(newMaxLot) || 0.01, profitSharePct, copierConnectionId: newAccountType === "real" ? newConnectionId : null })}
+                                      disabled={startCopyMutation.isPending || (newAccountType === "real" && (!newConnectionId || !realModeConfirmed))}
+                                      className="h-8 bg-purple-600 hover:bg-purple-700">
                                       {startCopyMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : `Confirm — ${subscriptionFee} VEDD`}
                                     </Button>
                                     <Button size="sm" variant="ghost" onClick={() => setCopyingUserId(null)} className="h-8 text-gray-400">Cancel</Button>
                                   </div>
+                                  {newAccountType === "real" && (
+                                    <div style={{ marginTop: 8, padding: "10px 12px", background: "#1a0a0a", borderRadius: 8, border: "1px solid #7f1d1d66" }}>
+                                      <p style={{ fontSize: 11, color: "#fca5a5", fontWeight: 700, marginBottom: 4 }}>⚠️ Real-money copying</p>
+                                      <p style={{ fontSize: 10, color: "#f3a8a8", lineHeight: 1.5, marginBottom: 6 }}>
+                                        Every trade this person opens will be placed automatically on your selected account, capped at your Max Lot Size.
+                                        Safety gates (margin health, free margin, a daily-loss backstop) will block trades when your account looks unhealthy — but this still risks real money with zero manual review per trade.
+                                      </p>
+                                      {activeTlConnections.length === 0 && (
+                                        <p style={{ fontSize: 10, color: "#fca5a5", marginBottom: 6 }}>You have no active TradeLocker connection — connect one first to use real-mode copying.</p>
+                                      )}
+                                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#f3a8a8", cursor: "pointer" }}>
+                                        <input type="checkbox" checked={realModeConfirmed} onChange={e => setRealModeConfirmed(e.target.checked)} />
+                                        I understand this will place real trades automatically on my account.
+                                      </label>
+                                    </div>
+                                  )}
                                   <div style={{ marginTop: 8, padding: "8px 10px", background: "#080b14", borderRadius: 8, border: "1px solid #1a1f2e" }}>
                                     <span style={{ fontSize: 10, color: "#6b7280" }}>
                                       🪙 <strong style={{ color: "#a855f7" }}>{subscriptionFee} VEDD</strong> subscription fee paid to trader ·

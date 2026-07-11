@@ -170,6 +170,11 @@ interface LiveEngineConfig {
   consistencyEnforcementEnabled: boolean; // reduce risk on days where consistency is at risk
   consistencyMinProfitableDays: number;   // required profitable days in period (e.g. 10 for Earn2Trade)
   consistencyPeriodDays: number;          // total days in the period (e.g. 15)
+  maxDailyProfitPctOfTotal: number;       // FTMO-style consistency rule: no single day's profit may exceed this % of total challenge profit (0 = disabled)
+  // Deep Reasoning Mode: runs a Bull case -> Bear case -> Veteran-Judge debate
+  // (reasoning model) before confirming a trade, instead of the single fast
+  // GPT-4o pass. Higher conviction, higher cost/latency — opt-in.
+  deepReasoningMode: boolean;
   // Acceleration features
   adaptiveScanInterval: boolean;
   enablePyramiding: boolean;
@@ -822,6 +827,8 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     consistencyEnforcementEnabled: false,
     consistencyMinProfitableDays: 10,
     consistencyPeriodDays: 15,
+    maxDailyProfitPctOfTotal: 0,
+    deepReasoningMode: false,
     directionFilter: 'both',
     pairDirectionOverrides: {},
     pairLotOverrides: {},
@@ -1257,6 +1264,43 @@ async function scanMarkets(userId: number): Promise<void> {
     (state as any)._consistencyRiskOverride = consistencyRiskMultiplier;
   } else {
     delete (state as any)._consistencyRiskOverride;
+  }
+
+  // ── Consistency: max single-day profit as % of total (FTMO-style rule) ───
+  // Different from the "N profitable days" rule above — this caps how much
+  // of the TOTAL challenge profit can come from any one day. Once today's
+  // gain already accounts for too much of the total, an experienced prop
+  // trader stops banking more today rather than jeopardize payout eligibility.
+  if (state.config.propFirmMode) {
+    const totalProfitAllTime = Object.values(state.challengeDailyPnL).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+    const todayProfit = Math.max(0, state.pnlToday);
+
+    if ((state.config.maxDailyProfitPctOfTotal ?? 0) > 0 && totalProfitAllTime > 0 && todayProfit > 0) {
+      const todayPctOfTotal = (todayProfit / totalProfitAllTime) * 100;
+      if (todayPctOfTotal >= state.config.maxDailyProfitPctOfTotal && !state.dailyProfitHalted) {
+        state.dailyProfitHalted = true;
+        state.dailyProfitHaltedAt = new Date().toISOString();
+        addActivity(userId, {
+          type: 'info',
+          message: `⚖️ Consistency Rule: today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit: ${state.config.maxDailyProfitPctOfTotal}%) — halting new trades today to protect payout eligibility.`,
+        });
+      }
+    }
+
+    // ── Phase-aware tightening: protect gains as the account nears its target ──
+    // A veteran trader gets MORE conservative near a finish line, not less —
+    // fewer, higher-conviction trades once most of the target is already banked.
+    if ((state.config.weeklyProfitTarget ?? 0) > 0 && consistencyRiskMultiplier === 1.0) {
+      const pctOfTarget = (totalProfitAllTime / state.config.weeklyProfitTarget) * 100;
+      if (pctOfTarget >= 80) {
+        consistencyRiskMultiplier = 0.5;
+        (state as any)._consistencyRiskOverride = consistencyRiskMultiplier;
+        addActivity(userId, {
+          type: 'info',
+          message: `🎯 Near Target: ${pctOfTarget.toFixed(0)}% of profit target reached — risk trimmed to 50% to protect gains.`,
+        });
+      }
+    }
   }
 
   // ── Mind state: cool-off gate ─────────────────────────────────────────────
@@ -3905,13 +3949,20 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           return;
         }
         const _bal = _snap.balance > 0 ? _snap.balance : (config.accountBalance || 0);
-        if ((config.dailyLossLimit ?? 0) > 0 && _bal > 0) {
+        // Prop-firm accounts use the FIRM's actual daily drawdown rule, not the
+        // generic engine default — and stop at 80% of it, not the exact edge,
+        // the way an experienced prop-firm trader leaves margin before the wall.
+        const _effectiveDailyLimit = config.propFirmMode && config.propFirmDailyDrawdownLimit > 0
+          ? config.propFirmDailyDrawdownLimit * 0.8
+          : (config.dailyLossLimit ?? 0);
+        if (_effectiveDailyLimit > 0 && _bal > 0) {
           const _positions = (global as any).mt5OpenPositions?.[userId]?.positions ?? [];
           const _floating = _positions.reduce((s: number, p: any) => s + (p.profit || 0), 0);
           const _realized = typeof _snap.dailyPnL === 'number' ? _snap.dailyPnL : 0;
           const _lossPct = ((_realized + _floating) / _bal) * 100;
-          if (_lossPct <= -config.dailyLossLimit) {
-            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ -${config.dailyLossLimit}% (incl. floating) — trade skipped` });
+          if (_lossPct <= -_effectiveDailyLimit) {
+            const _limitLabel = config.propFirmMode ? `prop firm limit ${config.propFirmDailyDrawdownLimit}% (80% buffer)` : `-${config.dailyLossLimit}%`;
+            addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: daily loss ${_lossPct.toFixed(1)}% ≤ ${_limitLabel} (incl. floating) — trade skipped` });
             return;
           }
         }
