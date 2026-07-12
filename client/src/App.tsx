@@ -106,6 +106,7 @@ import TokenInvestmentsPage from "@/pages/token-investments";
 import MicroGrowthPage from "@/pages/micro-growth";
 import ActivityHubPage from "@/pages/activity-hub";
 import CopyTradingPage from "@/pages/copy-trading";
+import PaperTradesPage from "@/pages/paper-trades";
 import StreakBanner from "@/components/StreakBanner";
 import { OnboardingTutorial } from "@/components/onboarding-tutorial";
 import { MobileFAB } from "@/components/mobile-fab";
@@ -330,6 +331,7 @@ function AppLayout() {
             <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
             <ProtectedRoute path="/activity" component={ActivityHubPage} />
             <ProtectedRoute path="/copy-trading" component={CopyTradingPage} />
+            <ProtectedRoute path="/paper-trades" component={PaperTradesPage} />
 
             <Route component={NotFound} />
           </Switch>
