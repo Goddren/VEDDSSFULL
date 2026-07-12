@@ -25698,6 +25698,31 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // POST /api/content-studio/generate-reel — full AI reel: writes a
+  // hook/script/caption from a topic, then generates the matching video clip.
+  // Unlike generate-video (raw clip only), this returns a ready-to-post reel.
+  app.post("/api/content-studio/generate-reel", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { topic, duration } = req.body as { topic?: string; duration?: number };
+      if (!topic) return res.status(400).json({ error: "topic is required" });
+
+      const { generateReelScript } = await import('./openai');
+      const script = await generateReelScript(topic, u?.id);
+
+      const { generateContentVideo } = await import('./services/video-generation');
+      const video = await generateContentVideo(script.videoPrompt, { duration });
+      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
+
+      res.json({ ...script, url: video.url });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PATCH /api/blog/:id/publish — toggle published status (admin only)
   app.patch("/api/blog/:id/publish", async (req, res) => {
     if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });

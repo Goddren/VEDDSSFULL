@@ -6864,6 +6864,7 @@ __export(openai_exports, {
   generateGrantProposal: () => generateGrantProposal,
   generateMarketTrendPredictions: () => generateMarketTrendPredictions,
   generatePresentationOutline: () => generatePresentationOutline,
+  generateReelScript: () => generateReelScript,
   generateSocialOutreachKit: () => generateSocialOutreachKit,
   generateTradingTip: () => generateTradingTip,
   generateVeddBlogPost: () => generateVeddBlogPost,
@@ -10115,6 +10116,59 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
     tags: articleData.tags || ["Trading", "VEDD", "Market Analysis"],
     readTime: estimateReadTime(content),
     currentEventsContext
+  };
+}
+async function generateReelScript(topic, userId) {
+  let openai2;
+  let model = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    model = openai2.defaultModel || "gpt-4o";
+  } catch {
+  }
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
+  const systemPrompt = `You write short-form social reel scripts for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle).
+
+The reel clip itself is only 5-6 seconds of AI-generated video, so the script is a voiceover/on-screen-text script meant to be read over that clip plus following text cards \u2014 it does not need to match the clip's runtime exactly.
+
+Return a JSON object with these exact fields:
+{
+  "hook": "one punchy opening line (max 100 chars) that stops the scroll",
+  "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
+  "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. No text overlays, no logos, just the scene."
+}`;
+  const response = await openai2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Write a VEDD reel script about: ${topic}` }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 700
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  let data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+  return {
+    hook: data.hook || `Stop scrolling \u2014 this is about ${topic}.`,
+    script: Array.isArray(data.script) && data.script.length > 0 ? data.script : [
+      `Here's what most traders get wrong about ${topic}.`,
+      `VEDD's AI signal engine keeps you disciplined when the charts get emotional.`,
+      `Build your vault before this window closes.`
+    ],
+    caption: data.caption || `${topic} \u2014 here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
+    videoPrompt: data.videoPrompt || `A trader confidently reviewing live charts on a laptop at a clean desk, warm natural light, cinematic depth of field`
   };
 }
 async function generateDailyDevotional(date2) {
@@ -66009,6 +66063,24 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const video = await generateContentVideo2(prompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       res.json(video);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/generate-reel", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { topic, duration } = req.body;
+      if (!topic) return res.status(400).json({ error: "topic is required" });
+      const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const script = await generateReelScript2(topic, u?.id);
+      const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
+      const video = await generateContentVideo2(script.videoPrompt, { duration });
+      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
+      res.json({ ...script, url: video.url });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

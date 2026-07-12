@@ -4202,6 +4202,73 @@ OUTPUT: Return a JSON object with these exact fields:
   };
 }
 
+// ─── AI Reel Script Generator ────────────────────────────────────────────────
+// Writes a short hook/body/CTA reel script + a matching social caption + a
+// scene prompt for the Replicate video model, all from one topic string.
+// Mirrors generateVeddBlogPost's client/provider fallback but with a much
+// shorter, punchier output tuned for a 5-6s vertical clip.
+export async function generateReelScript(topic: string, userId?: number): Promise<{
+  hook: string;
+  script: string[];
+  caption: string;
+  videoPrompt: string;
+}> {
+  let openai: any;
+  let model = 'gpt-4o';
+  try {
+    openai = await getUniversalAIClientForUser(userId || 0);
+    model = (openai as any).defaultModel || 'gpt-4o';
+  } catch { /* fall through to platform key below */ }
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai = new OpenAI({ apiKey, ...(isGroq ? { baseURL: 'https://api.groq.com/openai/v1' } : {}), maxRetries: 4, timeout: 90000 });
+    model = isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o';
+  }
+
+  const systemPrompt = `You write short-form social reel scripts for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff — talk to the reader like you know their hustle).
+
+The reel clip itself is only 5-6 seconds of AI-generated video, so the script is a voiceover/on-screen-text script meant to be read over that clip plus following text cards — it does not need to match the clip's runtime exactly.
+
+Return a JSON object with these exact fields:
+{
+  "hook": "one punchy opening line (max 100 chars) that stops the scroll",
+  "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
+  "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags — those get added separately)",
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. No text overlays, no logos, just the scene."
+}`;
+
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Write a VEDD reel script about: ${topic}` },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 700,
+  });
+
+  const raw = response.choices[0]?.message?.content || '{}';
+  let data: { hook?: string; script?: string[]; caption?: string; videoPrompt?: string } = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+
+  return {
+    hook: data.hook || `Stop scrolling — this is about ${topic}.`,
+    script: Array.isArray(data.script) && data.script.length > 0 ? data.script : [
+      `Here's what most traders get wrong about ${topic}.`,
+      `VEDD's AI signal engine keeps you disciplined when the charts get emotional.`,
+      `Build your vault before this window closes.`,
+    ],
+    caption: data.caption || `${topic} — here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
+    videoPrompt: data.videoPrompt || `A trader confidently reviewing live charts on a laptop at a clean desk, warm natural light, cinematic depth of field`,
+  };
+}
+
 // ─── Daily Devotional Generator ──────────────────────────────────────────────
 
 export async function generateDailyDevotional(date: string): Promise<{

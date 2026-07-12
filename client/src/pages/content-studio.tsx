@@ -584,15 +584,17 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const search = useSearch();
-  const [view, setView] = useState<'studio' | 'reels' | 'ai-video'>(() =>
-    new URLSearchParams(search).get('view') === 'ai-video' ? 'ai-video' : 'studio'
-  );
+  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel'>(() => {
+    const v = new URLSearchParams(search).get('view');
+    return v === 'ai-video' || v === 'ai-reel' ? v : 'studio';
+  });
   // Deep-link support: re-check the query string on every navigation (not
-  // just first mount) so tapping the "AI Video" nav tile while already on
-  // this page still switches views — wouter doesn't remount on a
-  // same-route query-only navigation.
+  // just first mount) so tapping a nav tile while already on this page
+  // still switches views — wouter doesn't remount on a same-route
+  // query-only navigation.
   useEffect(() => {
-    if (new URLSearchParams(search).get('view') === 'ai-video') setView('ai-video');
+    const v = new URLSearchParams(search).get('view');
+    if (v === 'ai-video' || v === 'ai-reel') setView(v);
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
@@ -617,6 +619,32 @@ export default function ContentStudioPage() {
       setVideoError(err.message || 'Video generation failed');
     } finally {
       setGeneratingVideo(false);
+    }
+  };
+
+  const [reelTopic, setReelTopic] = useState('');
+  const [reelDuration, setReelDuration] = useState(5);
+  const [generatingReel, setGeneratingReel] = useState(false);
+  const [reelError, setReelError] = useState<string | null>(null);
+  const [generatedReel, setGeneratedReel] = useState<{ hook: string; script: string[]; caption: string; url: string } | null>(null);
+
+  const generateReel = async () => {
+    if (!reelTopic.trim() || generatingReel) return;
+    setGeneratingReel(true);
+    setReelError(null);
+    setGeneratedReel(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/generate-reel', {
+        topic: reelTopic.trim(),
+        duration: reelDuration,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
+      setGeneratedReel(data);
+    } catch (err: any) {
+      setReelError(err.message || 'Reel generation failed');
+    } finally {
+      setGeneratingReel(false);
     }
   };
   const [reelId, setReelId] = useState<string>('correction');
@@ -726,6 +754,16 @@ export default function ContentStudioPage() {
           >
             ✨ AI Video
           </button>
+          <button onClick={() => setView('ai-reel')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'ai-reel' ? 'rgba(52,211,153,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'ai-reel' ? 'rgba(52,211,153,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'ai-reel' ? '#34d399' : '#9ca3af',
+            }}
+          >
+            🤖 AI Reel
+          </button>
         </div>
 
         {/* ── AI Video Generation View ── */}
@@ -783,6 +821,81 @@ export default function ContentStudioPage() {
                     style={{ background: 'rgba(168,85,247,.15)', color: '#c084fc', border: '1px solid rgba(168,85,247,.3)' }}>
                     ⬇ Download Video
                   </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── AI Reel Generation View ── */}
+        {view === 'ai-reel' && (
+          <div className="max-w-xl mx-auto">
+            <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(52,211,153,.06)', border: '1px solid rgba(52,211,153,.25)' }}>
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" /> Generate a Full AI Reel
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Give it a topic and AI writes the hook, script, and caption, then generates a matching video clip — a complete ready-to-post reel in one step. (The clip itself is a short 5-6s AI-rendered scene, not a full voiceover video — pair it with the script below when you post.)
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Topic</label>
+                <Textarea
+                  placeholder="e.g. Why most traders lose money on Fridays"
+                  value={reelTopic}
+                  onChange={e => setReelTopic(e.target.value)}
+                  rows={2}
+                  className="bg-black/40 border-white/10 text-white text-sm"
+                  disabled={generatingReel}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Clip Duration</label>
+                <div className="flex gap-2">
+                  {[5, 6].map(d => (
+                    <button key={d} onClick={() => setReelDuration(d)} disabled={generatingReel}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: reelDuration === d ? 'rgba(52,211,153,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${reelDuration === d ? 'rgba(52,211,153,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: reelDuration === d ? '#34d399' : '#9ca3af',
+                      }}>
+                      {d}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Button onClick={generateReel} disabled={!reelTopic.trim() || generatingReel} className="w-full bg-emerald-600 hover:bg-emerald-500">
+                {generatingReel ? 'Writing script & generating clip… this can take a few minutes' : 'Generate Reel'}
+              </Button>
+              {reelError && <p className="text-xs text-red-400">{reelError}</p>}
+
+              {generatedReel && (
+                <div className="space-y-3">
+                  <video src={generatedReel.url} controls loop className="w-full rounded-xl border border-white/10" style={{ aspectRatio: '9/16', maxHeight: 480 }} />
+                  <a href={generatedReel.url} download target="_blank" rel="noreferrer"
+                    className="block text-center text-xs font-bold px-3 py-2 rounded-lg"
+                    style={{ background: 'rgba(52,211,153,.15)', color: '#34d399', border: '1px solid rgba(52,211,153,.3)' }}>
+                    ⬇ Download Video
+                  </a>
+
+                  <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(0,0,0,.35)', border: '1px solid rgba(255,255,255,.06)' }}>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Script</p>
+                    <p className="text-sm text-white font-semibold">{generatedReel.hook}</p>
+                    <div className="space-y-1">
+                      {generatedReel.script.map((line, i) => (
+                        <p key={i} className="text-xs text-gray-300 leading-relaxed">{line}</p>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="w-full max-w-[280px] mx-auto">
+                    <ShareButtons caption={generatedReel.caption} referralCode={referralCode} referralUrl={referralData?.url} mode="reel" />
+                  </div>
                 </div>
               )}
             </div>
