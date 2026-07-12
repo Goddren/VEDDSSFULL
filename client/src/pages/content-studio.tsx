@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
-import { Redirect } from 'wouter';
+import { Redirect, useSearch } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { VeddReelPlayer } from '@/components/vedd-reel-player';
 import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
 import { VeddEduReel, EDU_REELS } from '@/components/vedd-edu-reels';
@@ -582,7 +583,42 @@ export default function ContentStudioPage() {
   });
   const referralCode: string | null = referralData?.code ?? null;
 
-  const [view, setView] = useState<'studio' | 'reels'>('studio');
+  const search = useSearch();
+  const [view, setView] = useState<'studio' | 'reels' | 'ai-video'>(() =>
+    new URLSearchParams(search).get('view') === 'ai-video' ? 'ai-video' : 'studio'
+  );
+  // Deep-link support: re-check the query string on every navigation (not
+  // just first mount) so tapping the "AI Video" nav tile while already on
+  // this page still switches views — wouter doesn't remount on a
+  // same-route query-only navigation.
+  useEffect(() => {
+    if (new URLSearchParams(search).get('view') === 'ai-video') setView('ai-video');
+  }, [search]);
+  const [videoPrompt, setVideoPrompt] = useState('');
+  const [videoDuration, setVideoDuration] = useState(5);
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
+
+  const generateVideo = async () => {
+    if (!videoPrompt.trim() || generatingVideo) return;
+    setGeneratingVideo(true);
+    setVideoError(null);
+    setGeneratedVideoUrl(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/generate-video', {
+        prompt: videoPrompt.trim(),
+        duration: videoDuration,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Video generation failed');
+      setGeneratedVideoUrl(data.url);
+    } catch (err: any) {
+      setVideoError(err.message || 'Video generation failed');
+    } finally {
+      setGeneratingVideo(false);
+    }
+  };
   const [reelId, setReelId] = useState<string>('correction');
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -680,7 +716,78 @@ export default function ContentStudioPage() {
           >
             🎬 Reel Preview
           </button>
+          <button onClick={() => setView('ai-video')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'ai-video' ? 'rgba(168,85,247,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'ai-video' ? 'rgba(168,85,247,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'ai-video' ? '#c084fc' : '#9ca3af',
+            }}
+          >
+            ✨ AI Video
+          </button>
         </div>
+
+        {/* ── AI Video Generation View ── */}
+        {view === 'ai-video' && (
+          <div className="max-w-xl mx-auto">
+            <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.25)' }}>
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" /> Generate an AI Video Clip
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Describe a short scene and an AI model generates a real video clip — separate from the pre-scripted reels above. Generation takes 30 seconds to a few minutes and produces a short vertical clip.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Prompt</label>
+                <Textarea
+                  placeholder="e.g. A trader confidently reviewing a winning chart on a laptop, warm morning light, cinematic"
+                  value={videoPrompt}
+                  onChange={e => setVideoPrompt(e.target.value)}
+                  rows={3}
+                  className="bg-black/40 border-white/10 text-white text-sm"
+                  disabled={generatingVideo}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Duration</label>
+                <div className="flex gap-2">
+                  {[5, 6].map(d => (
+                    <button key={d} onClick={() => setVideoDuration(d)} disabled={generatingVideo}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: videoDuration === d ? 'rgba(168,85,247,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${videoDuration === d ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: videoDuration === d ? '#c084fc' : '#9ca3af',
+                      }}>
+                      {d}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
+                {generatingVideo ? 'Generating… this can take a few minutes' : 'Generate Video'}
+              </Button>
+              {videoError && <p className="text-xs text-red-400">{videoError}</p>}
+
+              {generatedVideoUrl && (
+                <div className="space-y-2">
+                  <video src={generatedVideoUrl} controls loop className="w-full rounded-xl border border-white/10" style={{ aspectRatio: '9/16', maxHeight: 480 }} />
+                  <a href={generatedVideoUrl} download target="_blank" rel="noreferrer"
+                    className="block text-center text-xs font-bold px-3 py-2 rounded-lg"
+                    style={{ background: 'rgba(168,85,247,.15)', color: '#c084fc', border: '1px solid rgba(168,85,247,.3)' }}>
+                    ⬇ Download Video
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Reel View ── */}
         {view === 'reels' && (

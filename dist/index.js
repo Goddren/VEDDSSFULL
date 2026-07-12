@@ -35590,6 +35590,82 @@ var init_image_generation = __esm({
   }
 });
 
+// server/services/video-generation.ts
+var video_generation_exports = {};
+__export(video_generation_exports, {
+  generateContentVideo: () => generateContentVideo
+});
+async function generateContentVideo(prompt, opts) {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
+    return null;
+  }
+  const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
+  const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  try {
+    const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Prefer: "wait"
+      },
+      body: JSON.stringify({
+        input: {
+          prompt,
+          resolution: "480p",
+          // cheaper/faster than 720p — fine for social clips
+          num_frames: numFrames,
+          frames_per_second: DEFAULT_FPS,
+          aspect_ratio: "9:16"
+          // vertical — matches Reels/Stories/TikTok format
+        }
+      }),
+      signal: AbortSignal.timeout(6e4)
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error("[video-generation] Replicate error:", res.status, body.slice(0, 300));
+      return null;
+    }
+    let data = await res.json();
+    const getUrl = data?.urls?.get;
+    for (let i = 0; i < MAX_POLLS && getUrl && (data.status === "starting" || data.status === "processing"); i++) {
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      const poll = await fetch(getUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (!poll.ok) break;
+      data = await poll.json();
+    }
+    if (data.status !== "succeeded") {
+      console.error("[video-generation] Replicate video did not complete in time:", data.status, data.error ?? "");
+      return null;
+    }
+    const output = data?.output;
+    const url = Array.isArray(output) ? output[0] : output;
+    if (!url) return null;
+    return { url, provider: "replicate-wan-2.2-fast" };
+  } catch (e) {
+    console.error("[video-generation] Replicate error:", e.message);
+    return null;
+  }
+}
+var MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var init_video_generation = __esm({
+  "server/services/video-generation.ts"() {
+    "use strict";
+    MODEL = "wan-video/wan-2.2-t2v-fast";
+    DEFAULT_FPS = 16;
+    MIN_NUM_FRAMES = 81;
+    MAX_DURATION_SECONDS = 6;
+    POLL_INTERVAL_MS = 5e3;
+    MAX_POLLS = 60;
+  }
+});
+
 // server/services/copy-trade-execution.ts
 var copy_trade_execution_exports = {};
 __export(copy_trade_execution_exports, {
@@ -38721,15 +38797,15 @@ async function pollOnce() {
   }
 }
 function startPaperTradeResolverLoop() {
-  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS / 6e4}min interval).`);
+  console.log(`[paper-trade-resolver] Background paper-trade resolver loop started (${POLL_INTERVAL_MS2 / 6e4}min interval).`);
   setInterval(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Poll error:", e.message));
-  }, POLL_INTERVAL_MS);
+  }, POLL_INTERVAL_MS2);
   setTimeout(() => {
     pollOnce().catch((e) => console.error("[paper-trade-resolver] Initial poll error:", e.message));
   }, 3e4);
 }
-var POLL_INTERVAL_MS;
+var POLL_INTERVAL_MS2;
 var init_paper_trade_resolver_loop = __esm({
   "server/services/paper-trade-resolver-loop.ts"() {
     "use strict";
@@ -38737,7 +38813,7 @@ var init_paper_trade_resolver_loop = __esm({
     init_schema();
     init_service();
     init_paper_trade_tracker();
-    POLL_INTERVAL_MS = 10 * 60 * 1e3;
+    POLL_INTERVAL_MS2 = 10 * 60 * 1e3;
   }
 });
 
@@ -65901,6 +65977,38 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const image = await generateContentImage2(prompt);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
       res.json(image);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-flow/generate-image", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { subject } = req.body;
+      if (!subject) return res.status(400).json({ error: "subject is required" });
+      const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+      const image = await generateContentImage2(`A social media carousel slide background about: ${subject}`);
+      if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
+      res.json(image);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/generate-video", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { prompt, duration } = req.body;
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+      const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
+      const video = await generateContentVideo2(prompt, { duration });
+      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
+      res.json(video);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

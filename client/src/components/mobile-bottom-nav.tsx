@@ -6,7 +6,7 @@ import {
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
   FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin, TrendingDown,
-  PowerOff, AlertTriangle,
+  PowerOff, AlertTriangle, Video,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -35,6 +35,7 @@ const aiToolItems = [
   { name: 'Analysis',    path: '/analysis',                   icon: LineChart,    color: '#ef4444' },
   { name: 'AI Models',   path: '/ai-trading-models',          icon: Brain,        color: '#8b5cf6' },
   { name: 'Brain Market',path: '/brain-marketplace',          icon: Brain,        color: '#a855f7' },
+  { name: 'Paper Trades',path: '/paper-trades',               icon: BookOpen,     color: '#34d399' },
   { name: 'Webhooks',    path: '/webhooks',                   icon: Webhook,      color: '#3b82f6' },
   { name: 'Live Monitor',path: '/live-monitor',               icon: Radio,        color: '#22c55e' },
 ];
@@ -51,6 +52,7 @@ const communityItems = [
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
+  { name: 'AI Video',       path: '/ambassador/content-studio?view=ai-video', icon: Video,   color: '#c084fc' },
   { name: 'Amb. Portal',  path: 'https://veddbuild-portal.onrender.com/ambassadors', icon: DollarSign, color: '#18C87A' },
 ];
 

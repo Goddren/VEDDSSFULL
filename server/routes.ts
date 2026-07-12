@@ -25659,6 +25659,45 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // POST /api/content-flow/generate-image — AI image for a Content Flow Day
+  // carousel slide, same on-brand generation service as Content Studio.
+  app.post("/api/content-flow/generate-image", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { subject } = req.body as { subject?: string };
+      if (!subject) return res.status(400).json({ error: "subject is required" });
+      const { generateContentImage } = await import('./services/image-generation');
+      const image = await generateContentImage(`A social media carousel slide background about: ${subject}`);
+      if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
+      res.json(image);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/content-studio/generate-video — AI video clip via Replicate
+  // (Wan 2.2 Fast). Slower and pricier than image gen, so gated the same way
+  // and left as an explicit opt-in action, never auto-triggered.
+  app.post("/api/content-studio/generate-video", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { prompt, duration } = req.body as { prompt?: string; duration?: number };
+      if (!prompt) return res.status(400).json({ error: "prompt is required" });
+      const { generateContentVideo } = await import('./services/video-generation');
+      const video = await generateContentVideo(prompt, { duration });
+      if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
+      res.json(video);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PATCH /api/blog/:id/publish — toggle published status (admin only)
   app.patch("/api/blog/:id/publish", async (req, res) => {
     if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });

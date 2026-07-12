@@ -143,7 +143,32 @@ export default function ContentFlowDay() {
   const [createdEventData, setCreatedEventData] = useState<{ shareUrl: string; shareSlug: string; tokensAwarded: number } | null>(null);
   const [carouselImages, setCarouselImages] = useState<Record<number, File[]>>({});
   const [carouselPreviews, setCarouselPreviews] = useState<Record<number, string[]>>({});
+  const [generatingImageFor, setGeneratingImageFor] = useState<number | null>(null);
   const previewUrlsRef = useRef<string[]>([]);
+
+  async function generateCarouselImage(direction: SocialDirection) {
+    if (generatingImageFor !== null) return;
+    setGeneratingImageFor(direction.id);
+    try {
+      const res = await apiRequest('POST', '/api/content-flow/generate-image', {
+        subject: `${direction.hookLine} — ${direction.postIdea}`,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Image generation failed');
+      const imgRes = await fetch(data.url);
+      const blob = await imgRes.blob();
+      const file = new File([blob], `ai-generated-${Date.now()}.png`, { type: blob.type || 'image/png' });
+      setCarouselImages(prev => ({
+        ...prev,
+        [direction.id]: [...(prev[direction.id] || []), file].slice(0, 10),
+      }));
+      toast({ title: 'Image generated', description: `Added to carousel via ${data.provider}` });
+    } catch (err: any) {
+      toast({ title: 'Image generation failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setGeneratingImageFor(null);
+    }
+  }
 
   // Update previews when images change and track URLs for cleanup
   useEffect(() => {
@@ -978,6 +1003,19 @@ export default function ContentFlowDay() {
                                         Add Images
                                       </span>
                                     </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => generateCarouselImage(direction)}
+                                      disabled={generatingImageFor === direction.id || (carouselImages[direction.id]?.length || 0) >= 10}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-pink-500/20 hover:bg-pink-500/30 rounded-lg text-pink-300 text-sm transition-colors disabled:opacity-50"
+                                    >
+                                      {generatingImageFor === direction.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-3 h-3" />
+                                      )}
+                                      {generatingImageFor === direction.id ? 'Generating…' : 'Generate AI Image'}
+                                    </button>
                                   </div>
                                   
                                   {carouselPreviews[direction.id] && carouselPreviews[direction.id].length > 0 && (
