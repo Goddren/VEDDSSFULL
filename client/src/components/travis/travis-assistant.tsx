@@ -1435,12 +1435,14 @@ export function AbbaAssistant() {
       <AnimatePresence>
         {open && (
           <>
-            {/* Backdrop */}
+            {/* Backdrop — pointerEvents snaps off the instant exit begins so a
+                lingering/stuck exit animation on mobile can never keep eating
+                taps across the whole app (pointerEvents is not interpolated). */}
             <motion.div
               key="ABBA-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
+              initial={{ opacity: 0, pointerEvents: 'none' }}
+              animate={{ opacity: 1, pointerEvents: 'auto' }}
+              exit={{ opacity: 0, pointerEvents: 'none' }}
               onClick={() => setOpen(false)}
               className="fixed inset-0 z-[9998] bg-black/50 backdrop-blur-sm"
             />
@@ -1448,9 +1450,9 @@ export function AbbaAssistant() {
             {/* Panel */}
             <motion.div
               key="ABBA-panel"
-              initial={{ x: '100%', opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: '100%', opacity: 0 }}
+              initial={{ x: '100%', opacity: 0, pointerEvents: 'none' }}
+              animate={{ x: 0, opacity: 1, pointerEvents: 'auto' }}
+              exit={{ x: '100%', opacity: 0, pointerEvents: 'none' }}
               transition={{ type: 'spring', damping: 28, stiffness: 280 }}
               className="fixed right-0 top-0 bottom-0 z-[9999] flex flex-col overflow-hidden"
               style={{
