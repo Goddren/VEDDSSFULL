@@ -63,6 +63,15 @@ const CONTENT_TYPES: { id: ContentType; label: string; emoji: string; color: str
   { id: 'testimony', label: 'Testimony',      emoji: '🙌', color: '#fbbf24', bg: 'rgba(245,158,11,.12)',  desc: 'Share trader success stories and results' },
 ];
 
+// ── Slide carousel topic presets — quick-fill starters for the four most
+// common "how to get set up" explainer topics ambassadors ask for ──────────
+const CAROUSEL_TOPIC_PRESETS = [
+  { label: 'Account & Broker Setup', topic: 'How to sign up for VEDD, connect your MT5 or TradeLocker broker account, and sync your balance' },
+  { label: 'AI Signal Engine Setup', topic: 'How to turn on the VEDD SS AI signal engine, confirm trades, and understand confidence scores and Deep Reasoning Mode' },
+  { label: 'Ambassador Setup', topic: 'How to become a VEDD Ambassador, get your referral link, and start creating content in Content Studio' },
+  { label: 'Platform Tour', topic: 'A general walkthrough of what VEDD Trading AI is and its main features' },
+];
+
 // ── Caption templates ─────────────────────────────────────────────────────────
 function buildCaption(type: ContentType, item: any, referralCode: string | null, referralUrl?: string): string {
   const url = referralUrl ?? (referralCode
@@ -584,9 +593,9 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const search = useSearch();
-  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel'>(() => {
+  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel'>(() => {
     const v = new URLSearchParams(search).get('view');
-    return v === 'ai-video' || v === 'ai-reel' ? v : 'studio';
+    return v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' ? v : 'studio';
   });
   // Deep-link support: re-check the query string on every navigation (not
   // just first mount) so tapping a nav tile while already on this page
@@ -594,7 +603,7 @@ export default function ContentStudioPage() {
   // query-only navigation.
   useEffect(() => {
     const v = new URLSearchParams(search).get('view');
-    if (v === 'ai-video' || v === 'ai-reel') setView(v);
+    if (v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel') setView(v);
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
@@ -647,6 +656,33 @@ export default function ContentStudioPage() {
       setGeneratingReel(false);
     }
   };
+
+  const [carouselTopic, setCarouselTopic] = useState('');
+  const [carouselSlideCount, setCarouselSlideCount] = useState(6);
+  const [generatingCarousel, setGeneratingCarousel] = useState(false);
+  const [carouselError, setCarouselError] = useState<string | null>(null);
+  const [generatedCarousel, setGeneratedCarousel] = useState<{ title: string; caption: string; slides: { heading: string; body: string; imageUrl: string | null }[] } | null>(null);
+
+  const generateCarousel = async () => {
+    if (!carouselTopic.trim() || generatingCarousel) return;
+    setGeneratingCarousel(true);
+    setCarouselError(null);
+    setGeneratedCarousel(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/generate-carousel', {
+        topic: carouselTopic.trim(),
+        slideCount: carouselSlideCount,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Carousel generation failed');
+      setGeneratedCarousel(data);
+    } catch (err: any) {
+      setCarouselError(err.message || 'Carousel generation failed');
+    } finally {
+      setGeneratingCarousel(false);
+    }
+  };
+
   const [reelId, setReelId] = useState<string>('correction');
   const [activeType, setActiveType] = useState<ContentType>('lesson');
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -763,6 +799,16 @@ export default function ContentStudioPage() {
             }}
           >
             🤖 AI Reel
+          </button>
+          <button onClick={() => setView('slide-carousel')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'slide-carousel' ? 'rgba(56,189,248,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'slide-carousel' ? 'rgba(56,189,248,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'slide-carousel' ? '#38bdf8' : '#9ca3af',
+            }}
+          >
+            📑 Slide Carousel
           </button>
         </div>
 
@@ -899,6 +945,114 @@ export default function ContentStudioPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ── Slide Carousel Generation View ── */}
+        {view === 'slide-carousel' && (
+          <div className="max-w-3xl mx-auto">
+            <div className="rounded-2xl p-5 space-y-4" style={{ background: 'rgba(56,189,248,.06)', border: '1px solid rgba(56,189,248,.25)' }}>
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-sky-400" /> Generate a Slide Carousel
+                </h2>
+                <p className="text-xs text-gray-400 mt-1">
+                  Built for "how to get set up" and "how this works" explainers — give it a topic and AI writes each slide's heading and body text, then generates an on-brand background image for every slide. Swipe-through content ready for Instagram, LinkedIn, or Facebook carousels.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Quick topics</label>
+                <div className="flex flex-wrap gap-2">
+                  {CAROUSEL_TOPIC_PRESETS.map(p => (
+                    <button key={p.label} onClick={() => setCarouselTopic(p.topic)} disabled={generatingCarousel}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all"
+                      style={{
+                        background: carouselTopic === p.topic ? 'rgba(56,189,248,.2)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${carouselTopic === p.topic ? 'rgba(56,189,248,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: carouselTopic === p.topic ? '#38bdf8' : '#9ca3af',
+                      }}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Topic</label>
+                <Textarea
+                  placeholder="e.g. How to connect your MT5 account to VEDD"
+                  value={carouselTopic}
+                  onChange={e => setCarouselTopic(e.target.value)}
+                  rows={2}
+                  className="bg-black/40 border-white/10 text-white text-sm"
+                  disabled={generatingCarousel}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Number of Slides</label>
+                <div className="flex gap-2">
+                  {[4, 6, 8].map(n => (
+                    <button key={n} onClick={() => setCarouselSlideCount(n)} disabled={generatingCarousel}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: carouselSlideCount === n ? 'rgba(56,189,248,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${carouselSlideCount === n ? 'rgba(56,189,248,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: carouselSlideCount === n ? '#38bdf8' : '#9ca3af',
+                      }}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <Button onClick={generateCarousel} disabled={!carouselTopic.trim() || generatingCarousel} className="w-full bg-sky-600 hover:bg-sky-500">
+                {generatingCarousel ? `Writing ${carouselSlideCount} slides & generating images… images render one at a time, so this can take several minutes` : 'Generate Carousel'}
+              </Button>
+              {carouselError && <p className="text-xs text-red-400">{carouselError}</p>}
+            </div>
+
+            {generatedCarousel && (
+              <div className="mt-5 space-y-4">
+                <h3 className="text-base font-bold text-white">{generatedCarousel.title}</h3>
+
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                  {generatedCarousel.slides.map((slide, i) => (
+                    <div key={i} className="flex-shrink-0" style={{ width: 220 }}>
+                      <CardShell
+                        gradient="linear-gradient(160deg,#020f14 0%,#04141a 60%,#0a0a14 100%)"
+                        color="#38bdf8"
+                        bgImage={slide.imageUrl}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(56,189,248,.15)', color: '#38bdf8' }}>
+                            {i + 1} / {generatedCarousel.slides.length}
+                          </span>
+                        </div>
+                        <div className="flex-1 flex flex-col justify-end">
+                          <h4 className="text-sm font-black text-white leading-snug mb-1.5">{slide.heading}</h4>
+                          <p className="text-[11px] text-gray-300 leading-relaxed">{slide.body}</p>
+                        </div>
+                      </CardShell>
+                      {slide.imageUrl ? (
+                        <a href={slide.imageUrl} download target="_blank" rel="noreferrer"
+                          className="block text-center text-[10px] font-bold mt-1.5 px-2 py-1.5 rounded-lg"
+                          style={{ background: 'rgba(56,189,248,.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,.25)' }}>
+                          ⬇ Download Slide {i + 1}
+                        </a>
+                      ) : (
+                        <p className="text-center text-[10px] text-gray-500 mt-1.5">Background image unavailable — text still generated</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="w-full max-w-[280px]">
+                  <ShareButtons caption={generatedCarousel.caption} referralCode={referralCode} referralUrl={referralData?.url} mode="post" />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

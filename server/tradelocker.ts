@@ -103,6 +103,9 @@ export class TradeLockerService {
   private accountDetailsConfig: any[] | null = null; // cached column spec from /trade/config
   onTokenRefresh: ((accessToken: string, refreshToken: string, expiresIn: number) => void) | null = null;
   onReauthenticate: (() => Promise<void>) | null = null;
+  // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
+  // wired up by getOrCreateService() to persist the correction to the DB.
+  onAccountIdCorrected: ((accountId: string) => void) | null = null;
 
   constructor(accountType: 'demo' | 'live', accountId: string, serverId: string, cachedAccNum?: string) {
     this.baseUrl = accountType === 'demo' 
@@ -125,7 +128,23 @@ export class TradeLockerService {
   getResolvedAccNum(): string {
     return this.accNum;
   }
+
+  // The accountId TradeLocker's own /instruments, /state, /orders endpoints
+  // actually need — may differ from what was originally passed to the
+  // constructor if resolveAccNum() had to correct a mismatched ID (see there).
+  getResolvedAccountId(): string {
+    return this.accountId;
+  }
   
+  // Bypasses the accNumResolved short-circuit below — needed because the
+  // constructor marks accNumResolved=true whenever a cached accNum from a
+  // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
+  // call would never re-run and never reach the accountId-correction logic.
+  async forceResolveAccNum(): Promise<string> {
+    this.accNumResolved = false;
+    return this.resolveAccNum();
+  }
+
   async resolveAccNum(): Promise<string> {
     if (this.accNumResolved && this.accNum !== '0') {
       return this.accNum;
@@ -161,8 +180,22 @@ export class TradeLockerService {
             console.log('[TradeLocker] Found matching account, using accNum:', this.accNum);
             return this.accNum;
           } else {
-            this.accNum = accounts[0].accNum?.toString() ?? '1';
+            // No account matched the accountId we were given (e.g. the user
+            // entered a prop-firm-portal reference like "D2322519" instead of
+            // TradeLocker's own numeric account ID) — accNum still resolves
+            // fine here, but every URL-path call (/instruments, /state,
+            // /orders) uses this.accountId directly, so it would 404 forever
+            // unless we also correct accountId to the real matched account's
+            // own numeric ID.
+            const fallback = accounts[0];
+            this.accNum = fallback.accNum?.toString() ?? '1';
             this.accNumResolved = true;
+            const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
+            if (realAccountId && realAccountId !== this.accountId) {
+              console.log('[TradeLocker] accountId', this.accountId, 'did not match any account — correcting to real account ID:', realAccountId);
+              this.accountId = realAccountId;
+              this.onAccountIdCorrected?.(realAccountId);
+            }
             console.log('[TradeLocker] Using first account accNum:', this.accNum);
             return this.accNum;
           }
@@ -549,7 +582,7 @@ export class TradeLockerService {
     await this.ensureAuthenticated();
 
     try {
-      const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+      let response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${this.accessToken}`,
@@ -558,6 +591,23 @@ export class TradeLockerService {
         },
         signal: AbortSignal.timeout(10000),
       });
+
+      if (response.status === 404) {
+        // The cached accountId doesn't exist on TradeLocker's side — force a
+        // fresh account-list lookup to correct it (see resolveAccNum) and
+        // retry once before giving up.
+        console.log('[TradeLocker] Instruments 404 for accountId', this.accountId, '— forcing accNum/accountId re-resolution');
+        await this.forceResolveAccNum();
+        response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+            'accNum': this.accNum,
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to get instruments: ${response.status}`);
@@ -593,7 +643,7 @@ export class TradeLockerService {
         console.log('[TradeLocker] Instrument cache HIT:', order.symbol, '→ id:', tradableInstrumentId, 'route:', routeId);
       } else {
         console.log('[TradeLocker] Instrument cache MISS — fetching instruments...');
-        const instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+        let instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${this.accessToken}`,
@@ -601,7 +651,24 @@ export class TradeLockerService {
             'accNum': this.accNum,
           },
         });
-        
+
+        if (instrumentsResponse.status === 404) {
+          // The cached accountId doesn't exist on TradeLocker's side (e.g. a
+          // prop-firm-portal reference like "D2322519" got stored instead of
+          // TradeLocker's own numeric ID) — force a fresh account-list
+          // lookup to correct it and retry once before giving up.
+          console.log('[TradeLocker] Instruments 404 for accountId', this.accountId, '— forcing accNum/accountId re-resolution');
+          await this.forceResolveAccNum();
+          instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${this.accessToken}`,
+              'Content-Type': 'application/json',
+              'accNum': this.accNum,
+            },
+          });
+        }
+
         console.log('[TradeLocker] Instruments response status:', instrumentsResponse.status);
         if (!instrumentsResponse.ok) {
           const errText = await instrumentsResponse.text();
@@ -1241,6 +1308,12 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
     connection.accNum || undefined
   );
 
+  if (connId) {
+    service.onAccountIdCorrected = (accountId) => {
+      persistAccountIdCorrection(connId, accountId).catch(() => {});
+    };
+  }
+
   const TOKEN_BUFFER = 60 * 1000;
   const hasValidToken = connection.accessToken &&
     connection.tokenExpiresAt &&
@@ -1371,6 +1444,20 @@ async function persistTokens(
     console.log('[TradeLocker] Persisted tokens to DB for connection', connection.id);
   } catch (e) {
     console.log('[TradeLocker] Could not persist tokens to DB');
+  }
+}
+
+// Persists an accountId correction from resolveAccNum() (see there) without
+// touching tokens — kept separate from persistTokens so a correction fired
+// mid-request (e.g. triggered by a 404 retry well after getOrCreateService
+// already ran) can never clobber a token that was refreshed more recently.
+async function persistAccountIdCorrection(connectionId: number, accountId: string): Promise<void> {
+  try {
+    const { storage } = await import('./storage');
+    await storage.updateTradelockerConnection(connectionId, { accountId } as any);
+    console.log('[TradeLocker] Persisted corrected accountId to DB for connection', connectionId, ':', accountId);
+  } catch (e) {
+    console.log('[TradeLocker] Could not persist accountId correction to DB');
   }
 }
 

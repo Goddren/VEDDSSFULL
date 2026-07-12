@@ -6865,6 +6865,7 @@ __export(openai_exports, {
   generateMarketTrendPredictions: () => generateMarketTrendPredictions,
   generatePresentationOutline: () => generatePresentationOutline,
   generateReelScript: () => generateReelScript,
+  generateSlideCarouselScript: () => generateSlideCarouselScript,
   generateSocialOutreachKit: () => generateSocialOutreachKit,
   generateTradingTip: () => generateTradingTip,
   generateVeddBlogPost: () => generateVeddBlogPost,
@@ -10169,6 +10170,69 @@ Return a JSON object with these exact fields:
     ],
     caption: data.caption || `${topic} \u2014 here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
     videoPrompt: data.videoPrompt || `A trader confidently reviewing live charts on a laptop at a clean desk, warm natural light, cinematic depth of field`
+  };
+}
+async function generateSlideCarouselScript(topic, slideCount, userId) {
+  let openai2;
+  let model = "gpt-4o";
+  try {
+    openai2 = await getUniversalAIClientForUser(userId || 0);
+    model = openai2.defaultModel || "gpt-4o";
+  } catch {
+  }
+  if (!openai2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
+  }
+  const systemPrompt = `You write step-by-step explainer/informational slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle). These are the kind of "how to get set up" or "how this works" carousels people post to Instagram/LinkedIn as a swipe-through.
+
+Return a JSON object with these exact fields:
+{
+  "title": "short title for the whole carousel (max 60 chars)",
+  "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
+  "slides": [
+    {
+      "heading": "short slide heading (max 50 chars) \u2014 e.g. 'Step 1: Connect Your Broker'",
+      "body": "1-2 short sentences of body text for this slide, plain and clear, no jargon",
+      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's background. No text overlays, no logos, no UI screenshots \u2014 just a scene/mood/object that fits the slide's point."
+    }
+  ]
+}
+
+Write exactly ${slideCount} slides, in logical order (slide 1 is the hook/intro, the last slide is always a CTA to join VEDD).`;
+  const response = await openai2.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Write a VEDD slide carousel about: ${topic}` }
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1500
+  });
+  const raw = response.choices[0]?.message?.content || "{}";
+  let data = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+  const fallbackSlides = Array.from({ length: slideCount }, (_, i) => ({
+    heading: i === 0 ? `Let's talk about ${topic}` : i === slideCount - 1 ? "Start free today" : `Step ${i}`,
+    body: i === slideCount - 1 ? "Join VEDD and put this to work in your own account." : `Here's what you need to know about ${topic}.`,
+    imagePrompt: `A clean, modern trading desk scene, warm natural light, cinematic depth of field`
+  }));
+  const slides = Array.isArray(data.slides) && data.slides.length > 0 ? data.slides.slice(0, slideCount).map((s, i) => ({
+    heading: s.heading || fallbackSlides[i]?.heading || `Step ${i + 1}`,
+    body: s.body || fallbackSlides[i]?.body || "",
+    imagePrompt: s.imagePrompt || fallbackSlides[i]?.imagePrompt || "A clean, modern trading desk scene, warm natural light"
+  })) : fallbackSlides;
+  return {
+    title: data.title || `How ${topic} Works`,
+    caption: data.caption || `Here's exactly how ${topic} works on VEDD \u2014 swipe through, then start free at veddbuild.com.`,
+    slides
   };
 }
 async function generateDailyDevotional(date2) {
@@ -15482,6 +15546,12 @@ async function getOrCreateService(connection2) {
     connection2.serverId,
     connection2.accNum || void 0
   );
+  if (connId) {
+    service.onAccountIdCorrected = (accountId) => {
+      persistAccountIdCorrection(connId, accountId).catch(() => {
+      });
+    };
+  }
   const TOKEN_BUFFER = 60 * 1e3;
   const hasValidToken = connection2.accessToken && connection2.tokenExpiresAt && new Date(connection2.tokenExpiresAt).getTime() - TOKEN_BUFFER > Date.now();
   if (hasValidToken) {
@@ -15582,6 +15652,15 @@ async function persistTokens(connection2, accessToken, refreshToken, expiresIn, 
     console.log("[TradeLocker] Persisted tokens to DB for connection", connection2.id);
   } catch (e) {
     console.log("[TradeLocker] Could not persist tokens to DB");
+  }
+}
+async function persistAccountIdCorrection(connectionId, accountId) {
+  try {
+    const { storage: storage2 } = await Promise.resolve().then(() => (init_storage(), storage_exports));
+    await storage2.updateTradelockerConnection(connectionId, { accountId });
+    console.log("[TradeLocker] Persisted corrected accountId to DB for connection", connectionId, ":", accountId);
+  } catch (e) {
+    console.log("[TradeLocker] Could not persist accountId correction to DB");
   }
 }
 async function warmTradeLockerConnection(connection2) {
@@ -15699,6 +15778,9 @@ var init_tradelocker = __esm({
       // cached column spec from /trade/config
       onTokenRefresh = null;
       onReauthenticate = null;
+      // Fired when resolveAccNum() corrects a mismatched accountId (see there) —
+      // wired up by getOrCreateService() to persist the correction to the DB.
+      onAccountIdCorrected = null;
       constructor(accountType, accountId, serverId, cachedAccNum) {
         this.baseUrl = accountType === "demo" ? "https://demo.tradelocker.com/backend-api" : "https://live.tradelocker.com/backend-api";
         this.accountId = accountId.replace(/^#/, "").trim();
@@ -15714,6 +15796,20 @@ var init_tradelocker = __esm({
       }
       getResolvedAccNum() {
         return this.accNum;
+      }
+      // The accountId TradeLocker's own /instruments, /state, /orders endpoints
+      // actually need — may differ from what was originally passed to the
+      // constructor if resolveAccNum() had to correct a mismatched ID (see there).
+      getResolvedAccountId() {
+        return this.accountId;
+      }
+      // Bypasses the accNumResolved short-circuit below — needed because the
+      // constructor marks accNumResolved=true whenever a cached accNum from a
+      // prior (possibly wrong) resolution exists, so a normal resolveAccNum()
+      // call would never re-run and never reach the accountId-correction logic.
+      async forceResolveAccNum() {
+        this.accNumResolved = false;
+        return this.resolveAccNum();
       }
       async resolveAccNum() {
         if (this.accNumResolved && this.accNum !== "0") {
@@ -15743,8 +15839,15 @@ var init_tradelocker = __esm({
                 console.log("[TradeLocker] Found matching account, using accNum:", this.accNum);
                 return this.accNum;
               } else {
-                this.accNum = accounts[0].accNum?.toString() ?? "1";
+                const fallback = accounts[0];
+                this.accNum = fallback.accNum?.toString() ?? "1";
                 this.accNumResolved = true;
+                const realAccountId = fallback.id?.toString() ?? fallback.accountId?.toString();
+                if (realAccountId && realAccountId !== this.accountId) {
+                  console.log("[TradeLocker] accountId", this.accountId, "did not match any account \u2014 correcting to real account ID:", realAccountId);
+                  this.accountId = realAccountId;
+                  this.onAccountIdCorrected?.(realAccountId);
+                }
                 console.log("[TradeLocker] Using first account accNum:", this.accNum);
                 return this.accNum;
               }
@@ -16080,7 +16183,7 @@ var init_tradelocker = __esm({
       async getInstruments() {
         await this.ensureAuthenticated();
         try {
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          let response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
             method: "GET",
             headers: {
               "Authorization": `Bearer ${this.accessToken}`,
@@ -16089,6 +16192,19 @@ var init_tradelocker = __esm({
             },
             signal: AbortSignal.timeout(1e4)
           });
+          if (response.status === 404) {
+            console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+            await this.forceResolveAccNum();
+            response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${this.accessToken}`,
+                "Content-Type": "application/json",
+                "accNum": this.accNum
+              },
+              signal: AbortSignal.timeout(1e4)
+            });
+          }
           if (!response.ok) {
             throw new Error(`Failed to get instruments: ${response.status}`);
           }
@@ -16116,7 +16232,7 @@ var init_tradelocker = __esm({
             console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
           } else {
             console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments...");
-            const instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+            let instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
               method: "GET",
               headers: {
                 "Authorization": `Bearer ${this.accessToken}`,
@@ -16124,6 +16240,18 @@ var init_tradelocker = __esm({
                 "accNum": this.accNum
               }
             });
+            if (instrumentsResponse.status === 404) {
+              console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+              await this.forceResolveAccNum();
+              instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+                method: "GET",
+                headers: {
+                  "Authorization": `Bearer ${this.accessToken}`,
+                  "Content-Type": "application/json",
+                  "accNum": this.accNum
+                }
+              });
+            }
             console.log("[TradeLocker] Instruments response status:", instrumentsResponse.status);
             if (!instrumentsResponse.ok) {
               const errText = await instrumentsResponse.text();
@@ -35586,7 +35714,7 @@ async function generateDalleImage(prompt) {
     return null;
   }
 }
-async function generateFluxImage(prompt) {
+async function generateFluxImage(prompt, retriesLeft = 2) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) return null;
   try {
@@ -35605,6 +35733,17 @@ async function generateFluxImage(prompt) {
       // of falling through to the poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75e3)
     });
+    if (res.status === 429 && retriesLeft > 0) {
+      const body = await res.text().catch(() => "");
+      let retryAfterSeconds = 10;
+      try {
+        retryAfterSeconds = JSON.parse(body)?.retry_after ?? retryAfterSeconds;
+      } catch {
+      }
+      console.warn(`[image-generation] Replicate FLUX rate-limited, retrying in ${retryAfterSeconds}s (${retriesLeft} retries left)`);
+      await new Promise((resolve) => setTimeout(resolve, (retryAfterSeconds + 1) * 1e3));
+      return generateFluxImage(prompt, retriesLeft - 1);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       console.error("[image-generation] Replicate FLUX error:", res.status, body.slice(0, 300));
@@ -66093,6 +66232,28 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const video = await generateContentVideo2(script.videoPrompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       res.json({ ...script, url: video.url });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/generate-carousel", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { topic, slideCount } = req.body;
+      if (!topic) return res.status(400).json({ error: "topic is required" });
+      const count = Math.min(Math.max(Math.round(slideCount ?? 6), 3), 8);
+      const { generateSlideCarouselScript: generateSlideCarouselScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+      const script = await generateSlideCarouselScript2(topic, count, u?.id);
+      const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+      const slides = [];
+      for (const slide of script.slides) {
+        const image = await generateContentImage2(slide.imagePrompt);
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl: image?.url ?? null });
+      }
+      res.json({ title: script.title, caption: script.caption, slides });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

@@ -4269,6 +4269,86 @@ Return a JSON object with these exact fields:
   };
 }
 
+// ─── Slide Carousel Script Generator ─────────────────────────────────────────
+// Writes a multi-slide explainer/informational carousel (e.g. "how to set
+// up your MT5 connection", "how the AI signal engine works") — one short
+// heading + body per slide, plus a scene prompt per slide for the shared
+// image-generation service to render as that slide's background.
+export async function generateSlideCarouselScript(topic: string, slideCount: number, userId?: number): Promise<{
+  title: string;
+  caption: string;
+  slides: { heading: string; body: string; imagePrompt: string }[];
+}> {
+  let openai: any;
+  let model = 'gpt-4o';
+  try {
+    openai = await getUniversalAIClientForUser(userId || 0);
+    model = (openai as any).defaultModel || 'gpt-4o';
+  } catch { /* fall through to platform key below */ }
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("No AI key configured. Add any AI key (OpenAI, Groq, or free OpenRouter) in AI Settings.");
+    const isGroq = !process.env.OPENAI_API_KEY;
+    openai = new OpenAI({ apiKey, ...(isGroq ? { baseURL: 'https://api.groq.com/openai/v1' } : {}), maxRetries: 4, timeout: 90000 });
+    model = isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o';
+  }
+
+  const systemPrompt = `You write step-by-step explainer/informational slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff — talk to the reader like you know their hustle). These are the kind of "how to get set up" or "how this works" carousels people post to Instagram/LinkedIn as a swipe-through.
+
+Return a JSON object with these exact fields:
+{
+  "title": "short title for the whole carousel (max 60 chars)",
+  "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
+  "slides": [
+    {
+      "heading": "short slide heading (max 50 chars) — e.g. 'Step 1: Connect Your Broker'",
+      "body": "1-2 short sentences of body text for this slide, plain and clear, no jargon",
+      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's background. No text overlays, no logos, no UI screenshots — just a scene/mood/object that fits the slide's point."
+    }
+  ]
+}
+
+Write exactly ${slideCount} slides, in logical order (slide 1 is the hook/intro, the last slide is always a CTA to join VEDD).`;
+
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: `Write a VEDD slide carousel about: ${topic}` },
+    ],
+    response_format: { type: "json_object" },
+    max_tokens: 1500,
+  });
+
+  const raw = response.choices[0]?.message?.content || '{}';
+  let data: { title?: string; caption?: string; slides?: { heading?: string; body?: string; imagePrompt?: string }[] } = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = {};
+  }
+
+  const fallbackSlides = Array.from({ length: slideCount }, (_, i) => ({
+    heading: i === 0 ? `Let's talk about ${topic}` : i === slideCount - 1 ? 'Start free today' : `Step ${i}`,
+    body: i === slideCount - 1 ? 'Join VEDD and put this to work in your own account.' : `Here's what you need to know about ${topic}.`,
+    imagePrompt: `A clean, modern trading desk scene, warm natural light, cinematic depth of field`,
+  }));
+
+  const slides = Array.isArray(data.slides) && data.slides.length > 0
+    ? data.slides.slice(0, slideCount).map((s, i) => ({
+        heading: s.heading || fallbackSlides[i]?.heading || `Step ${i + 1}`,
+        body: s.body || fallbackSlides[i]?.body || '',
+        imagePrompt: s.imagePrompt || fallbackSlides[i]?.imagePrompt || 'A clean, modern trading desk scene, warm natural light',
+      }))
+    : fallbackSlides;
+
+  return {
+    title: data.title || `How ${topic} Works`,
+    caption: data.caption || `Here's exactly how ${topic} works on VEDD — swipe through, then start free at veddbuild.com.`,
+    slides,
+  };
+}
+
 // ─── Daily Devotional Generator ──────────────────────────────────────────────
 
 export async function generateDailyDevotional(date: string): Promise<{

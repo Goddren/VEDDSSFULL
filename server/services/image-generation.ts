@@ -48,7 +48,7 @@ async function generateDalleImage(prompt: string): Promise<string | null> {
 // a finished result, especially for longer prompts — so we poll the
 // prediction's own status URL until it settles instead of assuming the first
 // response is final.
-async function generateFluxImage(prompt: string): Promise<string | null> {
+async function generateFluxImage(prompt: string, retriesLeft = 2): Promise<string | null> {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) return null;
   try {
@@ -67,6 +67,18 @@ async function generateFluxImage(prompt: string): Promise<string | null> {
       // of falling through to the poll loop below. Give it headroom.
       signal: AbortSignal.timeout(75000),
     });
+    if (res.status === 429 && retriesLeft > 0) {
+      // Low-credit Replicate accounts get throttled to a handful of
+      // requests/minute with a burst of 1 — real when generating several
+      // images back to back (e.g. one per carousel slide). Replicate tells
+      // us how long to wait in the error body.
+      const body = await res.text().catch(() => '');
+      let retryAfterSeconds = 10;
+      try { retryAfterSeconds = JSON.parse(body)?.retry_after ?? retryAfterSeconds; } catch { /* use default */ }
+      console.warn(`[image-generation] Replicate FLUX rate-limited, retrying in ${retryAfterSeconds}s (${retriesLeft} retries left)`);
+      await new Promise((resolve) => setTimeout(resolve, (retryAfterSeconds + 1) * 1000));
+      return generateFluxImage(prompt, retriesLeft - 1);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.error('[image-generation] Replicate FLUX error:', res.status, body.slice(0, 300));

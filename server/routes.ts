@@ -25729,6 +25729,43 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // POST /api/content-studio/generate-carousel — full AI slide carousel:
+  // writes a per-slide heading/body/image-prompt script from a topic, then
+  // generates an on-brand background image for each slide. Used for "how to
+  // get set up" / explainer content ambassadors can post as a swipe-through
+  // carousel.
+  app.post("/api/content-studio/generate-carousel", async (req, res) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { topic, slideCount } = req.body as { topic?: string; slideCount?: number };
+      if (!topic) return res.status(400).json({ error: "topic is required" });
+      const count = Math.min(Math.max(Math.round(slideCount ?? 6), 3), 8);
+
+      const { generateSlideCarouselScript } = await import('./openai');
+      const script = await generateSlideCarouselScript(topic, count, u?.id);
+
+      // Sequential, not Promise.all: low-credit Replicate accounts are
+      // throttled to a handful of requests/minute with a burst of 1, so
+      // firing every slide's image request at once gets every request
+      // after the first 429'd. generateContentImage's own FLUX fallback
+      // already retries on 429, but spacing the requests out here avoids
+      // triggering the throttle in the first place.
+      const { generateContentImage } = await import('./services/image-generation');
+      const slides: { heading: string; body: string; imageUrl: string | null }[] = [];
+      for (const slide of script.slides) {
+        const image = await generateContentImage(slide.imagePrompt);
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl: image?.url ?? null });
+      }
+
+      res.json({ title: script.title, caption: script.caption, slides });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PATCH /api/blog/:id/publish — toggle published status (admin only)
   app.patch("/api/blog/:id/publish", async (req, res) => {
     if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
