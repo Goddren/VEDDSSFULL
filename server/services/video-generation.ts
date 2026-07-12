@@ -57,7 +57,12 @@ export async function generateContentVideo(
           aspect_ratio: '9:16', // vertical — matches Reels/Stories/TikTok format
         },
       }),
-      signal: AbortSignal.timeout(60000),
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // before it gives up and returns 202 "starting" instead of a
+      // finished result — a 60000ms client-side abort loses that race and
+      // throws "aborted due to timeout" instead of falling through to the
+      // poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75000),
     });
 
     if (!res.ok) {

@@ -35598,7 +35598,12 @@ async function generateFluxImage(prompt) {
         Prefer: "wait"
       },
       body: JSON.stringify({ input: { prompt, aspect_ratio: "1:1", output_format: "png" } }),
-      signal: AbortSignal.timeout(6e4)
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // (observed 60.7s in testing) before it gives up and returns 202
+      // "starting" instead of a finished result — a 60000ms client-side
+      // abort loses that race and throws "aborted due to timeout" instead
+      // of falling through to the poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75e3)
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -35676,7 +35681,12 @@ async function generateContentVideo(prompt, opts) {
           // vertical — matches Reels/Stories/TikTok format
         }
       }),
-      signal: AbortSignal.timeout(6e4)
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // before it gives up and returns 202 "starting" instead of a
+      // finished result — a 60000ms client-side abort loses that race and
+      // throws "aborted due to timeout" instead of falling through to the
+      // poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75e3)
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -66002,8 +66012,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.user?.isAdmin) return res.status(403).json({ error: "Admin only" });
     try {
       const data = req.body;
-      if (data.isPublished && !data.publishedAt) {
-        data.publishedAt = /* @__PURE__ */ new Date();
+      if (data.isPublished) {
+        data.publishedAt = data.publishedAt ? new Date(data.publishedAt) : /* @__PURE__ */ new Date();
+      } else if (data.publishedAt) {
+        data.publishedAt = new Date(data.publishedAt);
       }
       const post = await storage.createBlogPost(data);
       res.status(201).json(post);

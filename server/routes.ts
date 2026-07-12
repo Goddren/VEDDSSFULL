@@ -25619,8 +25619,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!(req.user as any)?.isAdmin) return res.status(403).json({ error: "Admin only" });
     try {
       const data = req.body;
-      if (data.isPublished && !data.publishedAt) {
-        data.publishedAt = new Date();
+      // publishedAt arrives as an ISO string over JSON (Date isn't a JSON
+      // type) — Drizzle's timestamp column needs an actual Date instance,
+      // not a string, or the insert throws "value.toISOString is not a
+      // function". Convert whatever the client sent, or default it here.
+      if (data.isPublished) {
+        data.publishedAt = data.publishedAt ? new Date(data.publishedAt) : new Date();
+      } else if (data.publishedAt) {
+        data.publishedAt = new Date(data.publishedAt);
       }
       const post = await storage.createBlogPost(data);
       res.status(201).json(post);

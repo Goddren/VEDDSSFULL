@@ -60,7 +60,12 @@ async function generateFluxImage(prompt: string): Promise<string | null> {
         Prefer: 'wait',
       },
       body: JSON.stringify({ input: { prompt, aspect_ratio: '1:1', output_format: 'png' } }),
-      signal: AbortSignal.timeout(60000),
+      // Replicate's own `Prefer: wait` window can run right up to ~60s
+      // (observed 60.7s in testing) before it gives up and returns 202
+      // "starting" instead of a finished result — a 60000ms client-side
+      // abort loses that race and throws "aborted due to timeout" instead
+      // of falling through to the poll loop below. Give it headroom.
+      signal: AbortSignal.timeout(75000),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
