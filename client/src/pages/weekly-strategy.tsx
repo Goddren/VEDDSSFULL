@@ -1668,7 +1668,9 @@ export default function WeeklyStrategyPage() {
     setPropFirmAllowOvernight(p.overnight);
     setPropFirmConsistencyRule(p.consistency);
     if (preset !== 'CUSTOM') setEngineMode('sniper');
-    // Save to server immediately so the enforcement layer picks it up
+    // /api/prop-firm-context is a display/AI-reasoning store only — write
+    // through to /api/prop-firm-challenge/config too, which is what the
+    // live engine's Gate 0 / consistency rule actually reads.
     apiRequest('POST', '/api/prop-firm-context', {
       enabled: true,
       firmPreset: preset,
@@ -1682,12 +1684,30 @@ export default function WeeklyStrategyPage() {
       currentDailyPnlPct: 0,
       currentTotalPnlPct: 0,
     }).catch(() => {});
+    apiRequest('POST', '/api/prop-firm-challenge/config', {
+      propFirmMode: true,
+      consistencyEnforcementEnabled: p.consistency,
+      propFirmDailyDrawdownLimit: p.daily,
+    }).catch(() => {});
   };
 
   const savePropFirmContextMutation = useMutation({
     mutationFn: async (ctx: any) => {
-      const res = await apiRequest('POST', '/api/prop-firm-context', ctx);
-      return res.json();
+      // /api/prop-firm-context is a display/AI-reasoning store only — the
+      // live engine's actual trade-blocking gates (Gate 0, consistency rule)
+      // never read it. They're wired to /api/prop-firm-challenge/config, so
+      // write through to both: this panel's toggle previously showed a
+      // "Risk guard is now active" success toast while the real consistency
+      // enforcement was untouched.
+      const [ctxRes] = await Promise.all([
+        apiRequest('POST', '/api/prop-firm-context', ctx),
+        apiRequest('POST', '/api/prop-firm-challenge/config', {
+          propFirmMode: ctx.enabled,
+          consistencyEnforcementEnabled: ctx.consistencyRule,
+          propFirmDailyDrawdownLimit: ctx.maxDailyDrawdownPct,
+        }),
+      ]);
+      return ctxRes.json();
     },
     onSuccess: () => {
       toast({ title: '🛡️ Prop Firm Rules Saved', description: 'Risk guard is now active on all TradeLocker accounts' });
