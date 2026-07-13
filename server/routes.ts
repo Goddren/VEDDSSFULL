@@ -15141,7 +15141,7 @@ Rules:
       'executionSource', 'lockSettings',
       'expiryPreference', 'minDaysToExpiry', 'maxDaysToExpiry', 'strikeSelectionMode', 'targetDelta',
       'profitTargetPercent', 'stopLossPercent', 'ivRankMax', 'sessionFilterEnabled', 'avoidLastMinutesBeforeClose',
-      'orbRangeMinutes', 'volumeProfileLookbackDays', 'breakoutLookbackDays',
+      'orbRangeMinutes', 'volumeProfileLookbackDays', 'breakoutLookbackDays', 'orderFlowLookbackBars',
       'adaptiveScanInterval', 'enablePyramiding',
     ];
     const updateData: Record<string, any> = {};
@@ -23697,6 +23697,35 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ message: "Invalid context body" });
     }
     setPropFirmContext(req.user!.id, ctx);
+
+    // Bridge into the live-trading-engine's real config. The Weekly Strategy
+    // prop-firm panel (the surface mobile users actually use) posts here with
+    // `consistencyRule`/`maxDailyDrawdownPct` — but the engine's enforcement
+    // gates read `consistencyEnforcementEnabled`/`maxDailyProfitPctOfTotal`/
+    // `propFirmDailyDrawdownLimit`, which before this bridge were only ever
+    // written by the separate Prop Firm Challenge dashboard page. Without it,
+    // the panel's "Save Prop Firm Rules to Server" success toast was a dead
+    // write: the consistency rule the user thought they enabled never reached
+    // the engine. updateLiveEngineConfig persists even when the engine is
+    // stopped, so this survives restarts too.
+    try {
+      const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
+      const engineUpdates: Record<string, any> = {};
+      if (typeof ctx.enabled === 'boolean') engineUpdates.propFirmMode = ctx.enabled;
+      if (typeof ctx.consistencyRule === 'boolean') {
+        engineUpdates.consistencyEnforcementEnabled = ctx.consistencyRule;
+        // The panel's rule summary promises "No single day >30% of total
+        // target profit" — back that promise with the engine's actual cap.
+        engineUpdates.maxDailyProfitPctOfTotal = ctx.consistencyRule ? 30 : 0;
+      }
+      if (typeof ctx.maxDailyDrawdownPct === 'number' && ctx.maxDailyDrawdownPct > 0) {
+        engineUpdates.propFirmDailyDrawdownLimit = ctx.maxDailyDrawdownPct;
+      }
+      if (Object.keys(engineUpdates).length > 0) updateLiveEngineConfig(req.user!.id, engineUpdates);
+    } catch (err: any) {
+      console.error('[prop-firm-context] engine config bridge failed (non-fatal):', err?.message ?? err);
+    }
+
     res.json({ success: true, context: getPropFirmContext(req.user!.id) });
   });
 
@@ -23821,6 +23850,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user!.id;
     const { updateLiveEngineConfig } = await import('./services/live-trading-engine');
     const {
+      propFirmMode,
       challengeSessionFilterEnabled,
       consistencyEnforcementEnabled,
       consistencyMinProfitableDays,
@@ -23831,6 +23861,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       deepReasoningMode,
     } = req.body;
     const updates: Record<string, any> = {};
+    // Only routes-that-start-trading (POST /api/vedd-live-engine/start)
+    // could set this before — meaning turning on propFirmMode without
+    // beginning live trading wasn't possible. This lets a user enable
+    // prop-firm settings up front, before ever starting the engine.
+    if (typeof propFirmMode === 'boolean') updates.propFirmMode = propFirmMode;
     if (typeof challengeSessionFilterEnabled === 'boolean') updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
     if (typeof consistencyEnforcementEnabled === 'boolean') updates.consistencyEnforcementEnabled = consistencyEnforcementEnabled;
     if (typeof consistencyMinProfitableDays === 'number') updates.consistencyMinProfitableDays = consistencyMinProfitableDays;

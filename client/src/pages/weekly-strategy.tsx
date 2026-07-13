@@ -2798,7 +2798,7 @@ export default function WeeklyStrategyPage() {
                                 <button
                                   key={f}
                                   onClick={() => applyPropFirmPreset(f)}
-                                  className={`text-[9px] font-bold py-1.5 rounded-lg border transition-all ${
+                                  className={`text-[10px] font-bold py-2.5 rounded-lg border transition-all ${
                                     propFirmPreset === f
                                       ? 'bg-amber-500/30 border-amber-500/70 text-amber-300'
                                       : 'bg-gray-800/60 border-gray-700 text-gray-400 hover:border-gray-500'
@@ -2818,7 +2818,7 @@ export default function WeeklyStrategyPage() {
                                 <Input type="number" value={enginePropFirmDrawdown}
                                   onChange={e => { setEnginePropFirmDrawdown(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
                                   min={1} max={10} step={0.5}
-                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                  className="h-10 bg-gray-800 border-amber-700/40 text-amber-300 text-sm px-2" />
                                 <span className="text-gray-400 text-[10px]">%</span>
                               </div>
                             </div>
@@ -2828,7 +2828,7 @@ export default function WeeklyStrategyPage() {
                                 <Input type="number" value={propFirmTotalDrawdown}
                                   onChange={e => { setPropFirmTotalDrawdown(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
                                   min={1} max={20} step={0.5}
-                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                  className="h-10 bg-gray-800 border-amber-700/40 text-amber-300 text-sm px-2" />
                                 <span className="text-gray-400 text-[10px]">%</span>
                               </div>
                             </div>
@@ -2838,7 +2838,7 @@ export default function WeeklyStrategyPage() {
                                 <Input type="number" value={propFirmProfitTarget}
                                   onChange={e => { setPropFirmProfitTarget(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
                                   min={1} max={20} step={0.5}
-                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                  className="h-10 bg-gray-800 border-amber-700/40 text-amber-300 text-sm px-2" />
                                 <span className="text-gray-400 text-[10px]">%</span>
                               </div>
                             </div>
@@ -2848,7 +2848,7 @@ export default function WeeklyStrategyPage() {
                                 <Input type="number" value={engineRiskPerTrade}
                                   onChange={e => { setEngineRiskPerTrade(Number(e.target.value)); setPropFirmPreset('CUSTOM'); }}
                                   min={0.1} max={3} step={0.1}
-                                  className="h-7 bg-gray-800 border-amber-700/40 text-amber-300 text-xs px-2" />
+                                  className="h-10 bg-gray-800 border-amber-700/40 text-amber-300 text-sm px-2" />
                                 <span className="text-gray-400 text-[10px]">%</span>
                               </div>
                             </div>
@@ -2857,11 +2857,11 @@ export default function WeeklyStrategyPage() {
                           {/* Toggle rules */}
                           <div className="flex flex-wrap gap-2 mb-3">
                             <button onClick={() => { setPropFirmConsistencyRule(v => !v); setPropFirmPreset('CUSTOM'); }}
-                              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-all ${propFirmConsistencyRule ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                              className={`flex items-center gap-1.5 text-[11px] px-3 py-2.5 rounded-md border transition-all ${propFirmConsistencyRule ? 'bg-blue-500/20 border-blue-500/50 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
                               <span>{propFirmConsistencyRule ? '✓' : '○'}</span> Consistency rule
                             </button>
                             <button onClick={() => { setPropFirmAllowOvernight(v => !v); setPropFirmPreset('CUSTOM'); }}
-                              className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-all ${propFirmAllowOvernight ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
+                              className={`flex items-center gap-1.5 text-[11px] px-3 py-2.5 rounded-md border transition-all ${propFirmAllowOvernight ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
                               <span>{propFirmAllowOvernight ? '✓' : '○'}</span> Overnight holds
                             </button>
                           </div>

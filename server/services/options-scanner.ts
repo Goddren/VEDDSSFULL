@@ -14,7 +14,6 @@ import type { OptionsEngineConfig, AlpacaConnection } from '../../shared/schema'
 const MIN_SCAN_INTERVAL_MS = 30000; // never scan a single user faster than this
 const lastScanAt = new Map<number, number>();
 
-type Bar = { t: string; o: number; h: number; l: number; c: number; v: number };
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';
 interface StrategyResult {
   decision: Decision;
@@ -263,11 +262,105 @@ async function runMomentum(service: AlpacaService, symbol: string, cfg: OptionsE
   return { decision: 'watching', score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: 'momentum', reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) — momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
 }
 
+// ── Strategy: Order Flow / CVD Proxy (Scalp) ─────────────────────────────────
+// Adapted from an order-flow/auction-market-theory scalping approach (balance
+// vs. imbalance, cumulative volume delta, VWAP as fair value). Alpaca/
+// TastyTrade don't expose tick-level bid/ask order flow, so "CVD" here is a
+// per-bar proxy: each bar's volume is attributed toward buyers/sellers by
+// where in its own high-low range the close landed (closing near the high
+// attributes most of that bar's volume to buying pressure, and vice versa) —
+// a legitimate volume-weighted directional-pressure read from the same OHLCV
+// bars every other strategy here already uses, not real executed-order CVD.
+async function runOrderFlow(service: AlpacaService, symbol: string, cfg: OptionsEngineConfig): Promise<StrategyResult> {
+  const now = new Date();
+  const lookback = Math.max(10, cfg.orderFlowLookbackBars);
+  // Window is computed in calendar days, not bar-minutes: a wall-clock window
+  // of lookback*5min can't reach back across the ~17.5h overnight gap (let
+  // alone a weekend), which starved this of bars every morning — erroring on
+  // every scan until enough of THAT day's session had accumulated. A regular
+  // session yields ~78 five-min bars, so reach back enough sessions to cover
+  // the lookback plus 3 days of weekend/holiday padding, same approach as
+  // runBreakout.
+  const sessionsNeeded = Math.ceil(lookback / 78);
+  const start = new Date(now.getTime() - (sessionsNeeded + 3) * 24 * 60 * 60000);
+  const bars = await service.getBars(symbol, '5Min', start, now, 500);
+  if (bars.length < lookback) {
+    return { decision: 'error', reasoning: `${symbol}: not enough intraday bars returned to compute an order-flow read (need ${lookback}, got ${bars.length}).`, score: null, price: null, dailyChangePercent: null, strategy: 'order_flow' };
+  }
+  const window = bars.slice(-lookback);
+
+  const deltas = window.map(b => {
+    const range = b.h - b.l;
+    if (range <= 0) return 0;
+    const closeLocation = (b.c - b.l) / range; // 0 = closed at low, 1 = closed at high
+    return b.v * (closeLocation * 2 - 1); // -v..+v
+  });
+  const mid = Math.floor(deltas.length / 2);
+  const cvdFirstHalf = deltas.slice(0, mid).reduce((s, d) => s + d, 0);
+  const cvdSecondHalf = deltas.slice(mid).reduce((s, d) => s + d, 0);
+  const totalVolume = window.reduce((s, b) => s + b.v, 0) || 1;
+  const cvdShiftPct = ((cvdSecondHalf - cvdFirstHalf) / totalVolume) * 100;
+
+  // VWAP over the window (volume-weighted, using each bar's own vw) as the
+  // "fair value" reference the source strategy trades around.
+  const vwapNum = window.reduce((s, b) => s + b.vw * b.v, 0);
+  const vwap = totalVolume > 0 ? vwapNum / totalVolume : window[window.length - 1].c;
+
+  const last = window[window.length - 1];
+  const price = last.c;
+  const lastBarBullish = last.c > last.o;
+  const lastBarBearish = last.c < last.o;
+
+  // Balance vs. imbalance: the window's own high-low range as a % of price —
+  // narrow = balanced/ranging (source strategy sits out), wide = imbalanced/
+  // trending (source strategy looks to trade the imbalance).
+  const windowHigh = Math.max(...window.map(b => b.h));
+  const windowLow = Math.min(...window.map(b => b.l));
+  const rangePct = ((windowHigh - windowLow) / windowLow) * 100;
+  const imbalanced = rangePct > 0.8;
+
+  const cvdBull = cvdShiftPct > 2; // buying pressure accelerated in the second half of the window
+  const cvdBear = cvdShiftPct < -2;
+  const aboveVwap = price > vwap;
+  const belowVwap = price < vwap;
+
+  let direction: 'up' | 'down' | 'inside' = 'inside';
+  if (imbalanced && cvdBull && aboveVwap && lastBarBullish) direction = 'up';
+  else if (imbalanced && cvdBear && belowVwap && lastBarBearish) direction = 'down';
+
+  const directionAllowed =
+    cfg.directionFilter === 'both' ||
+    (cfg.directionFilter === 'calls_only' && direction === 'up') ||
+    (cfg.directionFilter === 'puts_only' && direction === 'down');
+
+  const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
+  const score = Math.min(100, Math.round(35 + Math.abs(cvdShiftPct) * 6 + distFromVwapPct * 8));
+
+  if (!imbalanced) {
+    return { decision: 'watching', reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) — market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: 'order_flow' };
+  }
+  if (direction === 'inside') {
+    return { decision: 'watching', reasoning: `${symbol}: imbalanced (${rangePct.toFixed(2)}% range) but volume-delta and VWAP aren't aligned yet (CVD shift ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} vs VWAP $${vwap.toFixed(2)}) — waiting for a full-candle-close confirmation.`, score, price, dailyChangePercent: null, strategy: 'order_flow' };
+  }
+  if (!directionAllowed) {
+    return { decision: 'skipped', reasoning: `${symbol}: order-flow read is ${direction} (CVD shift ${cvdShiftPct.toFixed(1)}%, vs VWAP $${vwap.toFixed(2)}), but your direction filter is "${cfg.directionFilter}" — doesn't qualify.`, score, price, dailyChangePercent: null, strategy: 'order_flow' };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: 'watching', reasoning: `${symbol}: ${direction} order-flow read (CVD shift ${cvdShiftPct.toFixed(1)}%, ${distFromVwapPct.toFixed(1)}% from VWAP), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: 'order_flow' };
+  }
+  const optType = direction === 'up' ? 'call' : 'put';
+  return {
+    decision: 'signal', score, price, dailyChangePercent: null, strategy: 'order_flow', direction,
+    reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === 'up' ? 'above' : 'below'} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === 'up' ? 'bullish' : 'bearish'} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`,
+  };
+}
+
 const STRATEGY_RUNNERS: Record<string, (s: AlpacaService, sym: string, c: OptionsEngineConfig) => Promise<StrategyResult>> = {
   orb: runOrb,
   volume_profile: runVolumeProfile,
   breakout: runBreakout,
   momentum: runMomentum,
+  order_flow: runOrderFlow,
 };
 
 async function scanSymbol(service: AlpacaService, symbol: string, cfg: OptionsEngineConfig): Promise<StrategyResult> {
@@ -288,7 +381,7 @@ async function scanSymbol(service: AlpacaService, symbol: string, cfg: OptionsEn
 
   if (cfg.strategyMode === 'auto') {
     // Run all real strategies and take the highest-scoring signal; fall back to momentum's read if none signal.
-    const results = await Promise.all(['orb', 'volume_profile', 'breakout', 'momentum'].map(k => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
+    const results = await Promise.all(['orb', 'volume_profile', 'breakout', 'momentum', 'order_flow'].map(k => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r): r is StrategyResult => !!r);
     const signals = valid.filter(r => r.decision === 'signal').sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
@@ -393,16 +486,13 @@ async function checkSafetyGates(userId: number, cfg: OptionsEngineConfig, equity
 async function executeSignal(service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<void> {
   if (!result.direction) return;
 
-  const gate = await checkSafetyGates(userId, cfg, cfg.accountBalance);
-  if (!gate.allowed) {
-    await storage.createOptionsEngineActivity({
-      userId, symbol: underlyingSymbol, decision: 'skipped',
-      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked — ${gate.reason}.`,
-      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca', strategy: result.strategy,
-    });
-    return;
-  }
-
+  // Account info is fetched BEFORE the safety gates so the gates run against
+  // the same live equity that position sizing uses below. They previously ran
+  // against the user-typed cfg.accountBalance, which defaults to 0 — and the
+  // equity-based gates (daily loss limit, prop-firm drawdown, daily profit
+  // target) are skipped entirely when equity is 0, so any user who never set
+  // a balance had those protections silently disabled while trades still
+  // sized and executed off real equity.
   let account;
   try {
     account = await service.getAccountInfo();
@@ -411,6 +501,17 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
       userId, symbol: underlyingSymbol, decision: 'error', strategy: result.strategy,
       reasoning: `${underlyingSymbol}: couldn't fetch account info before sizing the trade: ${err.message}`,
       score: null, price: null, dailyChangePercent: null, source: 'alpaca',
+    });
+    return;
+  }
+
+  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const gate = await checkSafetyGates(userId, cfg, gateEquity);
+  if (!gate.allowed) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: underlyingSymbol, decision: 'skipped',
+      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked — ${gate.reason}.`,
+      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca', strategy: result.strategy,
     });
     return;
   }
@@ -576,5 +677,5 @@ export function startOptionsEngineScanner(): void {
   started = true;
   const LOOP_INTERVAL_MS = 60000;
   setInterval(() => { runOptionsEngineScan().catch(() => {}); }, LOOP_INTERVAL_MS);
-  console.log('[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/auto).');
+  console.log('[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).');
 }

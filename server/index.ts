@@ -228,6 +228,26 @@ async function withRetry<T>(
     console.error(`[startup] ensureContentImageColumns import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Options Engine order-flow strategy column exists
+  try {
+    const { ensureOrderFlowColumn } = await import('./services/ensure-order-flow-column');
+    await ensureOrderFlowColumn();
+  } catch (err: any) {
+    console.error(`[startup] ensureOrderFlowColumn import error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
+  // hydrate propFirmMode/consistency-rule defaults from it so they survive
+  // this restart — never auto-resumes live trading itself.
+  try {
+    const { ensureLiveEngineConfigTable } = await import('./services/ensure-live-engine-config-table');
+    await ensureLiveEngineConfigTable();
+    const { hydratePersistedEngineConfigs } = await import('./services/live-trading-engine');
+    await hydratePersistedEngineConfigs();
+  } catch (err: any) {
+    console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure copy trading execution columns exist (real-mode broker execution + paper-mode mirroring)
   try {
     const { ensureCopyTradingExecutionColumns } = await import('./services/ensure-copy-trading-execution-columns');

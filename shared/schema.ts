@@ -848,7 +848,7 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   isActive: boolean("is_active").notNull().default(false),
   symbols: jsonb("symbols").notNull().default(['SPY', 'QQQ', 'AAPL', 'TSLA', 'NVDA']), // underlying tickers to scan
   scanIntervalMs: integer("scan_interval_ms").notNull().default(60000),
-  strategyMode: text("strategy_mode").notNull().default('auto'), // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+  strategyMode: text("strategy_mode").notNull().default('auto'), // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'order_flow' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
   singleStrategyMode: boolean("single_strategy_mode").notNull().default(false), // when true, only strategyMode fires — no mixing
   directionFilter: text("direction_filter").notNull().default('both'), // 'calls_only' | 'puts_only' | 'both'
   maxOpenPositions: integer("max_open_positions").notNull().default(3),
@@ -883,6 +883,7 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   orbRangeMinutes: integer("orb_range_minutes").notNull().default(15), // opening range window length
   volumeProfileLookbackDays: integer("volume_profile_lookback_days").notNull().default(10),
   breakoutLookbackDays: integer("breakout_lookback_days").notNull().default(20),
+  orderFlowLookbackBars: integer("order_flow_lookback_bars").notNull().default(30), // 5-min bars used for the CVD-proxy/market-structure read
 
   // Acceleration / adaptive behavior (mirrors SS Engine's acceleration features)
   adaptiveScanInterval: boolean("adaptive_scan_interval").notNull().default(false), // scan faster near market open/ORB window
@@ -900,6 +901,23 @@ export const insertOptionsEngineConfigSchema = createInsertSchema(optionsEngineC
 
 export type OptionsEngineConfig = typeof optionsEngineConfigs.$inferSelect;
 export type InsertOptionsEngineConfig = z.infer<typeof insertOptionsEngineConfigSchema>;
+
+// FX SS AI Engine (live-trading-engine.ts) config — that engine's LiveEngineConfig
+// is otherwise held ONLY in an in-memory Record<userId, EngineState> and is lost
+// on every server restart/deploy, including propFirmMode/consistency-rule
+// settings meant to enforce real prop-firm compliance. This table is the
+// durable mirror: written on every startLiveEngine()/updateLiveEngineConfig()
+// call, and read back at boot to rehydrate defaults for each user before they
+// next start the engine (never auto-resumes live trading on its own).
+export const liveEngineConfigs = pgTable("live_engine_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  config: jsonb("config").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type LiveEngineConfigRow = typeof liveEngineConfigs.$inferSelect;
 
 // Options AI Engine — live scan/decision feed. Each row is one thing the
 // engine looked at and what it concluded, so the user can see what it's

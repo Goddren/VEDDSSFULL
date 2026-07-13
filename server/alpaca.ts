@@ -188,7 +188,7 @@ export class AlpacaService {
   // Volume Profile (intraday bars across N days), and Breakout (daily bars
   // over a lookback window) strategies. timeframe examples: '1Min', '5Min', '1Day'.
   async getBars(symbol: string, timeframe: string, start: Date, end: Date, limit = 1000): Promise<Array<{
-    t: string; o: number; h: number; l: number; c: number; v: number;
+    t: string; o: number; h: number; l: number; c: number; v: number; vw: number; n: number;
   }>> {
     const params = new URLSearchParams({
       timeframe,
@@ -205,7 +205,11 @@ export class AlpacaService {
     if (!response.ok) return [];
     const data = await response.json();
     const bars = data.bars || [];
-    return bars.map((b: any) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+    // vw (VWAP) and n (trade count) are already in Alpaca's raw bar payload —
+    // surfaced here (previously dropped) so strategies can use VWAP as a
+    // fair-value reference and trade count as a volume-delta/aggression proxy
+    // without needing tick-level order-flow data.
+    return bars.map((b: any) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw ?? b.c, n: b.n ?? 0 }));
   }
 
   async getOptionsChain(underlyingSymbol: string): Promise<AlpacaOptionContract[]> {

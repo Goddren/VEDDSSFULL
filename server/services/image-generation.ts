@@ -12,6 +12,12 @@ import { OpenAI } from 'openai';
 // vivid orange-red primary accent (hsl(10,100%,55%)).
 export const BRAND_STYLE_SUFFIX = ', in the visual style of a modern fintech trading platform: deep navy and charcoal background, vivid orange-red accent highlights, clean sharp UI elements, professional dark-mode dashboard aesthetic, high contrast, no clutter';
 
+// VEDD's audience and representation direction: this platform speaks to
+// inner-city communities building wealth through trading — the people shown
+// should reflect that, not a generic stock-photo cast. Appended to every
+// generated-image prompt alongside the brand suffix above.
+export const HUMAN_STYLE_SUFFIX = '. If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings — no generic stock-photo corporate look.';
+
 export interface GeneratedImage {
   url: string;
   provider: 'dall-e-3' | 'replicate-flux-schnell';
@@ -117,7 +123,7 @@ async function generateFluxImage(prompt: string, retriesLeft = 2): Promise<strin
  * as non-fatal.
  */
 export async function generateContentImage(prompt: string): Promise<GeneratedImage | null> {
-  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}`;
+  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
 
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: 'dall-e-3' };

@@ -6,7 +6,7 @@ import {
   Coins, Webhook, Wallet, DollarSign, Globe, Search, BarChart3,
   LineChart, Scan, Brain, Radio, Rocket, Heart, X,
   FlaskConical, Shield, BarChart2, Lock, Building2, Shirt, MapPin, TrendingDown,
-  PowerOff, AlertTriangle, Video,
+  PowerOff, AlertTriangle, Video, Layers, Cable, Code2, Activity,
 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -25,6 +25,9 @@ const tradingItems = [
   { name: 'Historical',       path: '/historical',        icon: History,    color: '#8b5cf6' },
   { name: 'What If',          path: '/what-if',           icon: Lightbulb,  color: '#06b6d4' },
   { name: 'MT5 Charts',       path: '/mt5-chart-data',    icon: BarChart3,  color: '#06b6d4' },
+  { name: 'Futures Connect',  path: '/futures-connect',      icon: Cable,    color: '#f97316' },
+  { name: 'Futures EA Gen',   path: '/futures-ea-generator', icon: Code2,    color: '#f97316' },
+  { name: 'Futures Live Feed', path: '/futures-live-feed',   icon: Activity, color: '#f97316' },
 ];
 
 const aiToolItems = [
@@ -53,6 +56,7 @@ const communityItems = [
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
   { name: 'AI Video',       path: '/ambassador/content-studio?view=ai-video', icon: Video,   color: '#c084fc' },
+  { name: 'Slides',         path: '/ambassador/content-studio?view=slide-carousel', icon: Layers, color: '#38bdf8' },
   { name: 'Amb. Portal',  path: 'https://veddbuild-portal.onrender.com/ambassadors', icon: DollarSign, color: '#18C87A' },
 ];
 

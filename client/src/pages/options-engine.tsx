@@ -124,6 +124,7 @@ type OptionsEngineConfig = {
   orbRangeMinutes: number;
   volumeProfileLookbackDays: number;
   breakoutLookbackDays: number;
+  orderFlowLookbackBars: number;
   adaptiveScanInterval: boolean;
   enablePyramiding: boolean;
 };
@@ -767,6 +768,7 @@ export default function OptionsEnginePage() {
                           <SelectItem value="volume_profile">Volume Profile (POC / Value Area)</SelectItem>
                           <SelectItem value="breakout">N-Day High/Low Breakout</SelectItem>
                           <SelectItem value="momentum">Daily Momentum</SelectItem>
+                          <SelectItem value="order_flow">Order Flow / CVD Proxy (Scalp)</SelectItem>
                           <SelectItem value="long_call">Long Call (manual)</SelectItem>
                           <SelectItem value="long_put">Long Put (manual)</SelectItem>
                           <SelectItem value="credit_spread">Credit Spread (roadmap)</SelectItem>
@@ -818,6 +820,18 @@ export default function OptionsEnginePage() {
                           onBlur={(e) => updateConfigMutation.mutate({ breakoutLookbackDays: parseInt(e.target.value, 10) })}
                           className="bg-gray-800 border-gray-700 h-8 text-sm"
                         />
+                      </div>
+                    )}
+                    {(config.strategyMode === 'order_flow' || config.strategyMode === 'auto') && (
+                      <div className="space-y-2">
+                        <Label className="text-xs text-gray-400">Order flow lookback (5-min bars)</Label>
+                        <Input
+                          type="number" min={10} max={100}
+                          defaultValue={config.orderFlowLookbackBars}
+                          onBlur={(e) => updateConfigMutation.mutate({ orderFlowLookbackBars: parseInt(e.target.value, 10) })}
+                          className="bg-gray-800 border-gray-700 h-8 text-sm"
+                        />
+                        <p className="text-[10px] text-gray-500">Uses a volume-delta proxy (no tick-level order flow available) + VWAP + market-structure imbalance to read buyer/seller pressure.</p>
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-1">

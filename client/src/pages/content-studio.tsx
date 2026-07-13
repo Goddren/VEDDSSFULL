@@ -1019,22 +1019,36 @@ export default function ContentStudioPage() {
 
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                   {generatedCarousel.slides.map((slide, i) => (
-                    <div key={i} className="flex-shrink-0" style={{ width: 220 }}>
-                      <CardShell
-                        gradient="linear-gradient(160deg,#020f14 0%,#04141a 60%,#0a0a14 100%)"
-                        color="#38bdf8"
-                        bgImage={slide.imageUrl}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(56,189,248,.15)', color: '#38bdf8' }}>
-                            {i + 1} / {generatedCarousel.slides.length}
-                          </span>
+                    <div key={i} className="flex-shrink-0" style={{ width: 240 }}>
+                      {/* Bold typographic quote-card style (à la @wealth /
+                          @entrepreneursonig): near-black ground, heavily dimmed
+                          image, one big statement centered, brand handle footer. */}
+                      <div className="rounded-2xl w-full aspect-square relative overflow-hidden" style={{ border: '1px solid rgba(255,255,255,.12)', background: '#050507' }}>
+                        {slide.imageUrl && (
+                          <div className="absolute inset-0" style={{ backgroundImage: `url(${slide.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.28 }} />
+                        )}
+                        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,.75) 100%)' }} />
+                        <div className="relative z-10 p-4 w-full h-full flex flex-col">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
+                                <span className="text-[9px] font-black text-white">V</span>
+                              </div>
+                              <span className="text-[9px] font-bold text-gray-400 tracking-widest uppercase">VEDD</span>
+                            </div>
+                            <span className="text-[9px] font-bold text-gray-500">{i + 1}/{generatedCarousel.slides.length}</span>
+                          </div>
+                          <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                            <h4 className="text-lg font-black text-white leading-tight uppercase tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,.9)' }}>{slide.heading}</h4>
+                            <div className="w-8 h-0.5 my-2.5" style={{ background: 'linear-gradient(90deg,#dc2626,#7c3aed)' }} />
+                            <p className="text-[11px] text-gray-300 leading-relaxed" style={{ textShadow: '0 1px 8px rgba(0,0,0,.9)' }}>{slide.body}</p>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-gray-400">@veddbuild</span>
+                            {i < generatedCarousel.slides.length - 1 && <span className="text-[10px] text-gray-500">swipe →</span>}
+                          </div>
                         </div>
-                        <div className="flex-1 flex flex-col justify-end">
-                          <h4 className="text-sm font-black text-white leading-snug mb-1.5">{slide.heading}</h4>
-                          <p className="text-[11px] text-gray-300 leading-relaxed">{slide.body}</p>
-                        </div>
-                      </CardShell>
+                      </div>
                       {slide.imageUrl ? (
                         <a href={slide.imageUrl} download target="_blank" rel="noreferrer"
                           className="block text-center text-[10px] font-bold mt-1.5 px-2 py-1.5 rounded-lg"

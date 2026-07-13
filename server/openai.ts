@@ -4236,7 +4236,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags — those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. No text overlays, no logos, just the scene."
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. No text overlays, no logos, just the scene. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally — this reflects VEDD's inner-city audience, not a generic stock-footage cast."
 }`;
 
   const response = await openai.chat.completions.create({
@@ -4293,7 +4293,7 @@ export async function generateSlideCarouselScript(topic: string, slideCount: num
     model = isGroq ? 'openai/gpt-oss-120b' : 'gpt-4o';
   }
 
-  const systemPrompt = `You write step-by-step explainer/informational slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff — talk to the reader like you know their hustle). These are the kind of "how to get set up" or "how this works" carousels people post to Instagram/LinkedIn as a swipe-through.
+  const systemPrompt = `You write slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff — talk to the reader like you know their hustle). Write them in the style of top Instagram finance/motivation pages like @wealth and @entrepreneursonig: each slide is ONE bold declarative statement that could stand alone as a quote card — short, punchy, scroll-stopping. Not paragraphs, not lecture notes.
 
 Return a JSON object with these exact fields:
 {
@@ -4301,14 +4301,14 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
   "slides": [
     {
-      "heading": "short slide heading (max 50 chars) — e.g. 'Step 1: Connect Your Broker'",
-      "body": "1-2 short sentences of body text for this slide, plain and clear, no jargon",
-      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's background. No text overlays, no logos, no UI screenshots — just a scene/mood/object that fits the slide's point."
+      "heading": "the slide's BIG bold statement (max 60 chars) — one punchy declarative line, e.g. 'Most traders lose to their own emotions.' or 'Step 1: Connect your broker.'",
+      "body": "one short supporting line (max 100 chars) — sharpens or proves the heading, never repeats it",
+      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's dark, moody background. Dark/cinematic tones only. No text overlays, no logos, no UI screenshots. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally — this reflects VEDD's inner-city audience, not a generic stock-photo cast."
     }
   ]
 }
 
-Write exactly ${slideCount} slides, in logical order (slide 1 is the hook/intro, the last slide is always a CTA to join VEDD).`;
+Write exactly ${slideCount} slides, in logical order (slide 1 is a hook that stops the scroll, the last slide is always a CTA to join VEDD).`;
 
   const response = await openai.chat.completions.create({
     model,

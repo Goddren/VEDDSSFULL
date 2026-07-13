@@ -144,7 +144,7 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
           </div>
 
           {/* Overall stats grid: Total Trades · Win Rate · Total P&L · Win Streak */}
-          <div className="grid grid-cols-4 gap-1.5 mb-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-3">
             <div className="bg-black/25 rounded-lg p-2 text-center">
               <p className="text-[8px] text-gray-500">Trades</p>
               <p className="text-base font-black text-gray-200">{o!.trades}</p>

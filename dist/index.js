@@ -206,6 +206,7 @@ __export(schema_exports, {
   landingPageQuizzes: () => landingPageQuizzes,
   leadHunterRuns: () => leadHunterRuns,
   leads: () => leads,
+  liveEngineConfigs: () => liveEngineConfigs,
   loginUserSchema: () => loginUserSchema,
   marketDataRefreshJobs: () => marketDataRefreshJobs,
   marketDataSnapshots: () => marketDataSnapshots,
@@ -266,7 +267,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1078,7 +1079,7 @@ var init_schema = __esm({
       // underlying tickers to scan
       scanIntervalMs: integer("scan_interval_ms").notNull().default(6e4),
       strategyMode: text("strategy_mode").notNull().default("auto"),
-      // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
+      // 'auto' | 'orb' | 'volume_profile' | 'breakout' | 'momentum' | 'order_flow' | 'covered_call' | 'credit_spread' | 'long_call' | 'long_put'
       singleStrategyMode: boolean("single_strategy_mode").notNull().default(false),
       // when true, only strategyMode fires — no mixing
       directionFilter: text("direction_filter").notNull().default("both"),
@@ -1128,6 +1129,8 @@ var init_schema = __esm({
       // opening range window length
       volumeProfileLookbackDays: integer("volume_profile_lookback_days").notNull().default(10),
       breakoutLookbackDays: integer("breakout_lookback_days").notNull().default(20),
+      orderFlowLookbackBars: integer("order_flow_lookback_bars").notNull().default(30),
+      // 5-min bars used for the CVD-proxy/market-structure read
       // Acceleration / adaptive behavior (mirrors SS Engine's acceleration features)
       adaptiveScanInterval: boolean("adaptive_scan_interval").notNull().default(false),
       // scan faster near market open/ORB window
@@ -1140,6 +1143,13 @@ var init_schema = __esm({
       id: true,
       createdAt: true,
       updatedAt: true
+    });
+    liveEngineConfigs = pgTable("live_engine_configs", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull().unique(),
+      config: jsonb("config").notNull().default({}),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
     optionsEngineActivity = pgTable("options_engine_activity", {
       id: serial("id").primaryKey(),
@@ -4152,6 +4162,23 @@ var init_storage = __esm({
       }
       async getAllActiveOptionsEngineConfigs() {
         return db.select().from(optionsEngineConfigs).where(eq(optionsEngineConfigs.isActive, true));
+      }
+      // ── Live Engine (FX SS AI Engine) durable config mirror ─────────────────────
+      async getLiveEngineConfigOverrides(userId) {
+        const [row] = await db.select().from(liveEngineConfigs).where(eq(liveEngineConfigs.userId, userId));
+        return row ? row.config : null;
+      }
+      async saveLiveEngineConfigOverrides(userId, config) {
+        const existing = await this.getLiveEngineConfigOverrides(userId);
+        if (existing !== null) {
+          await db.update(liveEngineConfigs).set({ config, updatedAt: /* @__PURE__ */ new Date() }).where(eq(liveEngineConfigs.userId, userId));
+        } else {
+          await db.insert(liveEngineConfigs).values({ userId, config });
+        }
+      }
+      async getAllLiveEngineConfigOverrides() {
+        const rows = await db.select().from(liveEngineConfigs);
+        return rows.map((r) => ({ userId: r.userId, config: r.config }));
       }
       // ── Options AI Engine — scan/decision activity feed ─────────────────────────
       async createOptionsEngineActivity(entry) {
@@ -10143,7 +10170,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. No text overlays, no logos, just the scene."
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. No text overlays, no logos, just the scene. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-footage cast."
 }`;
   const response = await openai2.chat.completions.create({
     model,
@@ -10187,7 +10214,7 @@ async function generateSlideCarouselScript(topic, slideCount, userId) {
     openai2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
     model = isGroq ? "openai/gpt-oss-120b" : "gpt-4o";
   }
-  const systemPrompt = `You write step-by-step explainer/informational slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle). These are the kind of "how to get set up" or "how this works" carousels people post to Instagram/LinkedIn as a swipe-through.
+  const systemPrompt = `You write slide carousels for VEDD Trading AI, a faith-driven financial education platform (brand voice: confident, empowering, street-urban authentic, no fluff \u2014 talk to the reader like you know their hustle). Write them in the style of top Instagram finance/motivation pages like @wealth and @entrepreneursonig: each slide is ONE bold declarative statement that could stand alone as a quote card \u2014 short, punchy, scroll-stopping. Not paragraphs, not lecture notes.
 
 Return a JSON object with these exact fields:
 {
@@ -10195,14 +10222,14 @@ Return a JSON object with these exact fields:
   "caption": "a social caption for the post introducing the carousel (2-4 sentences), includes a CTA to veddbuild.com, no hashtags",
   "slides": [
     {
-      "heading": "short slide heading (max 50 chars) \u2014 e.g. 'Step 1: Connect Your Broker'",
-      "body": "1-2 short sentences of body text for this slide, plain and clear, no jargon",
-      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's background. No text overlays, no logos, no UI screenshots \u2014 just a scene/mood/object that fits the slide's point."
+      "heading": "the slide's BIG bold statement (max 60 chars) \u2014 one punchy declarative line, e.g. 'Most traders lose to their own emotions.' or 'Step 1: Connect your broker.'",
+      "body": "one short supporting line (max 100 chars) \u2014 sharpens or proves the heading, never repeats it",
+      "imagePrompt": "a vivid, concrete visual scene description (1 sentence) for an AI image generator to render as this slide's dark, moody background. Dark/cinematic tones only. No text overlays, no logos, no UI screenshots. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-photo cast."
     }
   ]
 }
 
-Write exactly ${slideCount} slides, in logical order (slide 1 is the hook/intro, the last slide is always a CTA to join VEDD).`;
+Write exactly ${slideCount} slides, in logical order (slide 1 is a hook that stops the scroll, the last slide is always a CTA to join VEDD).`;
   const response = await openai2.chat.completions.create({
     model,
     messages: [
@@ -18847,7 +18874,7 @@ var init_alpaca = __esm({
         if (!response.ok) return [];
         const data = await response.json();
         const bars = data.bars || [];
-        return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+        return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw ?? b.c, n: b.n ?? 0 }));
       }
       async getOptionsChain(underlyingSymbol) {
         const response = await this.request(
@@ -23571,6 +23598,7 @@ __export(live_trading_engine_exports, {
   getModelLockStatus: () => getModelLockStatus,
   getPendingMT5Signals: () => getPendingMT5Signals,
   heartbeatMT5Account: () => heartbeatMT5Account,
+  hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
   recordTradeResult: () => recordTradeResult,
   registerMT5Account: () => registerMT5Account,
   setMT5AccountReceiveSignals: () => setMT5AccountReceiveSignals,
@@ -23717,6 +23745,23 @@ function setMT5AccountReceiveSignals(userId, alias, receive) {
   if (!mt5AccountRegistry[userId]?.[alias]) return false;
   mt5AccountRegistry[userId][alias].receiveSignals = receive;
   return true;
+}
+async function hydratePersistedEngineConfigs() {
+  try {
+    const rows = await storage.getAllLiveEngineConfigOverrides();
+    for (const row of rows) {
+      persistedConfigOverrides[row.userId] = row.config;
+    }
+    console.log(`[live-trading-engine] Hydrated ${rows.length} persisted engine config override(s) from DB.`);
+  } catch (err) {
+    console.error("[live-trading-engine] hydratePersistedEngineConfigs failed (non-fatal):", err?.message ?? err);
+  }
+}
+function persistEngineConfig(userId, config) {
+  persistedConfigOverrides[userId] = config;
+  storage.saveLiveEngineConfigOverrides(userId, config).catch(
+    (err) => console.error(`[live-trading-engine] failed to persist config for user ${userId}:`, err?.message ?? err)
+  );
 }
 async function autoRetainBrain(userId, _attempt = 0) {
   try {
@@ -23988,6 +24033,7 @@ function addActivity2(userId, activity) {
   if (state.activityLog.length > 100) state.activityLog = state.activityLog.slice(0, 100);
 }
 function getDefaultConfig(userId) {
+  const persisted = persistedConfigOverrides[userId];
   return {
     userId,
     scanIntervalMs: 6e4,
@@ -24040,7 +24086,12 @@ function getDefaultConfig(userId) {
     trailSarMaxAF: 0.2,
     volatileCapMode: "risk_scaled",
     copyMode: "proportional",
-    tradingMode: "server_ai"
+    tradingMode: "server_ai",
+    // Durable overrides win over hard-coded defaults above — e.g. so
+    // propFirmMode/consistency-rule settings saved before a restart are
+    // still in effect the next time this user's engine starts, instead of
+    // silently resetting to OFF. `userId` itself is never overridden.
+    ...persisted ? { ...persisted, userId } : {}
   };
 }
 function createGoalTracker(config) {
@@ -27732,6 +27783,7 @@ function startLiveEngine(userId, config) {
     delete engineTimers[userId];
   }
   const fullConfig = { ...getDefaultConfig(userId), ...config || {} };
+  persistEngineConfig(userId, fullConfig);
   const weekStart = (/* @__PURE__ */ new Date()).toISOString().substring(0, 8);
   const weekKey = `${userId}_${weekStart}`;
   const cachedTracker = goalTrackerCache[weekKey];
@@ -28058,8 +28110,13 @@ function getLiveEngineActivity(userId, limit = 50) {
 }
 function updateLiveEngineConfig(userId, updates) {
   const state = engineStates[userId];
-  if (!state) return null;
+  if (!state) {
+    const merged = { ...getDefaultConfig(userId), ...updates };
+    persistEngineConfig(userId, merged);
+    return null;
+  }
   Object.assign(state.config, updates);
+  persistEngineConfig(userId, state.config);
   if (updates.scanIntervalMs && engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
     engineIntervals[userId] = setInterval(() => scanMarkets(userId), state.config.scanIntervalMs);
@@ -28154,7 +28211,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS;
+var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -28177,6 +28234,7 @@ var init_live_trading_engine = __esm({
     engineIntervals = {};
     engineTimers = {};
     brainLearningIntervals = {};
+    persistedConfigOverrides = {};
     goalTrackerCache = {};
     ALL_STRATEGY_KEYS = [
       "scalping",
@@ -35688,6 +35746,7 @@ var init_blog_og_image = __esm({
 var image_generation_exports = {};
 __export(image_generation_exports, {
   BRAND_STYLE_SUFFIX: () => BRAND_STYLE_SUFFIX,
+  HUMAN_STYLE_SUFFIX: () => HUMAN_STYLE_SUFFIX,
   generateContentImage: () => generateContentImage
 });
 import { OpenAI as OpenAI5 } from "openai";
@@ -35773,18 +35832,19 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
   }
 }
 async function generateContentImage(prompt) {
-  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}`;
+  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
   const fluxUrl = await generateFluxImage(brandedPrompt);
   if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
   return null;
 }
-var BRAND_STYLE_SUFFIX;
+var BRAND_STYLE_SUFFIX, HUMAN_STYLE_SUFFIX;
 var init_image_generation = __esm({
   "server/services/image-generation.ts"() {
     "use strict";
     BRAND_STYLE_SUFFIX = ", in the visual style of a modern fintech trading platform: deep navy and charcoal background, vivid orange-red accent highlights, clean sharp UI elements, professional dark-mode dashboard aesthetic, high contrast, no clutter";
+    HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
   }
 });
 
@@ -35801,6 +35861,7 @@ async function generateContentVideo(prompt, opts) {
   }
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
+  const styledPrompt = `${prompt}${HUMAN_STYLE_SUFFIX2}`;
   try {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
       method: "POST",
@@ -35811,7 +35872,7 @@ async function generateContentVideo(prompt, opts) {
       },
       body: JSON.stringify({
         input: {
-          prompt,
+          prompt: styledPrompt,
           resolution: "480p",
           // cheaper/faster than 720p — fine for social clips
           num_frames: numFrames,
@@ -35856,10 +35917,11 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var HUMAN_STYLE_SUFFIX2, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
+    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-footage corporate look.";
     MODEL = "wan-video/wan-2.2-t2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
@@ -38904,6 +38966,60 @@ ALTER TABLE "ambassador_community_content" ADD COLUMN IF NOT EXISTS "image_url" 
   }
 });
 
+// server/services/ensure-order-flow-column.ts
+var ensure_order_flow_column_exports = {};
+__export(ensure_order_flow_column_exports, {
+  ensureOrderFlowColumn: () => ensureOrderFlowColumn
+});
+async function ensureOrderFlowColumn() {
+  try {
+    await pool.query(DDL6);
+    console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
+  } catch (err) {
+    console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL6;
+var init_ensure_order_flow_column = __esm({
+  "server/services/ensure-order-flow-column.ts"() {
+    "use strict";
+    init_db();
+    DDL6 = `
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
+`;
+  }
+});
+
+// server/services/ensure-live-engine-config-table.ts
+var ensure_live_engine_config_table_exports = {};
+__export(ensure_live_engine_config_table_exports, {
+  ensureLiveEngineConfigTable: () => ensureLiveEngineConfigTable
+});
+async function ensureLiveEngineConfigTable() {
+  try {
+    await pool.query(DDL7);
+    console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
+  } catch (err) {
+    console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL7;
+var init_ensure_live_engine_config_table = __esm({
+  "server/services/ensure-live-engine-config-table.ts"() {
+    "use strict";
+    init_db();
+    DDL7 = `
+CREATE TABLE IF NOT EXISTS "live_engine_configs" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
+  "config" jsonb NOT NULL DEFAULT '{}',
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+`;
+  }
+});
+
 // server/services/ensure-copy-trading-execution-columns.ts
 var ensure_copy_trading_execution_columns_exports = {};
 __export(ensure_copy_trading_execution_columns_exports, {
@@ -38911,18 +39027,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL8);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL8;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL8 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -38939,18 +39055,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL9);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL9;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL9 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -39243,6 +39359,70 @@ async function runMomentum(service, symbol, cfg) {
   }
   return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
 }
+async function runOrderFlow(service, symbol, cfg) {
+  const now = /* @__PURE__ */ new Date();
+  const lookback = Math.max(10, cfg.orderFlowLookbackBars);
+  const sessionsNeeded = Math.ceil(lookback / 78);
+  const start = new Date(now.getTime() - (sessionsNeeded + 3) * 24 * 60 * 6e4);
+  const bars = await service.getBars(symbol, "5Min", start, now, 500);
+  if (bars.length < lookback) {
+    return { decision: "error", reasoning: `${symbol}: not enough intraday bars returned to compute an order-flow read (need ${lookback}, got ${bars.length}).`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  const window = bars.slice(-lookback);
+  const deltas = window.map((b) => {
+    const range = b.h - b.l;
+    if (range <= 0) return 0;
+    const closeLocation = (b.c - b.l) / range;
+    return b.v * (closeLocation * 2 - 1);
+  });
+  const mid = Math.floor(deltas.length / 2);
+  const cvdFirstHalf = deltas.slice(0, mid).reduce((s, d) => s + d, 0);
+  const cvdSecondHalf = deltas.slice(mid).reduce((s, d) => s + d, 0);
+  const totalVolume = window.reduce((s, b) => s + b.v, 0) || 1;
+  const cvdShiftPct = (cvdSecondHalf - cvdFirstHalf) / totalVolume * 100;
+  const vwapNum = window.reduce((s, b) => s + b.vw * b.v, 0);
+  const vwap = totalVolume > 0 ? vwapNum / totalVolume : window[window.length - 1].c;
+  const last = window[window.length - 1];
+  const price = last.c;
+  const lastBarBullish = last.c > last.o;
+  const lastBarBearish = last.c < last.o;
+  const windowHigh = Math.max(...window.map((b) => b.h));
+  const windowLow = Math.min(...window.map((b) => b.l));
+  const rangePct = (windowHigh - windowLow) / windowLow * 100;
+  const imbalanced = rangePct > 0.8;
+  const cvdBull = cvdShiftPct > 2;
+  const cvdBear = cvdShiftPct < -2;
+  const aboveVwap = price > vwap;
+  const belowVwap = price < vwap;
+  let direction = "inside";
+  if (imbalanced && cvdBull && aboveVwap && lastBarBullish) direction = "up";
+  else if (imbalanced && cvdBear && belowVwap && lastBarBearish) direction = "down";
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+  const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
+  const score = Math.min(100, Math.round(35 + Math.abs(cvdShiftPct) * 6 + distFromVwapPct * 8));
+  if (!imbalanced) {
+    return { decision: "watching", reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) \u2014 market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (direction === "inside") {
+    return { decision: "watching", reasoning: `${symbol}: imbalanced (${rangePct.toFixed(2)}% range) but volume-delta and VWAP aren't aligned yet (CVD shift ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} vs VWAP $${vwap.toFixed(2)}) \u2014 waiting for a full-candle-close confirmation.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: order-flow read is ${direction} (CVD shift ${cvdShiftPct.toFixed(1)}%, vs VWAP $${vwap.toFixed(2)}), but your direction filter is "${cfg.directionFilter}" \u2014 doesn't qualify.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: ${direction} order-flow read (CVD shift ${cvdShiftPct.toFixed(1)}%, ${distFromVwapPct.toFixed(1)}% from VWAP), but score ${score}/100 is below your ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
+  }
+  const optType = direction === "up" ? "call" : "put";
+  return {
+    decision: "signal",
+    score,
+    price,
+    dailyChangePercent: null,
+    strategy: "order_flow",
+    direction,
+    reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === "up" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === "up" ? "bullish" : "bearish"} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+  };
+}
 async function scanSymbol(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   if (cfg.sessionFilterEnabled && isWeekday(now)) {
@@ -39257,7 +39437,7 @@ async function scanSymbol(service, symbol, cfg) {
     }
   }
   if (cfg.strategyMode === "auto") {
-    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum"].map((k) => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
+    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k) => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
@@ -39341,21 +39521,6 @@ async function checkSafetyGates(userId, cfg, equity) {
 }
 async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg) {
   if (!result.direction) return;
-  const gate = await checkSafetyGates(userId, cfg, cfg.accountBalance);
-  if (!gate.allowed) {
-    await storage.createOptionsEngineActivity({
-      userId,
-      symbol: underlyingSymbol,
-      decision: "skipped",
-      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked \u2014 ${gate.reason}.`,
-      score: result.score,
-      price: result.price,
-      dailyChangePercent: result.dailyChangePercent,
-      source: "alpaca",
-      strategy: result.strategy
-    });
-    return;
-  }
   let account;
   try {
     account = await service.getAccountInfo();
@@ -39370,6 +39535,22 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
       price: null,
       dailyChangePercent: null,
       source: "alpaca"
+    });
+    return;
+  }
+  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const gate = await checkSafetyGates(userId, cfg, gateEquity);
+  if (!gate.allowed) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      reasoning: `${underlyingSymbol}: signal confirmed (${result.strategy}), but execution blocked \u2014 ${gate.reason}.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca",
+      strategy: result.strategy
     });
     return;
   }
@@ -39577,7 +39758,7 @@ function startOptionsEngineScanner() {
     runOptionsEngineScan().catch(() => {
     });
   }, LOOP_INTERVAL_MS);
-  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/auto).");
+  console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
 var MIN_SCAN_INTERVAL_MS, lastScanAt, STRATEGY_RUNNERS, started2;
 var init_options_scanner = __esm({
@@ -39591,7 +39772,8 @@ var init_options_scanner = __esm({
       orb: runOrb,
       volume_profile: runVolumeProfile,
       breakout: runBreakout,
-      momentum: runMomentum
+      momentum: runMomentum,
+      order_flow: runOrderFlow
     };
     started2 = false;
   }
@@ -57413,6 +57595,7 @@ Rules:
       "orbRangeMinutes",
       "volumeProfileLookbackDays",
       "breakoutLookbackDays",
+      "orderFlowLookbackBars",
       "adaptiveScanInterval",
       "enablePyramiding"
     ];
@@ -64495,6 +64678,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(400).json({ message: "Invalid context body" });
     }
     setPropFirmContext2(req.user.id, ctx);
+    try {
+      const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+      const engineUpdates = {};
+      if (typeof ctx.enabled === "boolean") engineUpdates.propFirmMode = ctx.enabled;
+      if (typeof ctx.consistencyRule === "boolean") {
+        engineUpdates.consistencyEnforcementEnabled = ctx.consistencyRule;
+        engineUpdates.maxDailyProfitPctOfTotal = ctx.consistencyRule ? 30 : 0;
+      }
+      if (typeof ctx.maxDailyDrawdownPct === "number" && ctx.maxDailyDrawdownPct > 0) {
+        engineUpdates.propFirmDailyDrawdownLimit = ctx.maxDailyDrawdownPct;
+      }
+      if (Object.keys(engineUpdates).length > 0) updateLiveEngineConfig3(req.user.id, engineUpdates);
+    } catch (err) {
+      console.error("[prop-firm-context] engine config bridge failed (non-fatal):", err?.message ?? err);
+    }
     res.json({ success: true, context: getPropFirmContext2(req.user.id) });
   });
   app2.get("/api/prop-firm-challenge/dashboard", async (req, res) => {
@@ -64629,6 +64827,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = req.user.id;
     const { updateLiveEngineConfig: updateLiveEngineConfig3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     const {
+      propFirmMode,
       challengeSessionFilterEnabled,
       consistencyEnforcementEnabled,
       consistencyMinProfitableDays,
@@ -64639,6 +64838,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       deepReasoningMode
     } = req.body;
     const updates = {};
+    if (typeof propFirmMode === "boolean") updates.propFirmMode = propFirmMode;
     if (typeof challengeSessionFilterEnabled === "boolean") updates.challengeSessionFilterEnabled = challengeSessionFilterEnabled;
     if (typeof consistencyEnforcementEnabled === "boolean") updates.consistencyEnforcementEnabled = consistencyEnforcementEnabled;
     if (typeof consistencyMinProfitableDays === "number") updates.consistencyMinProfitableDays = consistencyMinProfitableDays;
@@ -69832,6 +70032,20 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureContentImageColumns2();
   } catch (err) {
     console.error(`[startup] ensureContentImageColumns import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureOrderFlowColumn: ensureOrderFlowColumn2 } = await Promise.resolve().then(() => (init_ensure_order_flow_column(), ensure_order_flow_column_exports));
+    await ensureOrderFlowColumn2();
+  } catch (err) {
+    console.error(`[startup] ensureOrderFlowColumn import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));
+    await ensureLiveEngineConfigTable2();
+    const { hydratePersistedEngineConfigs: hydratePersistedEngineConfigs2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    await hydratePersistedEngineConfigs2();
+  } catch (err) {
+    console.error(`[startup] Live Engine config hydration error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureCopyTradingExecutionColumns: ensureCopyTradingExecutionColumns2 } = await Promise.resolve().then(() => (init_ensure_copy_trading_execution_columns(), ensure_copy_trading_execution_columns_exports));

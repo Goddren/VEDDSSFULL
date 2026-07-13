@@ -5,6 +5,7 @@ import {
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   tradovateConnections, tradovateTradeLogs,
   alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections, optionsEngineActivity, optionsEngineTrades,
+  liveEngineConfigs,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -352,6 +353,11 @@ export interface IStorage {
   getUserOptionsEngineConfig(userId: number): Promise<OptionsEngineConfig | undefined>;
   upsertOptionsEngineConfig(userId: number, data: Partial<InsertOptionsEngineConfig>): Promise<OptionsEngineConfig>;
   getAllActiveOptionsEngineConfigs(): Promise<OptionsEngineConfig[]>;
+
+  // Live Engine (FX SS AI Engine) durable config mirror — see ensure-live-engine-config-table.ts
+  getLiveEngineConfigOverrides(userId: number): Promise<Record<string, any> | null>;
+  saveLiveEngineConfigOverrides(userId: number, config: Record<string, any>): Promise<void>;
+  getAllLiveEngineConfigOverrides(): Promise<{ userId: number; config: Record<string, any> }[]>;
 
   // Options AI Engine — scan/decision activity feed
   createOptionsEngineActivity(entry: InsertOptionsEngineActivity): Promise<OptionsEngineActivity>;
@@ -1968,6 +1974,26 @@ export class DatabaseStorage implements IStorage {
 
   async getAllActiveOptionsEngineConfigs(): Promise<OptionsEngineConfig[]> {
     return db.select().from(optionsEngineConfigs).where(eq(optionsEngineConfigs.isActive, true));
+  }
+
+  // ── Live Engine (FX SS AI Engine) durable config mirror ─────────────────────
+  async getLiveEngineConfigOverrides(userId: number): Promise<Record<string, any> | null> {
+    const [row] = await db.select().from(liveEngineConfigs).where(eq(liveEngineConfigs.userId, userId));
+    return row ? (row.config as Record<string, any>) : null;
+  }
+
+  async saveLiveEngineConfigOverrides(userId: number, config: Record<string, any>): Promise<void> {
+    const existing = await this.getLiveEngineConfigOverrides(userId);
+    if (existing !== null) {
+      await db.update(liveEngineConfigs).set({ config, updatedAt: new Date() }).where(eq(liveEngineConfigs.userId, userId));
+    } else {
+      await db.insert(liveEngineConfigs).values({ userId, config });
+    }
+  }
+
+  async getAllLiveEngineConfigOverrides(): Promise<{ userId: number; config: Record<string, any> }[]> {
+    const rows = await db.select().from(liveEngineConfigs);
+    return rows.map(r => ({ userId: r.userId, config: r.config as Record<string, any> }));
   }
 
   // ── Options AI Engine — scan/decision activity feed ─────────────────────────

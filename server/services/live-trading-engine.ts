@@ -447,6 +447,33 @@ const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 const engineTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 const brainLearningIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 
+// Durable mirror of per-user LiveEngineConfig overrides (propFirmMode,
+// consistency-rule settings, etc.) — this whole module otherwise holds
+// config ONLY in engineStates, which is wiped on every restart/deploy.
+// Populated at boot via hydratePersistedEngineConfigs(), read by
+// getDefaultConfig() so a fresh engine start picks up last-saved settings
+// instead of silently resetting to defaults. Never auto-resumes trading.
+const persistedConfigOverrides: Record<number, Partial<LiveEngineConfig>> = {};
+
+export async function hydratePersistedEngineConfigs(): Promise<void> {
+  try {
+    const rows = await storage.getAllLiveEngineConfigOverrides();
+    for (const row of rows) {
+      persistedConfigOverrides[row.userId] = row.config as Partial<LiveEngineConfig>;
+    }
+    console.log(`[live-trading-engine] Hydrated ${rows.length} persisted engine config override(s) from DB.`);
+  } catch (err: any) {
+    console.error('[live-trading-engine] hydratePersistedEngineConfigs failed (non-fatal):', err?.message ?? err);
+  }
+}
+
+function persistEngineConfig(userId: number, config: LiveEngineConfig): void {
+  persistedConfigOverrides[userId] = config;
+  storage.saveLiveEngineConfigOverrides(userId, config).catch((err: any) =>
+    console.error(`[live-trading-engine] failed to persist config for user ${userId}:`, err?.message ?? err)
+  );
+}
+
 async function autoRetainBrain(userId: number, _attempt = 0): Promise<void> {
   try {
     const fn = (global as any).runBrainLearning;
@@ -796,6 +823,7 @@ function addActivity(userId: number, activity: Omit<LiveActivity, 'id' | 'timest
 }
 
 function getDefaultConfig(userId: number): LiveEngineConfig {
+  const persisted = persistedConfigOverrides[userId];
   return {
     userId,
     scanIntervalMs: 60000,
@@ -849,6 +877,11 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     volatileCapMode: 'risk_scaled',
     copyMode: 'proportional',
     tradingMode: 'server_ai',
+    // Durable overrides win over hard-coded defaults above — e.g. so
+    // propFirmMode/consistency-rule settings saved before a restart are
+    // still in effect the next time this user's engine starts, instead of
+    // silently resetting to OFF. `userId` itself is never overridden.
+    ...(persisted ? { ...persisted, userId } : {}),
   };
 }
 
@@ -5443,6 +5476,7 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
   }
 
   const fullConfig = { ...getDefaultConfig(userId), ...(config || {}) };
+  persistEngineConfig(userId, fullConfig);
 
   const weekStart = new Date().toISOString().substring(0, 8);
   const weekKey = `${userId}_${weekStart}`;
@@ -5840,9 +5874,18 @@ export function getLiveEngineActivity(userId: number, limit: number = 50): LiveA
 
 export function updateLiveEngineConfig(userId: number, updates: Partial<LiveEngineConfig>): EngineState | null {
   const state = engineStates[userId];
-  if (!state) return null;
+  if (!state) {
+    // Engine isn't currently running (e.g. after a restart) — still persist
+    // the update so it takes effect the next time this user starts it,
+    // instead of silently discarding settings like propFirmMode/consistency
+    // rule just because they were saved while the engine was stopped.
+    const merged = { ...getDefaultConfig(userId), ...updates };
+    persistEngineConfig(userId, merged);
+    return null;
+  }
 
   Object.assign(state.config, updates);
+  persistEngineConfig(userId, state.config);
 
   if (updates.scanIntervalMs && engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
