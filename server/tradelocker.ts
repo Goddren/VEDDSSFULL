@@ -364,6 +364,36 @@ export class TradeLockerService {
     return cols;
   }
 
+  // Full /trade/config response, cached — used to resolve column order for
+  // any array-format response section (ordersHistoryConfig, positionsConfig,
+  // etc). TradeLocker returns rows as plain arrays whose column order is
+  // defined here, not as named-field objects — code that skipped this and
+  // read `row.symbol`/`row.profit` directly always got undefined/blank.
+  private tradeConfigCache: any = null;
+  private async loadTradeConfig(): Promise<any> {
+    if (this.tradeConfigCache) return this.tradeConfigCache;
+    const res = await fetch(`${this.baseUrl}/trade/config`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`trade/config ${res.status}`);
+    const json = await res.json();
+    this.tradeConfigCache = json?.d ?? json ?? {};
+    return this.tradeConfigCache;
+  }
+
+  private async resolveColumns(configKey: string): Promise<string[]> {
+    try {
+      await this.ensureAuthenticated();
+      const cfg = await this.loadTradeConfig();
+      const cols = cfg?.[configKey]?.columns ?? [];
+      return cols.map((c: any) => String(c.id || c.name || '').toLowerCase());
+    } catch {
+      return [];
+    }
+  }
+
   /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
   private normLabel(s: any): string {
     return (s ?? '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -613,7 +643,12 @@ export class TradeLockerService {
         throw new Error(`Failed to get instruments: ${response.status}`);
       }
 
-      return await response.json();
+      const data = await response.json();
+      // TradeLocker wraps this in {s, d: {instruments: [...]}} like every
+      // other endpoint here — returning the raw object (not the array
+      // inside it) made every caller's .map()/for..of throw or silently
+      // no-op depending on how the error was caught upstream.
+      return data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('TradeLocker get instruments error:', error);
       throw error;
@@ -1025,94 +1060,128 @@ export class TradeLockerService {
     }
   }
 
+  // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
+  // order/position endpoints report raw price levels, not realized $ P&L, so
+  // this is needed to convert (exit - entry) * qty into an actual dollar
+  // figure. Not exact (real pip/point values vary by broker/instrument
+  // spec), but far closer than treating a JPY-pair price difference or a
+  // 0.00001-precision FX price as if it were already in dollars.
+  private static instrumentMultiplier(symbol: string): number {
+    const s = symbol.toUpperCase();
+    if (s.includes('JPY')) return 1000; // JPY pairs quote to 0.001 — ~$1000/qty-unit per 1.0 price move on a standard lot
+    if (s === 'XAUUSD' || s === 'GOLD') return 100; // gold: 100 oz/lot
+    if (s === 'XAGUSD' || s === 'SILVER') return 5000; // silver: 5000 oz/lot
+    if (s.includes('BTC') || s.includes('ETH') || /^[A-Z]{2,5}USD$/.test(s) === false) return 1; // crypto and indices: 1:1
+    if (/^[A-Z]{6}$/.test(s)) return 100000; // standard 6-char FX pair: 100k units/lot
+    return 1;
+  }
+
   /**
-   * Fetch filled/closed orders from TradeLocker for a given day.
-   * Tries GET /trade/accounts/{id}/orders with status filters.
-   * Returns normalised array: { id, symbol, side, profit, closeTime, qty }
+   * Fetch filled/closed orders from TradeLocker's actual order-history
+   * endpoint. TradeLocker returns rows as plain arrays whose column order is
+   * defined by /trade/config's ordersHistoryConfig — NOT named-field
+   * objects — so column order is resolved dynamically (same pattern
+   * getPositionsNormalized already uses for /positions) rather than reading
+   * row.symbol/row.profit directly, which always returned undefined/blank.
+   * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
    */
   async getFilledOrders(fromTs?: number): Promise<any[]> {
     await this.ensureAuthenticated();
     try {
-      // TradeLocker order history endpoint — try with status param first
-      const base = `${this.baseUrl}/trade/accounts/${this.accountId}/orders`;
-      const params = new URLSearchParams({ status: 'Filled' });
-      if (fromTs) params.set('from', String(fromTs));
-      const response = await fetch(`${base}?${params.toString()}`, {
+      const columns = await this.resolveColumns('ordersHistoryConfig');
+      const idx = (name: string) => columns.indexOf(name.toLowerCase());
+      const iId = idx('id'), iInst = idx('tradableInstrumentId'), iSide = idx('side'),
+        iQty = idx('qty'), iAvg = idx('avgPrice'), iStatus = idx('status'),
+        iCreated = idx('createdDate'), iPosId = idx('positionId');
+
+      const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-          'accNum': this.accNum,
-        },
+        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
       });
-      if (!response.ok) {
-        // Some TL instances use lowercase status or different endpoint path
-        const response2 = await fetch(`${base}?status=filled`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json',
-            'accNum': this.accNum,
-          },
-        });
-        if (!response2.ok) return [];
-        const data2 = await response2.json();
-        const orders2: any[] = Array.isArray(data2) ? data2 : (data2?.d?.orders || data2?.orders || []);
-        return this._normaliseOrders(orders2, fromTs);
-      }
+      if (!response.ok) return [];
       const data = await response.json();
-      const orders: any[] = Array.isArray(data) ? data : (data?.d?.orders || data?.orders || []);
-      return this._normaliseOrders(orders, fromTs);
+      const rows: any[] = data?.d?.ordersHistory || data?.ordersHistory || [];
+
+      const instruments = await this.getInstruments().catch(() => [] as any[]);
+      const instMap = new Map<string, string>();
+      for (const inst of instruments) {
+        const id = String((inst as any).tradableInstrumentId ?? (inst as any).id ?? '');
+        if (id) instMap.set(id, (inst as any).name || (inst as any).symbol || id);
+      }
+
+      return rows
+        .map((row: any[]) => {
+          const instId = iInst >= 0 ? String(row[iInst]) : '';
+          const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
+          return {
+            id: iId >= 0 ? String(row[iId]) : '',
+            symbol: instMap.get(instId) || instId,
+            side: iSide >= 0 ? String(row[iSide]).toLowerCase() : '',
+            qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
+            avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
+            status: iStatus >= 0 ? String(row[iStatus]) : '',
+            closeTime: createdMs ? new Date(createdMs).toISOString() : null,
+            positionId: iPosId >= 0 ? String(row[iPosId]) : '',
+          };
+        })
+        .filter((o: any) => o.status === 'Filled')
+        .filter((o: any) => {
+          if (!fromTs || !o.closeTime) return true;
+          return new Date(o.closeTime).getTime() >= fromTs * 1000;
+        });
     } catch (err) {
       console.error('[TradeLocker] getFilledOrders error:', (err as Error).message);
       return [];
     }
   }
 
-  private _normaliseOrders(orders: any[], fromTs?: number): any[] {
-    return orders
-      .map((o: any) => ({
-        id: o.id || o.orderId || o.positionId,
-        symbol: o.instrument || o.symbol || '',
-        side: o.side || o.direction || '',
-        profit: parseFloat(o.profit ?? o.pnl ?? o.grossProfit ?? 0),
-        closeTime: o.closedAt || o.updatedAt || o.timestamp || null,
-        qty: o.qty || o.quantity || o.volume || 0,
-      }))
-      .filter((o: any) => {
-        if (!fromTs) return true;
-        if (!o.closeTime) return true; // include if no timestamp
-        return new Date(o.closeTime).getTime() >= fromTs * 1000;
+  /**
+   * Pairs each position's entry and exit fills (matched by positionId) to
+   * compute realized P&L per closed trade — TradeLocker's order/position
+   * data reports price levels, not a ready-made "profit" field, so this
+   * does the pairing + $ conversion that server/routes.ts's outcome-sync
+   * previously assumed already existed on each row (it never did — every
+   * synced "trade" silently had profit=0 and got skipped).
+   * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
+   * — one entry per CLOSED position (positions with only one fill, i.e.
+   * still open, are excluded).
+   */
+  async getClosedTradesWithPnl(fromTs?: number): Promise<any[]> {
+    const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : undefined); // widen so entry legs older than fromTs still pair correctly
+    const byPosition = new Map<string, any[]>();
+    for (const f of fills) {
+      if (!f.positionId) continue;
+      if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
+      byPosition.get(f.positionId)!.push(f);
+    }
+    const closed: any[] = [];
+    for (const [positionId, legs] of Array.from(byPosition)) {
+      if (legs.length < 2) continue; // only one fill recorded = still open, not a closed trade
+      legs.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+      const entry = legs[0];
+      const exit = legs[legs.length - 1];
+      if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1000) continue;
+      const direction = entry.side; // 'buy' or 'sell'
+      const priceDiff = direction === 'buy' ? (exit.avgPrice - entry.avgPrice) : (entry.avgPrice - exit.avgPrice);
+      const multiplier = TradeLockerService.instrumentMultiplier(entry.symbol);
+      const profit = priceDiff * entry.qty * multiplier;
+      closed.push({
+        id: exit.id, positionId, symbol: entry.symbol, side: direction,
+        qty: entry.qty, profit, openPrice: entry.avgPrice, closePrice: exit.avgPrice,
+        openTime: entry.closeTime, closeTime: exit.closeTime,
       });
+    }
+    return closed;
   }
 
   /**
-   * Fetch CLOSED positions (realized P&L) — tries multiple endpoint patterns.
-   * Returns normalized array: { id, symbol, side, profit, openPrice, closePrice, closeTime }
+   * Fetch CLOSED positions (realized P&L) — now backed by the same
+   * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
+   * shaped to match this method's original consumer expectations.
    */
   async getClosedPositions(fromTs?: number): Promise<any[]> {
-    await this.ensureAuthenticated();
-    const base = `${this.baseUrl}/trade/accounts/${this.accountId}/positions`;
-    const tryFetch = async (url: string) => {
-      const r = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
-      });
-      if (!r.ok) return null;
-      const d = await r.json();
-      return Array.isArray(d) ? d : (d?.d?.positions || d?.positions || d?.data || null);
-    };
-    try {
-      // Try several common closed-positions endpoint patterns
-      const results = await tryFetch(`${base}?status=Closed`) ??
-                      await tryFetch(`${base}?status=closed`) ??
-                      await tryFetch(`${base}/history`) ??
-                      await tryFetch(`${this.baseUrl}/trade/accounts/${this.accountId}/history`) ??
-                      [];
-      return this._normaliseOrders(results as any[], fromTs);
-    } catch (err) {
-      console.error('[TradeLocker] getClosedPositions error:', (err as Error).message);
-      return [];
-    }
+    const closed = await this.getClosedTradesWithPnl(fromTs);
+    return closed.map(c => ({ id: c.id, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
   }
 
   async getPositions(): Promise<any[]> {

@@ -16222,19 +16222,14 @@ Format each recommendation as a clear, concise action item.`;
       for (const conn of active) {
         try {
           const svc = await tlGetOrCreateService(conn);
-          // Try to get closed positions via positions endpoint (more reliable than orders)
-          const [closedPositions, filledOrders] = await Promise.allSettled([
-            (svc as any).getClosedPositions ? (svc as any).getClosedPositions(fromTs) : Promise.reject('no method'),
-            svc.getFilledOrders(fromTs),
-          ]);
-          const posResults = closedPositions.status === 'fulfilled' ? closedPositions.value || [] : [];
-          const ordResults = filledOrders.status === 'fulfilled' ? filledOrders.value || [] : [];
-          // Merge both sets (positions are more reliable for P&L; orders are fallback)
-          const seen = new Set<string>();
-          for (const o of [...posResults, ...ordResults]) {
-            const id = String(o.id || o.positionId || o.orderId || '');
-            if (id && seen.has(id)) continue;
-            if (id) seen.add(id);
+          // getClosedTradesWithPnl pairs each position's entry/exit fills
+          // (resolved via TradeLocker's real ordersHistoryConfig column
+          // spec) and computes actual realized P&L — the old path here
+          // read row.profit directly off array-shaped API rows, which are
+          // never named-field objects, so profit was always 0 and every
+          // trade got silently skipped by saveOrder's `p === 0` guard.
+          const closedTrades = await (svc as any).getClosedTradesWithPnl(fromTs);
+          for (const o of closedTrades) {
             await saveOrder(o, conn.id);
           }
         } catch (_) { /* per-connection, non-fatal */ }

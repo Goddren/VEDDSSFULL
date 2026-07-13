@@ -15791,7 +15791,7 @@ var init_tradelocker = __esm({
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
     RETRY_DELAYS = [1e3, 2e3];
     RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
-    TradeLockerService = class {
+    TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
       refreshToken = null;
@@ -16020,6 +16020,34 @@ var init_tradelocker = __esm({
         this.accountDetailsConfig = cols;
         return cols;
       }
+      // Full /trade/config response, cached — used to resolve column order for
+      // any array-format response section (ordersHistoryConfig, positionsConfig,
+      // etc). TradeLocker returns rows as plain arrays whose column order is
+      // defined here, not as named-field objects — code that skipped this and
+      // read `row.symbol`/`row.profit` directly always got undefined/blank.
+      tradeConfigCache = null;
+      async loadTradeConfig() {
+        if (this.tradeConfigCache) return this.tradeConfigCache;
+        const res = await fetch(`${this.baseUrl}/trade/config`, {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum },
+          signal: AbortSignal.timeout(8e3)
+        });
+        if (!res.ok) throw new Error(`trade/config ${res.status}`);
+        const json2 = await res.json();
+        this.tradeConfigCache = json2?.d ?? json2 ?? {};
+        return this.tradeConfigCache;
+      }
+      async resolveColumns(configKey) {
+        try {
+          await this.ensureAuthenticated();
+          const cfg = await this.loadTradeConfig();
+          const cols = cfg?.[configKey]?.columns ?? [];
+          return cols.map((c) => String(c.id || c.name || "").toLowerCase());
+        } catch {
+          return [];
+        }
+      }
       /** Normalize a label for fuzzy matching: lowercase, strip all non-alphanumerics */
       normLabel(s) {
         return (s ?? "").toString().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -16235,7 +16263,8 @@ var init_tradelocker = __esm({
           if (!response.ok) {
             throw new Error(`Failed to get instruments: ${response.status}`);
           }
-          return await response.json();
+          const data = await response.json();
+          return data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
         } catch (error) {
           console.error("TradeLocker get instruments error:", error);
           throw error;
@@ -16578,83 +16607,124 @@ var init_tradelocker = __esm({
           throw error;
         }
       }
+      // Approximate $ value per unit of price movement per 1.0 qty — TradeLocker's
+      // order/position endpoints report raw price levels, not realized $ P&L, so
+      // this is needed to convert (exit - entry) * qty into an actual dollar
+      // figure. Not exact (real pip/point values vary by broker/instrument
+      // spec), but far closer than treating a JPY-pair price difference or a
+      // 0.00001-precision FX price as if it were already in dollars.
+      static instrumentMultiplier(symbol) {
+        const s = symbol.toUpperCase();
+        if (s.includes("JPY")) return 1e3;
+        if (s === "XAUUSD" || s === "GOLD") return 100;
+        if (s === "XAGUSD" || s === "SILVER") return 5e3;
+        if (s.includes("BTC") || s.includes("ETH") || /^[A-Z]{2,5}USD$/.test(s) === false) return 1;
+        if (/^[A-Z]{6}$/.test(s)) return 1e5;
+        return 1;
+      }
       /**
-       * Fetch filled/closed orders from TradeLocker for a given day.
-       * Tries GET /trade/accounts/{id}/orders with status filters.
-       * Returns normalised array: { id, symbol, side, profit, closeTime, qty }
+       * Fetch filled/closed orders from TradeLocker's actual order-history
+       * endpoint. TradeLocker returns rows as plain arrays whose column order is
+       * defined by /trade/config's ordersHistoryConfig — NOT named-field
+       * objects — so column order is resolved dynamically (same pattern
+       * getPositionsNormalized already uses for /positions) rather than reading
+       * row.symbol/row.profit directly, which always returned undefined/blank.
+       * Returns normalised array: { id, symbol, side, qty, avgPrice, status, createdDate, positionId }
        */
       async getFilledOrders(fromTs) {
         await this.ensureAuthenticated();
         try {
-          const base = `${this.baseUrl}/trade/accounts/${this.accountId}/orders`;
-          const params = new URLSearchParams({ status: "Filled" });
-          if (fromTs) params.set("from", String(fromTs));
-          const response = await fetch(`${base}?${params.toString()}`, {
+          const columns = await this.resolveColumns("ordersHistoryConfig");
+          const idx = (name) => columns.indexOf(name.toLowerCase());
+          const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
+          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory`, {
             method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            }
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
           });
-          if (!response.ok) {
-            const response2 = await fetch(`${base}?status=filled`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": this.accNum
-              }
-            });
-            if (!response2.ok) return [];
-            const data2 = await response2.json();
-            const orders2 = Array.isArray(data2) ? data2 : data2?.d?.orders || data2?.orders || [];
-            return this._normaliseOrders(orders2, fromTs);
-          }
+          if (!response.ok) return [];
           const data = await response.json();
-          const orders = Array.isArray(data) ? data : data?.d?.orders || data?.orders || [];
-          return this._normaliseOrders(orders, fromTs);
+          const rows = data?.d?.ordersHistory || data?.ordersHistory || [];
+          const instruments = await this.getInstruments().catch(() => []);
+          const instMap = /* @__PURE__ */ new Map();
+          for (const inst of instruments) {
+            const id = String(inst.tradableInstrumentId ?? inst.id ?? "");
+            if (id) instMap.set(id, inst.name || inst.symbol || id);
+          }
+          return rows.map((row) => {
+            const instId = iInst >= 0 ? String(row[iInst]) : "";
+            const createdMs = iCreated >= 0 ? Number(row[iCreated]) : 0;
+            return {
+              id: iId >= 0 ? String(row[iId]) : "",
+              symbol: instMap.get(instId) || instId,
+              side: iSide >= 0 ? String(row[iSide]).toLowerCase() : "",
+              qty: iQty >= 0 ? parseFloat(row[iQty]) || 0 : 0,
+              avgPrice: iAvg >= 0 ? parseFloat(row[iAvg]) || 0 : 0,
+              status: iStatus >= 0 ? String(row[iStatus]) : "",
+              closeTime: createdMs ? new Date(createdMs).toISOString() : null,
+              positionId: iPosId >= 0 ? String(row[iPosId]) : ""
+            };
+          }).filter((o) => o.status === "Filled").filter((o) => {
+            if (!fromTs || !o.closeTime) return true;
+            return new Date(o.closeTime).getTime() >= fromTs * 1e3;
+          });
         } catch (err) {
           console.error("[TradeLocker] getFilledOrders error:", err.message);
           return [];
         }
       }
-      _normaliseOrders(orders, fromTs) {
-        return orders.map((o) => ({
-          id: o.id || o.orderId || o.positionId,
-          symbol: o.instrument || o.symbol || "",
-          side: o.side || o.direction || "",
-          profit: parseFloat(o.profit ?? o.pnl ?? o.grossProfit ?? 0),
-          closeTime: o.closedAt || o.updatedAt || o.timestamp || null,
-          qty: o.qty || o.quantity || o.volume || 0
-        })).filter((o) => {
-          if (!fromTs) return true;
-          if (!o.closeTime) return true;
-          return new Date(o.closeTime).getTime() >= fromTs * 1e3;
-        });
+      /**
+       * Pairs each position's entry and exit fills (matched by positionId) to
+       * compute realized P&L per closed trade — TradeLocker's order/position
+       * data reports price levels, not a ready-made "profit" field, so this
+       * does the pairing + $ conversion that server/routes.ts's outcome-sync
+       * previously assumed already existed on each row (it never did — every
+       * synced "trade" silently had profit=0 and got skipped).
+       * Returns: { id, symbol, side, qty, profit, openPrice, closePrice, closeTime }[]
+       * — one entry per CLOSED position (positions with only one fill, i.e.
+       * still open, are excluded).
+       */
+      async getClosedTradesWithPnl(fromTs) {
+        const fills = await this.getFilledOrders(fromTs ? fromTs - 30 * 24 * 3600 : void 0);
+        const byPosition = /* @__PURE__ */ new Map();
+        for (const f of fills) {
+          if (!f.positionId) continue;
+          if (!byPosition.has(f.positionId)) byPosition.set(f.positionId, []);
+          byPosition.get(f.positionId).push(f);
+        }
+        const closed = [];
+        for (const [positionId, legs] of Array.from(byPosition)) {
+          if (legs.length < 2) continue;
+          legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
+          const entry = legs[0];
+          const exit = legs[legs.length - 1];
+          if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1e3) continue;
+          const direction = entry.side;
+          const priceDiff = direction === "buy" ? exit.avgPrice - entry.avgPrice : entry.avgPrice - exit.avgPrice;
+          const multiplier = _TradeLockerService.instrumentMultiplier(entry.symbol);
+          const profit = priceDiff * entry.qty * multiplier;
+          closed.push({
+            id: exit.id,
+            positionId,
+            symbol: entry.symbol,
+            side: direction,
+            qty: entry.qty,
+            profit,
+            openPrice: entry.avgPrice,
+            closePrice: exit.avgPrice,
+            openTime: entry.closeTime,
+            closeTime: exit.closeTime
+          });
+        }
+        return closed;
       }
       /**
-       * Fetch CLOSED positions (realized P&L) — tries multiple endpoint patterns.
-       * Returns normalized array: { id, symbol, side, profit, openPrice, closePrice, closeTime }
+       * Fetch CLOSED positions (realized P&L) — now backed by the same
+       * ordersHistory + position-pairing logic as getClosedTradesWithPnl,
+       * shaped to match this method's original consumer expectations.
        */
       async getClosedPositions(fromTs) {
-        await this.ensureAuthenticated();
-        const base = `${this.baseUrl}/trade/accounts/${this.accountId}/positions`;
-        const tryFetch = async (url) => {
-          const r = await fetch(url, {
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-          });
-          if (!r.ok) return null;
-          const d = await r.json();
-          return Array.isArray(d) ? d : d?.d?.positions || d?.positions || d?.data || null;
-        };
-        try {
-          const results = await tryFetch(`${base}?status=Closed`) ?? await tryFetch(`${base}?status=closed`) ?? await tryFetch(`${base}/history`) ?? await tryFetch(`${this.baseUrl}/trade/accounts/${this.accountId}/history`) ?? [];
-          return this._normaliseOrders(results, fromTs);
-        } catch (err) {
-          console.error("[TradeLocker] getClosedPositions error:", err.message);
-          return [];
-        }
+        const closed = await this.getClosedTradesWithPnl(fromTs);
+        return closed.map((c) => ({ id: c.id, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
       }
       async getPositions() {
         await this.ensureAuthenticated();
@@ -58529,17 +58599,8 @@ Format each recommendation as a clear, concise action item.`;
       for (const conn of active) {
         try {
           const svc = await getOrCreateService(conn);
-          const [closedPositions, filledOrders] = await Promise.allSettled([
-            svc.getClosedPositions ? svc.getClosedPositions(fromTs) : Promise.reject("no method"),
-            svc.getFilledOrders(fromTs)
-          ]);
-          const posResults = closedPositions.status === "fulfilled" ? closedPositions.value || [] : [];
-          const ordResults = filledOrders.status === "fulfilled" ? filledOrders.value || [] : [];
-          const seen = /* @__PURE__ */ new Set();
-          for (const o of [...posResults, ...ordResults]) {
-            const id = String(o.id || o.positionId || o.orderId || "");
-            if (id && seen.has(id)) continue;
-            if (id) seen.add(id);
+          const closedTrades = await svc.getClosedTradesWithPnl(fromTs);
+          for (const o of closedTrades) {
             await saveOrder(o, conn.id);
           }
         } catch (_) {
