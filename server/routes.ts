@@ -25765,7 +25765,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { generateContentImage } = await import('./services/image-generation');
       const image = await generateContentImage(prompt);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
-      res.json(image);
+
+      const { persistRemoteAsset } = await import('./services/content-asset-store');
+      const persisted = await persistRemoteAsset(image.url);
+      const permanentUrl = persisted?.url ?? image.url;
+
+      await storage.createContentStudioGeneration({
+        userId: u.id, contentType: 'image', prompt, assetUrl: permanentUrl, metadata: { provider: image.provider },
+      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
+
+      res.json({ ...image, url: permanentUrl });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25804,7 +25813,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { generateContentVideo } = await import('./services/video-generation');
       const video = await generateContentVideo(prompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
-      res.json(video);
+
+      const { persistRemoteAsset } = await import('./services/content-asset-store');
+      const persisted = await persistRemoteAsset(video.url);
+      const permanentUrl = persisted?.url ?? video.url;
+
+      await storage.createContentStudioGeneration({
+        userId: u.id, contentType: 'video', prompt, assetUrl: permanentUrl, metadata: { provider: video.provider },
+      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
+
+      res.json({ ...video, url: permanentUrl });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25829,7 +25847,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const video = await generateContentVideo(script.videoPrompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
 
-      res.json({ ...script, url: video.url });
+      const { persistRemoteAsset } = await import('./services/content-asset-store');
+      const persisted = await persistRemoteAsset(video.url);
+      const permanentUrl = persisted?.url ?? video.url;
+
+      await storage.createContentStudioGeneration({
+        userId: u.id, contentType: 'reel', prompt: topic, title: script.hook ?? null, caption: script.caption ?? null,
+        assetUrl: permanentUrl, metadata: { provider: video.provider, script },
+      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
+
+      res.json({ ...script, url: permanentUrl });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25860,13 +25887,116 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       // already retries on 429, but spacing the requests out here avoids
       // triggering the throttle in the first place.
       const { generateContentImage } = await import('./services/image-generation');
+      const { persistRemoteAsset } = await import('./services/content-asset-store');
       const slides: { heading: string; body: string; imageUrl: string | null }[] = [];
       for (const slide of script.slides) {
         const image = await generateContentImage(slide.imagePrompt);
-        slides.push({ heading: slide.heading, body: slide.body, imageUrl: image?.url ?? null });
+        let imageUrl: string | null = image?.url ?? null;
+        if (imageUrl) {
+          const persisted = await persistRemoteAsset(imageUrl);
+          if (persisted) imageUrl = persisted.url;
+        }
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl });
       }
 
+      await storage.createContentStudioGeneration({
+        userId: u.id, contentType: 'carousel', prompt: topic, title: script.title, caption: script.caption,
+        metadata: { slides },
+      }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
+
       res.json({ title: script.title, caption: script.caption, slides });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/content-studio/flatten-slide — bakes caption text (and,
+  // optionally, the VEDD logo) directly onto a generated image into one
+  // flattened file, so it can be saved/uploaded to social media in one tap
+  // instead of juggling a separate image + caption.
+  app.post("/api/content-studio/flatten-slide", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { imageUrl, heading, body, includeLogo, generationId } = req.body as {
+        imageUrl?: string; heading?: string; body?: string; includeLogo?: boolean; generationId?: number;
+      };
+      if (!imageUrl) return res.status(400).json({ error: "imageUrl is required" });
+
+      // Resolve a relative /api/content-studio/asset/:id URL to an absolute one, so fetch() can reach it.
+      const absoluteUrl = imageUrl.startsWith('/') ? `${req.protocol}://${req.get('host')}${imageUrl}` : imageUrl;
+      const imgRes = await fetch(absoluteUrl, { signal: AbortSignal.timeout(30000) });
+      if (!imgRes.ok) return res.status(502).json({ error: `Could not fetch source image (${imgRes.status})` });
+      const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+
+      const { flattenSlideImage } = await import('./services/slide-flattener');
+      const flattened = await flattenSlideImage({ imageBuffer, heading, body, includeLogo: includeLogo === true });
+
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+        ['image/png', flattened.toString('base64')],
+      );
+      const flattenedUrl = `/api/content-studio/asset/${rows[0].id}`;
+
+      if (generationId) {
+        await pool.query(
+          `UPDATE content_studio_generations SET flattened_asset_url = $1 WHERE id = $2 AND user_id = $3`,
+          [flattenedUrl, generationId, u.id],
+        ).catch(() => {});
+      }
+
+      res.json({ flattenedUrl });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/content-studio/asset/:id — serves a durably-stored generated
+  // image/video by id. Public/unauthenticated on purpose: this URL is meant
+  // to be pasted directly into social posts, embedded in slides, etc. — it
+  // must resolve without a session cookie for that to work.
+  app.get("/api/content-studio/asset/:id", async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid asset id" });
+    const { getPersistedAsset } = await import('./services/content-asset-store');
+    const asset = await getPersistedAsset(id);
+    if (!asset) return res.status(404).json({ error: "asset not found" });
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(asset.data);
+  });
+
+  // GET /api/content-studio/history — the user's saved-content library,
+  // optionally filtered by ?type=image|video|reel|carousel.
+  app.get("/api/content-studio/history", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const type = typeof req.query.type === 'string' ? req.query.type : undefined;
+      const limit = Math.min(parseInt(String(req.query.limit || '100'), 10) || 100, 300);
+      const generations = await storage.getUserContentStudioGenerations(u.id, type, limit);
+      res.json({ generations });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/content-studio/history/:id — remove a saved item from the library.
+  app.delete("/api/content-studio/history/:id", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const id = parseInt(req.params.id, 10);
+      const deleted = await storage.deleteContentStudioGeneration(id, u.id);
+      if (!deleted) return res.status(404).json({ error: "not found" });
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

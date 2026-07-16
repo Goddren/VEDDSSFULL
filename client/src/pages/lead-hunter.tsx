@@ -1,14 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FullscreenLoading } from "@/components/ui/fullscreen-loading";
 import {
   Target, Play, RefreshCw, ExternalLink, CheckCircle,
-  Clock, AlertCircle, Zap, Users, TrendingUp,
+  Clock, AlertCircle, Zap, Users, TrendingUp, Search, Filter,
 } from "lucide-react";
+
+const LEAD_HUNTER_RUN_PIPELINE = [
+  { name: 'Scanning Reddit, X, Instagram, LinkedIn, Facebook', icon: <Search className="h-5 w-5" /> },
+  { name: 'Scoring intent + account quality', icon: <Filter className="h-5 w-5" /> },
+  { name: 'Saving new leads', icon: <Users className="h-5 w-5" /> },
+];
 
 type Lead = {
   id: string;
@@ -95,12 +102,19 @@ export default function LeadHunterPage() {
 
   const [diagResult, setDiagResult] = useState<any>(null);
 
+  // ── Run progress popup — same FullscreenLoading component chart analysis
+  // uses, dismissible since this run keeps going in the background.
+  const [showRunPopup, setShowRunPopup] = useState(false);
+  const [runProgress, setRunProgress] = useState(0);
   const runMutation = useMutation({
     mutationFn: async () => {
+      setShowRunPopup(true);
       const res = await apiRequest('POST', '/api/lead-hunter/run');
       return res.json();
     },
     onSuccess: (data: any) => {
+      setRunProgress(100);
+      setTimeout(() => setShowRunPopup(false), 500);
       const breakdown = data.platformBreakdown
         ? Object.entries(data.platformBreakdown)
             .filter(([, n]) => Number(n) > 0)
@@ -114,8 +128,25 @@ export default function LeadHunterPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/lead-hunter/runs'] });
       refetchLeads();
     },
-    onError: (error: any) => toast({ title: 'Run failed', description: error.message || 'Failed to run lead hunter', variant: 'destructive' }),
+    onError: (error: any) => {
+      setShowRunPopup(false);
+      toast({ title: 'Run failed', description: error.message || 'Failed to run lead hunter', variant: 'destructive' });
+    },
   });
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (showRunPopup) {
+      if (runProgress === 0) setRunProgress(5);
+      interval = setInterval(() => {
+        setRunProgress(prev => (prev >= 95 ? prev : Math.min(prev + (Math.random() * 5 + 1), 95)));
+      }, 1500);
+    } else {
+      setRunProgress(0);
+    }
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showRunPopup]);
 
   const diagMutation = useMutation({
     mutationFn: async () => {
@@ -182,6 +213,14 @@ export default function LeadHunterPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#050508', color: '#e5e7eb', padding: '24px 20px' }}>
+      <FullscreenLoading
+        visible={showRunPopup}
+        progress={runProgress}
+        title="Lead Hunter Running"
+        subtitle="Scanning Reddit, X, Instagram, LinkedIn, and Facebook for trading-intent leads — 1-3 minutes."
+        customPipeline={LEAD_HUNTER_RUN_PIPELINE}
+        onDismiss={() => setShowRunPopup(false)}
+      />
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
         {/* Header */}

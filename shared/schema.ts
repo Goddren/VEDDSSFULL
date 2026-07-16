@@ -2787,6 +2787,48 @@ export const ambassadorRunStepLog = pgTable("ambassador_run_step_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// ── Content Studio / AI-generated media — durable storage ───────────────────
+// DALL-E and Replicate both return TEMPORARY hosted URLs (DALL-E ~1hr,
+// Replicate ~24hr) — the actual bytes are never re-hosted anywhere today, so
+// generated images/videos "disappear" once the provider's URL expires, even
+// though Render's disk is also ephemeral and would lose a locally-saved copy
+// on the next deploy anyway. Storing the asset bytes directly in Postgres
+// (same durable-storage philosophy as cred-store.ts's durable_files mirror)
+// solves both problems at once with no new external service/credentials.
+export const contentStudioAssets = pgTable("content_studio_assets", {
+  id: serial("id").primaryKey(),
+  mimeType: text("mime_type").notNull(),
+  data: text("data").notNull(), // base64-encoded bytes
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ContentStudioAsset = typeof contentStudioAssets.$inferSelect;
+
+// One row per "save" action a user takes on a piece of generated content —
+// the actual library a user browses to find old content again. assetUrl
+// points at /api/content-studio/asset/:id (permanent, app-hosted) rather
+// than the provider's temporary URL.
+export const contentStudioGenerations = pgTable("content_studio_generations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  contentType: text("content_type").notNull(), // 'image' | 'video' | 'reel' | 'carousel'
+  prompt: text("prompt"),
+  title: text("title"),
+  caption: text("caption"),
+  assetUrl: text("asset_url"), // permanent URL for single-asset types (image/video/reel)
+  flattenedAssetUrl: text("flattened_asset_url"), // slide image with caption text + optional logo baked in, ready to upload as-is
+  metadata: jsonb("metadata").notNull().default({}), // carousel: { slides: [{heading, body, imageUrl}] }; reel: { hook, script }
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertContentStudioGenerationSchema = createInsertSchema(contentStudioGenerations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ContentStudioGeneration = typeof contentStudioGenerations.$inferSelect;
+export type InsertContentStudioGeneration = z.infer<typeof insertContentStudioGenerationSchema>;
+
 // Ambassador Prime's weekly market briefing — aggregates the pairs selected
 // across ALL users' weekly plans, tells the "story" of why they matter using
 // the same Reddit + news research Ambassador Prime already gathers, and

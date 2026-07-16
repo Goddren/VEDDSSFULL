@@ -33,6 +33,8 @@ import {
   type FuturesEngineActivity, type InsertFuturesEngineActivity,
   type FuturesEngineTrade, type InsertFuturesEngineTrade,
   futuresEngineConfigs, futuresEngineActivity, futuresEngineTrades,
+  type ContentStudioGeneration, type InsertContentStudioGeneration,
+  contentStudioGenerations,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -399,6 +401,11 @@ export interface IStorage {
   getFuturesEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }>;
   getFuturesEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>>;
   updateFuturesEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void>;
+
+  // Content Studio — durable saved-content library
+  createContentStudioGeneration(entry: InsertContentStudioGeneration): Promise<ContentStudioGeneration>;
+  getUserContentStudioGenerations(userId: number, contentType?: string, limit?: number): Promise<ContentStudioGeneration[]>;
+  deleteContentStudioGeneration(id: number, userId: number): Promise<boolean>;
 
   // Crypto.com Connection methods (separate crypto-derivatives bucket)
   createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
@@ -2221,6 +2228,29 @@ export class DatabaseStorage implements IStorage {
     await db.update(futuresEngineTrades)
       .set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: new Date() })
       .where(eq(futuresEngineTrades.id, id));
+  }
+
+  // ── Content Studio — durable saved-content library ──────────────────────────
+  async createContentStudioGeneration(entry: InsertContentStudioGeneration): Promise<ContentStudioGeneration> {
+    const [result] = await db.insert(contentStudioGenerations).values(entry).returning();
+    return result;
+  }
+
+  async getUserContentStudioGenerations(userId: number, contentType?: string, limit: number = 100): Promise<ContentStudioGeneration[]> {
+    const conditions = contentType
+      ? and(eq(contentStudioGenerations.userId, userId), eq(contentStudioGenerations.contentType, contentType))
+      : eq(contentStudioGenerations.userId, userId);
+    return db.select().from(contentStudioGenerations)
+      .where(conditions)
+      .orderBy(desc(contentStudioGenerations.createdAt))
+      .limit(limit);
+  }
+
+  async deleteContentStudioGeneration(id: number, userId: number): Promise<boolean> {
+    const result = await db.delete(contentStudioGenerations)
+      .where(and(eq(contentStudioGenerations.id, id), eq(contentStudioGenerations.userId, userId)))
+      .returning();
+    return result.length > 0;
   }
 
   // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────

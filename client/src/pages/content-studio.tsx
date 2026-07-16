@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { apiRequest } from '@/lib/queryClient';
 import { Redirect, useSearch } from 'wouter';
@@ -10,12 +10,13 @@ import { VeddReelPlayer } from '@/components/vedd-reel-player';
 import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
 import { VeddEduReel, EDU_REELS } from '@/components/vedd-edu-reels';
 import { ReelRecorder } from '@/components/reel-recorder';
+import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
   Sparkles, RefreshCw, Loader2, Radio, ArrowRight,
   TrendingUp, Shield, Award, Users, Zap, ImageIcon,
-  Instagram, Twitter, Mail,
+  Instagram, Twitter, Mail, Film, Clapperboard, Wand2, Layers,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -581,6 +582,153 @@ function ShareButtons({ caption, referralCode, referralUrl, mode = 'post' }: { c
   );
 }
 
+// ── Saved Content Library — everything generated in Content Studio, kept ──────
+// permanently (survives past the first day, unlike raw provider URLs) and
+// browsable/filterable here so nothing gets lost after the session it was
+// created in.
+interface SavedGeneration {
+  id: number;
+  contentType: 'image' | 'video' | 'reel' | 'carousel';
+  prompt: string | null;
+  title: string | null;
+  caption: string | null;
+  assetUrl: string | null;
+  flattenedAssetUrl: string | null;
+  metadata: any;
+  createdAt: string;
+}
+
+const SAVED_TYPE_FILTERS: { id: SavedGeneration['contentType'] | 'all'; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'image', label: 'Images' },
+  { id: 'video', label: 'Videos' },
+  { id: 'reel', label: 'Reels' },
+  { id: 'carousel', label: 'Carousels' },
+];
+
+function SavedContentCard({ item, onDelete }: { item: SavedGeneration; onDelete: (id: number) => void }) {
+  const [copied, setCopied] = useState(false);
+  const previewUrl = item.flattenedAssetUrl || item.assetUrl || (item.metadata?.slides?.[0]?.imageUrl ?? null);
+  const copyCaption = () => {
+    if (!item.caption) return;
+    navigator.clipboard.writeText(item.caption);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="rounded-xl overflow-hidden border border-white/10 bg-white/[0.03] flex flex-col">
+      {previewUrl && (
+        item.contentType === 'video' || item.contentType === 'reel' ? (
+          <video src={previewUrl} controls loop className="w-full bg-black" style={{ aspectRatio: '9/16', maxHeight: 260 }} />
+        ) : (
+          <img src={previewUrl} alt="" loading="lazy" className="w-full object-cover" style={{ aspectRatio: '1/1', maxHeight: 260 }} />
+        )
+      )}
+      <div className="p-3 flex-1 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/10 text-gray-300">{item.contentType}</span>
+          <span className="text-[10px] text-gray-500">{fmtDate(item.createdAt)}</span>
+        </div>
+        {item.title && <p className="text-sm font-bold text-white leading-snug">{item.title}</p>}
+        {item.caption && <p className="text-xs text-gray-400 leading-relaxed line-clamp-3">{item.caption}</p>}
+        {item.contentType === 'carousel' && Array.isArray(item.metadata?.slides) && (
+          <p className="text-[10px] text-gray-500">{item.metadata.slides.length} slides</p>
+        )}
+        <div className="mt-auto flex items-center gap-2 pt-1">
+          {previewUrl && (
+            <a href={previewUrl} download target="_blank" rel="noreferrer" className="text-[11px] font-bold text-blue-400 hover:text-blue-300">Download</a>
+          )}
+          {item.caption && (
+            <button onClick={copyCaption} className="text-[11px] font-bold text-gray-400 hover:text-white">
+              {copied ? 'Copied!' : 'Copy caption'}
+            </button>
+          )}
+          <button onClick={() => onDelete(item.id)} className="text-[11px] font-bold text-red-400/80 hover:text-red-400 ml-auto">Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SavedContentLibrary() {
+  const queryClient = useQueryClient();
+  const [filter, setFilter] = useState<SavedGeneration['contentType'] | 'all'>('all');
+
+  const { data, isLoading } = useQuery<{ generations: SavedGeneration[] }>({
+    queryKey: ['/api/content-studio/history', filter],
+    queryFn: async () => {
+      const qs = filter !== 'all' ? `?type=${filter}` : '';
+      const res = await apiRequest('GET', `/api/content-studio/history${qs}`);
+      return res.json();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => (await apiRequest('DELETE', `/api/content-studio/history/${id}`)).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/content-studio/history'] }),
+  });
+
+  const items = data?.generations ?? [];
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-4 scrollbar-hide">
+        {SAVED_TYPE_FILTERS.map(f => (
+          <button key={f.id} onClick={() => setFilter(f.id)}
+            className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all"
+            style={{
+              background: filter === f.id ? 'rgba(251,146,60,.15)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${filter === f.id ? 'rgba(251,146,60,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: filter === f.id ? '#fb923c' : '#9ca3af',
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-gray-500 text-center py-12">Loading your saved content...</p>
+      ) : items.length === 0 ? (
+        <div className="text-center py-16">
+          <p className="text-sm text-gray-500">Nothing saved yet — everything you generate in Content Studio (images, videos, reels, carousels) automatically lands here, permanently.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {items.map(item => (
+            <SavedContentCard key={item.id} item={item} onDelete={(id) => deleteMutation.mutate(id)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Generation progress pipelines — same FullscreenLoading popup (with the
+// scripture/wisdom panel) chart-analysis uses, reused here per the user's
+// request that every generation action show consistent step-by-step status.
+const IMAGE_PIPELINE = [
+  { name: 'Reading your content', icon: <Sparkles className="h-5 w-5" /> },
+  { name: 'Writing an on-brand prompt', icon: <Wand2 className="h-5 w-5" /> },
+  { name: 'Generating the image', icon: <ImageIcon className="h-5 w-5" /> },
+  { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
+];
+const VIDEO_PIPELINE = [
+  { name: 'Styling your prompt on-brand', icon: <Wand2 className="h-5 w-5" /> },
+  { name: 'Generating the video clip', icon: <Film className="h-5 w-5" /> },
+  { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
+];
+const REEL_PIPELINE = [
+  { name: 'Writing the hook & script', icon: <BookOpen className="h-5 w-5" /> },
+  { name: 'Generating the video clip', icon: <Clapperboard className="h-5 w-5" /> },
+  { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
+];
+const CAROUSEL_PIPELINE = [
+  { name: 'Writing the slide script', icon: <BookOpen className="h-5 w-5" /> },
+  { name: 'Generating slide images', icon: <ImageIcon className="h-5 w-5" /> },
+  { name: 'Saving permanently', icon: <Layers className="h-5 w-5" /> },
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
   const { user } = useAuth();
@@ -593,9 +741,9 @@ export default function ContentStudioPage() {
   const referralCode: string | null = referralData?.code ?? null;
 
   const search = useSearch();
-  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel'>(() => {
+  const [view, setView] = useState<'studio' | 'reels' | 'ai-video' | 'ai-reel' | 'slide-carousel' | 'saved'>(() => {
     const v = new URLSearchParams(search).get('view');
-    return v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' ? v : 'studio';
+    return v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved' ? v : 'studio';
   });
   // Deep-link support: re-check the query string on every navigation (not
   // just first mount) so tapping a nav tile while already on this page
@@ -603,7 +751,7 @@ export default function ContentStudioPage() {
   // query-only navigation.
   useEffect(() => {
     const v = new URLSearchParams(search).get('view');
-    if (v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel') setView(v);
+    if (v === 'ai-video' || v === 'ai-reel' || v === 'slide-carousel' || v === 'saved') setView(v);
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
@@ -623,10 +771,11 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
+      setGenProgress(100);
+      setTimeout(() => setGeneratingVideo(false), 400);
       setGeneratedVideoUrl(data.url);
     } catch (err: any) {
       setVideoError(err.message || 'Video generation failed');
-    } finally {
       setGeneratingVideo(false);
     }
   };
@@ -649,10 +798,11 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
+      setGenProgress(100);
+      setTimeout(() => setGeneratingReel(false), 400);
       setGeneratedReel(data);
     } catch (err: any) {
       setReelError(err.message || 'Reel generation failed');
-    } finally {
       setGeneratingReel(false);
     }
   };
@@ -675,10 +825,11 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Carousel generation failed');
+      setGenProgress(100);
+      setTimeout(() => setGeneratingCarousel(false), 400);
       setGeneratedCarousel(data);
     } catch (err: any) {
       setCarouselError(err.message || 'Carousel generation failed');
-    } finally {
       setGeneratingCarousel(false);
     }
   };
@@ -691,7 +842,30 @@ export default function ContentStudioPage() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [includeLogo, setIncludeLogo] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // ── Shared generation-progress popup (chart-analysis style, with the
+  // scripture/wisdom panel) — one shared progress driver for all 4 actions,
+  // since only one can realistically run at a time.
+  const [genProgress, setGenProgress] = useState(0);
+  const showGenLoading = generatingVideo || generatingReel || generatingCarousel || generatingImage;
+  const genPipeline = generatingVideo ? VIDEO_PIPELINE : generatingReel ? REEL_PIPELINE : generatingCarousel ? CAROUSEL_PIPELINE : IMAGE_PIPELINE;
+  const genTitle = generatingVideo ? 'Generating AI Video' : generatingReel ? 'Generating AI Reel' : generatingCarousel ? 'Generating Slide Carousel' : 'Generating Image';
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (showGenLoading) {
+      if (genProgress === 0) setGenProgress(5);
+      interval = setInterval(() => {
+        setGenProgress(prev => (prev >= 95 ? prev : Math.min(prev + (Math.random() * 8 + 2), 95)));
+      }, 800);
+    } else {
+      setGenProgress(0);
+    }
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGenLoading]);
 
   if (!isAmbassador && !isAdmin) return <Redirect to="/dashboard" />;
 
@@ -725,16 +899,40 @@ export default function ContentStudioPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Image generation failed');
+      setGenProgress(100);
+      setTimeout(() => setGeneratingImage(false), 400);
       setBgImage(data.url);
     } catch (err: any) {
       setImageError(err.message || 'Image generation failed');
-    } finally {
       setGeneratingImage(false);
+    }
+  };
+
+  const [flattening, setFlattening] = useState(false);
+  const [flattenedSlideUrl, setFlattenedSlideUrl] = useState<string | null>(null);
+  const flattenAndSaveSlide = async () => {
+    if (!bgImage || flattening) return;
+    setFlattening(true);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/flatten-slide', {
+        imageUrl: bgImage,
+        heading: cfg.label,
+        body: caption.slice(0, 220),
+        includeLogo,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Flattening failed');
+      setFlattenedSlideUrl(data.flattenedUrl);
+    } catch (err: any) {
+      setImageError(err.message || 'Flattening failed');
+    } finally {
+      setFlattening(false);
     }
   };
 
   return (
     <div className="min-h-screen pb-16" style={{ background: 'linear-gradient(180deg,#060610 0%,#080812 100%)' }}>
+      <FullscreenLoading visible={showGenLoading} progress={genProgress} title={genTitle} subtitle="This can take a moment — hang tight." customPipeline={genPipeline} />
       <div className="max-w-6xl mx-auto px-4 py-6 sm:px-6">
 
         {/* ── Header ── */}
@@ -810,7 +1008,20 @@ export default function ContentStudioPage() {
           >
             📑 Slide Carousel
           </button>
+          <button onClick={() => setView('saved')}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{
+              background: view === 'saved' ? 'rgba(251,146,60,.12)' : 'rgba(255,255,255,.04)',
+              border: `1px solid ${view === 'saved' ? 'rgba(251,146,60,.4)' : 'rgba(255,255,255,.08)'}`,
+              color: view === 'saved' ? '#fb923c' : '#9ca3af',
+            }}
+          >
+            📁 Saved Content
+          </button>
         </div>
+
+        {/* ── Saved Content Library ── */}
+        {view === 'saved' && <SavedContentLibrary />}
 
         {/* ── AI Video Generation View ── */}
         {view === 'ai-video' && (
@@ -1298,9 +1509,33 @@ export default function ContentStudioPage() {
                     <div className="mt-3 flex items-center gap-2 p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)' }}>
                       <ImageIcon className="h-3.5 w-3.5 text-gray-500 flex-shrink-0" />
                       <p className="text-[10px] text-gray-500 leading-relaxed">
-                        <span className="text-white font-semibold">Screenshot this card</span> (iPhone: Side+Volume / Android: Power+Volume) then post the image + paste the caption below.
+                        <span className="text-white font-semibold">Screenshot this card</span> (iPhone: Side+Volume / Android: Power+Volume) then post the image + paste the caption below — or use "Flatten & Save" below for a one-tap file with the caption already baked in.
                       </p>
                     </div>
+
+                    {bgImage && (
+                      <div className="mt-3 p-3 rounded-xl space-y-2" style={{ background: 'rgba(251,146,60,.06)', border: '1px solid rgba(251,146,60,.2)' }}>
+                        <label className="flex items-center gap-2 text-[11px] text-gray-300 cursor-pointer select-none">
+                          <input type="checkbox" checked={includeLogo} onChange={e => setIncludeLogo(e.target.checked)} className="accent-orange-500" />
+                          Include VEDD logo watermark
+                        </label>
+                        <button
+                          onClick={flattenAndSaveSlide}
+                          disabled={flattening}
+                          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-60"
+                          style={{ background: 'rgba(251,146,60,.15)', border: '1px solid rgba(251,146,60,.4)', color: '#fb923c' }}
+                        >
+                          {flattening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+                          {flattening ? 'Flattening…' : 'Flatten & Save (image + caption in one file)'}
+                        </button>
+                        {flattenedSlideUrl && (
+                          <a href={flattenedSlideUrl} download target="_blank" rel="noreferrer"
+                            className="block text-center text-[11px] font-bold text-emerald-400 hover:text-emerald-300 py-1">
+                            ✓ Ready — tap to download & upload to social media
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

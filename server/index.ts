@@ -255,6 +255,15 @@ async function withRetry<T>(
     console.error(`[startup] ensureFuturesEngineTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Content Studio's durable media store exists (generated images/
+  // videos otherwise vanish once the provider's temporary URL expires).
+  try {
+    const { ensureContentStudioTables } = await import('./services/ensure-content-studio-tables');
+    await ensureContentStudioTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureContentStudioTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
   // hydrate propFirmMode/consistency-rule defaults from it so they survive
   // this restart — never auto-resumes live trading itself.

@@ -82,6 +82,8 @@ __export(schema_exports, {
   chartAnalyses: () => chartAnalyses,
   communityPartnerships: () => communityPartnerships,
   connectedSocialAccounts: () => connectedSocialAccounts,
+  contentStudioAssets: () => contentStudioAssets,
+  contentStudioGenerations: () => contentStudioGenerations,
   copyRelationships: () => copyRelationships,
   copyTradeLogs: () => copyTradeLogs,
   creditTaskTypeEnum: () => creditTaskTypeEnum,
@@ -140,6 +142,7 @@ __export(schema_exports, {
   insertChartAnalysisSchema: () => insertChartAnalysisSchema,
   insertCommunityPartnershipSchema: () => insertCommunityPartnershipSchema,
   insertConnectedSocialAccountSchema: () => insertConnectedSocialAccountSchema,
+  insertContentStudioGenerationSchema: () => insertContentStudioGenerationSchema,
   insertCryptocomConnectionSchema: () => insertCryptocomConnectionSchema,
   insertDevotionalGroupSchema: () => insertDevotionalGroupSchema,
   insertDevotionalSchema: () => insertDevotionalSchema,
@@ -273,7 +276,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2921,6 +2924,33 @@ var init_schema = __esm({
       errorMessage: text("error_message"),
       createdAt: timestamp("created_at").defaultNow()
     });
+    contentStudioAssets = pgTable("content_studio_assets", {
+      id: serial("id").primaryKey(),
+      mimeType: text("mime_type").notNull(),
+      data: text("data").notNull(),
+      // base64-encoded bytes
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    contentStudioGenerations = pgTable("content_studio_generations", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      contentType: text("content_type").notNull(),
+      // 'image' | 'video' | 'reel' | 'carousel'
+      prompt: text("prompt"),
+      title: text("title"),
+      caption: text("caption"),
+      assetUrl: text("asset_url"),
+      // permanent URL for single-asset types (image/video/reel)
+      flattenedAssetUrl: text("flattened_asset_url"),
+      // slide image with caption text + optional logo baked in, ready to upload as-is
+      metadata: jsonb("metadata").notNull().default({}),
+      // carousel: { slides: [{heading, body, imageUrl}] }; reel: { hook, script }
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    insertContentStudioGenerationSchema = createInsertSchema(contentStudioGenerations).omit({
+      id: true,
+      createdAt: true
+    });
     ambassadorMarketBriefing = pgTable("ambassador_market_briefing", {
       id: serial("id").primaryKey(),
       weekStartDate: varchar("week_start_date", { length: 20 }).notNull().unique(),
@@ -4533,6 +4563,19 @@ var init_storage = __esm({
       }
       async updateFuturesEngineTradeTrailState(id, data) {
         await db.update(futuresEngineTrades).set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(futuresEngineTrades.id, id));
+      }
+      // ── Content Studio — durable saved-content library ──────────────────────────
+      async createContentStudioGeneration(entry) {
+        const [result] = await db.insert(contentStudioGenerations).values(entry).returning();
+        return result;
+      }
+      async getUserContentStudioGenerations(userId, contentType, limit = 100) {
+        const conditions = contentType ? and(eq(contentStudioGenerations.userId, userId), eq(contentStudioGenerations.contentType, contentType)) : eq(contentStudioGenerations.userId, userId);
+        return db.select().from(contentStudioGenerations).where(conditions).orderBy(desc(contentStudioGenerations.createdAt)).limit(limit);
+      }
+      async deleteContentStudioGeneration(id, userId) {
+        const result = await db.delete(contentStudioGenerations).where(and(eq(contentStudioGenerations.id, id), eq(contentStudioGenerations.userId, userId))).returning();
+        return result.length > 0;
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
       async createCryptocomConnection(connection2) {
@@ -19421,9 +19464,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path15, init = {}, attempt = 0) {
+      async request(path16, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path15}`, {
+        const response = await fetch(`${this.baseUrl}${path16}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -19434,7 +19477,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path15, init, attempt + 1);
+          return this.request(path16, init, attempt + 1);
         }
         return response;
       }
@@ -36568,6 +36611,56 @@ var init_image_generation = __esm({
   }
 });
 
+// server/services/content-asset-store.ts
+var content_asset_store_exports = {};
+__export(content_asset_store_exports, {
+  getPersistedAsset: () => getPersistedAsset,
+  persistRemoteAsset: () => persistRemoteAsset
+});
+async function persistRemoteAsset(remoteUrl) {
+  try {
+    const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(6e4) });
+    if (!res.ok) {
+      console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status}`);
+      return null;
+    }
+    const contentType = res.headers.get("content-type") || "application/octet-stream";
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength > MAX_ASSET_BYTES) {
+      console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) \u2014 falling back to remote URL`);
+      return null;
+    }
+    const base64 = buf.toString("base64");
+    const { rows } = await pool.query(
+      `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+      [contentType, base64]
+    );
+    const id = rows[0].id;
+    return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
+  } catch (err) {
+    console.error("[content-asset-store] persistRemoteAsset failed (non-fatal):", err?.message ?? err);
+    return null;
+  }
+}
+async function getPersistedAsset(id) {
+  try {
+    const { rows } = await pool.query(`SELECT mime_type, data FROM content_studio_assets WHERE id = $1`, [id]);
+    if (rows.length === 0) return null;
+    return { mimeType: rows[0].mime_type, data: Buffer.from(rows[0].data, "base64") };
+  } catch (err) {
+    console.error("[content-asset-store] getPersistedAsset failed:", err?.message ?? err);
+    return null;
+  }
+}
+var MAX_ASSET_BYTES;
+var init_content_asset_store = __esm({
+  "server/services/content-asset-store.ts"() {
+    "use strict";
+    init_db();
+    MAX_ASSET_BYTES = 25 * 1024 * 1024;
+  }
+});
+
 // server/services/video-generation.ts
 var video_generation_exports = {};
 __export(video_generation_exports, {
@@ -36648,6 +36741,93 @@ var init_video_generation = __esm({
     MAX_DURATION_SECONDS = 6;
     POLL_INTERVAL_MS = 5e3;
     MAX_POLLS = 60;
+  }
+});
+
+// server/services/slide-flattener.ts
+var slide_flattener_exports = {};
+__export(slide_flattener_exports, {
+  flattenSlideImage: () => flattenSlideImage
+});
+import sharp from "sharp";
+import * as path11 from "path";
+import * as fs11 from "fs";
+function escapeXml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function wrapText3(text2, maxCharsPerLine, maxLines) {
+  const words = text2.split(/\s+/).filter(Boolean);
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxCharsPerLine && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) {
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/.{3}$/, "...");
+  }
+  return lines;
+}
+async function flattenSlideImage(opts) {
+  const base = await sharp(opts.imageBuffer).resize(CANVAS_SIZE, CANVAS_SIZE, { fit: "cover", position: "attention" }).toBuffer();
+  const headingLines = opts.heading ? wrapText3(opts.heading, 24, 3) : [];
+  const bodyLines = opts.body ? wrapText3(opts.body, 40, 4) : [];
+  const hasText = headingLines.length > 0 || bodyLines.length > 0;
+  const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.55, 140 + (headingLines.length + bodyLines.length) * 46) : 0;
+  const textSvgParts = [];
+  let y = CANVAS_SIZE - gradientHeight + 60;
+  for (const line of headingLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
+    y += 60;
+  }
+  y += 8;
+  for (const line of bodyLines) {
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
+    y += 42;
+  }
+  const overlaySvg = `
+    <svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      ${hasText ? `
+      <defs>
+        <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#000000" stop-opacity="0" />
+          <stop offset="100%" stop-color="#000000" stop-opacity="0.82" />
+        </linearGradient>
+      </defs>
+      <rect x="0" y="${CANVAS_SIZE - gradientHeight}" width="${CANVAS_SIZE}" height="${gradientHeight}" fill="url(#fade)" />
+      ` : ""}
+      ${textSvgParts.join("\n")}
+    </svg>
+  `;
+  const composites = [
+    { input: Buffer.from(overlaySvg), top: 0, left: 0 }
+  ];
+  if (opts.includeLogo && fs11.existsSync(LOGO_PATH)) {
+    const logoWidth = Math.round(CANVAS_SIZE * 0.22);
+    const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
+    const logoMeta = await sharp(logoBuffer).metadata();
+    const margin = 32;
+    composites.push({
+      input: logoBuffer,
+      left: CANVAS_SIZE - (logoMeta.width ?? logoWidth) - margin,
+      top: CANVAS_SIZE - (logoMeta.height ?? logoWidth) - margin
+    });
+  }
+  return sharp(base).composite(composites).png().toBuffer();
+}
+var CANVAS_SIZE, LOGO_PATH;
+var init_slide_flattener = __esm({
+  "server/services/slide-flattener.ts"() {
+    "use strict";
+    CANVAS_SIZE = 1080;
+    LOGO_PATH = path11.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -36913,8 +37093,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path15 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path15}/scoreboard`);
+  const path16 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path16}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -39889,6 +40069,48 @@ CREATE TABLE IF NOT EXISTS "futures_engine_trades" (
   }
 });
 
+// server/services/ensure-content-studio-tables.ts
+var ensure_content_studio_tables_exports = {};
+__export(ensure_content_studio_tables_exports, {
+  ensureContentStudioTables: () => ensureContentStudioTables
+});
+async function ensureContentStudioTables() {
+  try {
+    await pool.query(DDL9);
+    console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
+  } catch (err) {
+    console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL9;
+var init_ensure_content_studio_tables = __esm({
+  "server/services/ensure-content-studio-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL9 = `
+CREATE TABLE IF NOT EXISTS "content_studio_assets" (
+  "id" serial PRIMARY KEY,
+  "mime_type" text NOT NULL,
+  "data" text NOT NULL,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "content_studio_generations" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "content_type" text NOT NULL,
+  "prompt" text,
+  "title" text,
+  "caption" text,
+  "asset_url" text,
+  "flattened_asset_url" text,
+  "metadata" jsonb NOT NULL DEFAULT '{}',
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+`;
+  }
+});
+
 // server/services/ensure-live-engine-config-table.ts
 var ensure_live_engine_config_table_exports = {};
 __export(ensure_live_engine_config_table_exports, {
@@ -39896,18 +40118,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -39926,18 +40148,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -39954,18 +40176,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -40954,8 +41176,8 @@ import { eq as eq14, and as and7, sql as sql9 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs11 from "fs";
-import * as path11 from "path";
+import * as fs12 from "fs";
+import * as path12 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -42994,20 +43216,20 @@ var TradovateService = class {
     }
     return data;
   }
-  async get(path15) {
+  async get(path16) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path15}`, {
+    const response = await fetch(`${this.baseUrl}${path16}`, {
       headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path15} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate GET ${path16} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
-  async post(path15, body) {
+  async post(path16, body) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path15}`, {
+    const response = await fetch(`${this.baseUrl}${path16}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.accessToken}`,
@@ -43018,7 +43240,7 @@ var TradovateService = class {
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path15} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate POST ${path16} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
@@ -47011,9 +47233,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path11.join(process.cwd(), "uploads");
-if (!fs11.existsSync(uploadsDir2)) {
-  fs11.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path12.join(process.cwd(), "uploads");
+if (!fs12.existsSync(uploadsDir2)) {
+  fs12.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -47362,11 +47584,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path11.join(uploadsDir2, fileName);
+      const filePath = path12.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs11.promises.writeFile(filePath, req.file.buffer);
+        await fs12.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -47392,14 +47614,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path11.join(process.cwd(), "uploads", "avatars");
-      if (!fs11.existsSync(avatarsDir)) {
-        fs11.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path12.join(process.cwd(), "uploads", "avatars");
+      if (!fs12.existsSync(avatarsDir)) {
+        fs12.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path11.join(avatarsDir, fileName);
-      await fs11.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path12.join(avatarsDir, fileName);
+      await fs12.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -47494,11 +47716,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path11.join(uploadsDir2, generatedFilename);
+      const filePath = path12.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs11.promises.writeFile(filePath, imageBuffer);
+        await fs12.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -47631,9 +47853,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path11.join(uploadsDir2, frameFileName);
+          const framePath = path12.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs11.promises.writeFile(framePath, frameBuffer);
+          await fs12.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -48033,12 +48255,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path11.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path12.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs11.existsSync(filePath)) {
-        const alternativePath = path11.join(uploadsDir2, path11.basename(imageUrl));
+      if (!fs12.existsSync(filePath)) {
+        const alternativePath = path12.join(uploadsDir2, path12.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs11.existsSync(alternativePath)) {
+        if (!fs12.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -48047,7 +48269,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs11.promises.readFile(filePath);
+      const imageBuffer = await fs12.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -48222,11 +48444,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path11.basename(imagePath);
+        const basename2 = path12.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path11.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path12.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs11.existsSync(originalImagePath)) {
+        if (!fs12.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -48323,13 +48545,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path11.basename(filename);
-      const sharedPath = path11.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs11.existsSync(sharedPath)) {
+      const sanitizedFilename = path12.basename(filename);
+      const sharedPath = path12.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs12.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path11.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs11.existsSync(regularPath)) {
+      const regularPath = path12.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs12.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -48341,9 +48563,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path11.basename(filename);
-      const annotatedPath = path11.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs11.existsSync(annotatedPath)) {
+      const sanitizedFilename = path12.basename(filename);
+      const annotatedPath = path12.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs12.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -52050,12 +52272,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path11.join(process.cwd(), "uploads", "share-cards");
-      if (!fs11.existsSync(shareCardPath)) {
-        fs11.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path12.join(process.cwd(), "uploads", "share-cards");
+      if (!fs12.existsSync(shareCardPath)) {
+        fs12.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path11.join(shareCardPath, shareCardFileName);
-      fs11.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path12.join(shareCardPath, shareCardFileName);
+      fs12.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -58054,8 +58276,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path15 = await import("path");
-      const fs13 = await import("fs");
+      const path16 = await import("path");
+      const fs14 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -58141,8 +58363,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path15.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs13.default.existsSync(logoPath)) {
+        const logoPath = path16.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs14.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -58403,10 +58625,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path15.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs13.default.existsSync(outDir)) fs13.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path15.default.join(outDir, fileName);
-      fs13.default.writeFileSync(filePath, buffer);
+      const outDir = path16.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs14.default.existsSync(outDir)) fs14.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path16.default.join(outDir, fileName);
+      fs14.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -60171,9 +60393,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path11.join(process.cwd(), "data", "brains");
-      if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
-      fs11.writeFileSync(path11.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path12.join(process.cwd(), "data", "brains");
+      if (!fs12.existsSync(brainDir)) fs12.mkdirSync(brainDir, { recursive: true });
+      fs12.writeFileSync(path12.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -60182,9 +60404,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path11.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs11.existsSync(p)) return null;
-      const brain = JSON.parse(fs11.readFileSync(p, "utf-8"));
+      const p = path12.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs12.existsSync(p)) return null;
+      const brain = JSON.parse(fs12.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -60297,9 +60519,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path11.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs11.existsSync(p)) {
-          brain = JSON.parse(fs11.readFileSync(p, "utf-8"));
+        const p = path12.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs12.existsSync(p)) {
+          brain = JSON.parse(fs12.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -61246,9 +61468,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path11.join(process.cwd(), "data", "brains");
-          if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
-          fs11.writeFileSync(path11.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path12.join(process.cwd(), "data", "brains");
+          if (!fs12.existsSync(brainDir)) fs12.mkdirSync(brainDir, { recursive: true });
+          fs12.writeFileSync(path12.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -61887,19 +62109,19 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path11.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path12.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs11.existsSync(_polyWalletsFile)) return JSON.parse(fs11.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs12.existsSync(_polyWalletsFile)) return JSON.parse(fs12.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path11.join(process.cwd(), "data");
-      if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
-      fs11.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path12.join(process.cwd(), "data");
+      if (!fs12.existsSync(dir)) fs12.mkdirSync(dir, { recursive: true });
+      fs12.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -62395,19 +62617,19 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path11.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path12.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs11.existsSync(_polyKeysFile)) return JSON.parse(fs11.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs12.existsSync(_polyKeysFile)) return JSON.parse(fs12.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path11.join(process.cwd(), "data");
-      if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
-      fs11.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const dir = path12.join(process.cwd(), "data");
+      if (!fs12.existsSync(dir)) fs12.mkdirSync(dir, { recursive: true });
+      fs12.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -63418,11 +63640,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs13 = await import("fs/promises");
-        const path15 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path15.extname(req.file.originalname)}`;
-        const uploadPath = path15.join(process.cwd(), "uploads", filename);
-        await fs13.writeFile(uploadPath, req.file.buffer);
+        const fs14 = await import("fs/promises");
+        const path16 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path16.extname(req.file.originalname)}`;
+        const uploadPath = path16.join(process.cwd(), "uploads", filename);
+        await fs14.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -64225,8 +64447,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path11.join(uploadsDir2, filename);
-      fs11.writeFileSync(filePath, file.buffer);
+      const filePath = path12.join(uploadsDir2, filename);
+      fs12.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -68121,7 +68343,17 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
       const image = await generateContentImage2(prompt);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
-      res.json(image);
+      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const persisted = await persistRemoteAsset2(image.url);
+      const permanentUrl = persisted?.url ?? image.url;
+      await storage.createContentStudioGeneration({
+        userId: u.id,
+        contentType: "image",
+        prompt,
+        assetUrl: permanentUrl,
+        metadata: { provider: image.provider }
+      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
+      res.json({ ...image, url: permanentUrl });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68153,7 +68385,17 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
       const video = await generateContentVideo2(prompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
-      res.json(video);
+      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const persisted = await persistRemoteAsset2(video.url);
+      const permanentUrl = persisted?.url ?? video.url;
+      await storage.createContentStudioGeneration({
+        userId: u.id,
+        contentType: "video",
+        prompt,
+        assetUrl: permanentUrl,
+        metadata: { provider: video.provider }
+      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
+      res.json({ ...video, url: permanentUrl });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68171,7 +68413,19 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
       const video = await generateContentVideo2(script.videoPrompt, { duration });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
-      res.json({ ...script, url: video.url });
+      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const persisted = await persistRemoteAsset2(video.url);
+      const permanentUrl = persisted?.url ?? video.url;
+      await storage.createContentStudioGeneration({
+        userId: u.id,
+        contentType: "reel",
+        prompt: topic,
+        title: script.hook ?? null,
+        caption: script.caption ?? null,
+        assetUrl: permanentUrl,
+        metadata: { provider: video.provider, script }
+      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
+      res.json({ ...script, url: permanentUrl });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68188,12 +68442,96 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateSlideCarouselScript: generateSlideCarouselScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const script = await generateSlideCarouselScript2(topic, count, u?.id);
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const slides = [];
       for (const slide of script.slides) {
         const image = await generateContentImage2(slide.imagePrompt);
-        slides.push({ heading: slide.heading, body: slide.body, imageUrl: image?.url ?? null });
+        let imageUrl = image?.url ?? null;
+        if (imageUrl) {
+          const persisted = await persistRemoteAsset2(imageUrl);
+          if (persisted) imageUrl = persisted.url;
+        }
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl });
       }
+      await storage.createContentStudioGeneration({
+        userId: u.id,
+        contentType: "carousel",
+        prompt: topic,
+        title: script.title,
+        caption: script.caption,
+        metadata: { slides }
+      }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
       res.json({ title: script.title, caption: script.caption, slides });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/content-studio/flatten-slide", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const { imageUrl, heading, body, includeLogo, generationId } = req.body;
+      if (!imageUrl) return res.status(400).json({ error: "imageUrl is required" });
+      const absoluteUrl = imageUrl.startsWith("/") ? `${req.protocol}://${req.get("host")}${imageUrl}` : imageUrl;
+      const imgRes = await fetch(absoluteUrl, { signal: AbortSignal.timeout(3e4) });
+      if (!imgRes.ok) return res.status(502).json({ error: `Could not fetch source image (${imgRes.status})` });
+      const imageBuffer = Buffer.from(await imgRes.arrayBuffer());
+      const { flattenSlideImage: flattenSlideImage2 } = await Promise.resolve().then(() => (init_slide_flattener(), slide_flattener_exports));
+      const flattened = await flattenSlideImage2({ imageBuffer, heading, body, includeLogo: includeLogo === true });
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+        ["image/png", flattened.toString("base64")]
+      );
+      const flattenedUrl = `/api/content-studio/asset/${rows[0].id}`;
+      if (generationId) {
+        await pool2.query(
+          `UPDATE content_studio_generations SET flattened_asset_url = $1 WHERE id = $2 AND user_id = $3`,
+          [flattenedUrl, generationId, u.id]
+        ).catch(() => {
+        });
+      }
+      res.json({ flattenedUrl });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/content-studio/asset/:id", async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid asset id" });
+    const { getPersistedAsset: getPersistedAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+    const asset = await getPersistedAsset2(id);
+    if (!asset) return res.status(404).json({ error: "asset not found" });
+    res.setHeader("Content-Type", asset.mimeType);
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(asset.data);
+  });
+  app2.get("/api/content-studio/history", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const type = typeof req.query.type === "string" ? req.query.type : void 0;
+      const limit = Math.min(parseInt(String(req.query.limit || "100"), 10) || 100, 300);
+      const generations = await storage.getUserContentStudioGenerations(u.id, type, limit);
+      res.json({ generations });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.delete("/api/content-studio/history/:id", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAmbassador || u?.isAdmin)) {
+      return res.status(403).json({ error: "Ambassador or admin only" });
+    }
+    try {
+      const id = parseInt(req.params.id, 10);
+      const deleted = await storage.deleteContentStudioGeneration(id, u.id);
+      if (!deleted) return res.status(404).json({ error: "not found" });
+      res.json({ success: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -69072,10 +69410,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path11.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path12.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -69085,8 +69423,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs11.mkdirSync(path11.join(process.cwd(), "data"), { recursive: true });
-      fs11.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs12.mkdirSync(path12.join(process.cwd(), "data"), { recursive: true });
+      fs12.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -69095,10 +69433,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path11.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path12.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -69109,10 +69447,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = {
@@ -69123,8 +69461,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       };
       if (!certs.find((c) => c.certId === cert.certId)) {
         certs.push(cert);
-        fs11.mkdirSync(path11.join(process.cwd(), "data"), { recursive: true });
-        fs11.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+        fs12.mkdirSync(path12.join(process.cwd(), "data"), { recursive: true });
+        fs12.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
       }
       res.json({ success: true });
     } catch (err) {
@@ -69134,10 +69472,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const mine = certs.filter((c) => c.userId === req.user.id);
@@ -69148,10 +69486,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -70524,14 +70862,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs12 from "fs";
-import path13 from "path";
+import fs13 from "fs";
+import path14 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path12 from "path";
+import path13 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -70550,14 +70888,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path12.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path12.resolve(import.meta.dirname, "shared"),
-      "@assets": path12.resolve(import.meta.dirname, "attached_assets")
+      "@": path13.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path13.resolve(import.meta.dirname, "shared"),
+      "@assets": path13.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path12.resolve(import.meta.dirname, "client"),
+  root: path13.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path12.resolve(import.meta.dirname, "dist/public"),
+    outDir: path13.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -70677,13 +71015,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path13.resolve(
+      const clientTemplate = path14.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs12.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs13.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -70703,9 +71041,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path13.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs12.existsSync(distPath)}`);
-  if (!fs12.existsSync(distPath)) {
+  const distPath = path14.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs13.existsSync(distPath)}`);
+  if (!fs13.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -70726,7 +71064,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path13.resolve(distPath, "index.html");
+  const indexPath = path14.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -70759,7 +71097,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs12.promises.readFile(indexPath, "utf-8");
+      let html = await fs13.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -70770,7 +71108,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path14 from "path";
+import path15 from "path";
 
 // server/auth.ts
 init_storage();
@@ -71659,19 +71997,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path14.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path14.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path14.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path15.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path15.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path15.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path14.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path15.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path15 = req.path;
+  const path16 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -71680,8 +72018,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path15.startsWith("/api")) {
-      let logLine = `${req.method} ${path15} ${res.statusCode} in ${duration}ms`;
+    if (path16.startsWith("/api")) {
+      let logLine = `${req.method} ${path16} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -71790,6 +72128,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureFuturesEngineTables2();
   } catch (err) {
     console.error(`[startup] ensureFuturesEngineTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureContentStudioTables: ensureContentStudioTables2 } = await Promise.resolve().then(() => (init_ensure_content_studio_tables(), ensure_content_studio_tables_exports));
+    await ensureContentStudioTables2();
+  } catch (err) {
+    console.error(`[startup] ensureContentStudioTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));

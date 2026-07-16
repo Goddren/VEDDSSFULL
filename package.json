@@ -110,6 +110,7 @@
     "react-spring": "^10.0.0",
     "recharts": "^2.13.0",
     "resend": "^6.16.0",
+    "sharp": "^0.35.3",
     "stripe": "^20.0.0",
     "stripe-replit-sync": "^0.0.12",
     "tailwind-merge": "^2.5.4",

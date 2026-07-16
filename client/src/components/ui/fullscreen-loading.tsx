@@ -19,6 +19,11 @@ interface FullscreenLoadingProps {
   title?: string;
   subtitle?: string;
   customPipeline?: PipelineStep[];
+  // When provided, shows a small dismiss control so the user can close this
+  // overlay while a long-running background job (e.g. Ambassador Prime or
+  // Lead Hunter's multi-minute "Run Now") keeps going — the job itself is
+  // NOT cancelled, only the popup is hidden.
+  onDismiss?: () => void;
 }
 
 const defaultAnalysisPipeline: PipelineStep[] = [
@@ -37,7 +42,8 @@ export function FullscreenLoading({
   message,
   title,
   subtitle,
-  customPipeline
+  customPipeline,
+  onDismiss,
 }: FullscreenLoadingProps) {
   const pipeline = customPipeline || defaultAnalysisPipeline;
   const currentStep = Math.min(
@@ -55,6 +61,14 @@ export function FullscreenLoading({
           transition={{ duration: 0.3 }}
           className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-md overflow-y-auto min-h-[100vh] py-8"
         >
+          {onDismiss && (
+            <button
+              onClick={onDismiss}
+              className="absolute top-4 right-4 z-10 text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted px-3 py-1.5 rounded-full transition-colors"
+            >
+              Continue in background
+            </button>
+          )}
           {/* Background gradient pulses */}
           <div className="absolute inset-0 overflow-hidden">
             <motion.div 

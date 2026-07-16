@@ -6,10 +6,19 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
 import {
   Zap, Play, Twitter, Linkedin, Instagram, Calendar,
   BarChart2, CheckCircle, XCircle, Clock, Image, Copy, ChevronDown, ChevronUp,
+  Search, PenTool, ImageIcon as ImageIconLucide, Send,
 } from 'lucide-react';
+
+const AMBASSADOR_RUN_PIPELINE = [
+  { name: 'Researching Reddit + market context', icon: <Search className="h-5 w-5" /> },
+  { name: 'Writing today\'s content', icon: <PenTool className="h-5 w-5" /> },
+  { name: 'Generating on-brand images', icon: <ImageIconLucide className="h-5 w-5" /> },
+  { name: 'Publishing to platforms', icon: <Send className="h-5 w-5" /> },
+];
 
 // ── Types ────────────────────────────────────────────────────────────────────
 interface RunSummary {
@@ -33,6 +42,7 @@ interface ContentItem {
   contentText: string | null;
   postId: string | null;
   status: string | null;
+  imageUrl: string | null;
 }
 
 interface HookVariation {
@@ -54,8 +64,8 @@ interface KpiData {
 interface DayContent {
   content: ContentItem[];
   hooks: HookVariation[];
-  bonus: { contentType: string; contentText: string }[];
-  community: { contentType: string; contentText: string }[];
+  bonus: { contentType: string; contentText: string; imageUrl: string | null }[];
+  community: { contentType: string; contentText: string; imageUrl: string | null }[];
   insights: { subreddit: string; insight: string }[];
   steps: { stepName: string; status: string; errorMessage: string | null }[];
 }
@@ -114,6 +124,11 @@ function ContentCard({ item }: { item: ContentItem }) {
           <CopyBtn text={text} />
         </div>
       </div>
+      {item.imageUrl && (
+        <a href={item.imageUrl} target="_blank" rel="noopener noreferrer" className="block mb-2">
+          <img src={item.imageUrl} alt="" loading="lazy" className="w-full max-h-64 object-cover rounded-md border border-slate-800" />
+        </a>
+      )}
       <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
         {expanded ? text : preview}
         {text.length > 120 && !expanded && '…'}
@@ -166,6 +181,22 @@ export default function AmbassadorPrimePage() {
   // log + KPIs fill in live (a run takes 1–2 min). Self-terminates after 4 min.
   const [pollUntil, setPollUntil] = useState(0);
   const isPolling = Date.now() < pollUntil;
+  const [showRunPopup, setShowRunPopup] = useState(false);
+  const [runProgress, setRunProgress] = useState(0);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (isPolling && showRunPopup) {
+      if (runProgress === 0) setRunProgress(5);
+      interval = setInterval(() => {
+        setRunProgress(prev => (prev >= 95 ? prev : Math.min(prev + (Math.random() * 6 + 2), 95)));
+      }, 1200);
+    } else if (!isPolling) {
+      setRunProgress(0);
+    }
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPolling, showRunPopup]);
 
   const { data: todayData, isLoading: todayLoading } = useQuery<{
     summary: RunSummary | null;
@@ -192,6 +223,7 @@ export default function AmbassadorPrimePage() {
       const today = new Date().toISOString().split('T')[0];
       setSelectedDate(today);           // ensure the live step log tracks today's run
       setPollUntil(Date.now() + 240000); // poll for up to 4 minutes
+      setShowRunPopup(true);
       toast({ title: 'Ambassador Prime running…', description: 'Watching progress live below — the step log fills in as each stage completes.' });
       qc.invalidateQueries({ queryKey: ['/api/ambassador-prime/today'] });
       qc.invalidateQueries({ queryKey: ['/api/ambassador-prime/content', today] });
@@ -206,6 +238,14 @@ export default function AmbassadorPrimePage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
+      <FullscreenLoading
+        visible={showRunPopup && isPolling}
+        progress={runProgress}
+        title="Ambassador Prime Running"
+        subtitle="Researching, writing, and generating today's content — this takes 1–2 minutes."
+        customPipeline={AMBASSADOR_RUN_PIPELINE}
+        onDismiss={() => setShowRunPopup(false)}
+      />
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
@@ -331,6 +371,9 @@ export default function AmbassadorPrimePage() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-xs text-slate-300 bg-slate-800 rounded p-3 relative">
+                          {dayContent.community[0].imageUrl && (
+                            <img src={dayContent.community[0].imageUrl} alt="" loading="lazy" className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
+                          )}
                           {dayContent.community[0].contentText}
                           <CopyBtn text={dayContent.community[0].contentText} />
                         </div>
@@ -344,7 +387,12 @@ export default function AmbassadorPrimePage() {
                         <CardTitle className="text-sm text-slate-300">Bonus Content</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="text-xs text-slate-300 bg-slate-800 rounded p-3">{dayContent.bonus[0].contentText}</div>
+                        <div className="text-xs text-slate-300 bg-slate-800 rounded p-3">
+                          {dayContent.bonus[0].imageUrl && (
+                            <img src={dayContent.bonus[0].imageUrl} alt="" loading="lazy" className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
+                          )}
+                          {dayContent.bonus[0].contentText}
+                        </div>
                       </CardContent>
                     </Card>
                   )}
