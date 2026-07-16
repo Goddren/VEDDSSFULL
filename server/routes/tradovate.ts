@@ -392,29 +392,173 @@ router.post('/futures/generate-ninjatrader', async (req: Request, res: Response)
   }
 });
 
+// ── Futures AI Engine — persisted config (FX SS AI Engine parity) ──────────
+router.get('/futures-engine/config', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  let config = await storage.getUserFuturesEngineConfig(userId);
+  if (!config) config = await storage.upsertFuturesEngineConfig(userId, {});
+  res.json(config);
+});
+
+router.patch('/futures-engine/config', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const allowed = [
+    'isActive', 'symbols', 'scanIntervalMs', 'strategyMode', 'singleStrategyMode', 'directionFilter',
+    'maxOpenTrades', 'maxContractsPerTrade', 'riskPerTrade', 'minConfidence', 'weeklyProfitTarget',
+    'accountBalance', 'enableCompounding', 'propFirmMode', 'propFirmDailyDrawdownLimit', 'dailyLossLimit',
+    'dailyProfitTarget', 'maxDailyTrades', 'executionSource', 'lockSettings', 'aiMode', 'enableAutoExecution',
+    'useKellyCriterion', 'brainLearningMode', 'drawdownShieldThreshold', 'copyMode', 'volatileCapMode',
+    'trailMethod', 'trailActivationR', 'trailFixedR', 'trailStepR', 'trailProfitLockPct',
+    'trailSarInitialAF', 'trailSarMaxAF', 'breakevenBufferR',
+    'propFirmPreset', 'propFirmAllowOvernightHolds', 'consistencyEnforcementEnabled',
+    'consistencyMinProfitableDays', 'consistencyPeriodDays', 'maxDailyProfitPctOfTotal',
+    'weeklyProfitTargetIsPercent',
+    'tradingDaysOfWeek', 'symbolDaySchedule', 'symbolDirectionOverrides', 'symbolContractOverrides',
+    'smartSymbolEscalation', 'highConfidenceOverride', 'enableCompositeAutonomous', 'compositeMinEdgeScore',
+  ];
+  const updateData: Record<string, any> = {};
+  for (const key of allowed) {
+    if (req.body[key] !== undefined) updateData[key] = req.body[key];
+  }
+  const config = await storage.upsertFuturesEngineConfig(userId, updateData);
+  res.json(config);
+});
+
+// ── Futures AI Engine — Self-Learning Brain ────────────────────────────────
+router.post('/futures-brain/learn', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const { runFuturesBrainLearning } = await import('../services/futures-brain');
+  const brain = await runFuturesBrainLearning(userId);
+  res.json({ learned: true, ...brain });
+});
+
+router.get('/futures-brain/status', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const { getOrRefreshFuturesBrain } = await import('../services/futures-brain');
+  const brain = await getOrRefreshFuturesBrain(userId);
+  res.json({ learned: !!brain, ...(brain || {}) });
+});
+
+router.get('/futures-brain/summary', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const trades = await storage.getUserFuturesEngineTrades(userId, 500);
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const closed = trades.filter(t => t.status === 'closed' && t.closedAt && new Date(t.closedAt).getTime() >= cutoff);
+  const byStrategy: Record<string, { trades: number; wins: number }> = {};
+  const bySymbol: Record<string, { strategy: string; trades: number; wins: number; totalR: number }> = {};
+  for (const t of closed) {
+    byStrategy[t.strategy] = byStrategy[t.strategy] || { trades: 0, wins: 0 };
+    byStrategy[t.strategy].trades++;
+    const won = (t.realizedPnl ?? 0) > 0;
+    if (won) byStrategy[t.strategy].wins++;
+    const riskDist = t.stopLoss ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+    const rMultiple = riskDist > 0 && t.exitPrice ? Math.abs(t.exitPrice - t.entryPrice) / riskDist * (won ? 1 : -1) : 0;
+    const key = `${t.symbol}|${t.strategy}`;
+    bySymbol[key] = bySymbol[key] || { strategy: t.strategy, trades: 0, wins: 0, totalR: 0 };
+    bySymbol[key].trades++;
+    if (won) bySymbol[key].wins++;
+    bySymbol[key].totalR += rMultiple;
+  }
+  const sourceBreakdown = Object.entries(byStrategy).map(([strategy, v]) => ({
+    strategy, trades: v.trades, winRate: v.trades > 0 ? Math.round((v.wins / v.trades) * 100) : 0,
+  }));
+  const topSetups = Object.entries(bySymbol)
+    .map(([key, v]) => ({
+      symbol: key.split('|')[0], strategy: v.strategy, trades: v.trades,
+      winRate: v.trades > 0 ? Math.round((v.wins / v.trades) * 100) : 0,
+      avgR: v.trades > 0 ? v.totalR / v.trades : 0,
+    }))
+    .sort((a, b) => b.winRate - a.winRate)
+    .slice(0, 15);
+  res.json({ sourceBreakdown, topSetups, totalClosedLast30d: closed.length });
+});
+
+// ── Futures AI Engine — Dual-Vote Consensus ────────────────────────────────
+router.get('/futures-engine/consensus', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const consensus = (global as any).futuresEngineConsensus?.[userId] || [];
+  const summary = {
+    strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
+    strongSkip: consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
+    caution: consensus.filter((c: any) => c.consensus === 'CAUTION').length,
+    watch: consensus.filter((c: any) => c.consensus === 'WATCH').length,
+  };
+  res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+});
+
 // ── POST /api/tradovate/scanner/start ─────────────────────────────────────────
 router.post('/tradovate/scanner/start', async (req: Request, res: Response) => {
   if (!requireAuth(req, res)) return;
   const userId = getUserId(req);
   try {
     const connection = await storage.getUserTradovateConnection(userId);
-    const {
-      symbols, scanIntervalMs, minConfidence, maxOpenTrades,
-      riskPerTrade, accountBalance, aiMode,
-      propFirmDailyDrawdownLimit, enableAutoExecution,
-    } = req.body;
+    const persisted = await storage.getUserFuturesEngineConfig(userId);
+
+    // Persist any settings the client just changed before starting, then
+    // build the scanner config from the durable row — never from raw,
+    // un-persisted client-supplied literals (that was the old behavior).
+    const allowedOverrides = [
+      'symbols', 'scanIntervalMs', 'minConfidence', 'maxOpenTrades', 'riskPerTrade', 'accountBalance',
+      'aiMode', 'propFirmDailyDrawdownLimit', 'enableAutoExecution', 'directionFilter', 'dailyLossLimit',
+      'dailyProfitTarget', 'maxDailyTrades', 'useKellyCriterion', 'brainLearningMode', 'drawdownShieldThreshold',
+      'trailMethod', 'trailActivationR', 'trailFixedR', 'trailStepR', 'trailProfitLockPct',
+      'trailSarInitialAF', 'trailSarMaxAF', 'breakevenBufferR', 'propFirmMode',
+      'consistencyEnforcementEnabled', 'consistencyMinProfitableDays', 'consistencyPeriodDays',
+      'maxDailyProfitPctOfTotal', 'tradingDaysOfWeek', 'symbolDaySchedule', 'symbolDirectionOverrides',
+      'symbolContractOverrides', 'smartSymbolEscalation', 'highConfidenceOverride',
+      'enableCompositeAutonomous', 'compositeMinEdgeScore',
+    ];
+    const overrides: Record<string, any> = {};
+    for (const key of allowedOverrides) {
+      if (req.body[key] !== undefined) overrides[key] = req.body[key];
+    }
+    const row = await storage.upsertFuturesEngineConfig(userId, { ...overrides, isActive: true });
 
     const config: FuturesScanConfig = {
       userId,
-      symbols: Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_FUTURES_SYMBOLS,
-      scanIntervalMs: scanIntervalMs || 120000,
-      minConfidence: minConfidence || 70,
-      maxOpenTrades: maxOpenTrades || 3,
-      riskPerTrade: riskPerTrade || 1,
-      accountBalance: accountBalance || 50000,
-      aiMode: aiMode || 'full',
-      propFirmDailyDrawdownLimit: propFirmDailyDrawdownLimit ?? 2,
-      enableAutoExecution: enableAutoExecution === true && !!(connection?.isActive),
+      symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols as string[] : DEFAULT_FUTURES_SYMBOLS,
+      scanIntervalMs: row.scanIntervalMs,
+      minConfidence: row.minConfidence,
+      maxOpenTrades: row.maxOpenTrades,
+      riskPerTrade: row.riskPerTrade,
+      accountBalance: row.accountBalance,
+      aiMode: row.aiMode as 'full' | 'economy' | 'rule_based',
+      propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
+      enableAutoExecution: row.enableAutoExecution === true && !!(connection?.isActive),
+      directionFilter: row.directionFilter as 'long_only' | 'short_only' | 'both',
+      dailyLossLimit: row.dailyLossLimit,
+      dailyProfitTarget: row.dailyProfitTarget,
+      maxDailyTrades: row.maxDailyTrades,
+      useKellyCriterion: row.useKellyCriterion,
+      brainLearningMode: row.brainLearningMode,
+      drawdownShieldThreshold: row.drawdownShieldThreshold,
+      trailMethod: row.trailMethod as FuturesScanConfig['trailMethod'],
+      trailActivationR: row.trailActivationR,
+      trailFixedR: row.trailFixedR,
+      trailStepR: row.trailStepR,
+      trailProfitLockPct: row.trailProfitLockPct,
+      trailSarInitialAF: row.trailSarInitialAF,
+      trailSarMaxAF: row.trailSarMaxAF,
+      breakevenBufferR: row.breakevenBufferR,
+      propFirmMode: row.propFirmMode,
+      consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
+      consistencyMinProfitableDays: row.consistencyMinProfitableDays,
+      consistencyPeriodDays: row.consistencyPeriodDays,
+      maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
+      tradingDaysOfWeek: (row.tradingDaysOfWeek as number[]) || [1, 2, 3, 4, 5],
+      symbolDaySchedule: (row.symbolDaySchedule as Record<string, number[]>) || {},
+      symbolDirectionOverrides: (row.symbolDirectionOverrides as Record<string, string>) || {},
+      symbolContractOverrides: (row.symbolContractOverrides as Record<string, number>) || {},
+      smartSymbolEscalation: row.smartSymbolEscalation,
+      highConfidenceOverride: row.highConfidenceOverride,
+      enableCompositeAutonomous: row.enableCompositeAutonomous,
+      compositeMinEdgeScore: row.compositeMinEdgeScore,
     };
 
     const state = startFuturesScanner(config);
@@ -425,10 +569,11 @@ router.post('/tradovate/scanner/start', async (req: Request, res: Response) => {
 });
 
 // ── POST /api/tradovate/scanner/stop ──────────────────────────────────────────
-router.post('/tradovate/scanner/stop', (req: Request, res: Response) => {
+router.post('/tradovate/scanner/stop', async (req: Request, res: Response) => {
   if (!requireAuth(req, res)) return;
   const userId = getUserId(req);
   stopFuturesScanner(userId);
+  await storage.upsertFuturesEngineConfig(userId, { isActive: false }).catch(() => {});
   res.json({ success: true, status: 'stopped' });
 });
 

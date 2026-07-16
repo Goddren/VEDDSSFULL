@@ -355,6 +355,102 @@ async function runOrderFlow(service: AlpacaService, symbol: string, cfg: Options
   };
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// Dual-Vote Consensus — Quant Rules Agent + AI Agent, mirroring the FX SS
+// Engine's runForexQuantAgent + getAiVisionConfirmation dual-vote system.
+// The "Quant Agent" here re-expresses the strategy's own score/reasoning as a
+// verdict (it IS a hard technical-rules score, same spirit as FX's EMA/RSI/
+// MACD/volume/ADX scoring); the "AI Agent" is a genuine second opinion from a
+// text LLM call (same non-image "vision" pattern the FX engine actually uses).
+// ══════════════════════════════════════════════════════════════════════════
+type QuantVerdict = 'CONFIRM' | 'WATCH' | 'SKIP';
+type ConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
+
+function quantVerdictFromScore(score: number | null): QuantVerdict {
+  if (score === null) return 'SKIP';
+  if (score >= 65) return 'CONFIRM';
+  if (score >= 40) return 'WATCH';
+  return 'SKIP';
+}
+
+async function getOptionsAiConfirmation(userId: number, symbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+  try {
+    const { getUniversalAIClientForUser } = await import('../openai');
+    const client = await getUniversalAIClientForUser(userId);
+    const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Underlying: ${symbol}\nStrategy: ${result.strategy}\nDirection: ${result.direction}\nQuant score: ${result.score}/100\nPrice: ${result.price}\nDaily change %: ${result.dailyChangePercent}\nScanner reasoning: ${result.reasoning}\n\nWould you confirm this trade?`;
+    const r = await (client as any).chat.completions.create({
+      model: (client as any).defaultModel || 'gpt-4o-mini',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      response_format: { type: 'json_object' },
+      max_tokens: 300,
+      temperature: 0.3,
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || '{}');
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || ''),
+    };
+  } catch (err: any) {
+    // AI call failed — fail closed (don't confirm), but don't crash the scan.
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+
+interface OptionsConsensusEntry {
+  symbol: string; strategy: string;
+  quantVerdict: QuantVerdict; quantScore: number;
+  aiVerdict: 'CONFIRM' | 'SKIP'; aiConfidence: number; aiReasoning: string;
+  consensus: ConsensusLabel;
+  tradeAllowed: boolean;
+  timestamp: string;
+}
+
+function pushOptionsConsensus(userId: number, entry: OptionsConsensusEntry): void {
+  (global as any).optionsEngineConsensus = (global as any).optionsEngineConsensus || {};
+  const list: OptionsConsensusEntry[] = (global as any).optionsEngineConsensus[userId] || [];
+  const deduped = list.filter(e => e.symbol !== entry.symbol);
+  (global as any).optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+
+// Returns whether execution should proceed, and records the consensus entry
+// regardless (so the client-side panel shows every signal the engine saw,
+// not just the ones that traded).
+async function assembleOptionsConsensus(userId: number, symbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<boolean> {
+  const quantVerdict = quantVerdictFromScore(result.score);
+
+  if (cfg.aiMode === 'rule_based') {
+    // No AI call — quant-only consensus. Quant SKIP hard-blocks; CONFIRM/WATCH proceed.
+    const tradeAllowed = quantVerdict !== 'SKIP';
+    pushOptionsConsensus(userId, {
+      symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0,
+      aiVerdict: 'CONFIRM', aiConfidence: 0, aiReasoning: 'Rule-based mode — AI confirmation skipped.',
+      consensus: quantVerdict === 'CONFIRM' ? 'STRONG_CONFIRM' : quantVerdict === 'SKIP' ? 'STRONG_SKIP' : 'WATCH',
+      tradeAllowed, timestamp: new Date().toISOString(),
+    });
+    return tradeAllowed;
+  }
+
+  const ai = await getOptionsAiConfirmation(userId, symbol, result, cfg);
+  const aiVerdict: 'CONFIRM' | 'SKIP' = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? 'CONFIRM' : 'SKIP';
+
+  let consensus: ConsensusLabel;
+  if (quantVerdict === 'CONFIRM' && aiVerdict === 'CONFIRM') consensus = 'STRONG_CONFIRM';
+  else if (quantVerdict === 'SKIP' && aiVerdict === 'SKIP') consensus = 'STRONG_SKIP';
+  else if ((quantVerdict === 'CONFIRM' && aiVerdict === 'SKIP') || (quantVerdict === 'SKIP' && aiVerdict === 'CONFIRM')) consensus = 'CAUTION';
+  else consensus = 'WATCH';
+
+  const tradeAllowed = consensus !== 'STRONG_SKIP' && aiVerdict === 'CONFIRM';
+
+  pushOptionsConsensus(userId, {
+    symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0,
+    aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning,
+    consensus, tradeAllowed, timestamp: new Date().toISOString(),
+  });
+  return tradeAllowed;
+}
+
 const STRATEGY_RUNNERS: Record<string, (s: AlpacaService, sym: string, c: OptionsEngineConfig) => Promise<StrategyResult>> = {
   orb: runOrb,
   volume_profile: runVolumeProfile,
@@ -385,6 +481,35 @@ async function scanSymbol(service: AlpacaService, symbol: string, cfg: OptionsEn
     const valid = results.filter((r): r is StrategyResult => !!r);
     const signals = valid.filter(r => r.decision === 'signal').sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
+
+    // Composite Autonomous Entries — no single strategy cleared its own bar,
+    // but if a majority of strategies that DID return a read agree on
+    // direction and their blended "edge score" clears the configured floor,
+    // trade the consensus anyway. This is the multi-strategy-agreement analog
+    // to the FX engine's rule-based consensus voting.
+    if (cfg.enableCompositeAutonomous) {
+      const withDirection = valid.filter(r => (r.decision === 'watching' || r.decision === 'signal') && typeof r.score === 'number');
+      // Individual 'watching' results don't carry a direction field, so momentum's
+      // raw daily-change sign is used as the composite's direction tiebreaker.
+      const momentum = valid.find(r => r.strategy === 'momentum');
+      const compositeScore = withDirection.length > 0 ? withDirection.reduce((s, r) => s + (r.score ?? 0), 0) / withDirection.length : 0;
+      if (momentum && momentum.dailyChangePercent !== null && compositeScore >= cfg.compositeMinEdgeScore) {
+        const direction: 'up' | 'down' = momentum.dailyChangePercent >= 0 ? 'up' : 'down';
+        const directionAllowed =
+          cfg.directionFilter === 'both' ||
+          (cfg.directionFilter === 'calls_only' && direction === 'up') ||
+          (cfg.directionFilter === 'puts_only' && direction === 'down');
+        if (directionAllowed) {
+          const optType = direction === 'up' ? 'call' : 'put';
+          return {
+            decision: 'signal', score: Math.round(compositeScore), price: momentum.price, dailyChangePercent: momentum.dailyChangePercent,
+            strategy: 'composite_autonomous', direction,
+            reasoning: `${symbol}: Composite Autonomous Entry — ${withDirection.length} strategies blended to a ${Math.round(compositeScore)}/100 edge score (floor ${cfg.compositeMinEdgeScore}), consensus direction ${direction} from momentum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`,
+          };
+        }
+      }
+    }
+
     const watching = valid.filter(r => r.decision === 'watching').sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (watching.length > 0) return watching[0];
     return valid[0] ?? { decision: 'error', reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: 'auto' };
@@ -452,35 +577,123 @@ async function resolveContract(service: AlpacaService, underlyingSymbol: string,
   return sortedByStrike.sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price))[0] ?? null;
 }
 
-function computeContractQuantity(equity: number, riskPerTradePct: number, askPrice: number, maxContracts: number): number {
-  if (!askPrice || askPrice <= 0 || equity <= 0) return 0;
-  const riskAmount = equity * (riskPerTradePct / 100);
+// ── Sizing — base risk% sizing, then Brain Learning Mode lock / Kelly boost,
+// mirroring the FX engine's exact same two gates (in the same precedence:
+// Brain lock overrides everything else while it's active). ──────────────────
+async function computeContractQuantity(userId: number, cfg: OptionsEngineConfig, equity: number, askPrice: number, signalScore: number | null = null): Promise<{ quantity: number; reasoning: string }> {
+  if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: '' };
   const contractCost = askPrice * 100; // options are quoted per-share; contract = 100 shares
-  const bySize = Math.floor(riskAmount / contractCost);
-  return Math.max(0, Math.min(bySize, maxContracts));
+  const riskAmount = equity * (cfg.riskPerTrade / 100);
+  const baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+
+  // High Confidence Override — a 90+ score signal bypasses the Brain Learning
+  // lock, same exception the FX engine grants its R:R floor at 88%+ confidence.
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getOptionsEngineTradeStats(userId) : null;
+    const qty = kelly
+      ? Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + (kelly.winRate / 100) * 0.25))))
+      : baseQty;
+    return { quantity: qty, reasoning: `⚡ High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock — ${qty} contracts.` };
+  }
+
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getOptionsEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      const lockedQty = baseQty > 0 ? 1 : 0;
+      return {
+        quantity: lockedQty,
+        reasoning: `🧠 Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) — full sizing unlocks automatically.`,
+      };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = (stats.winRate / 100) * 0.25;
+      const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
+      return { quantity: kellyQty, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing: ${kellyQty} contracts.` };
+    }
+    return { quantity: baseQty, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) — full risk sizing active.` };
+  }
+
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getOptionsEngineTradeStats(userId);
+    const fractionalKelly = (stats.winRate / 100) * 0.25;
+    const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
+    return { quantity: kellyQty, reasoning: `Kelly Criterion sizing (${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.` };
+  }
+
+  return { quantity: baseQty, reasoning: '' };
 }
 
-async function checkSafetyGates(userId: number, cfg: OptionsEngineConfig, equity: number): Promise<{ allowed: boolean; reason?: string }> {
+// Session high-watermark for Drawdown Shield — resets on process restart,
+// same "session" scope as the FX engine's shield (it is meant to react to
+// intra-session equity swings, not survive indefinitely across restarts).
+const sessionPeakEquity = new Map<number, number>();
+
+async function checkSafetyGates(userId: number, cfg: OptionsEngineConfig, equity: number): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached` };
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
   }
   const openTrades = await storage.getOpenOptionsEngineTrades(userId);
-  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached` };
+  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
+
+  let riskMultiplier = 1;
 
   if (equity > 0) {
     const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId);
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached` };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
-      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached` };
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.dailyProfitTarget > 0 && todayPnl >= (equity * cfg.dailyProfitTarget / 100)) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached — locking in gains` };
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached — locking in gains`, riskMultiplier: 1 };
+    }
+
+    // ── Drawdown Shield — auto-tighten to conservative sizing once equity
+    // pulls back from its session peak by more than the configured threshold.
+    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
+    sessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
+      riskMultiplier = Math.min(riskMultiplier, 0.25);
+    }
+
+    // ── Consistency enforcement — reduce risk as the prop-firm challenge
+    // period runs low on days remaining to hit the min-profitable-days bar.
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = new Date().toISOString().split('T')[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter(k => (history[k] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+        riskMultiplier = Math.min(riskMultiplier, 0.25);
+      } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+        riskMultiplier = Math.min(riskMultiplier, 0.5);
+      }
+
+      // Max single-day profit as % of total challenge profit (FTMO-style rule) —
+      // once today already accounts for too much of total profit, stop banking more.
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = (todayProfit / totalProfitAllTime) * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule — today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit ${cfg.maxDailyProfitPctOfTotal}%)`, riskMultiplier: 1 };
+          }
+        }
+      }
     }
   }
-  return { allowed: true };
+  return { allowed: true, riskMultiplier };
 }
 
 async function executeSignal(service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<void> {
@@ -526,7 +739,13 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
     return;
   }
 
-  const quantity = computeContractQuantity(account.equity, cfg.riskPerTrade, contract.ask, cfg.maxContractsPerTrade);
+  // Drawdown Shield / consistency-rule risk reduction applies as a multiplier
+  // on the configured risk% before sizing — never on the base cfg object.
+  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
+  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(userId, sizingCfg, account.equity, contract.ask, result.score);
+  const sizingReasoning = gate.riskMultiplier < 1
+    ? `${sizingReasoningRaw} ⚠️ Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).`
+    : sizingReasoningRaw;
   if (quantity < 1) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
@@ -557,12 +776,51 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
 
   await storage.createOptionsEngineActivity({
     userId, symbol: underlyingSymbol, decision: 'signal', strategy: result.strategy,
-    reasoning: `${underlyingSymbol}: EXECUTED — bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}`,
+    reasoning: `${underlyingSymbol}: EXECUTED — bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ''}`,
     score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
   });
 }
 
-// ── Exit management — close open trades on profit target / stop loss ───────
+// ── Trailing-stop system — FX-engine parity, adapted to premium % moves ────
+// Options don't have pips/ATR-on-the-underlying cheaply available every scan
+// cycle, so every method here trails as a function of the trade's own P&L%
+// (peak-tracked) rather than true underlying price structure. Each method's
+// distinctive shape (fixed distance, staircase, locked fraction of peak,
+// widening/tightening acceleration) is preserved even though the input signal
+// is premium % instead of pips — this is a deliberate adaptation, not a stub.
+function computeTrailFloorPercent(cfg: OptionsEngineConfig, peakPnlPercent: number): number {
+  switch (cfg.trailMethod) {
+    case 'fixed_pct':
+      return peakPnlPercent - cfg.trailFixedPct;
+    case 'stepped_fixed': {
+      // Staircase: floor only ratchets up in whole trailStepPct increments of peak.
+      const steps = Math.floor(peakPnlPercent / cfg.trailStepPct);
+      return (steps - 1) * cfg.trailStepPct;
+    }
+    case 'profit_lock':
+      // Locks in a fixed fraction of the best profit seen, never gives more back than that.
+      return peakPnlPercent * (cfg.trailProfitLockPct / 100);
+    case 'chandelier':
+      // ATR-style — wider stop than fixed_pct since it's meant to ride bigger swings.
+      return peakPnlPercent - cfg.trailFixedPct * 1.5;
+    case 'parabolic_sar': {
+      // Acceleration factor ramps from initial→max as profit builds, tightening the give-back.
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + (peakPnlPercent / 100) * cfg.trailSarInitialAF);
+      return peakPnlPercent * (1 - af);
+    }
+    case 'r_multiple':
+      // Give back at most half of every R gained past activation.
+      return cfg.trailActivationPct + (peakPnlPercent - cfg.trailActivationPct) * 0.5;
+    case 'swing_structure':
+      // Anchors tighter than fixed_pct, approximating "nearest structure" without underlying swing data.
+      return peakPnlPercent - cfg.trailFixedPct * 0.75;
+    default:
+      return -Infinity; // 'none' — no trailing floor, static TP/SL only
+  }
+}
+
+// ── Exit management — close open trades on profit target / stop loss, or a
+// per-trade trailing stop once cfg.trailMethod is enabled and armed ─────────
 async function monitorOpenPositions(service: AlpacaService, userId: number, cfg: OptionsEngineConfig): Promise<void> {
   const openTrades = await storage.getOpenOptionsEngineTrades(userId);
   const alpacaTrades = openTrades.filter(t => t.broker === 'alpaca');
@@ -573,8 +831,29 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
 
       const pnlPercent = ((quote.mid - trade.entryPrice) / trade.entryPrice) * 100;
       let exitReason: string | null = null;
-      if (pnlPercent >= cfg.profitTargetPercent) exitReason = 'profit_target';
-      else if (pnlPercent <= -cfg.stopLossPercent) exitReason = 'stop_loss';
+
+      if (cfg.trailMethod === 'none') {
+        if (pnlPercent >= cfg.profitTargetPercent) exitReason = 'profit_target';
+        else if (pnlPercent <= -cfg.stopLossPercent) exitReason = 'stop_loss';
+      } else {
+        const peakPnlPercent = Math.max(trade.peakPnlPercent, pnlPercent);
+        const armed = trade.trailArmed || peakPnlPercent >= cfg.trailActivationPct;
+
+        if (pnlPercent <= -cfg.stopLossPercent) {
+          exitReason = 'stop_loss'; // hard stop always applies, trail or not
+        } else if (armed) {
+          const rawFloor = computeTrailFloorPercent(cfg, peakPnlPercent);
+          // Breakeven buffer: once trailing is armed, never let the floor fall
+          // below a small locked-in gain regardless of the method's own math.
+          const floor = Math.max(rawFloor, cfg.breakevenBufferPct);
+          if (pnlPercent <= floor) exitReason = 'trailing_stop';
+        }
+
+        if (!exitReason && (peakPnlPercent !== trade.peakPnlPercent || armed !== trade.trailArmed)) {
+          await storage.updateOptionsEngineTradeTrailState(trade.id, { peakPnlPercent, trailArmed: armed });
+        }
+      }
+
       if (!exitReason) continue;
 
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: 'sell', quantity: trade.quantity, type: 'market', timeInForce: 'day' });
@@ -582,7 +861,7 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
       await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
       await storage.createOptionsEngineActivity({
         userId, symbol: trade.underlyingSymbol, decision: 'signal', strategy: trade.strategy,
-        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${exitReason === 'profit_target' ? '+' : ''}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
         score: null, price: quote.mid, dailyChangePercent: null, source: 'alpaca',
       });
     } catch (err: any) {
@@ -635,19 +914,68 @@ async function scanOneUser(userId: number): Promise<void> {
   // the master kill switch a user controls independently of engine settings.
   const canAutoExecute = activeAlpaca.autoExecute && (config.executionSource === 'alpaca' || config.executionSource === 'auto');
 
+  // Trading-days-of-week gate — skip the whole scan on days the user hasn't opted into.
+  const todayDow = new Date().getUTCDay();
+  const allowedDows: number[] = Array.isArray(config.tradingDaysOfWeek) ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+
+  const symbolDaySchedule: Record<string, number[]> = (config.symbolDaySchedule as any) || {};
+  const symbolDirectionOverrides: Record<string, string> = (config.symbolDirectionOverrides as any) || {};
+  const symbolContractOverrides: Record<string, number> = (config.symbolContractOverrides as any) || {};
+
   const symbols: string[] = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
-      const result = await scanSymbol(service, symbol, config);
+      // Per-symbol day override — if this symbol has its own schedule, it takes precedence over the global one.
+      const symbolDays = symbolDaySchedule[symbol];
+      if (Array.isArray(symbolDays) && symbolDays.length > 0 && !symbolDays.includes(todayDow)) {
+        continue;
+      }
+
+      let symbolCfg = config;
+      if (symbolDirectionOverrides[symbol] || symbolContractOverrides[symbol]) {
+        symbolCfg = {
+          ...config,
+          directionFilter: (symbolDirectionOverrides[symbol] as any) || config.directionFilter,
+          maxContractsPerTrade: symbolContractOverrides[symbol] || config.maxContractsPerTrade,
+        };
+      }
+
+      // Smart Symbol Escalation — a symbol whose most recent closed trade was a
+      // win gets a slightly lower confidence bar this cycle, mirroring how a
+      // discretionary trader gives a recently-proven setup a bit more benefit
+      // of the doubt without touching every other symbol's threshold.
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserOptionsEngineTrades(userId, 50))
+          .filter(t => t.underlyingSymbol === symbol && t.status === 'closed')
+          .sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) {
+          symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
+        }
+      }
+
+      const result = await scanSymbol(service, symbol, symbolCfg);
       await storage.createOptionsEngineActivity({
         userId, symbol, decision: result.decision, reasoning: result.reasoning,
         score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent,
         source: 'alpaca', strategy: result.strategy,
       });
       if (result.decision === 'signal' && canAutoExecute) {
-        await executeSignal(service, activeAlpaca, userId, symbol, result, config).catch((e: any) =>
-          console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
-        );
+        const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e: any) => {
+          console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
+          return true; // consensus check itself failing shouldn't block an otherwise-valid signal
+        });
+        if (tradeAllowed) {
+          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg).catch((e: any) =>
+            console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
+          );
+        } else {
+          await storage.createOptionsEngineActivity({
+            userId, symbol, decision: 'skipped', strategy: result.strategy,
+            reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution (AI second opinion disagreed).`,
+            score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+          });
+        }
       }
     } catch (err: any) {
       await storage.createOptionsEngineActivity({

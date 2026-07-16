@@ -15130,6 +15130,73 @@ Rules:
     res.json({ open, recent });
   });
 
+  // ── Options AI Engine — Self-Learning Brain (FX veddAIBrain parity) ────────
+  app.post("/api/options-brain/learn", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { runOptionsBrainLearning } = await import('./services/options-brain');
+    const brain = await runOptionsBrainLearning(userId);
+    res.json({ learned: true, ...brain });
+  });
+
+  app.get("/api/options-brain/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { getOrRefreshOptionsBrain } = await import('./services/options-brain');
+    const brain = await getOrRefreshOptionsBrain(userId);
+    res.json({ learned: !!brain, ...(brain || {}) });
+  });
+
+  app.get("/api/options-brain/summary", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const trades = await storage.getUserOptionsEngineTrades(userId, 500);
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const closed = trades.filter(t => t.status === 'closed' && t.closedAt && new Date(t.closedAt).getTime() >= cutoff);
+    const byStrategy: Record<string, { trades: number; wins: number; pips: number[] }> = {};
+    const bySymbol: Record<string, { strategy: string; trades: number; wins: number; totalReturn: number }> = {};
+    for (const t of closed) {
+      byStrategy[t.strategy] = byStrategy[t.strategy] || { trades: 0, wins: 0, pips: [] };
+      byStrategy[t.strategy].trades++;
+      const won = (t.realizedPnl ?? 0) > 0;
+      if (won) byStrategy[t.strategy].wins++;
+      const retPct = t.exitPrice && t.entryPrice ? ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100 : 0;
+      byStrategy[t.strategy].pips.push(retPct);
+
+      const key = `${t.underlyingSymbol}|${t.strategy}`;
+      bySymbol[key] = bySymbol[key] || { strategy: t.strategy, trades: 0, wins: 0, totalReturn: 0 };
+      bySymbol[key].trades++;
+      if (won) bySymbol[key].wins++;
+      bySymbol[key].totalReturn += retPct;
+    }
+    const sourceBreakdown = Object.entries(byStrategy).map(([strategy, v]) => ({
+      strategy, trades: v.trades, winRate: v.trades > 0 ? Math.round((v.wins / v.trades) * 100) : 0,
+    }));
+    const topSetups = Object.entries(bySymbol)
+      .map(([key, v]) => ({
+        symbol: key.split('|')[0], strategy: v.strategy, trades: v.trades,
+        winRate: v.trades > 0 ? Math.round((v.wins / v.trades) * 100) : 0,
+        avgReturnPct: v.trades > 0 ? v.totalReturn / v.trades : 0,
+      }))
+      .sort((a, b) => b.winRate - a.winRate)
+      .slice(0, 15);
+    res.json({ sourceBreakdown, topSetups, totalClosedLast30d: closed.length });
+  });
+
+  // ── Options AI Engine — Dual-Vote Consensus (FX ssEngineConsensus parity) ──
+  app.get("/api/options-engine/consensus", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const consensus = (global as any).optionsEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
+      strongSkip: consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
+      caution: consensus.filter((c: any) => c.consensus === 'CAUTION').length,
+      watch: consensus.filter((c: any) => c.consensus === 'WATCH').length,
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+  });
+
   app.patch("/api/options-engine/config", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
@@ -15143,6 +15210,15 @@ Rules:
       'profitTargetPercent', 'stopLossPercent', 'ivRankMax', 'sessionFilterEnabled', 'avoidLastMinutesBeforeClose',
       'orbRangeMinutes', 'volumeProfileLookbackDays', 'breakoutLookbackDays', 'orderFlowLookbackBars',
       'adaptiveScanInterval', 'enablePyramiding',
+      // FX SS AI Engine parity fields
+      'aiMode', 'useKellyCriterion', 'brainLearningMode', 'drawdownShieldThreshold', 'copyMode', 'volatileCapMode',
+      'trailMethod', 'trailActivationPct', 'trailFixedPct', 'trailStepPct', 'trailProfitLockPct',
+      'trailSarInitialAF', 'trailSarMaxAF', 'breakevenBufferPct',
+      'propFirmPreset', 'propFirmAllowOvernightHolds', 'consistencyEnforcementEnabled',
+      'consistencyMinProfitableDays', 'consistencyPeriodDays', 'maxDailyProfitPctOfTotal',
+      'weeklyProfitTargetIsPercent',
+      'tradingDaysOfWeek', 'symbolDaySchedule', 'symbolDirectionOverrides', 'symbolContractOverrides',
+      'smartSymbolEscalation', 'highConfidenceOverride', 'enableCompositeAutonomous', 'compositeMinEdgeScore',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {

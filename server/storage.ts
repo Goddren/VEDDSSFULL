@@ -29,6 +29,10 @@ import {
   type CryptocomConnection, type InsertCryptocomConnection,
   type OptionsEngineActivity, type InsertOptionsEngineActivity,
   type OptionsEngineTrade, type InsertOptionsEngineTrade,
+  type FuturesEngineConfig, type InsertFuturesEngineConfig,
+  type FuturesEngineActivity, type InsertFuturesEngineActivity,
+  type FuturesEngineTrade, type InsertFuturesEngineTrade,
+  futuresEngineConfigs, futuresEngineActivity, futuresEngineTrades,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -371,6 +375,30 @@ export interface IStorage {
   markOptionsEngineTradeFailed(id: number, reason: string): Promise<void>;
   getTodayOptionsEngineTradeCount(userId: number): Promise<number>;
   getTodayOptionsEngineRealizedPnl(userId: number): Promise<number>;
+  getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }>;
+  getOptionsEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>>;
+  updateOptionsEngineTradeTrailState(id: number, data: { peakPnlPercent: number; trailArmed: boolean }): Promise<void>;
+
+  // Futures AI Engine — persisted config (FX SS AI Engine parity)
+  getUserFuturesEngineConfig(userId: number): Promise<FuturesEngineConfig | undefined>;
+  upsertFuturesEngineConfig(userId: number, data: Partial<InsertFuturesEngineConfig>): Promise<FuturesEngineConfig>;
+  getAllActiveFuturesEngineConfigs(): Promise<FuturesEngineConfig[]>;
+
+  // Futures AI Engine — scan/decision activity feed
+  createFuturesEngineActivity(entry: InsertFuturesEngineActivity): Promise<FuturesEngineActivity>;
+  getUserFuturesEngineActivity(userId: number, limit?: number): Promise<FuturesEngineActivity[]>;
+
+  // Futures AI Engine — executed trades
+  createFuturesEngineTrade(trade: InsertFuturesEngineTrade): Promise<FuturesEngineTrade>;
+  getOpenFuturesEngineTrades(userId: number): Promise<FuturesEngineTrade[]>;
+  getUserFuturesEngineTrades(userId: number, limit?: number): Promise<FuturesEngineTrade[]>;
+  closeFuturesEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<FuturesEngineTrade | undefined>;
+  markFuturesEngineTradeFailed(id: number, reason: string): Promise<void>;
+  getTodayFuturesEngineTradeCount(userId: number): Promise<number>;
+  getTodayFuturesEngineRealizedPnl(userId: number): Promise<number>;
+  getFuturesEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }>;
+  getFuturesEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>>;
+  updateFuturesEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void>;
 
   // Crypto.com Connection methods (separate crypto-derivatives bucket)
   createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
@@ -2053,6 +2081,146 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(optionsEngineTrades)
       .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, startOfDay)));
     return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+  }
+
+  async getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
+    const rows = await db.select().from(optionsEngineTrades)
+      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed')));
+    const totalClosed = rows.length;
+    const wins = rows.filter(r => (r.realizedPnl || 0) > 0).length;
+    const winRate = totalClosed > 0 ? Math.round((wins / totalClosed) * 100) : 0;
+    return { totalClosed, wins, winRate };
+  }
+
+  async getOptionsEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {
+    const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - days);
+    const rows = await db.select().from(optionsEngineTrades)
+      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, since)));
+    const history: Record<string, number> = {};
+    for (const r of rows) {
+      if (!r.closedAt) continue;
+      const day = new Date(r.closedAt).toISOString().split('T')[0];
+      history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+    }
+    return history;
+  }
+
+  async updateOptionsEngineTradeTrailState(id: number, data: { peakPnlPercent: number; trailArmed: boolean }): Promise<void> {
+    await db.update(optionsEngineTrades)
+      .set({ peakPnlPercent: data.peakPnlPercent, trailArmed: data.trailArmed, updatedAt: new Date() })
+      .where(eq(optionsEngineTrades.id, id));
+  }
+
+  // ── Futures AI Engine config ────────────────────────────────────────────────
+  async getUserFuturesEngineConfig(userId: number): Promise<FuturesEngineConfig | undefined> {
+    const [result] = await db.select().from(futuresEngineConfigs).where(eq(futuresEngineConfigs.userId, userId));
+    return result;
+  }
+
+  async upsertFuturesEngineConfig(userId: number, data: Partial<InsertFuturesEngineConfig>): Promise<FuturesEngineConfig> {
+    const existing = await this.getUserFuturesEngineConfig(userId);
+    if (existing) {
+      const [result] = await db.update(futuresEngineConfigs)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(futuresEngineConfigs.userId, userId))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(futuresEngineConfigs)
+      .values({ userId, ...data } as InsertFuturesEngineConfig)
+      .returning();
+    return result;
+  }
+
+  async getAllActiveFuturesEngineConfigs(): Promise<FuturesEngineConfig[]> {
+    return db.select().from(futuresEngineConfigs).where(eq(futuresEngineConfigs.isActive, true));
+  }
+
+  // ── Futures AI Engine — scan/decision activity feed ─────────────────────────
+  async createFuturesEngineActivity(entry: InsertFuturesEngineActivity): Promise<FuturesEngineActivity> {
+    const [result] = await db.insert(futuresEngineActivity).values(entry).returning();
+    return result;
+  }
+
+  async getUserFuturesEngineActivity(userId: number, limit: number = 50): Promise<FuturesEngineActivity[]> {
+    return db.select().from(futuresEngineActivity)
+      .where(eq(futuresEngineActivity.userId, userId))
+      .orderBy(desc(futuresEngineActivity.createdAt))
+      .limit(limit);
+  }
+
+  // ── Futures AI Engine — executed trades ─────────────────────────────────────
+  async createFuturesEngineTrade(trade: InsertFuturesEngineTrade): Promise<FuturesEngineTrade> {
+    const [result] = await db.insert(futuresEngineTrades).values(trade).returning();
+    return result;
+  }
+
+  async getOpenFuturesEngineTrades(userId: number): Promise<FuturesEngineTrade[]> {
+    return db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, 'open')));
+  }
+
+  async getUserFuturesEngineTrades(userId: number, limit: number = 50): Promise<FuturesEngineTrade[]> {
+    return db.select().from(futuresEngineTrades)
+      .where(eq(futuresEngineTrades.userId, userId))
+      .orderBy(desc(futuresEngineTrades.createdAt))
+      .limit(limit);
+  }
+
+  async closeFuturesEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<FuturesEngineTrade | undefined> {
+    const [result] = await db.update(futuresEngineTrades)
+      .set({ status: 'closed', exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(futuresEngineTrades.id, id))
+      .returning();
+    return result;
+  }
+
+  async markFuturesEngineTradeFailed(id: number, reason: string): Promise<void> {
+    await db.update(futuresEngineTrades)
+      .set({ status: 'failed', exitReason: reason, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(futuresEngineTrades.id, id));
+  }
+
+  async getTodayFuturesEngineTradeCount(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), gte(futuresEngineTrades.createdAt, startOfDay)));
+    return rows.length;
+  }
+
+  async getTodayFuturesEngineRealizedPnl(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, 'closed'), gte(futuresEngineTrades.closedAt, startOfDay)));
+    return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+  }
+
+  async getFuturesEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
+    const rows = await db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, 'closed')));
+    const totalClosed = rows.length;
+    const wins = rows.filter(r => (r.realizedPnl || 0) > 0).length;
+    const winRate = totalClosed > 0 ? Math.round((wins / totalClosed) * 100) : 0;
+    return { totalClosed, wins, winRate };
+  }
+
+  async getFuturesEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {
+    const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - days);
+    const rows = await db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, 'closed'), gte(futuresEngineTrades.closedAt, since)));
+    const history: Record<string, number> = {};
+    for (const r of rows) {
+      if (!r.closedAt) continue;
+      const day = new Date(r.closedAt).toISOString().split('T')[0];
+      history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+    }
+    return history;
+  }
+
+  async updateFuturesEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void> {
+    await db.update(futuresEngineTrades)
+      .set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: new Date() })
+      .where(eq(futuresEngineTrades.id, id));
   }
 
   // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────

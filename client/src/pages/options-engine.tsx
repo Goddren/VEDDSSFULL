@@ -11,9 +11,10 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft, Zap, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
-  TrendingDown, Radar, Ban,
+  TrendingDown, Radar, Ban, Brain, Swords, BarChart3, Settings2,
 } from "lucide-react";
 
 // ── Types mirroring the server schema ───────────────────────────────────────
@@ -127,6 +128,54 @@ type OptionsEngineConfig = {
   orderFlowLookbackBars: number;
   adaptiveScanInterval: boolean;
   enablePyramiding: boolean;
+};
+
+type ContractKnowledge = {
+  totalTrades: number;
+  winRate: number;
+  avgWinPct: number;
+  avgLossPct: number;
+  riskRewardRatio: number;
+  preferredDirection: 'call' | 'put' | 'both';
+  callWinRate: number;
+  putWinRate: number;
+  bestStrategies: string[];
+  maxWinStreak: number;
+  maxLossStreak: number;
+  recommendedContractMultiplier: number;
+};
+
+type BrainStatus = {
+  learned: boolean;
+  lastLearned?: string;
+  totalTradesAnalyzed?: number;
+  overallWinRate?: number;
+  totalProfit?: number;
+  symbolsLearned?: number;
+  contractKnowledge?: Record<string, ContractKnowledge>;
+  learningInsights?: string[];
+  lastUpdateAt?: string;
+};
+
+type BrainSummary = {
+  sourceBreakdown: { strategy: string; trades: number; winRate: number }[];
+  topSetups: { symbol: string; strategy: string; trades: number; winRate: number; avgReturnPct: number }[];
+  totalClosedLast30d: number;
+};
+
+type ConsensusEntry = {
+  symbol: string; strategy: string;
+  quantVerdict: 'CONFIRM' | 'WATCH' | 'SKIP'; quantScore: number;
+  aiVerdict: 'CONFIRM' | 'SKIP'; aiConfidence: number; aiReasoning: string;
+  consensus: 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
+  tradeAllowed: boolean;
+  timestamp: string;
+};
+
+type ConsensusData = {
+  consensus: ConsensusEntry[];
+  summary: { strongConfirm: number; strongSkip: number; caution: number; watch: number };
+  updatedAt: string | null;
 };
 
 export default function OptionsEnginePage() {
@@ -351,6 +400,34 @@ export default function OptionsEnginePage() {
 
   const totalConnections = alpacaConnections.length + tastyConnections.length;
 
+  // ── Self-Learning Brain ─────────────────────────────────────────────────
+  const { data: brainStatus, isLoading: brainLoading } = useQuery<BrainStatus>({
+    queryKey: ['/api/options-brain/status'],
+    refetchInterval: 60000,
+  });
+  const { data: brainSummary, isLoading: brainSummaryLoading } = useQuery<BrainSummary>({
+    queryKey: ['/api/options-brain/summary'],
+    refetchInterval: 120000,
+  });
+  const learnMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/options-brain/learn');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/options-brain/status'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/options-brain/summary'] });
+      toast({ title: "Brain updated", description: "Re-learned from the latest trade history." });
+    },
+    onError: (error: any) => toast({ title: "Error", description: error.message, variant: "destructive" }),
+  });
+
+  // ── Dual-Vote Consensus ──────────────────────────────────────────────────
+  const { data: consensusData, isLoading: consensusLoading } = useQuery<ConsensusData>({
+    queryKey: ['/api/options-engine/consensus'],
+    refetchInterval: 15000,
+  });
+
   return (
     <div className="min-h-screen bg-gray-950 text-white pb-16">
       <div className="container mx-auto px-4 py-6 max-w-5xl">
@@ -380,6 +457,15 @@ export default function OptionsEnginePage() {
           </p>
         </div>
 
+        <Tabs defaultValue="setup" className="w-full">
+          <TabsList className="grid grid-cols-4 mb-6">
+            <TabsTrigger value="setup" className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" /> Setup & Config</TabsTrigger>
+            <TabsTrigger value="brain" className="flex items-center gap-1.5"><Brain className="w-3.5 h-3.5" /> Brain</TabsTrigger>
+            <TabsTrigger value="consensus" className="flex items-center gap-1.5"><Swords className="w-3.5 h-3.5" /> Consensus</TabsTrigger>
+            <TabsTrigger value="feed" className="flex items-center gap-1.5"><Radar className="w-3.5 h-3.5" /> Live Feed</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="setup" className="mt-0">
         {/* ── Broker connections ── */}
         <div className="grid md:grid-cols-2 gap-4 mb-6">
           {/* Alpaca */}
@@ -1064,6 +1150,234 @@ export default function OptionsEnginePage() {
           </CardContent>
         </Card>
 
+          </TabsContent>
+
+          <TabsContent value="brain" className="mt-0 space-y-6">
+            {/* ── Self-Learning Brain ── */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-purple-400" /> Self-Learning Brain
+                    {brainStatus?.learned && (
+                      <Badge variant="outline" className="text-[10px] font-mono">{brainStatus.totalTradesAnalyzed} trades</Badge>
+                    )}
+                  </span>
+                  <Button size="sm" onClick={() => learnMutation.mutate()} disabled={learnMutation.isPending}>
+                    {learnMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Brain className="w-3.5 h-3.5 mr-1.5" />}
+                    {brainStatus?.learned ? 'Re-Learn' : 'Train Brain'}
+                  </Button>
+                </CardTitle>
+                <CardDescription>Learns per-underlying win rate, direction bias, best hours, and best strategies from your closed trade history — same self-learning system as the FX SS AI Engine.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {brainLoading ? (
+                  <p className="text-xs text-gray-500">Loading brain status...</p>
+                ) : !brainStatus?.learned ? (
+                  <p className="text-xs text-gray-500">No brain data yet — click "Train Brain" once you have a few closed trades.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500">Win Rate</p>
+                        <p className={`text-lg font-bold font-mono ${(brainStatus.overallWinRate ?? 0) >= 60 ? 'text-emerald-400' : (brainStatus.overallWinRate ?? 0) >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{brainStatus.overallWinRate}%</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500">Underlyings</p>
+                        <p className="text-lg font-bold font-mono text-white">{brainStatus.symbolsLearned}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500">Total P&L</p>
+                        <p className={`text-lg font-bold font-mono ${(brainStatus.totalProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{(brainStatus.totalProfit ?? 0) >= 0 ? '+' : ''}${(brainStatus.totalProfit ?? 0).toFixed(2)}</p>
+                      </div>
+                      <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                        <p className="text-[10px] uppercase tracking-wide text-gray-500">Analyzed</p>
+                        <p className="text-lg font-bold font-mono text-white">{brainStatus.totalTradesAnalyzed}</p>
+                      </div>
+                    </div>
+
+                    {brainStatus.learningInsights && brainStatus.learningInsights.length > 0 && (
+                      <div className="space-y-1.5">
+                        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Learning Insights</h4>
+                        {brainStatus.learningInsights.map((insight, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-xs text-gray-300">
+                            <Brain className="w-3 h-3 text-purple-400 shrink-0 mt-0.5" />
+                            <span>{insight}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {brainStatus.contractKnowledge && Object.keys(brainStatus.contractKnowledge).length > 0 && (
+                      <div className="space-y-1.5">
+                        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Per-Underlying Knowledge</h4>
+                        <div className="space-y-2">
+                          {Object.entries(brainStatus.contractKnowledge).map(([symbol, k]) => (
+                            <div key={symbol} className="p-2.5 rounded-lg border border-gray-700/40 bg-gray-800/30 flex items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-bold text-white">{symbol} <span className="text-[10px] font-normal text-gray-500">{k.totalTrades} trades</span></p>
+                                <p className="text-[10px] text-gray-500">
+                                  {k.preferredDirection !== 'both' ? `${k.preferredDirection.toUpperCase()} bias` : 'No direction bias'} · RR {k.riskRewardRatio.toFixed(1)} · {k.bestStrategies.join(', ') || '—'}
+                                </p>
+                              </div>
+                              <span className={`text-sm font-mono font-bold shrink-0 ${k.winRate >= 60 ? 'text-emerald-400' : k.winRate >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{k.winRate}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ── Source breakdown + top setups (last 30 days) ── */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2"><BarChart3 className="w-4 h-4 text-purple-400" /> Brain Dashboard</CardTitle>
+                <CardDescription>Strategy breakdown and top-performing setups from the last 30 days of closed trades.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {brainSummaryLoading ? (
+                  <p className="text-xs text-gray-500">Loading...</p>
+                ) : !brainSummary || brainSummary.totalClosedLast30d === 0 ? (
+                  <p className="text-xs text-gray-500">No closed trades in the last 30 days yet.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {brainSummary.sourceBreakdown.map(s => (
+                        <div key={s.strategy} className="p-3 rounded-lg bg-gray-800/50 border border-gray-700/50">
+                          <p className="text-[10px] uppercase tracking-wide text-gray-500">{s.strategy.replace('_', ' ')}</p>
+                          <p className="text-xs text-gray-400">{s.trades} trades</p>
+                          <p className={`text-sm font-bold font-mono ${s.winRate >= 60 ? 'text-emerald-400' : s.winRate >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{s.winRate}%</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div>
+                      <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Top Performing Setups</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-500 border-b border-gray-800">
+                              <th className="text-left font-medium py-1.5 pr-3">Symbol</th>
+                              <th className="text-left font-medium py-1.5 pr-3">Strategy</th>
+                              <th className="text-right font-medium py-1.5 pr-3">Trades</th>
+                              <th className="text-right font-medium py-1.5 pr-3">Win Rate</th>
+                              <th className="text-right font-medium py-1.5">Avg Return</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {brainSummary.topSetups.map((s, i) => (
+                              <tr key={i} className="border-b border-gray-800/50">
+                                <td className="py-1.5 pr-3 font-bold text-white">{s.symbol}</td>
+                                <td className="py-1.5 pr-3 text-gray-400">{s.strategy.replace('_', ' ')}</td>
+                                <td className="py-1.5 pr-3 text-right font-mono text-gray-400">{s.trades}</td>
+                                <td className={`py-1.5 pr-3 text-right font-mono font-bold ${s.winRate >= 60 ? 'text-emerald-400' : s.winRate >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{s.winRate}%</td>
+                                <td className={`py-1.5 text-right font-mono ${s.avgReturnPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{s.avgReturnPct >= 0 ? '+' : ''}{s.avgReturnPct.toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="consensus" className="mt-0">
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Swords className="w-4 h-4 text-purple-400" /> Dual-Vote Consensus
+                  </span>
+                  {consensusData?.updatedAt && (
+                    <span className="text-[10px] text-gray-500 font-normal">Last signal: {new Date(consensusData.updatedAt).toLocaleTimeString()}</span>
+                  )}
+                </CardTitle>
+                <CardDescription>Quant Rules Agent + AI Agent — both must agree to fire a trade (unless the engine is set to rule-based mode).</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {consensusLoading ? (
+                  <p className="text-xs text-gray-500">Loading...</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="p-2.5 rounded-lg bg-emerald-900/10 border border-emerald-700/30 text-center">
+                        <p className="text-lg font-bold text-emerald-400">{consensusData?.summary.strongConfirm ?? 0}</p>
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">✅ Strong Confirm</p>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-amber-900/10 border border-amber-700/30 text-center">
+                        <p className="text-lg font-bold text-amber-400">{consensusData?.summary.caution ?? 0}</p>
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">⚠️ Caution</p>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-cyan-900/10 border border-cyan-700/30 text-center">
+                        <p className="text-lg font-bold text-cyan-400">{consensusData?.summary.watch ?? 0}</p>
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">👁️ Watch</p>
+                      </div>
+                      <div className="p-2.5 rounded-lg bg-red-900/10 border border-red-700/30 text-center">
+                        <p className="text-lg font-bold text-red-400">{consensusData?.summary.strongSkip ?? 0}</p>
+                        <p className="text-[9px] uppercase tracking-wide text-gray-500">🚫 Strong Skip</p>
+                      </div>
+                    </div>
+
+                    {!consensusData || consensusData.consensus.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Swords className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+                        <p className="text-xs text-gray-500">No signals processed yet — consensus appears as soon as the engine sees a qualifying signal.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {consensusData.consensus.slice(0, 10).map((c, i) => {
+                          const labelColor = {
+                            STRONG_CONFIRM: 'border-emerald-700/40 bg-emerald-900/5',
+                            STRONG_SKIP: 'border-red-700/40 bg-red-900/5',
+                            CAUTION: 'border-amber-700/40 bg-amber-900/5',
+                            WATCH: 'border-cyan-700/40 bg-cyan-900/5',
+                          }[c.consensus];
+                          const badgeColor = {
+                            STRONG_CONFIRM: 'text-emerald-400 bg-emerald-900/20',
+                            STRONG_SKIP: 'text-red-400 bg-red-900/20',
+                            CAUTION: 'text-amber-400 bg-amber-900/20',
+                            WATCH: 'text-cyan-400 bg-cyan-900/20',
+                          }[c.consensus];
+                          return (
+                            <div key={i} className={`p-2.5 rounded-lg border ${labelColor}`}>
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm font-bold text-white">{c.symbol}</span>
+                                  <span className="text-[10px] text-gray-500">{c.strategy.replace('_', ' ')}</span>
+                                  <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badgeColor}`}>{c.consensus.replace('_', ' ')}</span>
+                                </div>
+                                <span className="text-[10px] text-gray-500 shrink-0">{new Date(c.timestamp).toLocaleTimeString()}</span>
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px]">
+                                <span className={`flex items-center gap-1 ${c.quantVerdict === 'CONFIRM' ? 'text-emerald-400' : c.quantVerdict === 'SKIP' ? 'text-red-400' : 'text-amber-400'}`}>
+                                  <BarChart3 className="w-3 h-3" /> Quant: {c.quantVerdict} ({c.quantScore}/100)
+                                </span>
+                                <span className={`flex items-center gap-1 ${c.aiVerdict === 'CONFIRM' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  <Brain className="w-3 h-3" /> AI: {c.aiVerdict} ({c.aiConfidence}%)
+                                </span>
+                                <span className={c.tradeAllowed ? 'text-emerald-400' : 'text-red-400'}>
+                                  {c.tradeAllowed ? '✓ Allowed' : '✗ Blocked'}
+                                </span>
+                              </div>
+                              {c.aiReasoning && <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{c.aiReasoning}</p>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="feed" className="mt-0">
         {/* ── Executed trades — open positions + recent history ── */}
         <Card className="bg-gray-900 border-gray-800 mt-6">
           <CardHeader>
@@ -1177,6 +1491,8 @@ export default function OptionsEnginePage() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

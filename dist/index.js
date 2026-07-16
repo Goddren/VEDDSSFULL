@@ -96,6 +96,9 @@ __export(schema_exports, {
   follows: () => follows,
   formationProviderEnum: () => formationProviderEnum,
   funderTypeEnum: () => funderTypeEnum,
+  futuresEngineActivity: () => futuresEngineActivity,
+  futuresEngineConfigs: () => futuresEngineConfigs,
+  futuresEngineTrades: () => futuresEngineTrades,
   fxPaperAccounts: () => fxPaperAccounts,
   fxPaperTrades: () => fxPaperTrades,
   governanceProposals: () => governanceProposals,
@@ -145,6 +148,9 @@ __export(schema_exports, {
   insertEAShareAssetSchema: () => insertEAShareAssetSchema,
   insertEASubscriptionSchema: () => insertEASubscriptionSchema,
   insertFollowSchema: () => insertFollowSchema,
+  insertFuturesEngineActivitySchema: () => insertFuturesEngineActivitySchema,
+  insertFuturesEngineConfigSchema: () => insertFuturesEngineConfigSchema,
+  insertFuturesEngineTradeSchema: () => insertFuturesEngineTradeSchema,
   insertFxPaperTradeSchema: () => insertFxPaperTradeSchema,
   insertGovernanceProposalSchema: () => insertGovernanceProposalSchema,
   insertGovernanceVoteSchema: () => insertGovernanceVoteSchema,
@@ -267,7 +273,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1136,6 +1142,69 @@ var init_schema = __esm({
       // scan faster near market open/ORB window
       enablePyramiding: boolean("enable_pyramiding").notNull().default(false),
       // add contracts as a move confirms further
+      // ── FX SS AI Engine parity — same features, adapted from pips/lots to ──────
+      // ── premium-%/contracts since options don't have pip-based price moves ─────
+      aiMode: text("ai_mode").notNull().default("full"),
+      // 'full' | 'economy' | 'rule_based' — cost-control tier, mirrors FX
+      useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false),
+      // size contracts by win-rate/R:R history instead of flat riskPerTrade
+      brainLearningMode: boolean("brain_learning_mode").notNull().default(true),
+      // lock at 1 contract until enough trade history to trust bigger size
+      drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3),
+      // % DD from peak equity that auto-tightens to conservative-only entries
+      copyMode: text("copy_mode").notNull().default("proportional"),
+      // 'proportional' | 'multiplier' — sizing mode across multiple Alpaca/TastyTrade connections
+      volatileCapMode: text("volatile_cap_mode").notNull().default("risk_scaled"),
+      // 'risk_scaled' | 'user_only' — caps contract count on high-IV underlyings (TSLA/NVDA-style)
+      // Trailing-stop system — mirrors the FX engine's 9 methods, but trails as a
+      // % of premium/underlying move instead of pips (options don't have pips).
+      trailMethod: text("trail_method").notNull().default("none"),
+      // 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'fixed_pct' | 'profit_lock' | 'stepped_fixed' | 'none'
+      trailActivationPct: doublePrecision("trail_activation_pct").notNull().default(20),
+      // start trailing once position is +X% of premium
+      trailFixedPct: doublePrecision("trail_fixed_pct").notNull().default(15),
+      // trail distance as % of premium (fixed_pct/stepped_fixed)
+      trailStepPct: doublePrecision("trail_step_pct").notNull().default(10),
+      // step size % for stepped_fixed
+      trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60),
+      // lock X% of peak profit (profit_lock method)
+      trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+      trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.2),
+      breakevenBufferPct: doublePrecision("breakeven_buffer_pct").notNull().default(10),
+      // buffer above breakeven for r_multiple method
+      // Prop-firm presets + consistency rule — same shape as FX's, adapted since
+      // dedicated options-only prop firms are rare; presets here describe generic
+      // equity/options account rules a user can still pick or customize.
+      propFirmPreset: text("prop_firm_preset").notNull().default("CUSTOM"),
+      // 'FTMO' | 'MFF' | 'THE5ERS' | 'FUNDED_NEXT' | 'CUSTOM'
+      propFirmAllowOvernightHolds: boolean("prop_firm_allow_overnight_holds").notNull().default(true),
+      // options are commonly held overnight/multi-day unlike FX scalps, defaults true
+      consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+      consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+      consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+      maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
+      // 0 = disabled; caps any single day's profit at this % of total
+      // Goal tracker
+      weeklyProfitTargetIsPercent: boolean("weekly_profit_target_is_percent").notNull().default(true),
+      // whether weeklyProfitTarget is a % of account or a flat $ amount
+      // Scheduling / per-symbol overrides — mirrors FX's pair-day pinning and
+      // per-pair direction/lot overrides
+      tradingDaysOfWeek: jsonb("trading_days_of_week").notNull().default([1, 2, 3, 4, 5]),
+      // 0=Sun..6=Sat
+      symbolDaySchedule: jsonb("symbol_day_schedule").notNull().default({}),
+      // { SPY: [1,2,3,4,5], ... } — pin a symbol to specific days
+      symbolDirectionOverrides: jsonb("symbol_direction_overrides").notNull().default({}),
+      // { TSLA: 'calls_only', ... }
+      symbolContractOverrides: jsonb("symbol_contract_overrides").notNull().default({}),
+      // { SPY: 5, ... } — per-symbol max contracts, like FX's per-pair lot override
+      // AI intelligence extras
+      smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
+      // brain-ranked symbol unlocking, mirrors FX's Smart Pair Escalation
+      highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+      // 85%+ dual-confirmation fires cross-symbol regardless of other gates
+      // Composite/edge-score autonomous entries — mirrors FX's composite strategy toggle
+      enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false),
+      compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -1199,6 +1268,10 @@ var init_schema = __esm({
       // 'profit_target' | 'stop_loss' | 'manual' | 'expired' | 'error'
       realizedPnl: doublePrecision("realized_pnl"),
       closedAt: timestamp("closed_at"),
+      // Trailing-stop state — persisted per-trade so the high-water-mark survives
+      // server restarts (mirrors the FX engine's per-position trail tracking).
+      peakPnlPercent: doublePrecision("peak_pnl_percent").notNull().default(0),
+      trailArmed: boolean("trail_armed").notNull().default(false),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -1292,6 +1365,148 @@ var init_schema = __esm({
     insertTradovateTradeLogSchema = createInsertSchema(tradovateTradeLogs).omit({
       id: true,
       createdAt: true
+    });
+    futuresEngineConfigs = pgTable("futures_engine_configs", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull().unique(),
+      isActive: boolean("is_active").notNull().default(false),
+      symbols: jsonb("symbols").notNull().default(["NQ", "ES", "GC", "CL"]),
+      scanIntervalMs: integer("scan_interval_ms").notNull().default(12e4),
+      strategyMode: text("strategy_mode").notNull().default("auto"),
+      // 'auto' | 'trend_following' | 'smc' | 'volume_profile' | 'order_flow' | 'markov'
+      singleStrategyMode: boolean("single_strategy_mode").notNull().default(false),
+      directionFilter: text("direction_filter").notNull().default("both"),
+      // 'long_only' | 'short_only' | 'both'
+      maxOpenTrades: integer("max_open_trades").notNull().default(3),
+      maxContractsPerTrade: integer("max_contracts_per_trade").notNull().default(1),
+      riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1),
+      // % of account equity risked per trade
+      minConfidence: doublePrecision("min_confidence").notNull().default(70),
+      weeklyProfitTarget: doublePrecision("weekly_profit_target").notNull().default(5),
+      accountBalance: doublePrecision("account_balance").notNull().default(5e4),
+      enableCompounding: boolean("enable_compounding").notNull().default(false),
+      propFirmMode: boolean("prop_firm_mode").notNull().default(false),
+      propFirmDailyDrawdownLimit: doublePrecision("prop_firm_daily_drawdown_limit").notNull().default(2),
+      dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(3),
+      // % of account, 0 = disabled
+      dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0),
+      // % of account, 0 = disabled
+      maxDailyTrades: integer("max_daily_trades").notNull().default(0),
+      // 0 = unlimited
+      executionSource: text("execution_source").notNull().default("auto"),
+      // 'tradovate' | 'moomoo' | 'auto'
+      lockSettings: boolean("lock_settings").notNull().default(false),
+      aiMode: text("ai_mode").notNull().default("full"),
+      // 'full' | 'economy' | 'rule_based'
+      enableAutoExecution: boolean("enable_auto_execution").notNull().default(false),
+      // ── FX SS AI Engine parity — same features, adapted from pips/lots to ──────
+      // ── R-multiples/contracts since futures trade in ticks/points, not pips ─────
+      useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false),
+      brainLearningMode: boolean("brain_learning_mode").notNull().default(true),
+      drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3),
+      copyMode: text("copy_mode").notNull().default("proportional"),
+      // 'proportional' | 'multiplier'
+      volatileCapMode: text("volatile_cap_mode").notNull().default("risk_scaled"),
+      // 'risk_scaled' | 'user_only' — caps contracts on high-tick-value symbols (NQ/GC-style)
+      // Trailing-stop system — mirrors the FX engine's methods, but trails on
+      // R-multiple (unrealized profit ÷ initial risk distance) instead of pips,
+      // since that's the native way futures/day-trading risk is already measured
+      // elsewhere in this file (symbolPerformance.totalR).
+      trailMethod: text("trail_method").notNull().default("none"),
+      // 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'fixed_r' | 'profit_lock' | 'stepped_fixed' | 'none'
+      trailActivationR: doublePrecision("trail_activation_r").notNull().default(1),
+      // start trailing once position is +X R
+      trailFixedR: doublePrecision("trail_fixed_r").notNull().default(0.5),
+      // trail distance in R (fixed_r/stepped_fixed)
+      trailStepR: doublePrecision("trail_step_r").notNull().default(0.5),
+      trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60),
+      // lock X% of peak R (profit_lock method)
+      trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+      trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.2),
+      breakevenBufferR: doublePrecision("breakeven_buffer_r").notNull().default(0.1),
+      // Prop-firm presets + consistency rule
+      propFirmPreset: text("prop_firm_preset").notNull().default("CUSTOM"),
+      // 'TOPSTEP' | 'APEX' | 'BULENOX' | 'EARN2TRADE' | 'CUSTOM'
+      propFirmAllowOvernightHolds: boolean("prop_firm_allow_overnight_holds").notNull().default(false),
+      // most futures prop firms disallow/penalize overnight holds
+      consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+      consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+      consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+      maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
+      // Goal tracker
+      weeklyProfitTargetIsPercent: boolean("weekly_profit_target_is_percent").notNull().default(true),
+      // Scheduling / per-symbol overrides
+      tradingDaysOfWeek: jsonb("trading_days_of_week").notNull().default([1, 2, 3, 4, 5]),
+      symbolDaySchedule: jsonb("symbol_day_schedule").notNull().default({}),
+      symbolDirectionOverrides: jsonb("symbol_direction_overrides").notNull().default({}),
+      symbolContractOverrides: jsonb("symbol_contract_overrides").notNull().default({}),
+      // AI intelligence extras
+      smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
+      highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+      // Composite/edge-score autonomous entries
+      enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false),
+      compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertFuturesEngineConfigSchema = createInsertSchema(futuresEngineConfigs).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    futuresEngineActivity = pgTable("futures_engine_activity", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      symbol: text("symbol").notNull(),
+      decision: text("decision").notNull(),
+      // 'watching' | 'signal' | 'skipped' | 'error'
+      reasoning: text("reasoning").notNull(),
+      score: doublePrecision("score"),
+      price: doublePrecision("price"),
+      dailyChangePercent: doublePrecision("daily_change_percent"),
+      source: text("source").notNull().default("tradovate"),
+      strategy: text("strategy"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    insertFuturesEngineActivitySchema = createInsertSchema(futuresEngineActivity).omit({
+      id: true,
+      createdAt: true
+    });
+    futuresEngineTrades = pgTable("futures_engine_trades", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      connectionId: integer("connection_id").notNull(),
+      // tradovateConnections.id (or moomoo connection id)
+      broker: text("broker").notNull().default("tradovate"),
+      // 'tradovate' | 'moomoo'
+      symbol: text("symbol").notNull(),
+      strategy: text("strategy").notNull(),
+      direction: text("direction").notNull(),
+      // 'long' | 'short'
+      contracts: integer("contracts").notNull(),
+      entryPrice: doublePrecision("entry_price").notNull(),
+      stopLoss: doublePrecision("stop_loss"),
+      takeProfit: doublePrecision("take_profit"),
+      entryOrderId: text("entry_order_id"),
+      entryReasoning: text("entry_reasoning"),
+      status: text("status").notNull().default("open"),
+      // 'open' | 'closed' | 'failed'
+      exitPrice: doublePrecision("exit_price"),
+      exitOrderId: text("exit_order_id"),
+      exitReason: text("exit_reason"),
+      // 'profit_target' | 'stop_loss' | 'trailing_stop' | 'manual' | 'session_close' | 'error'
+      realizedPnl: doublePrecision("realized_pnl"),
+      closedAt: timestamp("closed_at"),
+      // Trailing-stop state — R-multiple high-water-mark, persisted per-trade.
+      peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
+      trailArmed: boolean("trail_armed").notNull().default(false),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertFuturesEngineTradeSchema = createInsertSchema(futuresEngineTrades).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
     });
     aiTradeResults = pgTable("ai_trade_results", {
       id: serial("id").primaryKey(),
@@ -4217,6 +4432,107 @@ var init_storage = __esm({
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, startOfDay)));
         return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+      }
+      async getOptionsEngineTradeStats(userId) {
+        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed")));
+        const totalClosed = rows.length;
+        const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
+        const winRate2 = totalClosed > 0 ? Math.round(wins / totalClosed * 100) : 0;
+        return { totalClosed, wins, winRate: winRate2 };
+      }
+      async getOptionsEngineDailyPnlHistory(userId, days) {
+        const since = /* @__PURE__ */ new Date();
+        since.setUTCHours(0, 0, 0, 0);
+        since.setUTCDate(since.getUTCDate() - days);
+        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, since)));
+        const history = {};
+        for (const r of rows) {
+          if (!r.closedAt) continue;
+          const day = new Date(r.closedAt).toISOString().split("T")[0];
+          history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+        }
+        return history;
+      }
+      async updateOptionsEngineTradeTrailState(id, data) {
+        await db.update(optionsEngineTrades).set({ peakPnlPercent: data.peakPnlPercent, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineTrades.id, id));
+      }
+      // ── Futures AI Engine config ────────────────────────────────────────────────
+      async getUserFuturesEngineConfig(userId) {
+        const [result] = await db.select().from(futuresEngineConfigs).where(eq(futuresEngineConfigs.userId, userId));
+        return result;
+      }
+      async upsertFuturesEngineConfig(userId, data) {
+        const existing = await this.getUserFuturesEngineConfig(userId);
+        if (existing) {
+          const [result2] = await db.update(futuresEngineConfigs).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(futuresEngineConfigs.userId, userId)).returning();
+          return result2;
+        }
+        const [result] = await db.insert(futuresEngineConfigs).values({ userId, ...data }).returning();
+        return result;
+      }
+      async getAllActiveFuturesEngineConfigs() {
+        return db.select().from(futuresEngineConfigs).where(eq(futuresEngineConfigs.isActive, true));
+      }
+      // ── Futures AI Engine — scan/decision activity feed ─────────────────────────
+      async createFuturesEngineActivity(entry) {
+        const [result] = await db.insert(futuresEngineActivity).values(entry).returning();
+        return result;
+      }
+      async getUserFuturesEngineActivity(userId, limit = 50) {
+        return db.select().from(futuresEngineActivity).where(eq(futuresEngineActivity.userId, userId)).orderBy(desc(futuresEngineActivity.createdAt)).limit(limit);
+      }
+      // ── Futures AI Engine — executed trades ─────────────────────────────────────
+      async createFuturesEngineTrade(trade) {
+        const [result] = await db.insert(futuresEngineTrades).values(trade).returning();
+        return result;
+      }
+      async getOpenFuturesEngineTrades(userId) {
+        return db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "open")));
+      }
+      async getUserFuturesEngineTrades(userId, limit = 50) {
+        return db.select().from(futuresEngineTrades).where(eq(futuresEngineTrades.userId, userId)).orderBy(desc(futuresEngineTrades.createdAt)).limit(limit);
+      }
+      async closeFuturesEngineTrade(id, data) {
+        const [result] = await db.update(futuresEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(futuresEngineTrades.id, id)).returning();
+        return result;
+      }
+      async markFuturesEngineTradeFailed(id, reason) {
+        await db.update(futuresEngineTrades).set({ status: "failed", exitReason: reason, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(futuresEngineTrades.id, id));
+      }
+      async getTodayFuturesEngineTradeCount(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), gte(futuresEngineTrades.createdAt, startOfDay)));
+        return rows.length;
+      }
+      async getTodayFuturesEngineRealizedPnl(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "closed"), gte(futuresEngineTrades.closedAt, startOfDay)));
+        return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+      }
+      async getFuturesEngineTradeStats(userId) {
+        const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "closed")));
+        const totalClosed = rows.length;
+        const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
+        const winRate2 = totalClosed > 0 ? Math.round(wins / totalClosed * 100) : 0;
+        return { totalClosed, wins, winRate: winRate2 };
+      }
+      async getFuturesEngineDailyPnlHistory(userId, days) {
+        const since = /* @__PURE__ */ new Date();
+        since.setUTCHours(0, 0, 0, 0);
+        since.setUTCDate(since.getUTCDate() - days);
+        const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "closed"), gte(futuresEngineTrades.closedAt, since)));
+        const history = {};
+        for (const r of rows) {
+          if (!r.closedAt) continue;
+          const day = new Date(r.closedAt).toISOString().split("T")[0];
+          history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+        }
+        return history;
+      }
+      async updateFuturesEngineTradeTrailState(id, data) {
+        await db.update(futuresEngineTrades).set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(futuresEngineTrades.id, id));
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
       async createCryptocomConnection(connection2) {
@@ -19105,9 +19421,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path13, init = {}, attempt = 0) {
+      async request(path15, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path13}`, {
+        const response = await fetch(`${this.baseUrl}${path15}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -19118,7 +19434,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path13, init, attempt + 1);
+          return this.request(path15, init, attempt + 1);
         }
         return response;
       }
@@ -21689,6 +22005,173 @@ var init_orderflow_strategy = __esm({
   }
 });
 
+// server/services/futures-brain.ts
+var futures_brain_exports = {};
+__export(futures_brain_exports, {
+  getOrRefreshFuturesBrain: () => getOrRefreshFuturesBrain,
+  loadPersistedFuturesBrain: () => loadPersistedFuturesBrain,
+  runFuturesBrainLearning: () => runFuturesBrainLearning
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function rMultiple(t) {
+  if (!t.exitPrice || !t.stopLoss) return 0;
+  const riskDist = Math.abs(t.entryPrice - t.stopLoss);
+  if (riskDist <= 0) return 0;
+  const isLong = t.direction === "long";
+  const move = isLong ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+  return move / riskDist;
+}
+function buildSymbolKnowledge(trades) {
+  const closed = trades.filter((t) => t.status === "closed");
+  const withR = closed.map((t) => ({ t, r: rMultiple(t) }));
+  const wins = withR.filter((x) => x.r > 0);
+  const losses = withR.filter((x) => x.r <= 0);
+  const winRate2 = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
+  const avgWinR = wins.length > 0 ? wins.reduce((s, x) => s + x.r, 0) / wins.length : 0;
+  const avgLossR = losses.length > 0 ? Math.abs(losses.reduce((s, x) => s + x.r, 0) / losses.length) : 0;
+  const riskRewardRatio = avgLossR > 0 ? avgWinR / avgLossR : avgWinR > 0 ? 2 : 0;
+  const longs = closed.filter((t) => t.direction === "long");
+  const shorts = closed.filter((t) => t.direction === "short");
+  const longWins = longs.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const shortWins = shorts.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const longWinRate = longs.length > 0 ? Math.round(longWins / longs.length * 100) : 50;
+  const shortWinRate = shorts.length > 0 ? Math.round(shortWins / shorts.length * 100) : 50;
+  const preferredDirection = Math.abs(longWinRate - shortWinRate) > 15 ? longWinRate > shortWinRate ? "long" : "short" : "both";
+  const byHour = {};
+  for (const t of closed) {
+    const hour = new Date(t.createdAt).getUTCHours();
+    byHour[hour] = byHour[hour] || { wins: 0, total: 0 };
+    byHour[hour].total++;
+    if ((t.realizedPnl ?? 0) > 0) byHour[hour].wins++;
+  }
+  const hourStats = Object.entries(byHour).filter(([, v]) => v.total >= 2).map(([hour, v]) => ({ hour: Number(hour), winRate: Math.round(v.wins / v.total * 100), total: v.total }));
+  const topHours = [...hourStats].sort((a, b) => b.winRate - a.winRate).slice(0, 3);
+  const worstHours = [...hourStats].sort((a, b) => a.winRate - b.winRate).slice(0, 2);
+  const byStrategy = {};
+  for (const t of closed) {
+    byStrategy[t.strategy] = byStrategy[t.strategy] || { wins: 0, total: 0 };
+    byStrategy[t.strategy].total++;
+    if ((t.realizedPnl ?? 0) > 0) byStrategy[t.strategy].wins++;
+  }
+  const bestStrategies = Object.entries(byStrategy).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].wins / b[1].total - a[1].wins / a[1].total).slice(0, 2).map(([s]) => s);
+  const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
+  let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
+  for (const t of chrono) {
+    if ((t.realizedPnl ?? 0) > 0) {
+      curWin++;
+      curLoss = 0;
+    } else {
+      curLoss++;
+      curWin = 0;
+    }
+    maxWinStreak = Math.max(maxWinStreak, curWin);
+    maxLossStreak = Math.max(maxLossStreak, curLoss);
+  }
+  const kellyFraction = riskRewardRatio > 0 ? winRate2 / 100 - (1 - winRate2 / 100) / riskRewardRatio : 0;
+  const recommendedContractMultiplier = Math.max(0.25, Math.min(1.5, 1 + kellyFraction));
+  return {
+    totalTrades: closed.length,
+    winRate: winRate2,
+    avgWinR,
+    avgLossR,
+    riskRewardRatio,
+    preferredDirection,
+    longWinRate,
+    shortWinRate,
+    topHours,
+    worstHours,
+    bestStrategies,
+    maxWinStreak,
+    maxLossStreak,
+    recommendedContractMultiplier
+  };
+}
+function buildLearningInsights(overallWinRate, totalTrades, symbolKnowledge) {
+  const insights = [];
+  if (overallWinRate >= 60 && totalTrades >= 10) {
+    insights.push(`Strong edge detected: ${overallWinRate}% overall win rate across ${totalTrades} trades`);
+  } else if (overallWinRate < 50 && totalTrades >= 10) {
+    insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
+  }
+  for (const [symbol, k] of Object.entries(symbolKnowledge)) {
+    if (k.totalTrades < 3) continue;
+    if (k.preferredDirection !== "both") {
+      insights.push(`${symbol}: strong ${k.preferredDirection.toUpperCase()} bias detected (${k.preferredDirection === "long" ? k.longWinRate : k.shortWinRate}% WR)`);
+    }
+    if (k.worstHours[0] && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
+      insights.push(`${symbol}: avoid entries around ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR \u2014 loss zone)`);
+    }
+    if (k.bestStrategies.length > 0 && k.totalTrades >= 5) {
+      insights.push(`${symbol}: best-performing strategy is "${k.bestStrategies[0]}"`);
+    }
+  }
+  return insights.slice(0, 10);
+}
+async function computeFuturesBrain(userId) {
+  const allTrades = await storage.getUserFuturesEngineTrades(userId, 1e3);
+  const closed = allTrades.filter((t) => t.status === "closed");
+  const uniqueSymbols = Array.from(new Set(closed.map((t) => t.symbol)));
+  const symbolKnowledge = {};
+  for (const symbol of uniqueSymbols) {
+    symbolKnowledge[symbol] = buildSymbolKnowledge(closed.filter((t) => t.symbol === symbol));
+  }
+  const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const overallWinRate = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+  const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
+  const brain = {
+    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
+    totalTradesAnalyzed: closed.length,
+    overallWinRate,
+    totalProfit,
+    symbolsLearned: uniqueSymbols.length,
+    symbolKnowledge,
+    learningInsights: buildLearningInsights(overallWinRate, closed.length, symbolKnowledge),
+    lastUpdateAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  global.veddFuturesBrain = global.veddFuturesBrain || {};
+  global.veddFuturesBrain[userId] = brain;
+  try {
+    const brainDir = path4.join(process.cwd(), "data", "brains");
+    if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
+    fs4.writeFileSync(path4.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
+  } catch {
+  }
+  console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
+  return brain;
+}
+async function runFuturesBrainLearning(userId) {
+  return computeFuturesBrain(userId);
+}
+function loadPersistedFuturesBrain(userId) {
+  try {
+    const p = path4.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
+    if (!fs4.existsSync(p)) return null;
+    const brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+    global.veddFuturesBrain = global.veddFuturesBrain || {};
+    global.veddFuturesBrain[userId] = brain;
+    return brain;
+  } catch {
+    return null;
+  }
+}
+async function getOrRefreshFuturesBrain(userId) {
+  global.veddFuturesBrain = global.veddFuturesBrain || {};
+  let brain = global.veddFuturesBrain[userId];
+  if (!brain) brain = loadPersistedFuturesBrain(userId);
+  const isStale = !brain || Date.now() - new Date(brain.lastUpdateAt).getTime() > STALE_MS;
+  if (isStale) brain = await runFuturesBrainLearning(userId);
+  return brain;
+}
+var STALE_MS;
+var init_futures_brain = __esm({
+  "server/services/futures-brain.ts"() {
+    "use strict";
+    init_storage();
+    STALE_MS = 6e4;
+  }
+});
+
 // server/solana-scanner.ts
 import OpenAI3 from "openai";
 async function fetchTrendingSolanaTokens() {
@@ -22473,8 +22956,8 @@ var share_card_service_exports = {};
 __export(share_card_service_exports, {
   generateShareCard: () => generateShareCard
 });
-import path4 from "path";
-import fs4 from "fs";
+import path5 from "path";
+import fs5 from "fs";
 async function generateShareCard(data) {
   let createCanvas, loadImage;
   try {
@@ -22495,8 +22978,8 @@ async function generateShareCard(data) {
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, CARD_WIDTH, 180);
   try {
-    const logoPath = path4.join(process.cwd(), "attached_assets", "IMG_3645.png");
-    if (fs4.existsSync(logoPath)) {
+    const logoPath = path5.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    if (fs5.existsSync(logoPath)) {
       const logo = await loadImage(logoPath);
       const logoHeight = 80;
       const logoWidth = logo.width / logo.height * logoHeight;
@@ -22532,8 +23015,8 @@ async function generateShareCard(data) {
       if (imagePath.startsWith("/")) {
         imagePath = imagePath.substring(1);
       }
-      const fullImagePath = path4.join(process.cwd(), imagePath);
-      if (fs4.existsSync(fullImagePath)) {
+      const fullImagePath = path5.join(process.cwd(), imagePath);
+      if (fs5.existsSync(fullImagePath)) {
         const chartImage = await loadImage(fullImagePath);
         const maxWidth = CARD_WIDTH - PADDING * 2;
         const maxHeight = 350;
@@ -22646,8 +23129,8 @@ async function generateShareCard(data) {
         if (imgPath.startsWith("/")) {
           imgPath = imgPath.substring(1);
         }
-        const fullPath = path4.join(process.cwd(), imgPath);
-        if (fs4.existsSync(fullPath)) {
+        const fullPath = path5.join(process.cwd(), imgPath);
+        if (fs5.existsSync(fullPath)) {
           chartImage = await loadImage(fullPath);
           const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
           const maxChartHeight = 200;
@@ -24833,9 +25316,9 @@ function computeRMultipleSL(position, config) {
   const R = Math.abs(openPrice - originalSL);
   if (R === 0) return position.sl || 0;
   const pnlUnits = position.direction === "BUY" ? position.currentPrice - openPrice : openPrice - position.currentPrice;
-  const rMultiple = pnlUnits / R;
-  if (rMultiple < 1) return position.sl || 0;
-  const lockedR = Math.floor(rMultiple) - 1;
+  const rMultiple2 = pnlUnits / R;
+  if (rMultiple2 < 1) return position.sl || 0;
+  const lockedR = Math.floor(rMultiple2) - 1;
   if (lockedR === 0 && (config?.breakevenBufferPips ?? 0) > 0) {
     const bufferPips = config?.breakevenBufferPips ?? 5;
     const pipSize = getPipSize(position.symbol || "");
@@ -28805,6 +29288,173 @@ var init_broker_lookup = __esm({
   }
 });
 
+// server/services/options-brain.ts
+var options_brain_exports = {};
+__export(options_brain_exports, {
+  getOrRefreshOptionsBrain: () => getOrRefreshOptionsBrain,
+  loadPersistedOptionsBrain: () => loadPersistedOptionsBrain,
+  runOptionsBrainLearning: () => runOptionsBrainLearning
+});
+import * as fs6 from "fs";
+import * as path6 from "path";
+function pctReturn(t) {
+  if (!t.exitPrice || !t.entryPrice) return 0;
+  return (t.exitPrice - t.entryPrice) / t.entryPrice * 100;
+}
+function buildContractKnowledge(trades) {
+  const closed = trades.filter((t) => t.status === "closed");
+  const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0);
+  const losses = closed.filter((t) => (t.realizedPnl ?? 0) <= 0);
+  const winRate2 = closed.length > 0 ? Math.round(wins.length / closed.length * 100) : 0;
+  const avgWinPct = wins.length > 0 ? wins.reduce((s, t) => s + pctReturn(t), 0) / wins.length : 0;
+  const avgLossPct = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + pctReturn(t), 0) / losses.length) : 0;
+  const riskRewardRatio = avgLossPct > 0 ? avgWinPct / avgLossPct : avgWinPct > 0 ? 2 : 0;
+  const calls = closed.filter((t) => t.optionType === "call");
+  const puts = closed.filter((t) => t.optionType === "put");
+  const callWins = calls.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const putWins = puts.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const callWinRate = calls.length > 0 ? Math.round(callWins / calls.length * 100) : 50;
+  const putWinRate = puts.length > 0 ? Math.round(putWins / puts.length * 100) : 50;
+  const preferredDirection = Math.abs(callWinRate - putWinRate) > 15 ? callWinRate > putWinRate ? "call" : "put" : "both";
+  const byHour = {};
+  for (const t of closed) {
+    const hour = new Date(t.createdAt).getUTCHours();
+    byHour[hour] = byHour[hour] || { wins: 0, total: 0 };
+    byHour[hour].total++;
+    if ((t.realizedPnl ?? 0) > 0) byHour[hour].wins++;
+  }
+  const hourStats = Object.entries(byHour).filter(([, v]) => v.total >= 2).map(([hour, v]) => ({ hour: Number(hour), winRate: Math.round(v.wins / v.total * 100), total: v.total }));
+  const topHours = [...hourStats].sort((a, b) => b.winRate - a.winRate).slice(0, 3);
+  const worstHours = [...hourStats].sort((a, b) => a.winRate - b.winRate).slice(0, 2);
+  const byStrategy = {};
+  for (const t of closed) {
+    byStrategy[t.strategy] = byStrategy[t.strategy] || { wins: 0, total: 0 };
+    byStrategy[t.strategy].total++;
+    if ((t.realizedPnl ?? 0) > 0) byStrategy[t.strategy].wins++;
+  }
+  const bestStrategies = Object.entries(byStrategy).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].wins / b[1].total - a[1].wins / a[1].total).slice(0, 2).map(([s]) => s);
+  const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
+  let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
+  for (const t of chrono) {
+    if ((t.realizedPnl ?? 0) > 0) {
+      curWin++;
+      curLoss = 0;
+    } else {
+      curLoss++;
+      curWin = 0;
+    }
+    maxWinStreak = Math.max(maxWinStreak, curWin);
+    maxLossStreak = Math.max(maxLossStreak, curLoss);
+  }
+  const kellyFraction = riskRewardRatio > 0 ? winRate2 / 100 - (1 - winRate2 / 100) / riskRewardRatio : 0;
+  const recommendedContractMultiplier = Math.max(0.25, Math.min(1.5, 1 + kellyFraction));
+  return {
+    totalTrades: closed.length,
+    winRate: winRate2,
+    avgWinPct,
+    avgLossPct,
+    riskRewardRatio,
+    preferredDirection,
+    callWinRate,
+    putWinRate,
+    topHours,
+    worstHours,
+    bestStrategies,
+    maxWinStreak,
+    maxLossStreak,
+    recommendedContractMultiplier
+  };
+}
+function buildLearningInsights2(overallWinRate, totalTrades, contractKnowledge) {
+  const insights = [];
+  if (overallWinRate >= 60 && totalTrades >= 10) {
+    insights.push(`Strong edge detected: ${overallWinRate}% overall win rate across ${totalTrades} trades`);
+  } else if (overallWinRate < 50 && totalTrades >= 10) {
+    insights.push(`Win rate below 50% \u2014 the engine will prioritize higher-confidence setups only until this improves`);
+  }
+  for (const [symbol, k] of Object.entries(contractKnowledge)) {
+    if (k.totalTrades < 3) continue;
+    if (k.preferredDirection !== "both") {
+      insights.push(`${symbol}: strong ${k.preferredDirection.toUpperCase()} bias detected (${k.preferredDirection === "call" ? k.callWinRate : k.putWinRate}% WR)`);
+    }
+    if (k.worstHours[0] && k.worstHours[0].winRate < 30 && k.worstHours[0].total >= 3) {
+      insights.push(`${symbol}: avoid entries around ${k.worstHours[0].hour}:00 UTC (${k.worstHours[0].winRate}% WR \u2014 loss zone)`);
+    }
+    if (k.bestStrategies.length > 0 && k.totalTrades >= 5) {
+      insights.push(`${symbol}: best-performing strategy is "${k.bestStrategies[0]}"`);
+    }
+  }
+  return insights.slice(0, 10);
+}
+async function computeOptionsBrain(userId) {
+  const allTrades = await storage.getUserOptionsEngineTrades(userId, 1e3);
+  const closed = allTrades.filter((t) => t.status === "closed");
+  const uniqueSymbols = Array.from(new Set(closed.map((t) => t.underlyingSymbol)));
+  const contractKnowledge = {};
+  for (const symbol of uniqueSymbols) {
+    contractKnowledge[symbol] = buildContractKnowledge(closed.filter((t) => t.underlyingSymbol === symbol));
+  }
+  const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const overallWinRate = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+  const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
+  const optimalMinConfidence = {};
+  for (const symbol of uniqueSymbols) {
+    optimalMinConfidence[symbol] = 70;
+  }
+  const brain = {
+    lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
+    totalTradesAnalyzed: closed.length,
+    overallWinRate,
+    totalProfit,
+    symbolsLearned: uniqueSymbols.length,
+    contractKnowledge,
+    learningInsights: buildLearningInsights2(overallWinRate, closed.length, contractKnowledge),
+    optimalMinConfidence,
+    lastUpdateAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  global.veddOptionsBrain = global.veddOptionsBrain || {};
+  global.veddOptionsBrain[userId] = brain;
+  try {
+    const brainDir = path6.join(process.cwd(), "data", "brains");
+    if (!fs6.existsSync(brainDir)) fs6.mkdirSync(brainDir, { recursive: true });
+    fs6.writeFileSync(path6.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
+  } catch {
+  }
+  console.log(`[options-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} underlyings for user ${userId}`);
+  return brain;
+}
+async function runOptionsBrainLearning(userId) {
+  return computeOptionsBrain(userId);
+}
+function loadPersistedOptionsBrain(userId) {
+  try {
+    const p = path6.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
+    if (!fs6.existsSync(p)) return null;
+    const brain = JSON.parse(fs6.readFileSync(p, "utf-8"));
+    global.veddOptionsBrain = global.veddOptionsBrain || {};
+    global.veddOptionsBrain[userId] = brain;
+    return brain;
+  } catch {
+    return null;
+  }
+}
+async function getOrRefreshOptionsBrain(userId) {
+  global.veddOptionsBrain = global.veddOptionsBrain || {};
+  let brain = global.veddOptionsBrain[userId];
+  if (!brain) brain = loadPersistedOptionsBrain(userId);
+  const isStale = !brain || Date.now() - new Date(brain.lastUpdateAt).getTime() > STALE_MS2;
+  if (isStale) brain = await runOptionsBrainLearning(userId);
+  return brain;
+}
+var STALE_MS2;
+var init_options_brain = __esm({
+  "server/services/options-brain.ts"() {
+    "use strict";
+    init_storage();
+    STALE_MS2 = 6e4;
+  }
+});
+
 // server/services/btc-5min-predictor.ts
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
@@ -29516,8 +30166,8 @@ __export(cred_store_exports, {
   backupDurableFile: () => backupDurableFile,
   restoreDurableFiles: () => restoreDurableFiles
 });
-import * as fs5 from "fs";
-import * as path5 from "path";
+import * as fs7 from "fs";
+import * as path7 from "path";
 function ensureTable() {
   if (!tableReady) {
     tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
@@ -29534,14 +30184,14 @@ function ensureTable() {
 async function restoreDurableFiles() {
   try {
     await ensureTable();
-    if (!fs5.existsSync(DATA_DIR)) fs5.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs7.existsSync(DATA_DIR)) fs7.mkdirSync(DATA_DIR, { recursive: true });
     const { rows } = await pool.query("SELECT name, content FROM durable_files");
     for (const r of rows) {
       if (!DURABLE_FILES.includes(r.name)) continue;
-      const fp = path5.join(DATA_DIR, r.name);
-      const existing = fs5.existsSync(fp) ? fs5.readFileSync(fp, "utf-8").trim() : "";
+      const fp = path7.join(DATA_DIR, r.name);
+      const existing = fs7.existsSync(fp) ? fs7.readFileSync(fp, "utf-8").trim() : "";
       if (!existing || existing === "{}") {
-        fs5.writeFileSync(fp, r.content);
+        fs7.writeFileSync(fp, r.content);
         console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
       }
     }
@@ -29564,7 +30214,7 @@ var init_cred_store = __esm({
   "server/services/cred-store.ts"() {
     "use strict";
     init_db();
-    DATA_DIR = path5.join(process.cwd(), "data");
+    DATA_DIR = path7.join(process.cwd(), "data");
     DURABLE_FILES = [
       "kalshi_credentials.json",
       "polymarket_us.json"
@@ -29588,22 +30238,22 @@ __export(polymarket_us_exports, {
   savePmUsCredentials: () => savePmUsCredentials,
   testPmUsConnection: () => testPmUsConnection
 });
-import * as fs6 from "fs";
-import * as path6 from "path";
+import * as fs8 from "fs";
+import * as path8 from "path";
 import * as crypto8 from "crypto";
 function loadAll2() {
   try {
-    if (fs6.existsSync(FILE2)) return JSON.parse(fs6.readFileSync(FILE2, "utf-8"));
+    if (fs8.existsSync(FILE2)) return JSON.parse(fs8.readFileSync(FILE2, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAll2(map) {
   try {
-    const dir = path6.dirname(FILE2);
-    if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+    const dir = path8.dirname(FILE2);
+    if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(map, null, 2);
-    fs6.writeFileSync(FILE2, content);
+    fs8.writeFileSync(FILE2, content);
     backupDurableFile("polymarket_us.json", content);
   } catch {
   }
@@ -29719,7 +30369,7 @@ var init_polymarket_us = __esm({
     init_cred_store();
     BASE_URL = "https://api.polymarket.us";
     GATEWAY_URL = "https://gateway.polymarket.us";
-    FILE2 = path6.join(process.cwd(), "data", "polymarket_us.json");
+    FILE2 = path8.join(process.cwd(), "data", "polymarket_us.json");
     PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
     _toNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
   }
@@ -30073,22 +30723,22 @@ __export(kalshi_trading_exports, {
   saveKalshiCredentials: () => saveKalshiCredentials,
   testKalshiCredentials: () => testKalshiCredentials
 });
-import * as fs7 from "fs";
-import * as path7 from "path";
+import * as fs9 from "fs";
+import * as path9 from "path";
 import * as crypto9 from "crypto";
 function loadAllCreds() {
   try {
-    if (fs7.existsSync(CREDS_FILE)) return JSON.parse(fs7.readFileSync(CREDS_FILE, "utf-8"));
+    if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAllCreds(map) {
   try {
-    const dir = path7.dirname(CREDS_FILE);
-    if (!fs7.existsSync(dir)) fs7.mkdirSync(dir, { recursive: true });
+    const dir = path9.dirname(CREDS_FILE);
+    if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
     const content = JSON.stringify(map, null, 2);
-    fs7.writeFileSync(CREDS_FILE, content);
+    fs9.writeFileSync(CREDS_FILE, content);
     backupDurableFile("kalshi_credentials.json", content);
   } catch {
   }
@@ -30287,7 +30937,7 @@ var init_kalshi_trading = __esm({
     init_cred_store();
     KALSHI_BASE2 = "https://api.elections.kalshi.com/trade-api/v2";
     KALSHI_PATH_PREFIX = "/trade-api/v2";
-    CREDS_FILE = path7.join(process.cwd(), "data", "kalshi_credentials.json");
+    CREDS_FILE = path9.join(process.cwd(), "data", "kalshi_credentials.json");
     _sessions = /* @__PURE__ */ new Map();
   }
 });
@@ -30298,8 +30948,8 @@ __export(kalshi_performance_exports, {
   getKalshiPerformance: () => getKalshiPerformance,
   recordKalshiOutcome: () => recordKalshiOutcome
 });
-import * as fs8 from "fs";
-import * as path8 from "path";
+import * as fs10 from "fs";
+import * as path10 from "path";
 function emptyStat(strategy) {
   return {
     strategy,
@@ -30316,16 +30966,16 @@ function emptyStat(strategy) {
 }
 function loadAll3() {
   try {
-    if (fs8.existsSync(FILE3)) return JSON.parse(fs8.readFileSync(FILE3, "utf-8"));
+    if (fs10.existsSync(FILE3)) return JSON.parse(fs10.readFileSync(FILE3, "utf-8"));
   } catch {
   }
   return {};
 }
 function saveAll3(store) {
   try {
-    const dir = path8.dirname(FILE3);
-    if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
-    fs8.writeFileSync(FILE3, JSON.stringify(store, null, 2));
+    const dir = path10.dirname(FILE3);
+    if (!fs10.existsSync(dir)) fs10.mkdirSync(dir, { recursive: true });
+    fs10.writeFileSync(FILE3, JSON.stringify(store, null, 2));
   } catch {
   }
 }
@@ -30376,7 +31026,7 @@ var FILE3;
 var init_kalshi_performance = __esm({
   "server/services/kalshi-performance.ts"() {
     "use strict";
-    FILE3 = path8.join(process.cwd(), "data", "kalshi_performance.json");
+    FILE3 = path10.join(process.cwd(), "data", "kalshi_performance.json");
   }
 });
 
@@ -36263,8 +36913,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path13 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path13}/scoreboard`);
+  const path15 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path15}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -39060,6 +39710,185 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookba
   }
 });
 
+// server/services/ensure-options-engine-parity-columns.ts
+var ensure_options_engine_parity_columns_exports = {};
+__export(ensure_options_engine_parity_columns_exports, {
+  ensureOptionsEngineParityColumns: () => ensureOptionsEngineParityColumns
+});
+async function ensureOptionsEngineParityColumns() {
+  try {
+    await pool.query(DDL7);
+    console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras).");
+  } catch (err) {
+    console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL7;
+var init_ensure_options_engine_parity_columns = __esm({
+  "server/services/ensure-options-engine-parity-columns.ts"() {
+    "use strict";
+    init_db();
+    DDL7 = `
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "drawdown_shield_threshold" double precision NOT NULL DEFAULT 3.0;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "copy_mode" text NOT NULL DEFAULT 'proportional';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "volatile_cap_mode" text NOT NULL DEFAULT 'risk_scaled';
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_method" text NOT NULL DEFAULT 'none';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_activation_pct" double precision NOT NULL DEFAULT 20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_fixed_pct" double precision NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_step_pct" double precision NOT NULL DEFAULT 10;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_profit_lock_pct" double precision NOT NULL DEFAULT 60;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_sar_initial_af" double precision NOT NULL DEFAULT 0.02;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trail_sar_max_af" double precision NOT NULL DEFAULT 0.20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "breakeven_buffer_pct" double precision NOT NULL DEFAULT 10;
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "prop_firm_preset" text NOT NULL DEFAULT 'CUSTOM';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "prop_firm_allow_overnight_holds" boolean NOT NULL DEFAULT true;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "consistency_enforcement_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "consistency_min_profitable_days" integer NOT NULL DEFAULT 10;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "consistency_period_days" integer NOT NULL DEFAULT 15;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "max_daily_profit_pct_of_total" double precision NOT NULL DEFAULT 0;
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "weekly_profit_target_is_percent" boolean NOT NULL DEFAULT true;
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "trading_days_of_week" jsonb NOT NULL DEFAULT '[1,2,3,4,5]';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "symbol_day_schedule" jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "symbol_direction_overrides" jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "symbol_contract_overrides" jsonb NOT NULL DEFAULT '{}';
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "smart_symbol_escalation" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "high_confidence_override" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "enable_composite_autonomous" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "composite_min_edge_score" double precision NOT NULL DEFAULT 72;
+
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "peak_pnl_percent" double precision NOT NULL DEFAULT 0;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "trail_armed" boolean NOT NULL DEFAULT false;
+`;
+  }
+});
+
+// server/services/ensure-futures-engine-tables.ts
+var ensure_futures_engine_tables_exports = {};
+__export(ensure_futures_engine_tables_exports, {
+  ensureFuturesEngineTables: () => ensureFuturesEngineTables
+});
+async function ensureFuturesEngineTables() {
+  try {
+    await pool.query(DDL8);
+    console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
+  } catch (err) {
+    console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL8;
+var init_ensure_futures_engine_tables = __esm({
+  "server/services/ensure-futures-engine-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL8 = `
+CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
+  "is_active" boolean NOT NULL DEFAULT false,
+  "symbols" jsonb NOT NULL DEFAULT '["NQ","ES","GC","CL"]',
+  "scan_interval_ms" integer NOT NULL DEFAULT 120000,
+  "strategy_mode" text NOT NULL DEFAULT 'auto',
+  "single_strategy_mode" boolean NOT NULL DEFAULT false,
+  "direction_filter" text NOT NULL DEFAULT 'both',
+  "max_open_trades" integer NOT NULL DEFAULT 3,
+  "max_contracts_per_trade" integer NOT NULL DEFAULT 1,
+  "risk_per_trade" double precision NOT NULL DEFAULT 1.0,
+  "min_confidence" double precision NOT NULL DEFAULT 70,
+  "weekly_profit_target" double precision NOT NULL DEFAULT 5.0,
+  "account_balance" double precision NOT NULL DEFAULT 50000,
+  "enable_compounding" boolean NOT NULL DEFAULT false,
+  "prop_firm_mode" boolean NOT NULL DEFAULT false,
+  "prop_firm_daily_drawdown_limit" double precision NOT NULL DEFAULT 2.0,
+  "daily_loss_limit" double precision NOT NULL DEFAULT 3.0,
+  "daily_profit_target" double precision NOT NULL DEFAULT 0,
+  "max_daily_trades" integer NOT NULL DEFAULT 0,
+  "execution_source" text NOT NULL DEFAULT 'auto',
+  "lock_settings" boolean NOT NULL DEFAULT false,
+  "ai_mode" text NOT NULL DEFAULT 'full',
+  "enable_auto_execution" boolean NOT NULL DEFAULT false,
+  "use_kelly_criterion" boolean NOT NULL DEFAULT false,
+  "brain_learning_mode" boolean NOT NULL DEFAULT true,
+  "drawdown_shield_threshold" double precision NOT NULL DEFAULT 3.0,
+  "copy_mode" text NOT NULL DEFAULT 'proportional',
+  "volatile_cap_mode" text NOT NULL DEFAULT 'risk_scaled',
+  "trail_method" text NOT NULL DEFAULT 'none',
+  "trail_activation_r" double precision NOT NULL DEFAULT 1.0,
+  "trail_fixed_r" double precision NOT NULL DEFAULT 0.5,
+  "trail_step_r" double precision NOT NULL DEFAULT 0.5,
+  "trail_profit_lock_pct" double precision NOT NULL DEFAULT 60,
+  "trail_sar_initial_af" double precision NOT NULL DEFAULT 0.02,
+  "trail_sar_max_af" double precision NOT NULL DEFAULT 0.20,
+  "breakeven_buffer_r" double precision NOT NULL DEFAULT 0.1,
+  "prop_firm_preset" text NOT NULL DEFAULT 'CUSTOM',
+  "prop_firm_allow_overnight_holds" boolean NOT NULL DEFAULT false,
+  "consistency_enforcement_enabled" boolean NOT NULL DEFAULT false,
+  "consistency_min_profitable_days" integer NOT NULL DEFAULT 10,
+  "consistency_period_days" integer NOT NULL DEFAULT 15,
+  "max_daily_profit_pct_of_total" double precision NOT NULL DEFAULT 0,
+  "weekly_profit_target_is_percent" boolean NOT NULL DEFAULT true,
+  "trading_days_of_week" jsonb NOT NULL DEFAULT '[1,2,3,4,5]',
+  "symbol_day_schedule" jsonb NOT NULL DEFAULT '{}',
+  "symbol_direction_overrides" jsonb NOT NULL DEFAULT '{}',
+  "symbol_contract_overrides" jsonb NOT NULL DEFAULT '{}',
+  "smart_symbol_escalation" boolean NOT NULL DEFAULT false,
+  "high_confidence_override" boolean NOT NULL DEFAULT false,
+  "enable_composite_autonomous" boolean NOT NULL DEFAULT false,
+  "composite_min_edge_score" double precision NOT NULL DEFAULT 72,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "futures_engine_activity" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "symbol" text NOT NULL,
+  "decision" text NOT NULL,
+  "reasoning" text NOT NULL,
+  "score" double precision,
+  "price" double precision,
+  "daily_change_percent" double precision,
+  "source" text NOT NULL DEFAULT 'tradovate',
+  "strategy" text,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "futures_engine_trades" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "broker" text NOT NULL DEFAULT 'tradovate',
+  "symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "direction" text NOT NULL,
+  "contracts" integer NOT NULL,
+  "entry_price" double precision NOT NULL,
+  "stop_loss" double precision,
+  "take_profit" double precision,
+  "entry_order_id" text,
+  "entry_reasoning" text,
+  "status" text NOT NULL DEFAULT 'open',
+  "exit_price" double precision,
+  "exit_order_id" text,
+  "exit_reason" text,
+  "realized_pnl" double precision,
+  "closed_at" timestamp,
+  "peak_r_multiple" double precision NOT NULL DEFAULT 0,
+  "trail_armed" boolean NOT NULL DEFAULT false,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+`;
+  }
+});
+
 // server/services/ensure-live-engine-config-table.ts
 var ensure_live_engine_config_table_exports = {};
 __export(ensure_live_engine_config_table_exports, {
@@ -39067,18 +39896,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL9);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL9;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -39097,18 +39926,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL10);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL10;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL10 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -39125,18 +39954,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL11);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL11;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL11 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -39493,6 +40322,89 @@ async function runOrderFlow(service, symbol, cfg) {
     reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === "up" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === "up" ? "bullish" : "bearish"} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
+function quantVerdictFromScore(score) {
+  if (score === null) return "SKIP";
+  if (score >= 65) return "CONFIRM";
+  if (score >= 40) return "WATCH";
+  return "SKIP";
+}
+async function getOptionsAiConfirmation(userId, symbol, result, cfg) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Underlying: ${symbol}
+Strategy: ${result.strategy}
+Direction: ${result.direction}
+Quant score: ${result.score}/100
+Price: ${result.price}
+Daily change %: ${result.dailyChangePercent}
+Scanner reasoning: ${result.reasoning}
+
+Would you confirm this trade?`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || "")
+    };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+function pushOptionsConsensus(userId, entry) {
+  global.optionsEngineConsensus = global.optionsEngineConsensus || {};
+  const list = global.optionsEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+async function assembleOptionsConsensus(userId, symbol, result, cfg) {
+  const quantVerdict = quantVerdictFromScore(result.score);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quantVerdict !== "SKIP";
+    pushOptionsConsensus(userId, {
+      symbol,
+      strategy: result.strategy,
+      quantVerdict,
+      quantScore: result.score ?? 0,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = await getOptionsAiConfirmation(userId, symbol, result, cfg);
+  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  pushOptionsConsensus(userId, {
+    symbol,
+    strategy: result.strategy,
+    quantVerdict,
+    quantScore: result.score ?? 0,
+    aiVerdict,
+    aiConfidence: ai.confidence,
+    aiReasoning: ai.reasoning,
+    consensus,
+    tradeAllowed,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return tradeAllowed;
+}
 async function scanSymbol(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   if (cfg.sessionFilterEnabled && isWeekday(now)) {
@@ -39511,6 +40423,27 @@ async function scanSymbol(service, symbol, cfg) {
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
+    if (cfg.enableCompositeAutonomous) {
+      const withDirection = valid.filter((r) => (r.decision === "watching" || r.decision === "signal") && typeof r.score === "number");
+      const momentum = valid.find((r) => r.strategy === "momentum");
+      const compositeScore = withDirection.length > 0 ? withDirection.reduce((s, r) => s + (r.score ?? 0), 0) / withDirection.length : 0;
+      if (momentum && momentum.dailyChangePercent !== null && compositeScore >= cfg.compositeMinEdgeScore) {
+        const direction = momentum.dailyChangePercent >= 0 ? "up" : "down";
+        const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
+        if (directionAllowed) {
+          const optType = direction === "up" ? "call" : "put";
+          return {
+            decision: "signal",
+            score: Math.round(compositeScore),
+            price: momentum.price,
+            dailyChangePercent: momentum.dailyChangePercent,
+            strategy: "composite_autonomous",
+            direction,
+            reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${withDirection.length} strategies blended to a ${Math.round(compositeScore)}/100 edge score (floor ${cfg.compositeMinEdgeScore}), consensus direction ${direction} from momentum. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
+          };
+        }
+      }
+    }
     const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (watching.length > 0) return watching[0];
     return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
@@ -39561,33 +40494,95 @@ async function resolveContract(service, underlyingSymbol, direction, cfg) {
   }
   return sortedByStrike.sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price))[0] ?? null;
 }
-function computeContractQuantity(equity, riskPerTradePct, askPrice, maxContracts) {
-  if (!askPrice || askPrice <= 0 || equity <= 0) return 0;
-  const riskAmount = equity * (riskPerTradePct / 100);
+async function computeContractQuantity(userId, cfg, equity, askPrice, signalScore = null) {
+  if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: "" };
   const contractCost = askPrice * 100;
-  const bySize = Math.floor(riskAmount / contractCost);
-  return Math.max(0, Math.min(bySize, maxContracts));
+  const riskAmount = equity * (cfg.riskPerTrade / 100);
+  const baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getOptionsEngineTradeStats(userId) : null;
+    const qty = kelly ? Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + kelly.winRate / 100 * 0.25)))) : baseQty;
+    return { quantity: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock \u2014 ${qty} contracts.` };
+  }
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getOptionsEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      const lockedQty = baseQty > 0 ? 1 : 0;
+      return {
+        quantity: lockedQty,
+        reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) \u2014 full sizing unlocks automatically.`
+      };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
+      return { quantity: kellyQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing: ${kellyQty} contracts.` };
+    }
+    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing active.` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getOptionsEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
+    return { quantity: kellyQty, reasoning: `Kelly Criterion sizing (${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.` };
+  }
+  return { quantity: baseQty, reasoning: "" };
 }
 async function checkSafetyGates(userId, cfg, equity) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached` };
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
   }
   const openTrades = await storage.getOpenOptionsEngineTrades(userId);
-  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached` };
+  if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
+  let riskMultiplier = 1;
   if (equity > 0) {
     const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId);
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached` };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
-      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached` };
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains` };
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
+    sessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
+      riskMultiplier = Math.min(riskMultiplier, 0.25);
+    }
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) {
+        riskMultiplier = Math.min(riskMultiplier, 0.25);
+      } else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) {
+        riskMultiplier = Math.min(riskMultiplier, 0.5);
+      }
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit (limit ${cfg.maxDailyProfitPctOfTotal}%)`, riskMultiplier: 1 };
+          }
+        }
+      }
     }
   }
-  return { allowed: true };
+  return { allowed: true, riskMultiplier };
 }
 async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg) {
   if (!result.direction) return;
@@ -39639,7 +40634,9 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     });
     return;
   }
-  const quantity = computeContractQuantity(account.equity, cfg.riskPerTrade, contract.ask, cfg.maxContractsPerTrade);
+  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
+  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(userId, sizingCfg, account.equity, contract.ask, result.score);
+  const sizingReasoning = gate.riskMultiplier < 1 ? `${sizingReasoningRaw} \u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).` : sizingReasoningRaw;
   if (quantity < 1) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -39690,12 +40687,36 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     symbol: underlyingSymbol,
     decision: "signal",
     strategy: result.strategy,
-    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}`,
+    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
     score: result.score,
     price: result.price,
     dailyChangePercent: result.dailyChangePercent,
     source: "alpaca"
   });
+}
+function computeTrailFloorPercent(cfg, peakPnlPercent) {
+  switch (cfg.trailMethod) {
+    case "fixed_pct":
+      return peakPnlPercent - cfg.trailFixedPct;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakPnlPercent / cfg.trailStepPct);
+      return (steps - 1) * cfg.trailStepPct;
+    }
+    case "profit_lock":
+      return peakPnlPercent * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakPnlPercent - cfg.trailFixedPct * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakPnlPercent / 100 * cfg.trailSarInitialAF);
+      return peakPnlPercent * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationPct + (peakPnlPercent - cfg.trailActivationPct) * 0.5;
+    case "swing_structure":
+      return peakPnlPercent - cfg.trailFixedPct * 0.75;
+    default:
+      return -Infinity;
+  }
 }
 async function monitorOpenPositions(service, userId, cfg) {
   const openTrades = await storage.getOpenOptionsEngineTrades(userId);
@@ -39706,8 +40727,23 @@ async function monitorOpenPositions(service, userId, cfg) {
       if (!quote || quote.mid <= 0) continue;
       const pnlPercent = (quote.mid - trade.entryPrice) / trade.entryPrice * 100;
       let exitReason = null;
-      if (pnlPercent >= cfg.profitTargetPercent) exitReason = "profit_target";
-      else if (pnlPercent <= -cfg.stopLossPercent) exitReason = "stop_loss";
+      if (cfg.trailMethod === "none") {
+        if (pnlPercent >= cfg.profitTargetPercent) exitReason = "profit_target";
+        else if (pnlPercent <= -cfg.stopLossPercent) exitReason = "stop_loss";
+      } else {
+        const peakPnlPercent = Math.max(trade.peakPnlPercent, pnlPercent);
+        const armed = trade.trailArmed || peakPnlPercent >= cfg.trailActivationPct;
+        if (pnlPercent <= -cfg.stopLossPercent) {
+          exitReason = "stop_loss";
+        } else if (armed) {
+          const rawFloor = computeTrailFloorPercent(cfg, peakPnlPercent);
+          const floor = Math.max(rawFloor, cfg.breakevenBufferPct);
+          if (pnlPercent <= floor) exitReason = "trailing_stop";
+        }
+        if (!exitReason && (peakPnlPercent !== trade.peakPnlPercent || armed !== trade.trailArmed)) {
+          await storage.updateOptionsEngineTradeTrailState(trade.id, { peakPnlPercent, trailArmed: armed });
+        }
+      }
       if (!exitReason) continue;
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "market", timeInForce: "day" });
       const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
@@ -39717,7 +40753,7 @@ async function monitorOpenPositions(service, userId, cfg) {
         symbol: trade.underlyingSymbol,
         decision: "signal",
         strategy: trade.strategy,
-        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${exitReason === "profit_target" ? "+" : ""}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+        reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
         score: null,
         price: quote.mid,
         dailyChangePercent: null,
@@ -39773,10 +40809,34 @@ async function scanOneUser(userId) {
     (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId}:`, e.message)
   );
   const canAutoExecute = activeAlpaca.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto");
+  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const allowedDows = Array.isArray(config.tradingDaysOfWeek) ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+  const symbolDaySchedule = config.symbolDaySchedule || {};
+  const symbolDirectionOverrides = config.symbolDirectionOverrides || {};
+  const symbolContractOverrides = config.symbolContractOverrides || {};
   const symbols = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
-      const result = await scanSymbol(service, symbol, config);
+      const symbolDays = symbolDaySchedule[symbol];
+      if (Array.isArray(symbolDays) && symbolDays.length > 0 && !symbolDays.includes(todayDow)) {
+        continue;
+      }
+      let symbolCfg = config;
+      if (symbolDirectionOverrides[symbol] || symbolContractOverrides[symbol]) {
+        symbolCfg = {
+          ...config,
+          directionFilter: symbolDirectionOverrides[symbol] || config.directionFilter,
+          maxContractsPerTrade: symbolContractOverrides[symbol] || config.maxContractsPerTrade
+        };
+      }
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserOptionsEngineTrades(userId, 50)).filter((t) => t.underlyingSymbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) {
+          symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
+        }
+      }
+      const result = await scanSymbol(service, symbol, symbolCfg);
       await storage.createOptionsEngineActivity({
         userId,
         symbol,
@@ -39789,9 +40849,27 @@ async function scanOneUser(userId) {
         strategy: result.strategy
       });
       if (result.decision === "signal" && canAutoExecute) {
-        await executeSignal(service, activeAlpaca, userId, symbol, result, config).catch(
-          (e) => console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
-        );
+        const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e) => {
+          console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
+          return true;
+        });
+        if (tradeAllowed) {
+          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg).catch(
+            (e) => console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
+          );
+        } else {
+          await storage.createOptionsEngineActivity({
+            userId,
+            symbol,
+            decision: "skipped",
+            strategy: result.strategy,
+            reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution (AI second opinion disagreed).`,
+            score: result.score,
+            price: result.price,
+            dailyChangePercent: result.dailyChangePercent,
+            source: "alpaca"
+          });
+        }
       }
     } catch (err) {
       await storage.createOptionsEngineActivity({
@@ -39830,7 +40908,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, STRATEGY_RUNNERS, started2;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, STRATEGY_RUNNERS, sessionPeakEquity, started2;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -39845,6 +40923,7 @@ var init_options_scanner = __esm({
       momentum: runMomentum,
       order_flow: runOrderFlow
     };
+    sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
   }
 });
@@ -39875,8 +40954,8 @@ import { eq as eq14, and as and7, sql as sql9 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs9 from "fs";
-import * as path9 from "path";
+import * as fs11 from "fs";
+import * as path11 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -41915,20 +42994,20 @@ var TradovateService = class {
     }
     return data;
   }
-  async get(path13) {
+  async get(path15) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path13}`, {
+    const response = await fetch(`${this.baseUrl}${path15}`, {
       headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path13} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate GET ${path15} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
-  async post(path13, body) {
+  async post(path15, body) {
     await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path13}`, {
+    const response = await fetch(`${this.baseUrl}${path15}`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.accessToken}`,
@@ -41939,7 +43018,7 @@ var TradovateService = class {
     });
     if (!response.ok) {
       const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path13} failed (${response.status}): ${text2}`);
+      throw new Error(`Tradovate POST ${path15} failed (${response.status}): ${text2}`);
     }
     return response.json();
   }
@@ -42951,7 +44030,7 @@ function getAdjustedMinConfidence(userId, symbol) {
   if (winRate2 > 0.65) return Math.max(55, state.config.minConfidence - 5);
   return state.config.minConfidence;
 }
-function recordOutcome(userId, symbol, won, rMultiple) {
+function recordOutcome(userId, symbol, won, rMultiple2) {
   const state = scannerStates[userId];
   if (!state) return;
   if (!state.symbolPerformance[symbol]) {
@@ -42965,12 +44044,212 @@ function recordOutcome(userId, symbol, won, rMultiple) {
     perf.losses++;
     state.losses++;
   }
-  perf.totalR += rMultiple;
+  perf.totalR += rMultiple2;
   addActivity(userId, {
     type: "info",
     symbol,
     message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
   });
+}
+async function computeFuturesContractSize(userId, cfg, accountBalance, riskPerTradePct, entryPrice, stopLoss, symbol, signalScore = null) {
+  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
+    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + kelly.winRate / 100 * 0.25))) : baseContracts;
+    return { contracts: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
+  }
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+    }
+    return { contracts: baseContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+  }
+  return { contracts: baseContracts, reasoning: "" };
+}
+function computeFuturesTrailFloorR(cfg, peakR) {
+  switch (cfg.trailMethod) {
+    case "fixed_r":
+      return peakR - cfg.trailFixedR;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case "profit_lock":
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakR - cfg.trailFixedR * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR / 1 * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case "swing_structure":
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function monitorOpenFuturesPositions(userId, cfg) {
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
+  for (const trade of openTrades) {
+    try {
+      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: "futures", timeframe: "1m", limit: 2 });
+      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
+      if (!currentPrice || !trade.stopLoss) continue;
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === "long";
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      if (armed) {
+        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
+        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          const connection2 = await storage.getUserTradovateConnection(userId);
+          if (connection2) {
+            await executeFuturesSignal(connection2, {
+              action: "CLOSE",
+              symbol: trade.symbol,
+              direction: isLong ? "SELL" : "BUY",
+              contracts: trade.contracts
+            }).catch(() => {
+            });
+          }
+          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
+          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
+          addActivity(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
+          continue;
+        }
+      }
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err) {
+      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
+    }
+  }
+}
+var futuresSessionPeakEquity = /* @__PURE__ */ new Map();
+async function checkFuturesSafetyGates(userId, cfg, equity) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayFuturesEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
+    futuresSessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
+      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+function quickQuantVerdict(data, direction) {
+  let score = 0;
+  const adx = data.adx?.adx || 0;
+  const rsi3 = data.rsi?.value || 50;
+  const macdHist2 = data.macd?.histogram || 0;
+  if (adx > 25) score += 25;
+  if (direction === "BUY" ? rsi3 >= 40 && rsi3 <= 65 : rsi3 >= 35 && rsi3 <= 60) score += 20;
+  if (direction === "BUY" ? macdHist2 > 0 : macdHist2 < 0) score += 20;
+  if (data.trend === (direction === "BUY" ? "BULLISH" : "BEARISH")) score += 15;
+  const verdict = score >= 50 ? "CONFIRM" : score >= 30 ? "WATCH" : "SKIP";
+  return { verdict, score };
+}
+function pushFuturesConsensus(userId, entry) {
+  global.futuresEngineConsensus = global.futuresEngineConsensus || {};
+  const list = global.futuresEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+function assembleFuturesConsensus(userId, symbol, strategy, direction, aiConfidence, data, cfg) {
+  const quant = quickQuantVerdict(data, direction);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quant.verdict !== "SKIP";
+    pushFuturesConsensus(userId, {
+      symbol,
+      strategy,
+      quantVerdict: quant.verdict,
+      quantScore: quant.score,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      consensus: quant.verdict === "CONFIRM" ? "STRONG_CONFIRM" : quant.verdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const aiVerdict = aiConfidence >= Math.max(60, 0) ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP";
+  pushFuturesConsensus(userId, {
+    symbol,
+    strategy,
+    quantVerdict: quant.verdict,
+    quantScore: quant.score,
+    aiVerdict,
+    aiConfidence,
+    consensus,
+    tradeAllowed,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return tradeAllowed;
 }
 function isHighImpactNewsWindow() {
   const now = /* @__PURE__ */ new Date();
@@ -43193,15 +44472,27 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
           confluences.push("News window penalty");
         }
       }
-      const minConf = getAdjustedMinConfidence(userId, symbol);
-      if (!direction || confidence2 < minConf) continue;
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && direction === "BUY" || effectiveDirectionFilter === "short_only" && direction === "SELL";
+      if (direction && !directionAllowed) continue;
+      if (!direction) continue;
+      let minConf = getAdjustedMinConfidence(userId, symbol);
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
+      }
+      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
+      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
+      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
       const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
       const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
       const tpTicks = slTicks * 2;
       const entryPrice = data.currentPrice;
       const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
       const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
-      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, entryPrice, sl);
+      const maxContracts = config.symbolContractOverrides[symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
+      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
       const signal = {
         id: uid(),
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -43214,14 +44505,21 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
         stopLossTicks: slTicks,
         takeProfitTicks: tpTicks,
         confidence: Math.min(100, Math.max(0, confidence2)),
-        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | "),
+        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
         strategy,
         confluences,
         status: "pending"
       };
       addActivity(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
       addSignal(userId, signal);
-      await executeSignalIfEnabled(userId, signal);
+      const tradeAllowed = assembleFuturesConsensus(userId, symbol, strategy, direction, signal.confidence, data, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
+      }
     }
     return;
   }
@@ -43388,6 +44686,9 @@ Rules for decisions array:
     }
     for (const d of decisions) {
       if (!d.symbol || !d.direction || !d.confidence) continue;
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && d.direction === "BUY" || effectiveDirectionFilter === "short_only" && d.direction === "SELL";
+      if (!directionAllowed) continue;
       const minConf = getAdjustedMinConfidence(userId, d.symbol);
       if (d.confidence < minConf) {
         addActivity(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
@@ -43400,7 +44701,9 @@ Rules for decisions array:
       const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
       const sl = d.direction === "BUY" ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
       const tp = d.direction === "BUY" ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
-      const contracts = Math.max(1, calculateContractSize(d.symbol, config.accountBalance, config.riskPerTrade, price, sl));
+      const maxContracts = config.symbolContractOverrides[d.symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
+      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
       const signal = {
         id: uid(),
         timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -43413,7 +44716,7 @@ Rules for decisions array:
         stopLossTicks: slTicks,
         takeProfitTicks: tpTicks,
         confidence: d.confidence,
-        reason: d.reason || "",
+        reason: (d.reason || "") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
         strategy: d.strategy || "ai_analysis",
         confluences: d.confluences || [],
         status: "pending"
@@ -43427,7 +44730,14 @@ Rules for decisions array:
         details: { confluences: d.confluences, holdTime: d.holdTime }
       });
       addSignal(userId, signal);
-      await executeSignalIfEnabled(userId, signal);
+      const tradeAllowed = assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, d.confidence, marketAnalysis[d.symbol] || {}, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
+      }
     }
   } catch (err) {
     addActivity(userId, { type: "error", message: `Futures AI error: ${err.message}` });
@@ -43436,6 +44746,17 @@ Rules for decisions array:
 async function executeSignalIfEnabled(userId, signal) {
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
+  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
+  if (!gate.allowed) {
+    signal.status = "rejected";
+    signal.executionResult = gate.reason;
+    addActivity(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
+    return;
+  }
+  if (gate.riskMultiplier < 1) {
+    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
+    addActivity(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
+  }
   const moomoo = getMoomooService(userId);
   if (moomoo && moomoo.isConnected()) {
     try {
@@ -43450,6 +44771,22 @@ async function executeSignalIfEnabled(userId, signal) {
         signal.status = "executed";
         signal.executionResult = `Moomoo Order #${result.orderId}`;
         addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+        await storage.createFuturesEngineTrade({
+          userId,
+          connectionId: 0,
+          broker: "moomoo",
+          symbol: signal.symbol,
+          strategy: signal.strategy,
+          direction: signal.direction === "BUY" ? "long" : "short",
+          contracts: signal.contracts,
+          entryPrice: signal.entryPrice ?? 0,
+          stopLoss: signal.stopLoss,
+          takeProfit: signal.takeProfit,
+          entryOrderId: String(result.orderId ?? ""),
+          entryReasoning: signal.reason,
+          status: "open"
+        }).catch(() => {
+        });
       } else {
         signal.status = "rejected";
         signal.executionResult = result.error || "Moomoo execution failed";
@@ -43478,6 +44815,22 @@ async function executeSignalIfEnabled(userId, signal) {
       signal.status = "executed";
       signal.executionResult = `Tradovate Order #${result.orderId}`;
       addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      await storage.createFuturesEngineTrade({
+        userId,
+        connectionId: connection2.id ?? 0,
+        broker: "tradovate",
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        direction: signal.direction === "BUY" ? "long" : "short",
+        contracts: signal.contracts,
+        entryPrice: signal.entryPrice ?? 0,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        entryOrderId: String(result.orderId ?? ""),
+        entryReasoning: signal.reason,
+        status: "open"
+      }).catch(() => {
+      });
     } else {
       signal.status = "rejected";
       signal.executionResult = result.error || "Execution failed";
@@ -43492,10 +44845,16 @@ async function executeSignalIfEnabled(userId, signal) {
 async function scanFuturesMarkets(userId) {
   const state = scannerStates[userId];
   if (!state || state.status !== "running" || state.currentlyScanning) return;
-  if (state.dailyLossHalted) {
-    addActivity(userId, { type: "error", message: "\u{1F6A8} Daily loss limit reached \u2014 scanner halted. Reset tomorrow." });
+  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 }));
+  if (!gateCheck.allowed) {
+    state.dailyLossHalted = true;
+    addActivity(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
     return;
   }
+  state.dailyLossHalted = false;
   state.currentlyScanning = true;
   state.scanCount++;
   state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -43505,7 +44864,14 @@ async function scanFuturesMarkets(userId) {
       addActivity(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
       return;
     }
-    const symbols = state.config.symbols.slice(0, 8);
+    await monitorOpenFuturesPositions(userId, state.config).catch(
+      (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
+    );
+    const symbolDaySchedule = state.config.symbolDaySchedule || {};
+    const symbols = state.config.symbols.filter((sym) => {
+      const days = symbolDaySchedule[sym];
+      return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
+    }).slice(0, 8);
     addActivity(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
     const marketAnalysis = {};
     for (const symbol of symbols) {
@@ -43576,7 +44942,35 @@ function startFuturesScanner(config) {
     accountBalance: config.accountBalance || 5e4,
     aiMode: config.aiMode || "full",
     propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
-    enableAutoExecution: config.enableAutoExecution === true
+    enableAutoExecution: config.enableAutoExecution === true,
+    directionFilter: config.directionFilter || "both",
+    dailyLossLimit: config.dailyLossLimit ?? 3,
+    dailyProfitTarget: config.dailyProfitTarget ?? 0,
+    maxDailyTrades: config.maxDailyTrades ?? 0,
+    useKellyCriterion: config.useKellyCriterion === true,
+    brainLearningMode: config.brainLearningMode !== false,
+    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
+    trailMethod: config.trailMethod || "none",
+    trailActivationR: config.trailActivationR ?? 1,
+    trailFixedR: config.trailFixedR ?? 0.5,
+    trailStepR: config.trailStepR ?? 0.5,
+    trailProfitLockPct: config.trailProfitLockPct ?? 60,
+    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
+    trailSarMaxAF: config.trailSarMaxAF ?? 0.2,
+    breakevenBufferR: config.breakevenBufferR ?? 0.1,
+    propFirmMode: config.propFirmMode === true,
+    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
+    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
+    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
+    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
+    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
+    symbolDaySchedule: config.symbolDaySchedule || {},
+    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
+    symbolContractOverrides: config.symbolContractOverrides || {},
+    smartSymbolEscalation: config.smartSymbolEscalation === true,
+    highConfidenceOverride: config.highConfidenceOverride === true,
+    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
+    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72
   };
   scannerStates[config.userId] = {
     status: "running",
@@ -43622,8 +45016,8 @@ function getFuturesScannerActivities(userId, limit = 50) {
 function getFuturesScannerSignals(userId, limit = 20) {
   return (scannerStates[userId]?.signals || []).slice(0, limit);
 }
-function recordFuturesTradeOutcome(userId, symbol, won, rMultiple) {
-  recordOutcome(userId, symbol, won, rMultiple);
+function recordFuturesTradeOutcome(userId, symbol, won, rMultiple2) {
+  recordOutcome(userId, symbol, won, rMultiple2);
 }
 
 // server/routes/tradovate.ts
@@ -43951,33 +45345,225 @@ router2.post("/futures/generate-ninjatrader", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router2.get("/futures-engine/config", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  let config = await storage.getUserFuturesEngineConfig(userId);
+  if (!config) config = await storage.upsertFuturesEngineConfig(userId, {});
+  res.json(config);
+});
+router2.patch("/futures-engine/config", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const allowed = [
+    "isActive",
+    "symbols",
+    "scanIntervalMs",
+    "strategyMode",
+    "singleStrategyMode",
+    "directionFilter",
+    "maxOpenTrades",
+    "maxContractsPerTrade",
+    "riskPerTrade",
+    "minConfidence",
+    "weeklyProfitTarget",
+    "accountBalance",
+    "enableCompounding",
+    "propFirmMode",
+    "propFirmDailyDrawdownLimit",
+    "dailyLossLimit",
+    "dailyProfitTarget",
+    "maxDailyTrades",
+    "executionSource",
+    "lockSettings",
+    "aiMode",
+    "enableAutoExecution",
+    "useKellyCriterion",
+    "brainLearningMode",
+    "drawdownShieldThreshold",
+    "copyMode",
+    "volatileCapMode",
+    "trailMethod",
+    "trailActivationR",
+    "trailFixedR",
+    "trailStepR",
+    "trailProfitLockPct",
+    "trailSarInitialAF",
+    "trailSarMaxAF",
+    "breakevenBufferR",
+    "propFirmPreset",
+    "propFirmAllowOvernightHolds",
+    "consistencyEnforcementEnabled",
+    "consistencyMinProfitableDays",
+    "consistencyPeriodDays",
+    "maxDailyProfitPctOfTotal",
+    "weeklyProfitTargetIsPercent",
+    "tradingDaysOfWeek",
+    "symbolDaySchedule",
+    "symbolDirectionOverrides",
+    "symbolContractOverrides",
+    "smartSymbolEscalation",
+    "highConfidenceOverride",
+    "enableCompositeAutonomous",
+    "compositeMinEdgeScore"
+  ];
+  const updateData = {};
+  for (const key of allowed) {
+    if (req.body[key] !== void 0) updateData[key] = req.body[key];
+  }
+  const config = await storage.upsertFuturesEngineConfig(userId, updateData);
+  res.json(config);
+});
+router2.post("/futures-brain/learn", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const { runFuturesBrainLearning: runFuturesBrainLearning2 } = await Promise.resolve().then(() => (init_futures_brain(), futures_brain_exports));
+  const brain = await runFuturesBrainLearning2(userId);
+  res.json({ learned: true, ...brain });
+});
+router2.get("/futures-brain/status", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const { getOrRefreshFuturesBrain: getOrRefreshFuturesBrain2 } = await Promise.resolve().then(() => (init_futures_brain(), futures_brain_exports));
+  const brain = await getOrRefreshFuturesBrain2(userId);
+  res.json({ learned: !!brain, ...brain || {} });
+});
+router2.get("/futures-brain/summary", async (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const trades = await storage.getUserFuturesEngineTrades(userId, 500);
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1e3;
+  const closed = trades.filter((t) => t.status === "closed" && t.closedAt && new Date(t.closedAt).getTime() >= cutoff);
+  const byStrategy = {};
+  const bySymbol = {};
+  for (const t of closed) {
+    byStrategy[t.strategy] = byStrategy[t.strategy] || { trades: 0, wins: 0 };
+    byStrategy[t.strategy].trades++;
+    const won = (t.realizedPnl ?? 0) > 0;
+    if (won) byStrategy[t.strategy].wins++;
+    const riskDist = t.stopLoss ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+    const rMultiple2 = riskDist > 0 && t.exitPrice ? Math.abs(t.exitPrice - t.entryPrice) / riskDist * (won ? 1 : -1) : 0;
+    const key = `${t.symbol}|${t.strategy}`;
+    bySymbol[key] = bySymbol[key] || { strategy: t.strategy, trades: 0, wins: 0, totalR: 0 };
+    bySymbol[key].trades++;
+    if (won) bySymbol[key].wins++;
+    bySymbol[key].totalR += rMultiple2;
+  }
+  const sourceBreakdown = Object.entries(byStrategy).map(([strategy, v]) => ({
+    strategy,
+    trades: v.trades,
+    winRate: v.trades > 0 ? Math.round(v.wins / v.trades * 100) : 0
+  }));
+  const topSetups = Object.entries(bySymbol).map(([key, v]) => ({
+    symbol: key.split("|")[0],
+    strategy: v.strategy,
+    trades: v.trades,
+    winRate: v.trades > 0 ? Math.round(v.wins / v.trades * 100) : 0,
+    avgR: v.trades > 0 ? v.totalR / v.trades : 0
+  })).sort((a, b) => b.winRate - a.winRate).slice(0, 15);
+  res.json({ sourceBreakdown, topSetups, totalClosedLast30d: closed.length });
+});
+router2.get("/futures-engine/consensus", (req, res) => {
+  if (!requireAuth(req, res)) return;
+  const userId = getUserId(req);
+  const consensus = global.futuresEngineConsensus?.[userId] || [];
+  const summary = {
+    strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
+    strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
+    caution: consensus.filter((c) => c.consensus === "CAUTION").length,
+    watch: consensus.filter((c) => c.consensus === "WATCH").length
+  };
+  res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+});
 router2.post("/tradovate/scanner/start", async (req, res) => {
   if (!requireAuth(req, res)) return;
   const userId = getUserId(req);
   try {
     const connection2 = await storage.getUserTradovateConnection(userId);
-    const {
-      symbols,
-      scanIntervalMs,
-      minConfidence,
-      maxOpenTrades,
-      riskPerTrade,
-      accountBalance,
-      aiMode,
-      propFirmDailyDrawdownLimit,
-      enableAutoExecution
-    } = req.body;
+    const persisted = await storage.getUserFuturesEngineConfig(userId);
+    const allowedOverrides = [
+      "symbols",
+      "scanIntervalMs",
+      "minConfidence",
+      "maxOpenTrades",
+      "riskPerTrade",
+      "accountBalance",
+      "aiMode",
+      "propFirmDailyDrawdownLimit",
+      "enableAutoExecution",
+      "directionFilter",
+      "dailyLossLimit",
+      "dailyProfitTarget",
+      "maxDailyTrades",
+      "useKellyCriterion",
+      "brainLearningMode",
+      "drawdownShieldThreshold",
+      "trailMethod",
+      "trailActivationR",
+      "trailFixedR",
+      "trailStepR",
+      "trailProfitLockPct",
+      "trailSarInitialAF",
+      "trailSarMaxAF",
+      "breakevenBufferR",
+      "propFirmMode",
+      "consistencyEnforcementEnabled",
+      "consistencyMinProfitableDays",
+      "consistencyPeriodDays",
+      "maxDailyProfitPctOfTotal",
+      "tradingDaysOfWeek",
+      "symbolDaySchedule",
+      "symbolDirectionOverrides",
+      "symbolContractOverrides",
+      "smartSymbolEscalation",
+      "highConfidenceOverride",
+      "enableCompositeAutonomous",
+      "compositeMinEdgeScore"
+    ];
+    const overrides = {};
+    for (const key of allowedOverrides) {
+      if (req.body[key] !== void 0) overrides[key] = req.body[key];
+    }
+    const row = await storage.upsertFuturesEngineConfig(userId, { ...overrides, isActive: true });
     const config = {
       userId,
-      symbols: Array.isArray(symbols) && symbols.length > 0 ? symbols : DEFAULT_FUTURES_SYMBOLS,
-      scanIntervalMs: scanIntervalMs || 12e4,
-      minConfidence: minConfidence || 70,
-      maxOpenTrades: maxOpenTrades || 3,
-      riskPerTrade: riskPerTrade || 1,
-      accountBalance: accountBalance || 5e4,
-      aiMode: aiMode || "full",
-      propFirmDailyDrawdownLimit: propFirmDailyDrawdownLimit ?? 2,
-      enableAutoExecution: enableAutoExecution === true && !!connection2?.isActive
+      symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols : DEFAULT_FUTURES_SYMBOLS,
+      scanIntervalMs: row.scanIntervalMs,
+      minConfidence: row.minConfidence,
+      maxOpenTrades: row.maxOpenTrades,
+      riskPerTrade: row.riskPerTrade,
+      accountBalance: row.accountBalance,
+      aiMode: row.aiMode,
+      propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
+      enableAutoExecution: row.enableAutoExecution === true && !!connection2?.isActive,
+      directionFilter: row.directionFilter,
+      dailyLossLimit: row.dailyLossLimit,
+      dailyProfitTarget: row.dailyProfitTarget,
+      maxDailyTrades: row.maxDailyTrades,
+      useKellyCriterion: row.useKellyCriterion,
+      brainLearningMode: row.brainLearningMode,
+      drawdownShieldThreshold: row.drawdownShieldThreshold,
+      trailMethod: row.trailMethod,
+      trailActivationR: row.trailActivationR,
+      trailFixedR: row.trailFixedR,
+      trailStepR: row.trailStepR,
+      trailProfitLockPct: row.trailProfitLockPct,
+      trailSarInitialAF: row.trailSarInitialAF,
+      trailSarMaxAF: row.trailSarMaxAF,
+      breakevenBufferR: row.breakevenBufferR,
+      propFirmMode: row.propFirmMode,
+      consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
+      consistencyMinProfitableDays: row.consistencyMinProfitableDays,
+      consistencyPeriodDays: row.consistencyPeriodDays,
+      maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
+      tradingDaysOfWeek: row.tradingDaysOfWeek || [1, 2, 3, 4, 5],
+      symbolDaySchedule: row.symbolDaySchedule || {},
+      symbolDirectionOverrides: row.symbolDirectionOverrides || {},
+      symbolContractOverrides: row.symbolContractOverrides || {},
+      smartSymbolEscalation: row.smartSymbolEscalation,
+      highConfidenceOverride: row.highConfidenceOverride,
+      enableCompositeAutonomous: row.enableCompositeAutonomous,
+      compositeMinEdgeScore: row.compositeMinEdgeScore
     };
     const state = startFuturesScanner(config);
     res.json({ success: true, status: state.status, config: state.config });
@@ -43985,10 +45571,12 @@ router2.post("/tradovate/scanner/start", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router2.post("/tradovate/scanner/stop", (req, res) => {
+router2.post("/tradovate/scanner/stop", async (req, res) => {
   if (!requireAuth(req, res)) return;
   const userId = getUserId(req);
   stopFuturesScanner(userId);
+  await storage.upsertFuturesEngineConfig(userId, { isActive: false }).catch(() => {
+  });
   res.json({ success: true, status: "stopped" });
 });
 router2.get("/tradovate/scanner/status", (req, res) => {
@@ -44024,9 +45612,9 @@ router2.get("/tradovate/scanner/signals", (req, res) => {
 router2.post("/tradovate/scanner/outcome", (req, res) => {
   if (!requireAuth(req, res)) return;
   const userId = getUserId(req);
-  const { symbol, won, rMultiple } = req.body;
+  const { symbol, won, rMultiple: rMultiple2 } = req.body;
   if (!symbol || typeof won !== "boolean") return res.status(400).json({ error: "symbol and won required" });
-  recordFuturesTradeOutcome(userId, symbol, won, rMultiple || 0);
+  recordFuturesTradeOutcome(userId, symbol, won, rMultiple2 || 0);
   res.json({ success: true });
 });
 var tradovate_default = router2;
@@ -45423,9 +47011,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path9.join(process.cwd(), "uploads");
-if (!fs9.existsSync(uploadsDir2)) {
-  fs9.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path11.join(process.cwd(), "uploads");
+if (!fs11.existsSync(uploadsDir2)) {
+  fs11.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -45774,11 +47362,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path9.join(uploadsDir2, fileName);
+      const filePath = path11.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs9.promises.writeFile(filePath, req.file.buffer);
+        await fs11.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -45804,14 +47392,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path9.join(process.cwd(), "uploads", "avatars");
-      if (!fs9.existsSync(avatarsDir)) {
-        fs9.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path11.join(process.cwd(), "uploads", "avatars");
+      if (!fs11.existsSync(avatarsDir)) {
+        fs11.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path9.join(avatarsDir, fileName);
-      await fs9.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path11.join(avatarsDir, fileName);
+      await fs11.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -45906,11 +47494,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path9.join(uploadsDir2, generatedFilename);
+      const filePath = path11.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs9.promises.writeFile(filePath, imageBuffer);
+        await fs11.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -46043,9 +47631,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path9.join(uploadsDir2, frameFileName);
+          const framePath = path11.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs9.promises.writeFile(framePath, frameBuffer);
+          await fs11.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -46445,12 +48033,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path9.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path11.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs9.existsSync(filePath)) {
-        const alternativePath = path9.join(uploadsDir2, path9.basename(imageUrl));
+      if (!fs11.existsSync(filePath)) {
+        const alternativePath = path11.join(uploadsDir2, path11.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs9.existsSync(alternativePath)) {
+        if (!fs11.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -46459,7 +48047,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs9.promises.readFile(filePath);
+      const imageBuffer = await fs11.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -46634,11 +48222,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path9.basename(imagePath);
+        const basename2 = path11.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path9.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path11.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs9.existsSync(originalImagePath)) {
+        if (!fs11.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -46735,13 +48323,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path9.basename(filename);
-      const sharedPath = path9.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs9.existsSync(sharedPath)) {
+      const sanitizedFilename = path11.basename(filename);
+      const sharedPath = path11.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs11.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path9.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs9.existsSync(regularPath)) {
+      const regularPath = path11.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs11.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -46753,9 +48341,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path9.basename(filename);
-      const annotatedPath = path9.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs9.existsSync(annotatedPath)) {
+      const sanitizedFilename = path11.basename(filename);
+      const annotatedPath = path11.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs11.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -50462,12 +52050,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path9.join(process.cwd(), "uploads", "share-cards");
-      if (!fs9.existsSync(shareCardPath)) {
-        fs9.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path11.join(process.cwd(), "uploads", "share-cards");
+      if (!fs11.existsSync(shareCardPath)) {
+        fs11.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path9.join(shareCardPath, shareCardFileName);
-      fs9.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path11.join(shareCardPath, shareCardFileName);
+      fs11.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -56466,8 +58054,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path13 = await import("path");
-      const fs11 = await import("fs");
+      const path15 = await import("path");
+      const fs13 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -56553,8 +58141,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path13.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs11.default.existsSync(logoPath)) {
+        const logoPath = path15.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs13.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -56815,10 +58403,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path13.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs11.default.existsSync(outDir)) fs11.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path13.default.join(outDir, fileName);
-      fs11.default.writeFileSync(filePath, buffer);
+      const outDir = path15.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs13.default.existsSync(outDir)) fs13.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path15.default.join(outDir, fileName);
+      fs13.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -57628,6 +59216,67 @@ Rules:
     ]);
     res.json({ open, recent });
   });
+  app2.post("/api/options-brain/learn", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+    const brain = await runOptionsBrainLearning2(userId);
+    res.json({ learned: true, ...brain });
+  });
+  app2.get("/api/options-brain/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { getOrRefreshOptionsBrain: getOrRefreshOptionsBrain2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+    const brain = await getOrRefreshOptionsBrain2(userId);
+    res.json({ learned: !!brain, ...brain || {} });
+  });
+  app2.get("/api/options-brain/summary", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const trades = await storage.getUserOptionsEngineTrades(userId, 500);
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1e3;
+    const closed = trades.filter((t) => t.status === "closed" && t.closedAt && new Date(t.closedAt).getTime() >= cutoff);
+    const byStrategy = {};
+    const bySymbol = {};
+    for (const t of closed) {
+      byStrategy[t.strategy] = byStrategy[t.strategy] || { trades: 0, wins: 0, pips: [] };
+      byStrategy[t.strategy].trades++;
+      const won = (t.realizedPnl ?? 0) > 0;
+      if (won) byStrategy[t.strategy].wins++;
+      const retPct = t.exitPrice && t.entryPrice ? (t.exitPrice - t.entryPrice) / t.entryPrice * 100 : 0;
+      byStrategy[t.strategy].pips.push(retPct);
+      const key = `${t.underlyingSymbol}|${t.strategy}`;
+      bySymbol[key] = bySymbol[key] || { strategy: t.strategy, trades: 0, wins: 0, totalReturn: 0 };
+      bySymbol[key].trades++;
+      if (won) bySymbol[key].wins++;
+      bySymbol[key].totalReturn += retPct;
+    }
+    const sourceBreakdown = Object.entries(byStrategy).map(([strategy, v]) => ({
+      strategy,
+      trades: v.trades,
+      winRate: v.trades > 0 ? Math.round(v.wins / v.trades * 100) : 0
+    }));
+    const topSetups = Object.entries(bySymbol).map(([key, v]) => ({
+      symbol: key.split("|")[0],
+      strategy: v.strategy,
+      trades: v.trades,
+      winRate: v.trades > 0 ? Math.round(v.wins / v.trades * 100) : 0,
+      avgReturnPct: v.trades > 0 ? v.totalReturn / v.trades : 0
+    })).sort((a, b) => b.winRate - a.winRate).slice(0, 15);
+    res.json({ sourceBreakdown, topSetups, totalClosedLast30d: closed.length });
+  });
+  app2.get("/api/options-engine/consensus", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const consensus = global.optionsEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
+      strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
+      caution: consensus.filter((c) => c.consensus === "CAUTION").length,
+      watch: consensus.filter((c) => c.consensus === "WATCH").length
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+  });
   app2.patch("/api/options-engine/config", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -57667,7 +59316,37 @@ Rules:
       "breakoutLookbackDays",
       "orderFlowLookbackBars",
       "adaptiveScanInterval",
-      "enablePyramiding"
+      "enablePyramiding",
+      // FX SS AI Engine parity fields
+      "aiMode",
+      "useKellyCriterion",
+      "brainLearningMode",
+      "drawdownShieldThreshold",
+      "copyMode",
+      "volatileCapMode",
+      "trailMethod",
+      "trailActivationPct",
+      "trailFixedPct",
+      "trailStepPct",
+      "trailProfitLockPct",
+      "trailSarInitialAF",
+      "trailSarMaxAF",
+      "breakevenBufferPct",
+      "propFirmPreset",
+      "propFirmAllowOvernightHolds",
+      "consistencyEnforcementEnabled",
+      "consistencyMinProfitableDays",
+      "consistencyPeriodDays",
+      "maxDailyProfitPctOfTotal",
+      "weeklyProfitTargetIsPercent",
+      "tradingDaysOfWeek",
+      "symbolDaySchedule",
+      "symbolDirectionOverrides",
+      "symbolContractOverrides",
+      "smartSymbolEscalation",
+      "highConfidenceOverride",
+      "enableCompositeAutonomous",
+      "compositeMinEdgeScore"
     ];
     const updateData = {};
     for (const key of allowed) {
@@ -58492,9 +60171,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path9.join(process.cwd(), "data", "brains");
-      if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
-      fs9.writeFileSync(path9.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path11.join(process.cwd(), "data", "brains");
+      if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
+      fs11.writeFileSync(path11.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -58503,9 +60182,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path9.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs9.existsSync(p)) return null;
-      const brain = JSON.parse(fs9.readFileSync(p, "utf-8"));
+      const p = path11.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs11.existsSync(p)) return null;
+      const brain = JSON.parse(fs11.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -58618,9 +60297,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path9.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs9.existsSync(p)) {
-          brain = JSON.parse(fs9.readFileSync(p, "utf-8"));
+        const p = path11.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs11.existsSync(p)) {
+          brain = JSON.parse(fs11.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -59567,9 +61246,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path9.join(process.cwd(), "data", "brains");
-          if (!fs9.existsSync(brainDir)) fs9.mkdirSync(brainDir, { recursive: true });
-          fs9.writeFileSync(path9.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path11.join(process.cwd(), "data", "brains");
+          if (!fs11.existsSync(brainDir)) fs11.mkdirSync(brainDir, { recursive: true });
+          fs11.writeFileSync(path11.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -60208,19 +61887,19 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path9.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path11.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs9.existsSync(_polyWalletsFile)) return JSON.parse(fs9.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs11.existsSync(_polyWalletsFile)) return JSON.parse(fs11.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path9.join(process.cwd(), "data");
-      if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
-      fs9.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path11.join(process.cwd(), "data");
+      if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
+      fs11.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -60716,19 +62395,19 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const closed = closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path9.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path11.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs9.existsSync(_polyKeysFile)) return JSON.parse(fs9.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs11.existsSync(_polyKeysFile)) return JSON.parse(fs11.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path9.join(process.cwd(), "data");
-      if (!fs9.existsSync(dir)) fs9.mkdirSync(dir, { recursive: true });
-      fs9.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const dir = path11.join(process.cwd(), "data");
+      if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
+      fs11.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
     } catch {
     }
   };
@@ -61739,11 +63418,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs11 = await import("fs/promises");
-        const path13 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path13.extname(req.file.originalname)}`;
-        const uploadPath = path13.join(process.cwd(), "uploads", filename);
-        await fs11.writeFile(uploadPath, req.file.buffer);
+        const fs13 = await import("fs/promises");
+        const path15 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path15.extname(req.file.originalname)}`;
+        const uploadPath = path15.join(process.cwd(), "uploads", filename);
+        await fs13.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -62546,8 +64225,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path9.join(uploadsDir2, filename);
-      fs9.writeFileSync(filePath, file.buffer);
+      const filePath = path11.join(uploadsDir2, filename);
+      fs11.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -67393,10 +69072,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path9.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path11.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -67406,8 +69085,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs9.mkdirSync(path9.join(process.cwd(), "data"), { recursive: true });
-      fs9.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs11.mkdirSync(path11.join(process.cwd(), "data"), { recursive: true });
+      fs11.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -67416,10 +69095,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path9.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path11.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -67430,10 +69109,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = {
@@ -67444,8 +69123,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       };
       if (!certs.find((c) => c.certId === cert.certId)) {
         certs.push(cert);
-        fs9.mkdirSync(path9.join(process.cwd(), "data"), { recursive: true });
-        fs9.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
+        fs11.mkdirSync(path11.join(process.cwd(), "data"), { recursive: true });
+        fs11.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
       }
       res.json({ success: true });
     } catch (err) {
@@ -67455,10 +69134,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const mine = certs.filter((c) => c.userId === req.user.id);
@@ -67469,10 +69148,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path9.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path11.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs9.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs11.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -68845,14 +70524,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs10 from "fs";
-import path11 from "path";
+import fs12 from "fs";
+import path13 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path10 from "path";
+import path12 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -68871,14 +70550,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path10.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path10.resolve(import.meta.dirname, "shared"),
-      "@assets": path10.resolve(import.meta.dirname, "attached_assets")
+      "@": path12.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path12.resolve(import.meta.dirname, "shared"),
+      "@assets": path12.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path10.resolve(import.meta.dirname, "client"),
+  root: path12.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path10.resolve(import.meta.dirname, "dist/public"),
+    outDir: path12.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -68998,13 +70677,13 @@ async function setupVite(app2, server) {
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
     try {
-      const clientTemplate = path11.resolve(
+      const clientTemplate = path13.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs10.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs12.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -69024,9 +70703,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path11.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs10.existsSync(distPath)}`);
-  if (!fs10.existsSync(distPath)) {
+  const distPath = path13.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs12.existsSync(distPath)}`);
+  if (!fs12.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -69047,7 +70726,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path11.resolve(distPath, "index.html");
+  const indexPath = path13.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -69080,7 +70759,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs10.promises.readFile(indexPath, "utf-8");
+      let html = await fs12.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -69091,7 +70770,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path12 from "path";
+import path14 from "path";
 
 // server/auth.ts
 init_storage();
@@ -69980,19 +71659,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path12.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path12.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path12.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path14.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path14.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path14.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path12.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path14.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path13 = req.path;
+  const path15 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -70001,8 +71680,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path13.startsWith("/api")) {
-      let logLine = `${req.method} ${path13} ${res.statusCode} in ${duration}ms`;
+    if (path15.startsWith("/api")) {
+      let logLine = `${req.method} ${path15} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -70099,6 +71778,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureOrderFlowColumn2();
   } catch (err) {
     console.error(`[startup] ensureOrderFlowColumn import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureOptionsEngineParityColumns: ensureOptionsEngineParityColumns2 } = await Promise.resolve().then(() => (init_ensure_options_engine_parity_columns(), ensure_options_engine_parity_columns_exports));
+    await ensureOptionsEngineParityColumns2();
+  } catch (err) {
+    console.error(`[startup] ensureOptionsEngineParityColumns import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureFuturesEngineTables: ensureFuturesEngineTables2 } = await Promise.resolve().then(() => (init_ensure_futures_engine_tables(), ensure_futures_engine_tables_exports));
+    await ensureFuturesEngineTables2();
+  } catch (err) {
+    console.error(`[startup] ensureFuturesEngineTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));

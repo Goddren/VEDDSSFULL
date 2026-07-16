@@ -236,6 +236,25 @@ async function withRetry<T>(
     console.error(`[startup] ensureOrderFlowColumn import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Options Engine FX-parity columns exist (trailing stops, Drawdown
+  // Shield, Kelly, Brain Learning Mode, prop-firm presets, Copy Mode, etc.)
+  try {
+    const { ensureOptionsEngineParityColumns } = await import('./services/ensure-options-engine-parity-columns');
+    await ensureOptionsEngineParityColumns();
+  } catch (err: any) {
+    console.error(`[startup] ensureOptionsEngineParityColumns import error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Ensure Futures Engine's persisted config/activity/trades tables exist
+  // (previously the scanner had zero DB persistence — config was ad-hoc from
+  // the client, auto-executed trades were never logged anywhere).
+  try {
+    const { ensureFuturesEngineTables } = await import('./services/ensure-futures-engine-tables');
+    await ensureFuturesEngineTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureFuturesEngineTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
   // hydrate propFirmMode/consistency-rule defaults from it so they survive
   // this restart — never auto-resumes live trading itself.

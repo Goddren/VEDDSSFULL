@@ -889,6 +889,54 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   adaptiveScanInterval: boolean("adaptive_scan_interval").notNull().default(false), // scan faster near market open/ORB window
   enablePyramiding: boolean("enable_pyramiding").notNull().default(false), // add contracts as a move confirms further
 
+  // ── FX SS AI Engine parity — same features, adapted from pips/lots to ──────
+  // ── premium-%/contracts since options don't have pip-based price moves ─────
+  aiMode: text("ai_mode").notNull().default('full'), // 'full' | 'economy' | 'rule_based' — cost-control tier, mirrors FX
+  useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false), // size contracts by win-rate/R:R history instead of flat riskPerTrade
+  brainLearningMode: boolean("brain_learning_mode").notNull().default(true), // lock at 1 contract until enough trade history to trust bigger size
+  drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3.0), // % DD from peak equity that auto-tightens to conservative-only entries
+  copyMode: text("copy_mode").notNull().default('proportional'), // 'proportional' | 'multiplier' — sizing mode across multiple Alpaca/TastyTrade connections
+  volatileCapMode: text("volatile_cap_mode").notNull().default('risk_scaled'), // 'risk_scaled' | 'user_only' — caps contract count on high-IV underlyings (TSLA/NVDA-style)
+
+  // Trailing-stop system — mirrors the FX engine's 9 methods, but trails as a
+  // % of premium/underlying move instead of pips (options don't have pips).
+  trailMethod: text("trail_method").notNull().default('none'), // 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'fixed_pct' | 'profit_lock' | 'stepped_fixed' | 'none'
+  trailActivationPct: doublePrecision("trail_activation_pct").notNull().default(20), // start trailing once position is +X% of premium
+  trailFixedPct: doublePrecision("trail_fixed_pct").notNull().default(15), // trail distance as % of premium (fixed_pct/stepped_fixed)
+  trailStepPct: doublePrecision("trail_step_pct").notNull().default(10), // step size % for stepped_fixed
+  trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60), // lock X% of peak profit (profit_lock method)
+  trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+  trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.20),
+  breakevenBufferPct: doublePrecision("breakeven_buffer_pct").notNull().default(10), // buffer above breakeven for r_multiple method
+
+  // Prop-firm presets + consistency rule — same shape as FX's, adapted since
+  // dedicated options-only prop firms are rare; presets here describe generic
+  // equity/options account rules a user can still pick or customize.
+  propFirmPreset: text("prop_firm_preset").notNull().default('CUSTOM'), // 'FTMO' | 'MFF' | 'THE5ERS' | 'FUNDED_NEXT' | 'CUSTOM'
+  propFirmAllowOvernightHolds: boolean("prop_firm_allow_overnight_holds").notNull().default(true), // options are commonly held overnight/multi-day unlike FX scalps, defaults true
+  consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+  consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+  consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+  maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0), // 0 = disabled; caps any single day's profit at this % of total
+
+  // Goal tracker
+  weeklyProfitTargetIsPercent: boolean("weekly_profit_target_is_percent").notNull().default(true), // whether weeklyProfitTarget is a % of account or a flat $ amount
+
+  // Scheduling / per-symbol overrides — mirrors FX's pair-day pinning and
+  // per-pair direction/lot overrides
+  tradingDaysOfWeek: jsonb("trading_days_of_week").notNull().default([1, 2, 3, 4, 5]), // 0=Sun..6=Sat
+  symbolDaySchedule: jsonb("symbol_day_schedule").notNull().default({}), // { SPY: [1,2,3,4,5], ... } — pin a symbol to specific days
+  symbolDirectionOverrides: jsonb("symbol_direction_overrides").notNull().default({}), // { TSLA: 'calls_only', ... }
+  symbolContractOverrides: jsonb("symbol_contract_overrides").notNull().default({}), // { SPY: 5, ... } — per-symbol max contracts, like FX's per-pair lot override
+
+  // AI intelligence extras
+  smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false), // brain-ranked symbol unlocking, mirrors FX's Smart Pair Escalation
+  highConfidenceOverride: boolean("high_confidence_override").notNull().default(false), // 85%+ dual-confirmation fires cross-symbol regardless of other gates
+
+  // Composite/edge-score autonomous entries — mirrors FX's composite strategy toggle
+  enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false),
+  compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -967,6 +1015,10 @@ export const optionsEngineTrades = pgTable("options_engine_trades", {
   exitReason: text("exit_reason"), // 'profit_target' | 'stop_loss' | 'manual' | 'expired' | 'error'
   realizedPnl: doublePrecision("realized_pnl"),
   closedAt: timestamp("closed_at"),
+  // Trailing-stop state — persisted per-trade so the high-water-mark survives
+  // server restarts (mirrors the FX engine's per-position trail tracking).
+  peakPnlPercent: doublePrecision("peak_pnl_percent").notNull().default(0),
+  trailArmed: boolean("trail_armed").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1063,6 +1115,160 @@ export const insertTradovateTradeLogSchema = createInsertSchema(tradovateTradeLo
 
 export type TradovateTradeLog = typeof tradovateTradeLogs.$inferSelect;
 export type InsertTradovateTradeLog = z.infer<typeof insertTradovateTradeLogSchema>;
+
+// ─── Futures AI Engine — persisted config (FX SS AI Engine parity) ──────────
+// Previously the scanner's config (server/services/futures-scanner.ts) lived
+// ONLY in an ad-hoc object the client POSTed on every "Start Scanner" click —
+// no persistence, no per-user history, and every FX-parity feature (trailing
+// stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule,
+// scheduling) was simply absent. This table is the durable mirror, following
+// the exact same pattern as optionsEngineConfigs.
+export const futuresEngineConfigs = pgTable("futures_engine_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  isActive: boolean("is_active").notNull().default(false),
+  symbols: jsonb("symbols").notNull().default(['NQ', 'ES', 'GC', 'CL']),
+  scanIntervalMs: integer("scan_interval_ms").notNull().default(120000),
+  strategyMode: text("strategy_mode").notNull().default('auto'), // 'auto' | 'trend_following' | 'smc' | 'volume_profile' | 'order_flow' | 'markov'
+  singleStrategyMode: boolean("single_strategy_mode").notNull().default(false),
+  directionFilter: text("direction_filter").notNull().default('both'), // 'long_only' | 'short_only' | 'both'
+  maxOpenTrades: integer("max_open_trades").notNull().default(3),
+  maxContractsPerTrade: integer("max_contracts_per_trade").notNull().default(1),
+  riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1.0), // % of account equity risked per trade
+  minConfidence: doublePrecision("min_confidence").notNull().default(70),
+  weeklyProfitTarget: doublePrecision("weekly_profit_target").notNull().default(5.0),
+  accountBalance: doublePrecision("account_balance").notNull().default(50000),
+  enableCompounding: boolean("enable_compounding").notNull().default(false),
+  propFirmMode: boolean("prop_firm_mode").notNull().default(false),
+  propFirmDailyDrawdownLimit: doublePrecision("prop_firm_daily_drawdown_limit").notNull().default(2.0),
+  dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(3.0), // % of account, 0 = disabled
+  dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0), // % of account, 0 = disabled
+  maxDailyTrades: integer("max_daily_trades").notNull().default(0), // 0 = unlimited
+  executionSource: text("execution_source").notNull().default('auto'), // 'tradovate' | 'moomoo' | 'auto'
+  lockSettings: boolean("lock_settings").notNull().default(false),
+  aiMode: text("ai_mode").notNull().default('full'), // 'full' | 'economy' | 'rule_based'
+  enableAutoExecution: boolean("enable_auto_execution").notNull().default(false),
+
+  // ── FX SS AI Engine parity — same features, adapted from pips/lots to ──────
+  // ── R-multiples/contracts since futures trade in ticks/points, not pips ─────
+  useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false),
+  brainLearningMode: boolean("brain_learning_mode").notNull().default(true),
+  drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3.0),
+  copyMode: text("copy_mode").notNull().default('proportional'), // 'proportional' | 'multiplier'
+  volatileCapMode: text("volatile_cap_mode").notNull().default('risk_scaled'), // 'risk_scaled' | 'user_only' — caps contracts on high-tick-value symbols (NQ/GC-style)
+
+  // Trailing-stop system — mirrors the FX engine's methods, but trails on
+  // R-multiple (unrealized profit ÷ initial risk distance) instead of pips,
+  // since that's the native way futures/day-trading risk is already measured
+  // elsewhere in this file (symbolPerformance.totalR).
+  trailMethod: text("trail_method").notNull().default('none'), // 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'fixed_r' | 'profit_lock' | 'stepped_fixed' | 'none'
+  trailActivationR: doublePrecision("trail_activation_r").notNull().default(1.0), // start trailing once position is +X R
+  trailFixedR: doublePrecision("trail_fixed_r").notNull().default(0.5), // trail distance in R (fixed_r/stepped_fixed)
+  trailStepR: doublePrecision("trail_step_r").notNull().default(0.5),
+  trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60), // lock X% of peak R (profit_lock method)
+  trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+  trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.20),
+  breakevenBufferR: doublePrecision("breakeven_buffer_r").notNull().default(0.1),
+
+  // Prop-firm presets + consistency rule
+  propFirmPreset: text("prop_firm_preset").notNull().default('CUSTOM'), // 'TOPSTEP' | 'APEX' | 'BULENOX' | 'EARN2TRADE' | 'CUSTOM'
+  propFirmAllowOvernightHolds: boolean("prop_firm_allow_overnight_holds").notNull().default(false), // most futures prop firms disallow/penalize overnight holds
+  consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+  consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+  consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+  maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
+
+  // Goal tracker
+  weeklyProfitTargetIsPercent: boolean("weekly_profit_target_is_percent").notNull().default(true),
+
+  // Scheduling / per-symbol overrides
+  tradingDaysOfWeek: jsonb("trading_days_of_week").notNull().default([1, 2, 3, 4, 5]),
+  symbolDaySchedule: jsonb("symbol_day_schedule").notNull().default({}),
+  symbolDirectionOverrides: jsonb("symbol_direction_overrides").notNull().default({}),
+  symbolContractOverrides: jsonb("symbol_contract_overrides").notNull().default({}),
+
+  // AI intelligence extras
+  smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
+  highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+
+  // Composite/edge-score autonomous entries
+  enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false),
+  compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertFuturesEngineConfigSchema = createInsertSchema(futuresEngineConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type FuturesEngineConfig = typeof futuresEngineConfigs.$inferSelect;
+export type InsertFuturesEngineConfig = z.infer<typeof insertFuturesEngineConfigSchema>;
+
+// Futures AI Engine — live scan/decision feed, same shape as optionsEngineActivity.
+export const futuresEngineActivity = pgTable("futures_engine_activity", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  symbol: text("symbol").notNull(),
+  decision: text("decision").notNull(), // 'watching' | 'signal' | 'skipped' | 'error'
+  reasoning: text("reasoning").notNull(),
+  score: doublePrecision("score"),
+  price: doublePrecision("price"),
+  dailyChangePercent: doublePrecision("daily_change_percent"),
+  source: text("source").notNull().default('tradovate'),
+  strategy: text("strategy"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertFuturesEngineActivitySchema = createInsertSchema(futuresEngineActivity).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type FuturesEngineActivity = typeof futuresEngineActivity.$inferSelect;
+export type InsertFuturesEngineActivity = z.infer<typeof insertFuturesEngineActivitySchema>;
+
+// Futures AI Engine — executed trades. Fills the gap where auto-executed
+// scanner trades were never logged anywhere (only manual /api/tradovate/execute
+// calls wrote to tradovateTradeLogs) — same shape/purpose as optionsEngineTrades.
+export const futuresEngineTrades = pgTable("futures_engine_trades", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  connectionId: integer("connection_id").notNull(), // tradovateConnections.id (or moomoo connection id)
+  broker: text("broker").notNull().default('tradovate'), // 'tradovate' | 'moomoo'
+  symbol: text("symbol").notNull(),
+  strategy: text("strategy").notNull(),
+  direction: text("direction").notNull(), // 'long' | 'short'
+  contracts: integer("contracts").notNull(),
+  entryPrice: doublePrecision("entry_price").notNull(),
+  stopLoss: doublePrecision("stop_loss"),
+  takeProfit: doublePrecision("take_profit"),
+  entryOrderId: text("entry_order_id"),
+  entryReasoning: text("entry_reasoning"),
+  status: text("status").notNull().default('open'), // 'open' | 'closed' | 'failed'
+  exitPrice: doublePrecision("exit_price"),
+  exitOrderId: text("exit_order_id"),
+  exitReason: text("exit_reason"), // 'profit_target' | 'stop_loss' | 'trailing_stop' | 'manual' | 'session_close' | 'error'
+  realizedPnl: doublePrecision("realized_pnl"),
+  closedAt: timestamp("closed_at"),
+  // Trailing-stop state — R-multiple high-water-mark, persisted per-trade.
+  peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
+  trailArmed: boolean("trail_armed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertFuturesEngineTradeSchema = createInsertSchema(futuresEngineTrades).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type FuturesEngineTrade = typeof futuresEngineTrades.$inferSelect;
+export type InsertFuturesEngineTrade = z.infer<typeof insertFuturesEngineTradeSchema>;
 
 // AI Trade Results - tracks accuracy of AI signals
 export const aiTradeResults = pgTable("ai_trade_results", {

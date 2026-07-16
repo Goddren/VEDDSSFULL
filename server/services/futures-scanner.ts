@@ -27,6 +27,36 @@ export interface FuturesScanConfig {
   aiMode: 'full' | 'economy' | 'rule_based';
   propFirmDailyDrawdownLimit: number; // % daily loss limit (0 = disabled)
   enableAutoExecution: boolean; // true = execute via Tradovate, false = signal-only
+
+  // ── FX SS AI Engine parity fields (see futuresEngineConfigs in shared/schema.ts) ──
+  directionFilter: 'long_only' | 'short_only' | 'both';
+  dailyLossLimit: number; // % of account, 0 = disabled
+  dailyProfitTarget: number; // % of account, 0 = disabled
+  maxDailyTrades: number; // 0 = unlimited
+  useKellyCriterion: boolean;
+  brainLearningMode: boolean;
+  drawdownShieldThreshold: number;
+  trailMethod: 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'fixed_r' | 'profit_lock' | 'stepped_fixed' | 'none';
+  trailActivationR: number;
+  trailFixedR: number;
+  trailStepR: number;
+  trailProfitLockPct: number;
+  trailSarInitialAF: number;
+  trailSarMaxAF: number;
+  breakevenBufferR: number;
+  propFirmMode: boolean;
+  consistencyEnforcementEnabled: boolean;
+  consistencyMinProfitableDays: number;
+  consistencyPeriodDays: number;
+  maxDailyProfitPctOfTotal: number;
+  tradingDaysOfWeek: number[];
+  symbolDaySchedule: Record<string, number[]>;
+  symbolDirectionOverrides: Record<string, string>;
+  symbolContractOverrides: Record<string, number>;
+  smartSymbolEscalation: boolean;
+  highConfidenceOverride: boolean;
+  enableCompositeAutonomous: boolean;
+  compositeMinEdgeScore: number;
 }
 
 export interface FuturesActivity {
@@ -148,6 +178,245 @@ function recordOutcome(userId: number, symbol: string, won: boolean, rMultiple: 
     type: 'info', symbol,
     message: `📊 Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`,
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// FX SS AI Engine parity — sizing (Brain Learning Mode + Kelly), trailing
+// stops (R-multiple based), safety gates (Drawdown Shield + Consistency
+// Rule), and Dual-Vote Consensus. Same patterns as options-scanner.ts,
+// adapted to futures' native R-multiple/contract-count metrics.
+// ══════════════════════════════════════════════════════════════════════════
+
+async function computeFuturesContractSize(userId: number, cfg: FuturesScanConfig, accountBalance: number, riskPerTradePct: number, entryPrice: number, stopLoss: number, symbol: string, signalScore: number | null = null): Promise<{ contracts: number; reasoning: string }> {
+  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
+
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
+    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + (kelly.winRate / 100) * 0.25))) : baseContracts;
+    return { contracts: qty, reasoning: `⚡ High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
+  }
+
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `🧠 Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = (stats.winRate / 100) * 0.25;
+      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+    }
+    return { contracts: baseContracts, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) — full risk sizing.` };
+  }
+
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const fractionalKelly = (stats.winRate / 100) * 0.25;
+    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+  }
+
+  return { contracts: baseContracts, reasoning: '' };
+}
+
+// Trailing-stop floor, expressed in R-multiple (unrealized P&L ÷ initial risk
+// distance) rather than pips/ticks — the native way futures risk is already
+// measured elsewhere in this file (symbolPerformance.totalR).
+function computeFuturesTrailFloorR(cfg: FuturesScanConfig, peakR: number): number {
+  switch (cfg.trailMethod) {
+    case 'fixed_r':
+      return peakR - cfg.trailFixedR;
+    case 'stepped_fixed': {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case 'profit_lock':
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case 'chandelier':
+      return peakR - cfg.trailFixedR * 1.5;
+    case 'parabolic_sar': {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + (peakR / 1) * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case 'r_multiple':
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case 'swing_structure':
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity; // 'none'
+  }
+}
+
+// Monitors open futures_engine_trades rows each scan cycle. Broker-side stop
+// MODIFICATION isn't supported by the current Tradovate integration
+// (executeFuturesSignal only accepts 'OPEN'/'CLOSE'), so once the trailing
+// floor is breached this closes the position at market rather than nudging a
+// live stop order — a real, honest exit action, just not an in-place stop edit.
+async function monitorOpenFuturesPositions(userId: number, cfg: FuturesScanConfig): Promise<void> {
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length === 0 || cfg.trailMethod === 'none') return;
+
+  for (const trade of openTrades) {
+    try {
+      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: 'futures', timeframe: '1m', limit: 2 });
+      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
+      if (!currentPrice || !trade.stopLoss) continue;
+
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === 'long';
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+
+      if (armed) {
+        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
+        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          const connection = await storage.getUserTradovateConnection(userId);
+          if (connection) {
+            await executeFuturesSignal(connection, {
+              action: 'CLOSE', symbol: trade.symbol, direction: isLong ? 'SELL' : 'BUY', contracts: trade.contracts,
+            }).catch(() => {});
+          }
+          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
+          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: 'trailing_stop', realizedPnl });
+          addActivity(userId, { type: 'trade_open', symbol: trade.symbol, message: `📉 Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
+          continue;
+        }
+      }
+
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err: any) {
+      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
+    }
+  }
+}
+
+// Session peak-equity tracker for Drawdown Shield (in-memory, session-scoped —
+// same scope as the FX engine's shield, reacts to intra-session swings).
+const futuresSessionPeakEquity = new Map<number, number>();
+
+async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayFuturesEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= (equity * cfg.dailyProfitTarget / 100)) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+
+    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
+    futuresSessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = new Date().toISOString().split('T')[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter(k => (history[k] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
+      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
+
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = (todayProfit / totalProfitAllTime) * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule — today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+
+// ── Dual-Vote Consensus — Quant Rules Agent (trend/RSI/MACD/ADX read on the
+// same indicator data already computed this scan cycle) + AI Agent (the
+// full/economy LLM decision) — same STRONG_CONFIRM/CAUTION/WATCH/STRONG_SKIP
+// assembly as options-scanner.ts. Rule-based mode IS the quant agent alone,
+// same as options' aiMode==='rule_based' path. ──────────────────────────────
+type QuantVerdict = 'CONFIRM' | 'WATCH' | 'SKIP';
+type ConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
+
+function quickQuantVerdict(data: any, direction: 'BUY' | 'SELL'): { verdict: QuantVerdict; score: number } {
+  let score = 0;
+  const adx = data.adx?.adx || 0;
+  const rsi = data.rsi?.value || 50;
+  const macdHist = data.macd?.histogram || 0;
+  if (adx > 25) score += 25;
+  if (direction === 'BUY' ? (rsi >= 40 && rsi <= 65) : (rsi >= 35 && rsi <= 60)) score += 20;
+  if (direction === 'BUY' ? macdHist > 0 : macdHist < 0) score += 20;
+  if (data.trend === (direction === 'BUY' ? 'BULLISH' : 'BEARISH')) score += 15;
+  const verdict: QuantVerdict = score >= 50 ? 'CONFIRM' : score >= 30 ? 'WATCH' : 'SKIP';
+  return { verdict, score };
+}
+
+interface FuturesConsensusEntry {
+  symbol: string; strategy: string;
+  quantVerdict: QuantVerdict; quantScore: number;
+  aiVerdict: 'CONFIRM' | 'SKIP'; aiConfidence: number;
+  consensus: ConsensusLabel; tradeAllowed: boolean; timestamp: string;
+}
+
+function pushFuturesConsensus(userId: number, entry: FuturesConsensusEntry): void {
+  (global as any).futuresEngineConsensus = (global as any).futuresEngineConsensus || {};
+  const list: FuturesConsensusEntry[] = (global as any).futuresEngineConsensus[userId] || [];
+  const deduped = list.filter(e => e.symbol !== entry.symbol);
+  (global as any).futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+
+function assembleFuturesConsensus(userId: number, symbol: string, strategy: string, direction: 'BUY' | 'SELL', aiConfidence: number, data: any, cfg: FuturesScanConfig): boolean {
+  const quant = quickQuantVerdict(data, direction);
+
+  if (cfg.aiMode === 'rule_based') {
+    const tradeAllowed = quant.verdict !== 'SKIP';
+    pushFuturesConsensus(userId, {
+      symbol, strategy, quantVerdict: quant.verdict, quantScore: quant.score,
+      aiVerdict: 'CONFIRM', aiConfidence: 0,
+      consensus: quant.verdict === 'CONFIRM' ? 'STRONG_CONFIRM' : quant.verdict === 'SKIP' ? 'STRONG_SKIP' : 'WATCH',
+      tradeAllowed, timestamp: new Date().toISOString(),
+    });
+    return tradeAllowed;
+  }
+
+  const aiVerdict: 'CONFIRM' | 'SKIP' = aiConfidence >= Math.max(60, 0) ? 'CONFIRM' : 'SKIP';
+  let consensus: ConsensusLabel;
+  if (quant.verdict === 'CONFIRM' && aiVerdict === 'CONFIRM') consensus = 'STRONG_CONFIRM';
+  else if (quant.verdict === 'SKIP' && aiVerdict === 'SKIP') consensus = 'STRONG_SKIP';
+  else if ((quant.verdict === 'CONFIRM' && aiVerdict === 'SKIP') || (quant.verdict === 'SKIP' && aiVerdict === 'CONFIRM')) consensus = 'CAUTION';
+  else consensus = 'WATCH';
+  const tradeAllowed = consensus !== 'STRONG_SKIP';
+
+  pushFuturesConsensus(userId, {
+    symbol, strategy, quantVerdict: quant.verdict, quantScore: quant.score,
+    aiVerdict, aiConfidence, consensus, tradeAllowed, timestamp: new Date().toISOString(),
+  });
+  return tradeAllowed;
 }
 
 // ── News Time Filter ─────────────────────────────────────────────────────────
@@ -391,8 +660,32 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
         if (newsBlock) { confidence -= 15; confluences.push('News window penalty'); }
       }
 
-      const minConf = getAdjustedMinConfidence(userId, symbol);
-      if (!direction || confidence < minConf) continue;
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === 'both' ||
+        (effectiveDirectionFilter === 'long_only' && direction === 'BUY') ||
+        (effectiveDirectionFilter === 'short_only' && direction === 'SELL');
+      if (direction && !directionAllowed) continue;
+
+      if (!direction) continue;
+
+      // Smart Symbol Escalation — a symbol whose most recent closed trade was
+      // a win gets a slightly lower confidence bar this cycle.
+      let minConf = getAdjustedMinConfidence(userId, symbol);
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50))
+          .filter(t => t.symbol === symbol && t.status === 'closed')
+          .sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
+      }
+
+      // Composite Autonomous Entries — a rich multi-confluence read (4+
+      // independent confirmations stacking) can clear a lower bar than a
+      // single-confluence signal, mirroring the FX engine's composite toggle.
+      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence >= config.compositeMinEdgeScore;
+      // High Confidence Override — a 90+ score bypasses the normal confidence gate entirely.
+      const highConfidenceEligible = config.highConfidenceOverride && confidence >= 90;
+
+      if (confidence < minConf && !compositeEligible && !highConfidenceEligible) continue;
 
       const atr = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
       const slTicks = Math.max(4, Math.round((atr / inst.tickSize) * 0.5));
@@ -400,20 +693,29 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
       const entryPrice = data.currentPrice;
       const sl = direction === 'BUY' ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
       const tp = direction === 'BUY' ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
-      const contracts = calculateContractSize(symbol, config.accountBalance, config.riskPerTrade, entryPrice, sl);
+      const maxContracts = config.symbolContractOverrides[symbol] || undefined;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence);
+      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
 
       const signal: FuturesScanSignal = {
         id: uid(), timestamp: new Date().toISOString(), symbol, direction,
         contracts: Math.max(1, contracts), entryPrice, stopLoss: sl, takeProfit: tp,
         stopLossTicks: slTicks, takeProfitTicks: tpTicks,
         confidence: Math.min(100, Math.max(0, confidence)),
-        reason: confluences.filter(c => !c.startsWith('Markov')).join(' | '),
+        reason: confluences.filter(c => !c.startsWith('Markov')).join(' | ') + (sizing.reasoning ? ` | ${sizing.reasoning}` : ''),
         strategy, confluences, status: 'pending',
       };
 
       addActivity(userId, { type: 'signal', symbol, direction, confidence: signal.confidence, message: `⚡ ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(', ')}` });
       addSignal(userId, signal);
-      await executeSignalIfEnabled(userId, signal);
+      const tradeAllowed = assembleFuturesConsensus(userId, symbol, strategy, direction, signal.confidence, data, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = 'rejected';
+        signal.executionResult = 'Blocked by Dual-Vote Consensus';
+        addActivity(userId, { type: 'info', symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
+      }
     }
     return;
   }
@@ -600,6 +902,13 @@ Rules for decisions array:
 
     for (const d of decisions) {
       if (!d.symbol || !d.direction || !d.confidence) continue;
+
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === 'both' ||
+        (effectiveDirectionFilter === 'long_only' && d.direction === 'BUY') ||
+        (effectiveDirectionFilter === 'short_only' && d.direction === 'SELL');
+      if (!directionAllowed) continue;
+
       const minConf = getAdjustedMinConfidence(userId, d.symbol);
       if (d.confidence < minConf) {
         addActivity(userId, { type: 'info', symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
@@ -614,14 +923,16 @@ Rules for decisions array:
       const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
       const sl = d.direction === 'BUY' ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
       const tp = d.direction === 'BUY' ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
-      const contracts = Math.max(1, calculateContractSize(d.symbol, config.accountBalance, config.riskPerTrade, price, sl));
+      const maxContracts = config.symbolContractOverrides[d.symbol] || undefined;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
+      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
 
       const signal: FuturesScanSignal = {
         id: uid(), timestamp: new Date().toISOString(),
         symbol: d.symbol, direction: d.direction,
         contracts, entryPrice: price, stopLoss: sl, takeProfit: tp,
         stopLossTicks: slTicks, takeProfitTicks: tpTicks,
-        confidence: d.confidence, reason: d.reason || '',
+        confidence: d.confidence, reason: (d.reason || '') + (sizing.reasoning ? ` | ${sizing.reasoning}` : ''),
         strategy: d.strategy || 'ai_analysis',
         confluences: d.confluences || [], status: 'pending',
       };
@@ -633,7 +944,14 @@ Rules for decisions array:
       });
 
       addSignal(userId, signal);
-      await executeSignalIfEnabled(userId, signal);
+      const tradeAllowed = assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, d.confidence, marketAnalysis[d.symbol] || {}, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = 'rejected';
+        signal.executionResult = 'Blocked by Dual-Vote Consensus';
+        addActivity(userId, { type: 'info', symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
+      }
     }
   } catch (err: any) {
     addActivity(userId, { type: 'error', message: `Futures AI error: ${err.message}` });
@@ -645,6 +963,18 @@ Rules for decisions array:
 async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal): Promise<void> {
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
+
+  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
+  if (!gate.allowed) {
+    signal.status = 'rejected';
+    signal.executionResult = gate.reason;
+    addActivity(userId, { type: 'info', symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked — ${gate.reason}.` });
+    return;
+  }
+  if (gate.riskMultiplier < 1) {
+    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
+    addActivity(userId, { type: 'info', symbol: signal.symbol, message: `⚠️ Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) — sized to ${signal.contracts} contracts.` });
+  }
 
   // Try Moomoo first if connected
   const moomoo = getMoomooService(userId);
@@ -661,6 +991,12 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
         signal.status = 'executed';
         signal.executionResult = `Moomoo Order #${result.orderId}`;
         addActivity(userId, { type: 'trade_open', symbol: signal.symbol, direction: signal.direction, message: `✅ MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+        await storage.createFuturesEngineTrade({
+          userId, connectionId: 0, broker: 'moomoo', symbol: signal.symbol, strategy: signal.strategy,
+          direction: signal.direction === 'BUY' ? 'long' : 'short', contracts: signal.contracts,
+          entryPrice: signal.entryPrice ?? 0, stopLoss: signal.stopLoss, takeProfit: signal.takeProfit,
+          entryOrderId: String(result.orderId ?? ''), entryReasoning: signal.reason, status: 'open',
+        }).catch(() => {});
       } else {
         signal.status = 'rejected';
         signal.executionResult = result.error || 'Moomoo execution failed';
@@ -693,6 +1029,12 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
       signal.status = 'executed';
       signal.executionResult = `Tradovate Order #${result.orderId}`;
       addActivity(userId, { type: 'trade_open', symbol: signal.symbol, direction: signal.direction, message: `✅ TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      await storage.createFuturesEngineTrade({
+        userId, connectionId: connection.id ?? 0, broker: 'tradovate', symbol: signal.symbol, strategy: signal.strategy,
+        direction: signal.direction === 'BUY' ? 'long' : 'short', contracts: signal.contracts,
+        entryPrice: signal.entryPrice ?? 0, stopLoss: signal.stopLoss, takeProfit: signal.takeProfit,
+        entryOrderId: String(result.orderId ?? ''), entryReasoning: signal.reason, status: 'open',
+      }).catch(() => {});
     } else {
       signal.status = 'rejected';
       signal.executionResult = result.error || 'Execution failed';
@@ -711,11 +1053,20 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
   const state = scannerStates[userId];
   if (!state || state.status !== 'running' || state.currentlyScanning) return;
 
-  // Prop firm daily drawdown guard
-  if (state.dailyLossHalted) {
-    addActivity(userId, { type: 'error', message: '🚨 Daily loss limit reached — scanner halted. Reset tomorrow.' });
+  // Trading-days-of-week gate — mirrors options-scanner.ts.
+  const todayDow = new Date().getUTCDay();
+  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+
+  // Real daily-loss/drawdown halt, computed from actual realized P&L in
+  // futures_engine_trades — replaces the old stub that never flipped this flag.
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 } as const));
+  if (!gateCheck.allowed) {
+    state.dailyLossHalted = true;
+    addActivity(userId, { type: 'error', message: `🚨 Scanner halted — ${gateCheck.reason}.` });
     return;
   }
+  state.dailyLossHalted = false;
 
   state.currentlyScanning = true;
   state.scanCount++;
@@ -728,7 +1079,18 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
       return;
     }
 
-    const symbols = state.config.symbols.slice(0, 8);
+    // Exit management runs every cycle regardless of new signals.
+    await monitorOpenFuturesPositions(userId, state.config).catch((e: any) =>
+      console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
+    );
+
+    const symbolDaySchedule = state.config.symbolDaySchedule || {};
+    const symbols = state.config.symbols
+      .filter(sym => {
+        const days = symbolDaySchedule[sym];
+        return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
+      })
+      .slice(0, 8);
     addActivity(userId, { type: 'scan', message: `🔍 Futures scan #${state.scanCount}: ${symbols.join(', ')} [${session}]` });
 
     const marketAnalysis: Record<string, any> = {};
@@ -818,6 +1180,34 @@ export function startFuturesScanner(config: FuturesScanConfig): FuturesScanState
     aiMode: config.aiMode || 'full',
     propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
     enableAutoExecution: config.enableAutoExecution === true,
+    directionFilter: config.directionFilter || 'both',
+    dailyLossLimit: config.dailyLossLimit ?? 3,
+    dailyProfitTarget: config.dailyProfitTarget ?? 0,
+    maxDailyTrades: config.maxDailyTrades ?? 0,
+    useKellyCriterion: config.useKellyCriterion === true,
+    brainLearningMode: config.brainLearningMode !== false,
+    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
+    trailMethod: config.trailMethod || 'none',
+    trailActivationR: config.trailActivationR ?? 1.0,
+    trailFixedR: config.trailFixedR ?? 0.5,
+    trailStepR: config.trailStepR ?? 0.5,
+    trailProfitLockPct: config.trailProfitLockPct ?? 60,
+    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
+    trailSarMaxAF: config.trailSarMaxAF ?? 0.20,
+    breakevenBufferR: config.breakevenBufferR ?? 0.1,
+    propFirmMode: config.propFirmMode === true,
+    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
+    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
+    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
+    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
+    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
+    symbolDaySchedule: config.symbolDaySchedule || {},
+    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
+    symbolContractOverrides: config.symbolContractOverrides || {},
+    smartSymbolEscalation: config.smartSymbolEscalation === true,
+    highConfidenceOverride: config.highConfidenceOverride === true,
+    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
+    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72,
   };
 
   scannerStates[config.userId] = {
