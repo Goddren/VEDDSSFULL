@@ -155,6 +155,18 @@ double SafeDouble(double v)
 //+------------------------------------------------------------------+
 string HttpPost(string url, string jsonBody)
 {
+   int dummyCode;
+   return HttpPostEx(url, jsonBody, dummyCode);
+}
+
+// Same as HttpPost, but also hands back the real HTTP status code — needed
+// anywhere we actually want to know success vs failure (WebRequest returns a
+// positive code for EVERY response it receives, including 401/403/404/500;
+// only a true network-level failure returns <= 0). Checking "did we get any
+// response text back" instead of the status code was masking auth/route
+// errors as if they were successful sends.
+string HttpPostEx(string url, string jsonBody, int &httpCode)
+{
    char   postData[];
    char   result[];
    string headers = "Content-Type: application/json\r\nX-API-Key: " + API_KEY + "\r\n";
@@ -162,8 +174,8 @@ string HttpPost(string url, string jsonBody)
    int sz = ArraySize(postData);
    if(sz > 0 && postData[sz-1] == 0) ArrayResize(postData, sz - 1);
    string resHeaders;
-   int code = WebRequest("POST", url, headers, TIMEOUT_MS, postData, result, resHeaders);
-   if(code <= 0) return "";
+   httpCode = WebRequest("POST", url, headers, TIMEOUT_MS, postData, result, resHeaders);
+   if(httpCode <= 0) return "";
    return CharArrayToString(result);
 }
 
@@ -591,9 +603,21 @@ void SendChartData(int symIdx)
       JsonEscape(ACCOUNT_ALIAS)
    );
 
-   string resp = HttpPost(g_chartDataUrl, body);
-   Print("[VEDD] Chart data ", StringLen(resp) > 0 ? "sent" : "FAILED", ": ", sym, "/", tfStr,
-         " (", copied, " candles)");
+   int    httpCode;
+   string resp = HttpPostEx(g_chartDataUrl, body, httpCode);
+   if(httpCode == 200 || httpCode == 201)
+   {
+      Print("[VEDD] Chart data sent: ", sym, "/", tfStr, " (", copied, " candles)");
+   }
+   else if(httpCode <= 0)
+   {
+      Print("[VEDD] Chart data FAILED (network error, code ", httpCode, ") — check Tools > Options > Expert Advisors > Allow WebRequest for: ", g_chartDataUrl);
+   }
+   else
+   {
+      Print("[VEDD] Chart data REJECTED by server — HTTP ", httpCode, " for ", sym, "/", tfStr, ". Response: ", resp);
+      if(httpCode == 401) Print("[VEDD] HTTP 401 = your API_KEY doesn't match any active token in AI Trading Vault. Re-copy it from the MT5 Chart Data setup page.");
+   }
 }
 
 //+------------------------------------------------------------------+
