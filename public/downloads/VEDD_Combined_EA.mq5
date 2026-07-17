@@ -151,6 +151,121 @@ double SafeDouble(double v)
 }
 
 //+------------------------------------------------------------------+
+//| Open positions / closed trades JSON (ported from VEDD_ChartData_EA
+//| so this Combined EA feeds the same GoalTracker + Brain Dashboard
+//| pipeline the old EA did — those are driven off closedTrades, and
+//| the simpler chart-data payload this EA sent before had no way to
+//| populate them at all).
+//+------------------------------------------------------------------+
+string BuildOpenPositionsJson()
+{
+   string json = "[";
+   bool first = true;
+   int total = PositionsTotal();
+
+   for(int i = 0; i < total; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+
+      string posSymbol = PositionGetString(POSITION_SYMBOL);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double volume    = PositionGetDouble(POSITION_VOLUME);
+      double sl        = PositionGetDouble(POSITION_SL);
+      double tp        = PositionGetDouble(POSITION_TP);
+      double profit    = PositionGetDouble(POSITION_PROFIT);
+      datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+      long magic       = PositionGetInteger(POSITION_MAGIC);
+      string comment   = PositionGetString(POSITION_COMMENT);
+      double currentPrice = (posType == POSITION_TYPE_BUY) ?
+                            SymbolInfoDouble(posSymbol, SYMBOL_BID) :
+                            SymbolInfoDouble(posSymbol, SYMBOL_ASK);
+
+      if(!first) json += ",";
+      first = false;
+
+      json += StringFormat(
+         "{\"ticket\":%d,\"symbol\":\"%s\",\"direction\":\"%s\",\"volume\":%.2f,"
+         "\"openPrice\":%.5f,\"currentPrice\":%.5f,\"sl\":%.5f,\"tp\":%.5f,"
+         "\"profit\":%.2f,\"openTime\":%d,\"magic\":%d,\"comment\":\"%s\"}",
+         ticket, JsonEscape(posSymbol),
+         posType == POSITION_TYPE_BUY ? "BUY" : "SELL",
+         SafeDouble(volume), SafeDouble(openPrice), SafeDouble(currentPrice),
+         SafeDouble(sl), SafeDouble(tp), SafeDouble(profit),
+         openTime, magic, JsonEscape(comment)
+      );
+   }
+
+   json += "]";
+   return json;
+}
+
+string BuildClosedTradesJson(int lookbackDays = 30)
+{
+   string json = "[";
+   bool first = true;
+   datetime startTime = TimeCurrent() - (lookbackDays * 86400);
+
+   if(!HistorySelect(startTime, TimeCurrent()))
+      return "[]";
+
+   int totalDeals = HistoryDealsTotal();
+   int tradeCount = 0;
+
+   for(int i = totalDeals - 1; i >= 0 && tradeCount < 100; i--)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket <= 0) continue;
+
+      ENUM_DEAL_TYPE  dealType  = (ENUM_DEAL_TYPE)HistoryDealGetInteger(dealTicket, DEAL_TYPE);
+      ENUM_DEAL_ENTRY dealEntry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+
+      // Only count closing deals (exits)
+      if(dealEntry != DEAL_ENTRY_OUT && dealEntry != DEAL_ENTRY_INOUT) continue;
+      if(dealType != DEAL_TYPE_BUY && dealType != DEAL_TYPE_SELL) continue;
+
+      string   symbol     = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+      double   profit     = HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+      double   volume     = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+      double   price      = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+      datetime dealTime   = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+      long     magic      = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+      string   comment    = HistoryDealGetString(dealTicket, DEAL_COMMENT);
+      double   commission = HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+      double   swap       = HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+
+      // Exit BUY = was closing a SELL position, Exit SELL = was closing a BUY position
+      string direction = (dealType == DEAL_TYPE_SELL) ? "BUY" : "SELL";
+
+      MqlDateTime dt;
+      TimeToStruct(dealTime, dt);
+      int closeHour = dt.hour;
+      int closeDay  = dt.day_of_week; // 0=Sunday
+
+      if(!first) json += ",";
+      first = false;
+
+      json += StringFormat(
+         "{\"ticket\":%d,\"symbol\":\"%s\",\"direction\":\"%s\",\"volume\":%.2f,"
+         "\"closePrice\":%.5f,\"profit\":%.2f,\"commission\":%.2f,\"swap\":%.2f,"
+         "\"closeTime\":%d,\"closeHour\":%d,\"closeDay\":%d,\"magic\":%d,"
+         "\"result\":\"%s\",\"comment\":\"%s\"}",
+         dealTicket, JsonEscape(symbol), direction, SafeDouble(volume),
+         SafeDouble(price), SafeDouble(profit), SafeDouble(commission), SafeDouble(swap),
+         dealTime, closeHour, closeDay, magic,
+         profit > 0 ? "WIN" : (profit < 0 ? "LOSS" : "BREAKEVEN"),
+         JsonEscape(comment)
+      );
+
+      tradeCount++;
+   }
+
+   json += "]";
+   return json;
+}
+
+//+------------------------------------------------------------------+
 //| Utility: HTTP POST                                                |
 //+------------------------------------------------------------------+
 string HttpPost(string url, string jsonBody)
@@ -590,16 +705,29 @@ void SendChartData(int symIdx)
    double ask     = SymbolInfoDouble(sym, SYMBOL_ASK);
    double bid     = SymbolInfoDouble(sym, SYMBOL_BID);
 
+   // Account-wide (not per-symbol) data the server needs to drive
+   // GoalTracker and the Brain Dashboard's win/loss resolution — this EA
+   // used to send none of this, so those two features looked dead even
+   // when connectivity itself was fine.
+   string openPositionsJson = BuildOpenPositionsJson();
+   string closedTradesJson  = BuildClosedTradesJson(30);
+   string eaSettingsJson = StringFormat(
+      "{\"autoTradingEnabled\":%s}",
+      ENABLE_SIGNALS ? "true" : "false"
+   );
+
    string body = StringFormat(
-      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"candles\":%s,"
+      "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s,"
       "\"indicators\":%s,"
       "\"account\":{\"balance\":%.2f,\"equity\":%.2f},"
       "\"market\":{\"ask\":%.5f,\"bid\":%.5f,\"spread\":%.5f},"
+      "\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s,"
       "\"accountAlias\":\"%s\",\"platform\":\"MT5\"}",
-      JsonEscape(sym), tfStr, candlesJson,
+      JsonEscape(sym), tfStr, JsonEscape(AccountInfoString(ACCOUNT_COMPANY)), TimeCurrent(), candlesJson,
       indJson,
       balance, equity,
       SafeDouble(ask), SafeDouble(bid), SafeDouble(spread),
+      openPositionsJson, closedTradesJson, eaSettingsJson,
       JsonEscape(ACCOUNT_ALIAS)
    );
 
