@@ -16,10 +16,17 @@ export interface GeneratedVideo {
 }
 
 // VEDD's audience and representation direction: this platform speaks to
-// inner-city communities building wealth through trading — the people shown
-// should reflect that, not a generic stock-footage cast. Appended to every
-// generated-video prompt, same directive used in image-generation.ts.
-const HUMAN_STYLE_SUFFIX = '. If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings — no generic stock-footage corporate look.';
+// inner-city Black communities building wealth through trading — the people
+// shown should reflect that, not a generic stock-footage cast. Appended to
+// every generated-video prompt, same directive used in image-generation.ts.
+const HUMAN_STYLE_SUFFIX = '. If depicting people: they are Black people with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city/urban settings — no generic stock-footage corporate look, no other ethnicities.';
+
+// AI video models frequently render garbled, nonsensical on-screen text when
+// a prompt implies signage, captions, or UI overlays — since none of that
+// text is ever legible or brand-correct, suppress it outright rather than
+// let the model guess at words. Any captions/hooks are added separately as
+// a real text overlay in post, not baked into the generated clip itself.
+const NO_TEXT_SUFFIX = '. Absolutely no on-screen text, no captions, no subtitles, no words, no writing, no signage, no readable UI text of any kind anywhere in the frame — pure visual scene only.';
 
 const MODEL = 'wan-video/wan-2.2-t2v-fast';
 const DEFAULT_FPS = 16;
@@ -45,7 +52,7 @@ export async function generateContentVideo(
 
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt}${HUMAN_STYLE_SUFFIX}`;
+  const styledPrompt = `${prompt}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
 
   try {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {

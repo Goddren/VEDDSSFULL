@@ -88,6 +88,9 @@ __export(schema_exports, {
   copyTradeLogs: () => copyTradeLogs,
   creditTaskTypeEnum: () => creditTaskTypeEnum,
   cryptocomConnections: () => cryptocomConnections,
+  cryptocomEngineActivity: () => cryptocomEngineActivity,
+  cryptocomEngineConfigs: () => cryptocomEngineConfigs,
+  cryptocomEngineTrades: () => cryptocomEngineTrades,
   devotionalGroups: () => devotionalGroups,
   devotionalSessions: () => devotionalSessions,
   devotionals: () => devotionals,
@@ -144,6 +147,8 @@ __export(schema_exports, {
   insertConnectedSocialAccountSchema: () => insertConnectedSocialAccountSchema,
   insertContentStudioGenerationSchema: () => insertContentStudioGenerationSchema,
   insertCryptocomConnectionSchema: () => insertCryptocomConnectionSchema,
+  insertCryptocomEngineConfigSchema: () => insertCryptocomEngineConfigSchema,
+  insertCryptocomEngineTradeSchema: () => insertCryptocomEngineTradeSchema,
   insertDevotionalGroupSchema: () => insertDevotionalGroupSchema,
   insertDevotionalSchema: () => insertDevotionalSchema,
   insertDevotionalSessionSchema: () => insertDevotionalSessionSchema,
@@ -276,7 +281,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1077,6 +1082,100 @@ var init_schema = __esm({
       lastConnectedAt: true,
       lastError: true,
       tradeCount: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull().unique(),
+      isActive: boolean("is_active").notNull().default(false),
+      symbols: jsonb("symbols").notNull().default(["BTCUSD-PERP", "ETHUSD-PERP", "SOLUSD-PERP"]),
+      scanIntervalMs: integer("scan_interval_ms").notNull().default(12e4),
+      strategyMode: text("strategy_mode").notNull().default("auto"),
+      // 'auto' | 'trend_following' | 'momentum' | 'order_flow'
+      directionFilter: text("direction_filter").notNull().default("both"),
+      // 'long_only' | 'short_only' | 'both'
+      maxOpenTrades: integer("max_open_trades").notNull().default(3),
+      riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1),
+      minConfidence: doublePrecision("min_confidence").notNull().default(70),
+      accountBalance: doublePrecision("account_balance").notNull().default(1e3),
+      leverage: doublePrecision("leverage").notNull().default(3),
+      dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(5),
+      dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0),
+      maxDailyTrades: integer("max_daily_trades").notNull().default(0),
+      lockSettings: boolean("lock_settings").notNull().default(false),
+      aiMode: text("ai_mode").notNull().default("full"),
+      // 'full' | 'economy' | 'rule_based'
+      enableAutoExecution: boolean("enable_auto_execution").notNull().default(false),
+      // ── FX SS AI Engine parity ──────────────────────────────────────────────
+      useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false),
+      brainLearningMode: boolean("brain_learning_mode").notNull().default(true),
+      drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3),
+      trailMethod: text("trail_method").notNull().default("none"),
+      // same R-multiple methods as futuresEngineConfigs
+      trailActivationR: doublePrecision("trail_activation_r").notNull().default(1),
+      trailFixedR: doublePrecision("trail_fixed_r").notNull().default(0.5),
+      trailStepR: doublePrecision("trail_step_r").notNull().default(0.5),
+      trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60),
+      trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+      trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.2),
+      breakevenBufferR: doublePrecision("breakeven_buffer_r").notNull().default(0.1),
+      consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+      consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+      consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+      maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
+      smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
+      highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertCryptocomEngineConfigSchema = createInsertSchema(cryptocomEngineConfigs).omit({
+      id: true,
+      createdAt: true,
+      updatedAt: true
+    });
+    cryptocomEngineActivity = pgTable("cryptocom_engine_activity", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      symbol: text("symbol").notNull(),
+      decision: text("decision").notNull(),
+      // 'watching' | 'signal' | 'skipped' | 'error'
+      reasoning: text("reasoning").notNull(),
+      score: doublePrecision("score"),
+      price: doublePrecision("price"),
+      dailyChangePercent: doublePrecision("daily_change_percent"),
+      source: text("source").notNull().default("cryptocom"),
+      strategy: text("strategy"),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      connectionId: integer("connection_id").notNull(),
+      symbol: text("symbol").notNull(),
+      strategy: text("strategy").notNull(),
+      direction: text("direction").notNull(),
+      // 'long' | 'short'
+      quantity: doublePrecision("quantity").notNull(),
+      entryPrice: doublePrecision("entry_price").notNull(),
+      stopLoss: doublePrecision("stop_loss"),
+      takeProfit: doublePrecision("take_profit"),
+      entryOrderId: text("entry_order_id"),
+      entryReasoning: text("entry_reasoning"),
+      status: text("status").notNull().default("open"),
+      // 'open' | 'closed' | 'failed'
+      exitPrice: doublePrecision("exit_price"),
+      exitOrderId: text("exit_order_id"),
+      exitReason: text("exit_reason"),
+      realizedPnl: doublePrecision("realized_pnl"),
+      closedAt: timestamp("closed_at"),
+      peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
+      trailArmed: boolean("trail_armed").notNull().default(false),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    insertCryptocomEngineTradeSchema = createInsertSchema(cryptocomEngineTrades).omit({
+      id: true,
       createdAt: true,
       updatedAt: true
     });
@@ -4576,6 +4675,79 @@ var init_storage = __esm({
       async deleteContentStudioGeneration(id, userId) {
         const result = await db.delete(contentStudioGenerations).where(and(eq(contentStudioGenerations.id, id), eq(contentStudioGenerations.userId, userId))).returning();
         return result.length > 0;
+      }
+      // ── Crypto.com Perpetuals AI Engine ─────────────────────────────────────────
+      async getUserCryptocomEngineConfig(userId) {
+        const [result] = await db.select().from(cryptocomEngineConfigs).where(eq(cryptocomEngineConfigs.userId, userId));
+        return result;
+      }
+      async upsertCryptocomEngineConfig(userId, data) {
+        const existing = await this.getUserCryptocomEngineConfig(userId);
+        if (existing) {
+          const [result2] = await db.update(cryptocomEngineConfigs).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineConfigs.userId, userId)).returning();
+          return result2;
+        }
+        const [result] = await db.insert(cryptocomEngineConfigs).values({ userId, ...data }).returning();
+        return result;
+      }
+      async getAllActiveCryptocomEngineConfigs() {
+        return db.select().from(cryptocomEngineConfigs).where(eq(cryptocomEngineConfigs.isActive, true));
+      }
+      async createCryptocomEngineActivity(entry) {
+        const [result] = await db.insert(cryptocomEngineActivity).values(entry).returning();
+        return result;
+      }
+      async getUserCryptocomEngineActivity(userId, limit = 50) {
+        return db.select().from(cryptocomEngineActivity).where(eq(cryptocomEngineActivity.userId, userId)).orderBy(desc(cryptocomEngineActivity.createdAt)).limit(limit);
+      }
+      async createCryptocomEngineTrade(trade) {
+        const [result] = await db.insert(cryptocomEngineTrades).values(trade).returning();
+        return result;
+      }
+      async getOpenCryptocomEngineTrades(userId) {
+        return db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "open")));
+      }
+      async getUserCryptocomEngineTrades(userId, limit = 50) {
+        return db.select().from(cryptocomEngineTrades).where(eq(cryptocomEngineTrades.userId, userId)).orderBy(desc(cryptocomEngineTrades.createdAt)).limit(limit);
+      }
+      async closeCryptocomEngineTrade(id, data) {
+        const [result] = await db.update(cryptocomEngineTrades).set({ status: "closed", exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineTrades.id, id)).returning();
+        return result;
+      }
+      async getTodayCryptocomEngineTradeCount(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), gte(cryptocomEngineTrades.createdAt, startOfDay)));
+        return rows.length;
+      }
+      async getTodayCryptocomEngineRealizedPnl(userId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed"), gte(cryptocomEngineTrades.closedAt, startOfDay)));
+        return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+      }
+      async getCryptocomEngineTradeStats(userId) {
+        const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed")));
+        const totalClosed = rows.length;
+        const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
+        const winRate2 = totalClosed > 0 ? Math.round(wins / totalClosed * 100) : 0;
+        return { totalClosed, wins, winRate: winRate2 };
+      }
+      async getCryptocomEngineDailyPnlHistory(userId, days) {
+        const since = /* @__PURE__ */ new Date();
+        since.setUTCHours(0, 0, 0, 0);
+        since.setUTCDate(since.getUTCDate() - days);
+        const rows = await db.select().from(cryptocomEngineTrades).where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, "closed"), gte(cryptocomEngineTrades.closedAt, since)));
+        const history = {};
+        for (const r of rows) {
+          if (!r.closedAt) continue;
+          const day = new Date(r.closedAt).toISOString().split("T")[0];
+          history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+        }
+        return history;
+      }
+      async updateCryptocomEngineTradeTrailState(id, data) {
+        await db.update(cryptocomEngineTrades).set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(cryptocomEngineTrades.id, id));
       }
       // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────
       async createCryptocomConnection(connection2) {
@@ -10529,7 +10701,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. No text overlays, no logos, just the scene. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-footage cast."
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. Absolutely no text overlays, no captions, no signage, no readable words of any kind, no logos, just the pure visual scene. If the scene includes people, they should be Black people in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-footage cast, no other ethnicities."
 }`;
   const response = await openai2.chat.completions.create({
     model,
@@ -10622,8 +10794,19 @@ Write exactly ${slideCount} slides, in logical order (slide 1 is a hook that sto
   };
 }
 async function generateDailyDevotional(date2) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const client2 = new OpenAI({ apiKey, maxRetries: 4, timeout: 9e4 });
+  let client2;
+  try {
+    client2 = await getUniversalAIClientForUser(0);
+  } catch {
+  }
+  if (!client2) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (apiKey) {
+      const isGroq = !process.env.OPENAI_API_KEY;
+      client2 = new OpenAI({ apiKey, ...isGroq ? { baseURL: "https://api.groq.com/openai/v1" } : {}, maxRetries: 4, timeout: 9e4 });
+    }
+  }
+  const devotionalModel = client2?.defaultModel || "gpt-4o-mini";
   const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
 
 Generate a daily devotional for ambassadors and users that:
@@ -10646,8 +10829,9 @@ Return ONLY valid JSON, no markdown, no extra text.`;
   "tradingTieIn": "2-3 sentences specifically connecting today's scripture theme to trading discipline, risk management, patience in the markets, or the mindset needed to succeed as a VEDD trader/ambassador."
 }`;
   try {
+    if (!client2) throw new Error("No AI provider configured (add an AI key in AI Settings)");
     const response = await client2.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: devotionalModel,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -10669,16 +10853,27 @@ Return ONLY valid JSON, no markdown, no extra text.`;
       tradingTieIn: data.tradingTieIn || "Faith-based discipline applies directly to the markets \u2014 patience, trust in your system, and community accountability all drive long-term trading success."
     };
   } catch (err) {
-    console.error("[devotional] AI generation failed:", err);
+    console.error("[devotional] AI generation failed, using rotating static fallback:", err);
+    const FALLBACKS = [
+      { theme: "Faith", scripture: "Proverbs 16:3", scriptureText: "Commit to the LORD whatever you do, and he will establish your plans.", reflection: "Every trade you place, every analysis you run, every ambassador you recruit \u2014 all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.", prayerPoints: ["For clarity in decision-making", "For patience in volatile markets", "For unity among VEDD ambassadors", "For financial breakthrough in our community"], affirmation: "I am disciplined, focused, and committed to excellence in every trade and every relationship.", tradingTieIn: "Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions." },
+      { theme: "Patience", scripture: "James 1:4", scriptureText: "Let perseverance finish its work so that you may be mature and complete, not lacking anything.", reflection: "The trader who exits a winning system too early, or abandons a strategy after one losing week, never gives perseverance the chance to finish its work. Maturity in trading \u2014 and in life \u2014 comes from staying the course through the parts that test you, not just the parts that reward you instantly.", prayerPoints: ["For endurance through drawdowns", "For trust in a proven process", "For a community that holds each other accountable", "For steady, compounding growth"], affirmation: "Today I trust the process and let perseverance finish its work in me.", tradingTieIn: "Every profitable system has losing streaks built into its math. Patience is not passive \u2014 it is the active decision to let your edge play out over enough trades to matter." },
+      { theme: "Community", scripture: "Ecclesiastes 4:9-10", scriptureText: "Two are better than one, because they have a good return for their labor. If either of them falls down, one can help the other up.", reflection: "No ambassador builds alone. The trader isolated from community makes decisions in an echo chamber \u2014 fear and greed with no one to check them. VEDD was built on the belief that shared discipline, shared wins, and shared accountability produce a return no individual can match alone.", prayerPoints: ["For ambassadors who lift each other up", "For humility to ask for help", "For generosity in sharing what works", "For a community that grows together"], affirmation: "Today I show up for my community, and I let my community show up for me.", tradingTieIn: "Sharing your trade journal, your wins, and your losses with a community keeps you honest in a way that trading alone never will." },
+      { theme: "Excellence", scripture: "Colossians 3:23", scriptureText: "Whatever you do, work at it with all your heart, as working for the Lord, not for men.", reflection: "Excellence in trading is not about being right every time \u2014 it is about the quality of your process regardless of outcome. A well-executed losing trade, following your rules to the letter, is excellence. A lucky winning trade taken outside your system is not. Work your process with your whole heart, and let the results follow.", prayerPoints: ["For discipline in following your own rules", "For integrity when no one is watching your trades", "For excellence that does not depend on outcome", "For a legacy built on process, not luck"], affirmation: "Today I trade my process with excellence, and I let the results take care of themselves.", tradingTieIn: "A trader who journals every trade, honors every stop loss, and reviews every week regardless of P&L is practicing excellence \u2014 and that is what compounds over years." },
+      { theme: "Wisdom", scripture: "Proverbs 4:7", scriptureText: "The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding.", reflection: "Every dollar spent on education, every hour spent studying charts and reviewing losing trades, is an investment in wisdom that compounds far beyond any single trade. The ambassadors who last in this business are the ones who never stop being students of the market and of themselves.", prayerPoints: ["For a teachable spirit", "For wisdom to know when to act and when to wait", "For discernment between signal and noise", "For growth that outlasts any one trade"], affirmation: "Today I choose to learn, even from my losses, and I let wisdom guide my next decision.", tradingTieIn: "The market is the most honest teacher there is \u2014 it will show you exactly where your discipline breaks down, if you are humble enough to look." },
+      { theme: "Resilience", scripture: "Romans 5:3-4", scriptureText: "We also glory in our sufferings, because we know that suffering produces perseverance; perseverance, character; and character, hope.", reflection: "Every trader has a drawdown story. What separates the ones who make it from the ones who quit is not the absence of losing streaks \u2014 it is what those losing streaks build in them. Let this season, whatever it looks like in your account, build character rather than despair.", prayerPoints: ["For hope in the middle of a drawdown", "For character built through hard seasons", "For the strength to keep showing up", "For a testimony that helps the next ambassador"], affirmation: "Today I choose resilience, and I trust that this season is building something in me that a shortcut never could.", tradingTieIn: "Risk management exists precisely so a losing streak builds your character instead of ending your account \u2014 protect your capital so you live to apply the lesson." },
+      { theme: "Generosity", scripture: "2 Corinthians 9:6", scriptureText: "Whoever sows sparingly will also reap sparingly, and whoever sows generously will also reap generously.", reflection: "The ambassadors who share their signals, their knowledge, and their referral links generously are the ones who see the community \u2014 and their own results \u2014 grow fastest. Generosity is not just a spiritual principle here; it is the literal growth engine of this platform.", prayerPoints: ["For a generous spirit toward new ambassadors", "For willingness to share what took you years to learn", "For a harvest that matches your sowing", "For a community defined by giving, not just taking"], affirmation: "Today I sow generously into my community, trusting the harvest that generosity produces.", tradingTieIn: "Every ambassador who mentors a new trader, or shares an honest losing trade instead of only wins, sows into the credibility of this entire community." }
+    ];
+    const idx = new Date(date2).getDay();
+    const f = FALLBACKS[idx] ?? FALLBACKS[0];
     return {
-      title: `Daily Devotional \u2014 ${date2}`,
-      theme: "Discipline",
-      scripture: "Proverbs 16:3",
-      scriptureText: "Commit to the LORD whatever you do, and he will establish your plans.",
-      reflection: "Every trade you place, every analysis you run, every ambassador you recruit \u2014 all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.",
-      prayerPoints: ["For clarity in decision-making", "For patience in volatile markets", "For unity among VEDD ambassadors", "For financial breakthrough in our community"],
-      affirmation: "I am disciplined, focused, and committed to excellence in every trade and every relationship.",
-      tradingTieIn: "Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions."
+      title: `Daily Devotional \u2014 ${f.theme}`,
+      theme: f.theme,
+      scripture: f.scripture,
+      scriptureText: f.scriptureText,
+      reflection: f.reflection,
+      prayerPoints: f.prayerPoints,
+      affirmation: f.affirmation,
+      tradingTieIn: f.tradingTieIn
     };
   }
 }
@@ -19705,6 +19900,25 @@ var init_cryptocom = __esm({
           orderId: String(result?.order_id ?? ""),
           status: result?.status ?? "unknown"
         };
+      }
+      // ── Public market data (no auth needed) — static so the scanner can pull
+      // candles/price without a per-user connection/credentials. ─────────────────
+      static async getCandles(instrumentName, timeframe, count) {
+        const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(15e3) });
+        if (!res.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res.status}`);
+        const data = await res.json();
+        if (data.code !== void 0 && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
+        const rows = data.result?.data ?? [];
+        return rows.map((r) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
+      }
+      static async getTicker(instrumentName) {
+        const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(1e4) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const t = data.result?.data?.[0];
+        return t ? parseFloat(t.a ?? t.l ?? "0") || null : null;
       }
     };
   }
@@ -31122,12 +31336,44 @@ function updateKalshiEngineConfig(userId, patch) {
 function kalshiBankroll(s) {
   return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
 }
-function kalshiContractsFor(s, priceInCents) {
-  if (!s.config.compounding) return s.config.contractsPerTrade;
-  const bankroll = kalshiBankroll(s);
-  const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
-  const perContract = Math.max(0.01, priceInCents / 100);
-  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+async function kalshiContractsFor(userId, s, priceInCents) {
+  const baseContracts = (() => {
+    if (!s.config.compounding) return s.config.contractsPerTrade;
+    const bankroll = kalshiBankroll(s);
+    const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
+    const perContract = Math.max(0.01, priceInCents / 100);
+    return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+  })();
+  let riskMultiplier = 1;
+  if (s.config.drawdownShieldThreshold > 0) {
+    const bankroll = kalshiBankroll(s);
+    const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+    _sessionPeakBankroll.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - bankroll) / peak * 100 : 0;
+    if (ddFromPeakPct >= s.config.drawdownShieldThreshold) riskMultiplier = 0.25;
+  }
+  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier));
+  const shieldNote = riskMultiplier < 1 ? ` \u26A0\uFE0F Drawdown Shield active \u2014 sized to ${Math.round(riskMultiplier * 100)}%.` : "";
+  if (s.config.brainLearningMode) {
+    const perf = getKalshiPerformance(userId);
+    const brainLocked = perf.totals.trades < 10 || perf.totals.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: locked at 1 contract (${perf.totals.trades}/10 trades, ${perf.totals.winRate}%/60% WR).${shieldNote}` };
+    }
+    if (s.config.useKellyCriterion) {
+      const fractionalKelly = perf.totals.winRate / 100 * 0.25;
+      const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR) + Kelly sizing.${shieldNote}` };
+    }
+    return { contracts: shieldedBase, reasoning: `\u{1F9E0} Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR).${shieldNote}` };
+  }
+  if (s.config.useKellyCriterion) {
+    const perf = getKalshiPerformance(userId);
+    const fractionalKelly = perf.totals.winRate / 100 * 0.25;
+    const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${perf.totals.winRate}% WR over ${perf.totals.trades} trades).${shieldNote}` };
+  }
+  return { contracts: shieldedBase, reasoning: shieldNote.trim() };
 }
 function startKalshiEngine(userId) {
   const s = getKalshiEngineState(userId);
@@ -31177,7 +31423,7 @@ async function manualKalshiScan(userId) {
   return _runKalshiScan(userId, true);
 }
 async function _placeKalshiYes(userId, s, p) {
-  const contracts = kalshiContractsFor(s, p.priceInCents);
+  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p.priceInCents);
   const stakeUsd = p.priceInCents / 100 * contracts;
   let kalshiOrderId;
   if (!s.isPaperMode) {
@@ -31222,7 +31468,7 @@ async function _placeKalshiYes(userId, s, p) {
   const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
   const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit TP ${s.config.takeProfitCents}\xA2/SL ${s.config.stopLossCents}\xA2` : "";
   const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : "";
-  const r = `${modeStr} ${p.label}: bought YES \xD7 ${contracts} on "${p.subtitle}" at ${p.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}`;
+  const r = `${modeStr} ${p.label}: bought YES \xD7 ${contracts} on "${p.subtitle}" at ${p.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ""}`;
   s.lastScanResult = r;
   return { fired: true, reason: r };
 }
@@ -31578,7 +31824,7 @@ function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual"
       await db2.insert(aiTradeResults2).values({
         userId,
         symbol: `KALSHI:${trade.ticker}`,
-        direction: trade.direction === "SELL" ? "SELL" : "BUY",
+        direction: trade.signal.direction === "SELL" ? "SELL" : "BUY",
         entryPrice: trade.entryPriceCents / 100,
         exitPrice: exitCents / 100,
         result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
@@ -31586,7 +31832,7 @@ function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual"
         closedAt: /* @__PURE__ */ new Date(),
         source: "kalshi",
         mt5Ticket: trade.id,
-        notes: `${trade.strategy}: ${trade.label}${exitReason !== "manual" ? " | " + exitReason : ""}`
+        notes: `${trade.strategy}: ${trade.subtitle}${exitReason !== "manual" ? " | " + exitReason : ""}`
       });
     } catch {
     }
@@ -31599,7 +31845,7 @@ function closeAllKalshiTrades(userId) {
   ids.forEach((id) => closeKalshiTrade(userId, id));
   return ids.length;
 }
-var _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS;
+var _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -31608,6 +31854,7 @@ var init_kalshi_engine = __esm({
     init_kalshi_strategies();
     init_btc_5min_predictor();
     init_kalshi_performance();
+    _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
     DEFAULT_CONFIG2 = {
@@ -31624,7 +31871,11 @@ var init_kalshi_engine = __esm({
       stopLossCents: 25,
       compounding: false,
       riskPctPerTrade: 5,
-      startingBankroll: 100
+      startingBankroll: 100,
+      useKellyCriterion: false,
+      brainLearningMode: true,
+      drawdownShieldThreshold: 0
+      // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",
@@ -31645,6 +31896,7 @@ __export(polymarket_us_engine_exports, {
   manualPmUsScan: () => manualPmUsScan,
   pmUsBankroll: () => pmUsBankroll,
   pmUsContractsFor: () => pmUsContractsFor,
+  restorePmUsEngineStateFromDb: () => restorePmUsEngineStateFromDb,
   startPmUsEngine: () => startPmUsEngine,
   stopPmUsEngine: () => stopPmUsEngine,
   updatePmUsEngineConfig: () => updatePmUsEngineConfig
@@ -31692,16 +31944,43 @@ function startPmUsEngine(userId) {
   const s = getPmUsEngineState(userId);
   if (s.isRunning) return;
   s.isRunning = true;
+  _persistPmUsRunState(userId, true, s.isPaperMode);
   _runScan2(userId).catch(console.error);
   _timers2.set(userId, setInterval(() => _runScan2(userId).catch(console.error), 5 * 60 * 1e3));
 }
 function stopPmUsEngine(userId) {
   const s = getPmUsEngineState(userId);
   s.isRunning = false;
+  _persistPmUsRunState(userId, false, s.isPaperMode);
   const iv = _timers2.get(userId);
   if (iv) {
     clearInterval(iv);
     _timers2.delete(userId);
+  }
+}
+function _persistPmUsRunState(userId, isRunning, isPaperMode) {
+  Promise.resolve().then(() => (init_db(), db_exports)).then(({ db: db2 }) => {
+    Promise.resolve().then(() => (init_schema(), schema_exports)).then(({ engineRunState: engineRunState2 }) => {
+      db2.insert(engineRunState2).values({ userId, engine: "polymarket-us", isRunning, isPaperMode }).onConflictDoUpdate({
+        target: [engineRunState2.userId, engineRunState2.engine],
+        set: { isRunning, isPaperMode, updatedAt: /* @__PURE__ */ new Date() }
+      }).catch(console.error);
+    });
+  });
+}
+async function restorePmUsEngineStateFromDb(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq17, and: and8 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and8(eq17(engineRunState2.userId, userId), eq17(engineRunState2.engine, "polymarket-us")));
+    const row = rows[0];
+    if (row?.isRunning) {
+      console.log(`[PolymarketUS] Restoring engine for user ${userId}`);
+      startPmUsEngine(userId);
+    }
+  } catch (e) {
+    console.error("[PolymarketUS] Failed to restore engine state:", e);
   }
 }
 async function manualPmUsScan(userId) {
@@ -36618,29 +36897,44 @@ __export(content_asset_store_exports, {
   persistRemoteAsset: () => persistRemoteAsset
 });
 async function persistRemoteAsset(remoteUrl) {
-  try {
-    const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(6e4) });
-    if (!res.ok) {
-      console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status}`);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(6e4) });
+      if (!res.ok) {
+        console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS})`);
+        if (attempt < MAX_ATTEMPTS) {
+          await sleep(1e3 * attempt);
+          continue;
+        }
+        return null;
+      }
+      const contentType = res.headers.get("content-type") || "application/octet-stream";
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength > MAX_ASSET_BYTES) {
+        console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) \u2014 falling back to remote URL`);
+        return null;
+      }
+      const base64 = buf.toString("base64");
+      const { rows } = await pool.query(
+        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+        [contentType, base64]
+      );
+      const id = rows[0].id;
+      return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
+    } catch (err) {
+      console.error(`[content-asset-store] persistRemoteAsset failed (attempt ${attempt}/${MAX_ATTEMPTS}):`, err?.message ?? err);
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(1e3 * attempt);
+        continue;
+      }
       return null;
     }
-    const contentType = res.headers.get("content-type") || "application/octet-stream";
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > MAX_ASSET_BYTES) {
-      console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) \u2014 falling back to remote URL`);
-      return null;
-    }
-    const base64 = buf.toString("base64");
-    const { rows } = await pool.query(
-      `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
-      [contentType, base64]
-    );
-    const id = rows[0].id;
-    return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
-  } catch (err) {
-    console.error("[content-asset-store] persistRemoteAsset failed (non-fatal):", err?.message ?? err);
-    return null;
   }
+  return null;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function getPersistedAsset(id) {
   try {
@@ -36674,7 +36968,7 @@ async function generateContentVideo(prompt, opts) {
   }
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt}${HUMAN_STYLE_SUFFIX2}`;
+  const styledPrompt = `${prompt}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
   try {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
       method: "POST",
@@ -36730,11 +37024,12 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var HUMAN_STYLE_SUFFIX2, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var HUMAN_STYLE_SUFFIX2, NO_TEXT_SUFFIX, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
-    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-footage corporate look.";
+    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black people with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city/urban settings \u2014 no generic stock-footage corporate look, no other ethnicities.";
+    NO_TEXT_SUFFIX = ". Absolutely no on-screen text, no captions, no subtitles, no words, no writing, no signage, no readable UI text of any kind anywhere in the frame \u2014 pure visual scene only.";
     MODEL = "wan-video/wan-2.2-t2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
@@ -38776,23 +39071,59 @@ async function getOrCreateTodayDevotional(today) {
 async function computeWeeklyResultsStats() {
   try {
     const rows = await db.execute(drizzleSql`
+      WITH combined AS (
+        SELECT symbol, (result = 'WIN') AS is_win, closed_at
+        FROM ai_trade_results
+        WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM futures_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM cryptocom_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT underlying_symbol AS symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM options_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (outcome = 'win') AS is_win, resolved_at AS closed_at
+        FROM paper_trades
+        WHERE outcome IS NOT NULL AND outcome != 'pending' AND resolved_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT pair AS symbol, (pnl > 0) AS is_win, closed_at
+        FROM fx_paper_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT pair AS symbol, (pnl > 0) AS is_win, closed_at
+        FROM copy_trade_logs
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, created_at AS closed_at
+        FROM tradovate_trade_logs
+        WHERE action = 'CLOSE' AND status = 'executed' AND created_at >= NOW() - INTERVAL '7 days'
+      ),
+      tradelocker_only AS (
+        SELECT COUNT(*) AS cnt
+        FROM tradelocker_trade_logs
+        WHERE action = 'CLOSE' AND status = 'executed' AND created_at >= NOW() - INTERVAL '7 days'
+      )
       SELECT
-        COUNT(*) AS total_trades,
-        COUNT(*) FILTER (WHERE result = 'WIN') AS wins,
-        COALESCE(SUM(profit_loss_pips), 0) AS total_pips,
-        (SELECT symbol FROM ai_trade_results
-          WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
-          GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE result = 'WIN') DESC LIMIT 1) AS top_symbol
-      FROM ai_trade_results
-      WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+        (SELECT COUNT(*) FROM combined) AS known_outcome_trades,
+        (SELECT COUNT(*) FILTER (WHERE is_win) FROM combined) AS wins,
+        (SELECT cnt FROM tradelocker_only) AS tradelocker_only_count,
+        COALESCE((SELECT SUM(profit_loss_pips) FROM ai_trade_results WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL), 0) AS total_pips,
+        (SELECT symbol FROM combined GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE is_win) DESC LIMIT 1) AS top_symbol
     `);
     const row = rows[0]?.[0] ?? rows.rows?.[0] ?? {};
-    const totalTrades = parseInt(row.total_trades) || 0;
+    const knownOutcomeTrades = parseInt(row.known_outcome_trades) || 0;
     const wins = parseInt(row.wins) || 0;
+    const tradelockerOnlyCount = parseInt(row.tradelocker_only_count) || 0;
     return {
-      totalTrades,
+      totalTrades: knownOutcomeTrades + tradelockerOnlyCount,
       wins,
-      winRate: totalTrades > 0 ? Math.round(wins / totalTrades * 1e3) / 10 : 0,
+      winRate: knownOutcomeTrades > 0 ? Math.round(wins / knownOutcomeTrades * 1e3) / 10 : 0,
       totalPips: parseFloat(row.total_pips) || 0,
       topSymbol: row.top_symbol || null
     };
@@ -40111,6 +40442,107 @@ CREATE TABLE IF NOT EXISTS "content_studio_generations" (
   }
 });
 
+// server/services/ensure-cryptocom-engine-tables.ts
+var ensure_cryptocom_engine_tables_exports = {};
+__export(ensure_cryptocom_engine_tables_exports, {
+  ensureCryptocomEngineTables: () => ensureCryptocomEngineTables
+});
+async function ensureCryptocomEngineTables() {
+  try {
+    await pool.query(DDL10);
+    console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
+  } catch (err) {
+    console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL10;
+var init_ensure_cryptocom_engine_tables = __esm({
+  "server/services/ensure-cryptocom-engine-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL10 = `
+CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
+  "is_active" boolean NOT NULL DEFAULT false,
+  "symbols" jsonb NOT NULL DEFAULT '["BTCUSD-PERP","ETHUSD-PERP","SOLUSD-PERP"]',
+  "scan_interval_ms" integer NOT NULL DEFAULT 120000,
+  "strategy_mode" text NOT NULL DEFAULT 'auto',
+  "direction_filter" text NOT NULL DEFAULT 'both',
+  "max_open_trades" integer NOT NULL DEFAULT 3,
+  "risk_per_trade" double precision NOT NULL DEFAULT 1.0,
+  "min_confidence" double precision NOT NULL DEFAULT 70,
+  "account_balance" double precision NOT NULL DEFAULT 1000,
+  "leverage" double precision NOT NULL DEFAULT 3,
+  "daily_loss_limit" double precision NOT NULL DEFAULT 5.0,
+  "daily_profit_target" double precision NOT NULL DEFAULT 0,
+  "max_daily_trades" integer NOT NULL DEFAULT 0,
+  "lock_settings" boolean NOT NULL DEFAULT false,
+  "ai_mode" text NOT NULL DEFAULT 'full',
+  "enable_auto_execution" boolean NOT NULL DEFAULT false,
+  "use_kelly_criterion" boolean NOT NULL DEFAULT false,
+  "brain_learning_mode" boolean NOT NULL DEFAULT true,
+  "drawdown_shield_threshold" double precision NOT NULL DEFAULT 3.0,
+  "trail_method" text NOT NULL DEFAULT 'none',
+  "trail_activation_r" double precision NOT NULL DEFAULT 1.0,
+  "trail_fixed_r" double precision NOT NULL DEFAULT 0.5,
+  "trail_step_r" double precision NOT NULL DEFAULT 0.5,
+  "trail_profit_lock_pct" double precision NOT NULL DEFAULT 60,
+  "trail_sar_initial_af" double precision NOT NULL DEFAULT 0.02,
+  "trail_sar_max_af" double precision NOT NULL DEFAULT 0.20,
+  "breakeven_buffer_r" double precision NOT NULL DEFAULT 0.1,
+  "consistency_enforcement_enabled" boolean NOT NULL DEFAULT false,
+  "consistency_min_profitable_days" integer NOT NULL DEFAULT 10,
+  "consistency_period_days" integer NOT NULL DEFAULT 15,
+  "max_daily_profit_pct_of_total" double precision NOT NULL DEFAULT 0,
+  "smart_symbol_escalation" boolean NOT NULL DEFAULT false,
+  "high_confidence_override" boolean NOT NULL DEFAULT false,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "cryptocom_engine_activity" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "symbol" text NOT NULL,
+  "decision" text NOT NULL,
+  "reasoning" text NOT NULL,
+  "score" double precision,
+  "price" double precision,
+  "daily_change_percent" double precision,
+  "source" text NOT NULL DEFAULT 'cryptocom',
+  "strategy" text,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "cryptocom_engine_trades" (
+  "id" serial PRIMARY KEY,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "direction" text NOT NULL,
+  "quantity" double precision NOT NULL,
+  "entry_price" double precision NOT NULL,
+  "stop_loss" double precision,
+  "take_profit" double precision,
+  "entry_order_id" text,
+  "entry_reasoning" text,
+  "status" text NOT NULL DEFAULT 'open',
+  "exit_price" double precision,
+  "exit_order_id" text,
+  "exit_reason" text,
+  "realized_pnl" double precision,
+  "closed_at" timestamp,
+  "peak_r_multiple" double precision NOT NULL DEFAULT 0,
+  "trail_armed" boolean NOT NULL DEFAULT false,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+`;
+  }
+});
+
 // server/services/ensure-live-engine-config-table.ts
 var ensure_live_engine_config_table_exports = {};
 __export(ensure_live_engine_config_table_exports, {
@@ -40118,18 +40550,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -40148,18 +40580,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -40176,18 +40608,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -40206,6 +40638,69 @@ CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
   UNIQUE("connection_id", "connection_type")
 );
 `;
+  }
+});
+
+// server/services/blog-scheduler.ts
+var blog_scheduler_exports = {};
+__export(blog_scheduler_exports, {
+  startBlogPostScheduler: () => startBlogPostScheduler
+});
+async function runScheduledBlogPost() {
+  try {
+    const generated = await generateVeddBlogPost(void 0, 0);
+    let coverImage;
+    try {
+      const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
+      const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+      if (image?.url) {
+        const persisted = await persistRemoteAsset(image.url);
+        coverImage = persisted?.url ?? image.url;
+      }
+    } catch (err) {
+      console.error("[blog-scheduler] cover image generation failed (non-fatal):", err.message);
+    }
+    const saved = await storage.createBlogPost({
+      ...generated,
+      coverImage,
+      isPublished: true,
+      isFeatured: false,
+      aiGenerated: true,
+      publishedAt: /* @__PURE__ */ new Date(),
+      tags: generated.tags
+    });
+    console.log(`[blog-scheduler] Published "${saved.title}" (slug: ${saved.slug})`);
+  } catch (e) {
+    console.error("[blog-scheduler] Scheduled run error:", e.message);
+  }
+}
+function startBlogPostScheduler() {
+  function scheduleNext() {
+    const now = /* @__PURE__ */ new Date();
+    const next = /* @__PURE__ */ new Date();
+    next.setUTCHours(RUN_HOUR_UTC, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    while (!TARGET_UTC_DAYS.includes(next.getUTCDay())) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+    const delay = next.getTime() - now.getTime();
+    console.log(`[blog-scheduler] Next auto blog post at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
+    setTimeout(async () => {
+      await runScheduledBlogPost();
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+var TARGET_UTC_DAYS, RUN_HOUR_UTC;
+var init_blog_scheduler = __esm({
+  "server/services/blog-scheduler.ts"() {
+    "use strict";
+    init_openai();
+    init_storage();
+    init_content_asset_store();
+    TARGET_UTC_DAYS = [3, 5];
+    RUN_HOUR_UTC = 13;
   }
 });
 
@@ -41147,6 +41642,436 @@ var init_options_scanner = __esm({
     };
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
+  }
+});
+
+// server/services/cryptocom-scanner.ts
+var cryptocom_scanner_exports = {};
+__export(cryptocom_scanner_exports, {
+  runCryptocomEngineScan: () => runCryptocomEngineScan,
+  startCryptocomEngineScanner: () => startCryptocomEngineScanner
+});
+function convertToCandles3(bars) {
+  return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+}
+async function runTrendFollowing(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+  if (bars.length < 30) {
+    return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
+  }
+  const candles = convertToCandles3(bars);
+  const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
+  const price = candles[candles.length - 1].c;
+  const dailyChangePercent = (price - candles[0].c) / candles[0].c * 100;
+  const adx = indicators.adx?.adx || 0;
+  const plusDI = indicators.adx?.plusDI || 0;
+  const minusDI = indicators.adx?.minusDI || 0;
+  const rsi3 = indicators.rsi?.value || 50;
+  const macdHist2 = indicators.macd?.histogram || 0;
+  let direction = null;
+  let score = 0;
+  const confluences = [];
+  if (adx > 25 && plusDI > minusDI && rsi3 < 68 && macdHist2 > 0) {
+    direction = "BUY";
+    score = 60 + Math.min(20, adx - 25);
+    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish");
+  } else if (adx > 25 && minusDI > plusDI && rsi3 > 32 && macdHist2 < 0) {
+    direction = "SELL";
+    score = 60 + Math.min(20, adx - 25);
+    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish");
+  }
+  if (!direction) {
+    return { decision: "watching", reasoning: `${symbol}: no clear trend confluence (ADX ${adx.toFixed(1)}, RSI ${rsi3.toFixed(1)}).`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: ${direction} confluence found, but direction filter is "${cfg.directionFilter}".`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: ${direction} confluence (${confluences.join(", ")}) but score ${Math.round(score)}/100 below ${cfg.minConfidence} threshold.`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  return {
+    decision: "signal",
+    score: Math.round(score),
+    price,
+    dailyChangePercent,
+    strategy: "trend_following",
+    direction,
+    reasoning: `${symbol}: ${direction} trend confluence \u2014 ${confluences.join(", ")}. Score ${Math.round(score)}/100.`
+  };
+}
+async function runMomentum2(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "15m", 30);
+  if (bars.length < 10) {
+    return { decision: "error", reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
+  }
+  const price = bars[bars.length - 1].c;
+  const dailyChangePercent = (price - bars[0].c) / bars[0].c * 100;
+  const direction = dailyChangePercent >= 0 ? "BUY" : "SELL";
+  const score = Math.round(Math.min(100, 50 + Math.min(Math.abs(dailyChangePercent) / 3, 1) * 50));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: moved ${direction === "BUY" ? "up" : "down"} ${Math.abs(dailyChangePercent).toFixed(2)}%, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "momentum" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: momentum score ${score}/100 below ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent, strategy: "momentum" };
+  }
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
+}
+async function scanSymbol2(symbol, cfg) {
+  if (cfg.strategyMode === "auto") {
+    const results = await Promise.all(["trend_following", "momentum"].map((k) => STRATEGY_RUNNERS2[k](symbol, cfg).catch(() => null)));
+    const valid = results.filter((r) => !!r);
+    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (signals.length > 0) return signals[0];
+    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (watching.length > 0) return watching[0];
+    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
+  }
+  const runner = STRATEGY_RUNNERS2[cfg.strategyMode] || runTrendFollowing;
+  return runner(symbol, cfg);
+}
+async function computeCryptocomQuantity(userId, cfg, accountBalance, price) {
+  if (!price || price <= 0 || accountBalance <= 0) return { quantity: 0, reasoning: "" };
+  const riskAmount = accountBalance * (cfg.riskPerTrade / 100) * cfg.leverage;
+  const baseQty = Math.max(0, Math.round(riskAmount / price * 1e3) / 1e3);
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getCryptocomEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { quantity: baseQty > 0 ? Math.min(baseQty, Math.max(1e-3, baseQty * 0.25)) : 0, reasoning: `\u{1F9E0} Learning Mode: sized conservatively (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      return { quantity: baseQty * (1 + fractionalKelly), reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+    }
+    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getCryptocomEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    return { quantity: baseQty * (1 + fractionalKelly), reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+  }
+  return { quantity: baseQty, reasoning: "" };
+}
+function computeTrailFloorR(cfg, peakR) {
+  switch (cfg.trailMethod) {
+    case "fixed_r":
+      return peakR - cfg.trailFixedR;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case "profit_lock":
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakR - cfg.trailFixedR * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case "swing_structure":
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function monitorOpenPositions2(userId, cfg) {
+  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
+  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
+  for (const trade of openTrades) {
+    try {
+      const currentPrice = await CryptoComService.getTicker(trade.symbol);
+      if (!currentPrice || !trade.stopLoss) continue;
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === "long";
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      if (currentR <= -1) {
+        await closePosition2(userId, trade, currentPrice, "stop_loss");
+        continue;
+      }
+      if (armed) {
+        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          await closePosition2(userId, trade, currentPrice, "trailing_stop");
+          continue;
+        }
+      }
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err) {
+      console.error(`[cryptocom-scanner] monitor failed for trade ${trade.id}:`, err.message);
+    }
+  }
+}
+async function closePosition2(userId, trade, currentPrice, reason) {
+  try {
+    const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
+    if (connection2) {
+      const service = new CryptoComService(connection2.apiKey, decryptApiSecret2(connection2.encryptedApiSecret));
+      const closeSide = trade.direction === "long" ? "SELL" : "BUY";
+      await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: "MARKET" }).catch(() => {
+      });
+    }
+    const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
+    await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    await storage.createCryptocomEngineActivity({
+      userId,
+      symbol: trade.symbol,
+      decision: "signal",
+      strategy: trade.strategy,
+      reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+      score: null,
+      price: currentPrice,
+      dailyChangePercent: null,
+      source: "cryptocom"
+    });
+  } catch (err) {
+    console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
+  }
+}
+async function checkSafetyGates2(userId, cfg, equity) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayCryptocomEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayCryptocomEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(sessionPeakEquity2.get(userId) ?? equity, equity);
+    sessionPeakEquity2.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.consistencyEnforcementEnabled) {
+      const history = await storage.getCryptocomEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit already ${todayPctOfTotal.toFixed(0)}% of total`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+function quantVerdictFromScore2(score) {
+  if (score === null) return "SKIP";
+  if (score >= 65) return "CONFIRM";
+  if (score >= 40) return "WATCH";
+  return "SKIP";
+}
+async function getCryptocomAiConfirmation(userId, symbol, result) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined crypto perpetual futures second opinion. Given a rules-based signal, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string}.';
+    const user = `Symbol: ${symbol}
+Strategy: ${result.strategy}
+Direction: ${result.direction}
+Quant score: ${result.score}/100
+Price: ${result.price}
+Daily change %: ${result.dailyChangePercent}
+Reasoning: ${result.reasoning}`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || "") };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+function pushConsensus(userId, entry) {
+  global.cryptocomEngineConsensus = global.cryptocomEngineConsensus || {};
+  const list = global.cryptocomEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.cryptocomEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+async function assembleConsensus(userId, symbol, result, cfg) {
+  const quantVerdict = quantVerdictFromScore2(result.score);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quantVerdict !== "SKIP";
+    pushConsensus(userId, {
+      symbol,
+      strategy: result.strategy,
+      quantVerdict,
+      quantScore: result.score ?? 0,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = await getCryptocomAiConfirmation(userId, symbol, result);
+  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  return tradeAllowed;
+}
+async function executeSignal2(service, connection2, userId, symbol, result, cfg) {
+  if (!result.direction || !result.price) return;
+  let account;
+  try {
+    account = await service.getAccountInfo();
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: couldn't fetch account info: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const gate = await checkSafetyGates2(userId, cfg, gateEquity);
+  if (!gate.allowed) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
+  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, account.equity, result.price);
+  if (quantity <= 0) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const atrDistance = Math.max(result.price * 0.01, result.price * 5e-3);
+  const stopLoss = result.direction === "BUY" ? result.price - atrDistance : result.price + atrDistance;
+  const takeProfit = result.direction === "BUY" ? result.price + atrDistance * 2 : result.price - atrDistance * 2;
+  let order;
+  try {
+    order = await service.placeOrder({ instrumentName: symbol, side: result.direction, quantity, type: "MARKET" });
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: order failed: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  await storage.createCryptocomEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    symbol,
+    strategy: result.strategy,
+    direction: result.direction === "BUY" ? "long" : "short",
+    quantity,
+    entryPrice: result.price,
+    stopLoss,
+    takeProfit,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open"
+  });
+  await storage.createCryptocomEngineActivity({
+    userId,
+    symbol,
+    decision: "signal",
+    strategy: result.strategy,
+    reasoning: `${symbol}: EXECUTED \u2014 ${result.direction === "BUY" ? "long" : "short"} ${quantity} @ ~$${result.price.toFixed(2)}. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "cryptocom"
+  });
+}
+async function scanOneUser2(userId) {
+  const config = await storage.getUserCryptocomEngineConfig(userId);
+  if (!config || !config.isActive) return;
+  const now = Date.now();
+  const last = lastScanAt2.get(userId) || 0;
+  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS2, config.scanIntervalMs)) return;
+  lastScanAt2.set(userId, now);
+  const connections = await storage.getUserCryptocomConnections(userId);
+  const activeConn = connections.find((c) => c.isActive);
+  if (!activeConn) {
+    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "No active Crypto.com connection.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+    return;
+  }
+  let service;
+  try {
+    service = new CryptoComService(activeConn.apiKey, decryptApiSecret2(activeConn.encryptedApiSecret));
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+    return;
+  }
+  await monitorOpenPositions2(userId, config).catch((e) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
+  const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
+  const symbols = Array.isArray(config.symbols) ? config.symbols : [];
+  for (const symbol of symbols) {
+    try {
+      const result = await scanSymbol2(symbol, config);
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: result.decision, reasoning: result.reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom", strategy: result.strategy });
+      if (result.decision === "signal" && canAutoExecute) {
+        const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        if (tradeAllowed) {
+          await executeSignal2(service, activeConn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
+        } else {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        }
+      }
+    } catch (err) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: config.strategyMode });
+    }
+  }
+}
+async function runCryptocomEngineScan() {
+  try {
+    const configs = await storage.getAllActiveCryptocomEngineConfigs();
+    for (const config of configs) {
+      await scanOneUser2(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
+    }
+  } catch (err) {
+    console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
+  }
+}
+function startCryptocomEngineScanner() {
+  if (started3) return;
+  started3 = true;
+  const LOOP_INTERVAL_MS = 6e4;
+  setInterval(() => {
+    runCryptocomEngineScan().catch(() => {
+    });
+  }, LOOP_INTERVAL_MS);
+  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
+}
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, STRATEGY_RUNNERS2, sessionPeakEquity2, started3;
+var init_cryptocom_scanner = __esm({
+  "server/services/cryptocom-scanner.ts"() {
+    "use strict";
+    init_storage();
+    init_cryptocom();
+    init_indicators();
+    MIN_SCAN_INTERVAL_MS2 = 3e4;
+    lastScanAt2 = /* @__PURE__ */ new Map();
+    STRATEGY_RUNNERS2 = {
+      trend_following: runTrendFollowing,
+      momentum: runMomentum2
+    };
+    sessionPeakEquity2 = /* @__PURE__ */ new Map();
+    started3 = false;
   }
 });
 
@@ -59666,6 +60591,87 @@ Rules:
       res.status(400).json({ success: false, error: errorMsg });
     }
   });
+  app2.get("/api/cryptocom-engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    let config = await storage.getUserCryptocomEngineConfig(userId);
+    if (!config) config = await storage.upsertCryptocomEngineConfig(userId, {});
+    res.json(config);
+  });
+  app2.patch("/api/cryptocom-engine/config", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const allowed = [
+      "isActive",
+      "symbols",
+      "scanIntervalMs",
+      "strategyMode",
+      "directionFilter",
+      "maxOpenTrades",
+      "riskPerTrade",
+      "minConfidence",
+      "accountBalance",
+      "leverage",
+      "dailyLossLimit",
+      "dailyProfitTarget",
+      "maxDailyTrades",
+      "lockSettings",
+      "aiMode",
+      "enableAutoExecution",
+      "useKellyCriterion",
+      "brainLearningMode",
+      "drawdownShieldThreshold",
+      "trailMethod",
+      "trailActivationR",
+      "trailFixedR",
+      "trailStepR",
+      "trailProfitLockPct",
+      "trailSarInitialAF",
+      "trailSarMaxAF",
+      "breakevenBufferR",
+      "consistencyEnforcementEnabled",
+      "consistencyMinProfitableDays",
+      "consistencyPeriodDays",
+      "maxDailyProfitPctOfTotal",
+      "smartSymbolEscalation",
+      "highConfidenceOverride"
+    ];
+    const updateData = {};
+    for (const key of allowed) {
+      if (req.body[key] !== void 0) updateData[key] = req.body[key];
+    }
+    const config = await storage.upsertCryptocomEngineConfig(userId, updateData);
+    res.json(config);
+  });
+  app2.get("/api/cryptocom-engine/activity", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
+    const activity = await storage.getUserCryptocomEngineActivity(userId, limit);
+    res.json({ activity });
+  });
+  app2.get("/api/cryptocom-engine/trades", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const limit = Math.min(parseInt(String(req.query.limit || "50"), 10) || 50, 200);
+    const [open, recent] = await Promise.all([
+      storage.getOpenCryptocomEngineTrades(userId),
+      storage.getUserCryptocomEngineTrades(userId, limit)
+    ]);
+    res.json({ open, recent });
+  });
+  app2.get("/api/cryptocom-engine/consensus", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const consensus = global.cryptocomEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
+      strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
+      caution: consensus.filter((c) => c.consensus === "CAUTION").length,
+      watch: consensus.filter((c) => c.consensus === "WATCH").length
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+  });
   app2.get("/api/tradelocker/trades", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -62306,9 +63312,9 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const posId = req.params.id;
-    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2, closePosition: closePosition2 }) => {
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2, closePosition: closePosition3 }) => {
       const state = getEngineState2(userId);
-      const ok = closePosition2(state, posId, void 0, userId);
+      const ok = closePosition3(state, posId, void 0, userId);
       if (!ok) return res.status(404).json({ error: "Position not found" });
       res.json({ success: true, state });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
@@ -68345,15 +69351,18 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(image.url);
-      const permanentUrl = persisted?.url ?? image.url;
+      if (!persisted) {
+        console.error("[content-studio] generate-image: persistence failed after retries \u2014 not saving to library (would break later when provider URL expires)");
+        return res.json({ ...image, url: image.url, persisted: false });
+      }
       await storage.createContentStudioGeneration({
         userId: u.id,
         contentType: "image",
         prompt,
-        assetUrl: permanentUrl,
+        assetUrl: persisted.url,
         metadata: { provider: image.provider }
       }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ ...image, url: permanentUrl });
+      res.json({ ...image, url: persisted.url, persisted: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68369,7 +69378,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
       const image = await generateContentImage2(`A social media carousel slide background about: ${subject}`);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
-      res.json(image);
+      const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+      const persisted = await persistRemoteAsset2(image.url);
+      res.json({ ...image, url: persisted?.url ?? image.url, persisted: !!persisted });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68387,15 +69398,18 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);
-      const permanentUrl = persisted?.url ?? video.url;
+      if (!persisted) {
+        console.error("[content-studio] generate-video: persistence failed after retries \u2014 not saving to library (would break later when provider URL expires)");
+        return res.json({ ...video, url: video.url, persisted: false });
+      }
       await storage.createContentStudioGeneration({
         userId: u.id,
         contentType: "video",
         prompt,
-        assetUrl: permanentUrl,
+        assetUrl: persisted.url,
         metadata: { provider: video.provider }
       }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ ...video, url: permanentUrl });
+      res.json({ ...video, url: persisted.url, persisted: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68415,17 +69429,20 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);
-      const permanentUrl = persisted?.url ?? video.url;
+      if (!persisted) {
+        console.error("[content-studio] generate-reel: persistence failed after retries \u2014 not saving to library (would break later when provider URL expires)");
+        return res.json({ ...script, url: video.url, persisted: false });
+      }
       await storage.createContentStudioGeneration({
         userId: u.id,
         contentType: "reel",
         prompt: topic,
         title: script.hook ?? null,
         caption: script.caption ?? null,
-        assetUrl: permanentUrl,
+        assetUrl: persisted.url,
         metadata: { provider: video.provider, script }
       }).catch((e) => console.error("[content-studio] failed to save generation record:", e.message));
-      res.json({ ...script, url: permanentUrl });
+      res.json({ ...script, url: persisted.url, persisted: true });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -68447,11 +69464,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       for (const slide of script.slides) {
         const image = await generateContentImage2(slide.imagePrompt);
         let imageUrl = image?.url ?? null;
+        let persistedOk = false;
         if (imageUrl) {
           const persisted = await persistRemoteAsset2(imageUrl);
-          if (persisted) imageUrl = persisted.url;
+          if (persisted) {
+            imageUrl = persisted.url;
+            persistedOk = true;
+          } else console.error(`[content-studio] generate-carousel: slide "${slide.heading}" image failed to persist after retries \u2014 using temporary URL, will expire`);
         }
-        slides.push({ heading: slide.heading, body: slide.body, imageUrl });
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl, persisted: persistedOk });
       }
       await storage.createContentStudioGeneration({
         userId: u.id,
@@ -70247,6 +71268,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/copy/leaderboard", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
+      await syncTradeLockerOutcomes(req.user.id).catch(() => {
+      });
       const rows = await db.execute(sql9`
         SELECT
           u.id AS user_id,
@@ -71014,6 +72037,9 @@ async function setupVite(app2, server) {
   app2.use(vite.middlewares);
   app2.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    if (url.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not found", path: url });
+    }
     try {
       const clientTemplate = path14.resolve(
         import.meta.dirname,
@@ -71090,6 +72116,9 @@ function serveStatic(app2) {
 })();
 </script>`;
   app2.use("*", async (req, res) => {
+    if (req.originalUrl.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not found", path: req.originalUrl });
+    }
     try {
       res.set({
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -72072,9 +73101,11 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      const { restorePmUsEngineStateFromDb: restorePmUsEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
       for (const row of runningRows) {
         if (row.engine === "polymarket") await restoreEngineStateFromDb2(row.userId);
         if (row.engine === "kalshi") await restoreKalshiEngineStateFromDb2(row.userId);
+        if (row.engine === "polymarket-us") await restorePmUsEngineStateFromDb2(row.userId);
       }
       console.log(`[startup] Restored ${runningRows.length} engine(s) from DB`);
     }
@@ -72134,6 +73165,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureContentStudioTables2();
   } catch (err) {
     console.error(`[startup] ensureContentStudioTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureCryptocomEngineTables: ensureCryptocomEngineTables2 } = await Promise.resolve().then(() => (init_ensure_cryptocom_engine_tables(), ensure_cryptocom_engine_tables_exports));
+    await ensureCryptocomEngineTables2();
+  } catch (err) {
+    console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));
@@ -73013,12 +74050,16 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startLeadHunterScheduler2();
     const { startAmbassadorPrimeScheduler: startAmbassadorPrimeScheduler2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
     startAmbassadorPrimeScheduler2();
+    const { startBlogPostScheduler: startBlogPostScheduler2 } = await Promise.resolve().then(() => (init_blog_scheduler(), blog_scheduler_exports));
+    startBlogPostScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     startTradeLockerSync2();
     const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));
     startPaperTradeResolverLoop2();
     const { startOptionsEngineScanner: startOptionsEngineScanner2 } = await Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports));
     startOptionsEngineScanner2();
+    const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
+    startCryptocomEngineScanner2();
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
   });

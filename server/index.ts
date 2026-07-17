@@ -176,9 +176,11 @@ async function withRetry<T>(
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb } = await import('./services/polymarket-autonomous-engine');
       const { restoreKalshiEngineStateFromDb } = await import('./services/kalshi-engine');
+      const { restorePmUsEngineStateFromDb } = await import('./services/polymarket-us-engine');
       for (const row of runningRows) {
-        if (row.engine === 'polymarket') await restoreEngineStateFromDb(row.userId);
-        if (row.engine === 'kalshi')     await restoreKalshiEngineStateFromDb(row.userId);
+        if (row.engine === 'polymarket')    await restoreEngineStateFromDb(row.userId);
+        if (row.engine === 'kalshi')        await restoreKalshiEngineStateFromDb(row.userId);
+        if (row.engine === 'polymarket-us') await restorePmUsEngineStateFromDb(row.userId);
       }
       console.log(`[startup] Restored ${runningRows.length} engine(s) from DB`);
     }
@@ -262,6 +264,15 @@ async function withRetry<T>(
     await ensureContentStudioTables();
   } catch (err: any) {
     console.error(`[startup] ensureContentStudioTables import error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Ensure Crypto.com Perpetuals Engine tables exist (previously "Auto-execute"
+  // was a dead toggle with no scanner/strategy engine behind it).
+  try {
+    const { ensureCryptocomEngineTables } = await import('./services/ensure-cryptocom-engine-tables');
+    await ensureCryptocomEngineTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
   }
 
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
@@ -1201,6 +1212,10 @@ async function withRetry<T>(
     const { startAmbassadorPrimeScheduler } = await import('./services/ambassador-prime');
     startAmbassadorPrimeScheduler();
 
+    // Start auto blog post generation (runs Wed + Fri at 13:00 UTC)
+    const { startBlogPostScheduler } = await import('./services/blog-scheduler');
+    startBlogPostScheduler();
+
     // Start live TradeLocker balance sync (keeps balances fresh like MT5)
     const { startTradeLockerSync } = await import('./services/tradelocker-sync');
     startTradeLockerSync();
@@ -1212,6 +1227,10 @@ async function withRetry<T>(
     // Start Options AI Engine scan loop (produces the live decision feed)
     const { startOptionsEngineScanner } = await import('./services/options-scanner');
     startOptionsEngineScanner();
+
+    // Start Crypto.com Perpetuals AI Engine scan loop
+    const { startCryptocomEngineScanner } = await import('./services/cryptocom-scanner');
+    startCryptocomEngineScanner();
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });

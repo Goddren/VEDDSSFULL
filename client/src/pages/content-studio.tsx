@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-interface BlogPost { id: number; title: string; excerpt: string; category: string; tags: string[]; content: string; publishedAt?: string; }
+interface BlogPost { id: number; slug: string; title: string; excerpt: string; category: string; tags: string[]; content: string; publishedAt?: string; }
 interface ChartAnalysis { id: number; symbol: string; direction: string; confidence: string; entryPoint: string; stopLoss: string; takeProfit: string; riskRewardRatio: string; potentialPips: string; trend: string; timeframe: string; createdAt: string; imageUrl?: string; }
 interface Devotional { id: number; title: string; scripture: string; scriptureReference: string; content: string; tradingLesson?: string; createdAt: string; }
 
@@ -76,8 +76,16 @@ const CAROUSEL_TOPIC_PRESETS = [
 // ── Caption templates ─────────────────────────────────────────────────────────
 function buildCaption(type: ContentType, item: any, referralCode: string | null, referralUrl?: string): string {
   const url = referralUrl ?? (referralCode
-    ? `https://veddbuild.com/auth?ref=${referralCode}`
-    : 'https://veddbuild.com');
+    ? `${window.location.origin}/auth?ref=${referralCode}`
+    : window.location.origin);
+
+  // Lesson posts deep-link to the actual article (not just the signup page)
+  // so shares build the VEDD blog community — the referral code rides along
+  // on the article URL too, so credit still lands once the reader signs up
+  // from the article's own "Join VEDD" prompt.
+  const articleUrl = item?.slug
+    ? (referralCode ? `${window.location.origin}/blog/${item.slug}?ref=${referralCode}` : `${window.location.origin}/blog/${item.slug}`)
+    : url;
 
   switch (type) {
     case 'lesson': return (
@@ -85,7 +93,7 @@ function buildCaption(type: ContentType, item: any, referralCode: string | null,
       `"${item?.title || 'Master Your Trading Edge'}"\n\n` +
       `${truncate(stripHtml(item?.excerpt || ''), 200)}\n\n` +
       `🧠 Real knowledge. Real results. AI-powered.\n\n` +
-      `👇 Join VEDD free & get access to every lesson:\n${url}\n\n` +
+      `👇 Read the full lesson & join VEDD free:\n${articleUrl}\n\n` +
       `#VEDD #TradingEducation #Forex #AITrading #Investing`
     );
     case 'signal': return (
@@ -138,18 +146,37 @@ function buildImageSubject(type: ContentType, item: any): string {
   }
 }
 
+// CSS background-image URLs fail silently (no onError to hook into), so a
+// broken/expired asset just renders as a blank gradient with no signal to
+// the user. This preloads the URL via a real <img> load check and only
+// hands back the URL once it's confirmed to actually load.
+function useValidatedImage(url?: string | null): string | null {
+  const [valid, setValid] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) { setValid(null); return; }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => { if (!cancelled) setValid(url); };
+    img.onerror = () => { if (!cancelled) setValid(null); };
+    img.src = url;
+    return () => { cancelled = true; };
+  }, [url]);
+  return valid;
+}
+
 // Shared card shell — lays the optional AI-generated background image behind
 // the existing per-type gradient (dimmed to keep text readable on top of it)
 // so cards keep their brand look whether or not an image was generated.
 function CardShell({ gradient, color, bgImage, children }: {
   gradient: string; color: string; bgImage?: string | null; children: ReactNode;
 }) {
+  const validBgImage = useValidatedImage(bgImage);
   return (
     <div className="rounded-2xl w-full aspect-square relative overflow-hidden" style={{ border: `1px solid ${color}44` }}>
-      {bgImage && (
-        <div className="absolute inset-0" style={{ backgroundImage: `url(${bgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+      {validBgImage && (
+        <div className="absolute inset-0" style={{ backgroundImage: `url(${validBgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
       )}
-      <div className="absolute inset-0" style={{ background: gradient, opacity: bgImage ? 0.82 : 1 }} />
+      <div className="absolute inset-0" style={{ background: gradient, opacity: validBgImage ? 0.82 : 1 }} />
       <div className="relative z-10 p-4 w-full h-full flex flex-col">
         {children}
       </div>
@@ -161,7 +188,7 @@ function CardShell({ gradient, color, bgImage, children }: {
 function BrandedCard({ type, item, referralCode, bgImage }: {
   type: ContentType; item: any; referralCode: string | null; bgImage?: string | null;
 }) {
-  const signupUrl = referralCode ? `veddbuild.com/auth?ref=${referralCode}` : 'veddbuild.com';
+  const signupUrl = referralCode ? `${window.location.host}/auth?ref=${referralCode}` : window.location.host;
   const cfg = CONTENT_TYPES.find(c => c.id === type)!;
 
   // Shared header
@@ -489,9 +516,137 @@ function formatForPlatform(platform: string, caption: string, url: string, mode:
   }
 }
 
-function ShareButtons({ caption, referralCode, referralUrl, mode = 'post' }: { caption: string; referralCode: string | null; referralUrl?: string; mode?: 'post' | 'reel' }) {
+// Fetches a same-origin image URL (e.g. a flattened slide from
+// /api/content-studio/asset/:id) as a Blob and wraps it as a File — the
+// shape navigator.share({files}) needs to hand the actual image straight to
+// whichever app the user picks in the native share sheet, no download step.
+async function urlToShareFile(imageUrl: string, filename: string): Promise<File | null> {
+  try {
+    const res = await fetch(imageUrl);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return new File([blob], filename, { type: blob.type || 'image/png' });
+  } catch {
+    return null;
+  }
+}
+
+// One carousel slide, with its own "flatten" (bake heading/body text onto
+// the image server-side, same service as the single-slide flow) + native
+// share — today the carousel only overlays text via CSS in this preview, so
+// "Download" grabbed just the plain background with no words on it, forcing
+// a screenshot. Flattening first means the shared/downloaded file actually
+// has the text baked in, and native share sends that finished image straight
+// to whichever app the user picks.
+function CarouselSlideCard({ slide, index, total, includeLogo, referralCode, referralUrl }: {
+  slide: { heading: string; body: string; imageUrl: string | null };
+  index: number; total: number; includeLogo: boolean;
+  referralCode: string | null; referralUrl?: string;
+}) {
+  const [flattening, setFlattening] = useState(false);
+  const [flattenedUrl, setFlattenedUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const flatten = async () => {
+    if (!slide.imageUrl || flattening) return;
+    setFlattening(true);
+    setError(null);
+    try {
+      const res = await apiRequest('POST', '/api/content-studio/flatten-slide', {
+        imageUrl: slide.imageUrl,
+        heading: slide.heading,
+        body: slide.body,
+        includeLogo,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Flattening failed');
+      setFlattenedUrl(data.flattenedUrl);
+    } catch (err: any) {
+      setError(err.message || 'Flattening failed');
+    } finally {
+      setFlattening(false);
+    }
+  };
+
+  const share = async () => {
+    if (!flattenedUrl) return;
+    const file = await urlToShareFile(flattenedUrl, `vedd-slide-${index + 1}-${Date.now()}.png`);
+    const url = referralUrl ?? (referralCode ? `${window.location.origin}/auth?ref=${referralCode}` : window.location.origin);
+    if (file && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ title: 'VEDDBuild', text: `${slide.heading}\n\n${url}`, files: [file] });
+        return;
+      } catch { /* user cancelled — fall through to opening the image */ }
+    }
+    window.open(flattenedUrl, '_blank');
+  };
+
+  return (
+    <div className="flex-shrink-0" style={{ width: 240 }}>
+      <div className="rounded-2xl w-full aspect-square relative overflow-hidden" style={{ border: '1px solid rgba(255,255,255,.12)', background: '#050507' }}>
+        {slide.imageUrl && (
+          <div className="absolute inset-0" style={{ backgroundImage: `url(${flattenedUrl || slide.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: flattenedUrl ? 1 : 0.28 }} />
+        )}
+        {!flattenedUrl && (
+          <>
+            <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,.75) 100%)' }} />
+            <div className="relative z-10 p-4 w-full h-full flex flex-col">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
+                    <span className="text-[9px] font-black text-white">V</span>
+                  </div>
+                  <span className="text-[9px] font-bold text-gray-400 tracking-widest uppercase">VEDD</span>
+                </div>
+                <span className="text-[9px] font-bold text-gray-500">{index + 1}/{total}</span>
+              </div>
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                <h4 className="text-lg font-black text-white leading-tight uppercase tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,.9)' }}>{slide.heading}</h4>
+                <div className="w-8 h-0.5 my-2.5" style={{ background: 'linear-gradient(90deg,#dc2626,#7c3aed)' }} />
+                <p className="text-[11px] text-gray-300 leading-relaxed" style={{ textShadow: '0 1px 8px rgba(0,0,0,.9)' }}>{slide.body}</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-400">@veddbuild</span>
+                {index < total - 1 && <span className="text-[10px] text-gray-500">swipe →</span>}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+      {slide.imageUrl ? (
+        <div className="mt-1.5 space-y-1">
+          {!flattenedUrl ? (
+            <button onClick={flatten} disabled={flattening}
+              className="w-full text-center text-[10px] font-bold px-2 py-1.5 rounded-lg"
+              style={{ background: 'rgba(56,189,248,.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,.25)' }}>
+              {flattening ? 'Baking text onto image…' : '✍️ Bake Words Onto Image'}
+            </button>
+          ) : (
+            <>
+              <button onClick={share}
+                className="w-full text-center text-[10px] font-bold px-2 py-1.5 rounded-lg"
+                style={{ background: 'linear-gradient(135deg,#ef4444,#a855f7)', color: '#fff' }}>
+                📲 Share Slide {index + 1}
+              </button>
+              <a href={flattenedUrl} download target="_blank" rel="noreferrer"
+                className="block text-center text-[10px] font-bold px-2 py-1.5 rounded-lg"
+                style={{ background: 'rgba(56,189,248,.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,.25)' }}>
+                ⬇ Download Slide {index + 1}
+              </a>
+            </>
+          )}
+          {error && <p className="text-[9px] text-red-400 text-center">{error}</p>}
+        </div>
+      ) : (
+        <p className="text-center text-[10px] text-gray-500 mt-1.5">Background image unavailable — text still generated</p>
+      )}
+    </div>
+  );
+}
+
+function ShareButtons({ caption, referralCode, referralUrl, mode = 'post', imageUrl }: { caption: string; referralCode: string | null; referralUrl?: string; mode?: 'post' | 'reel'; imageUrl?: string | null }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const url = referralUrl ?? (referralCode ? `https://veddbuild.com/auth?ref=${referralCode}` : 'https://veddbuild.com');
+  const url = referralUrl ?? (referralCode ? `${window.location.origin}/auth?ref=${referralCode}` : window.location.origin);
 
   const doCopy = async (text: string, key: string) => {
     await copyText(text);
@@ -520,9 +675,21 @@ function ShareButtons({ caption, referralCode, referralUrl, mode = 'post' }: { c
     window.open(p.compose(formatted), '_blank');
   };
 
-  // Native OS share sheet — the real "straight to the platform" on mobile
+  // Native OS share sheet — the real "straight to the platform" on mobile.
+  // When a generated image is available, attach it as an actual file so the
+  // user can pick a social app and post the finished image immediately —
+  // no download-then-re-upload round trip.
   const nativeShare = async () => {
     const formatted = formatForPlatform('ig', caption, url, mode);
+    if (imageUrl) {
+      const file = await urlToShareFile(imageUrl, `vedd-${Date.now()}.png`);
+      if (file && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ title: 'VEDDBuild', text: formatted, files: [file] });
+          return;
+        } catch { /* user cancelled — fall through to text-only/copy below */ }
+      }
+    }
     try {
       if (navigator.share) {
         await navigator.share({ title: 'VEDDBuild', text: formatted, url });
@@ -541,7 +708,7 @@ function ShareButtons({ caption, referralCode, referralUrl, mode = 'post' }: { c
         style={{ background: 'linear-gradient(135deg,#ef4444,#a855f7)', color: '#fff' }}
       >
         <Share2 className="h-4 w-4" />
-        {copied === 'native' ? 'Copied! (share sheet unavailable)' : '📲 Share Straight to App'}
+        {copied === 'native' ? 'Copied! (share sheet unavailable)' : imageUrl ? '📲 Share Image + Caption to App' : '📲 Share Straight to App'}
       </button>
 
       {/* Copy caption */}
@@ -1228,48 +1395,22 @@ export default function ContentStudioPage() {
               <div className="mt-5 space-y-4">
                 <h3 className="text-base font-bold text-white">{generatedCarousel.title}</h3>
 
+                <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                  <input type="checkbox" checked={includeLogo} onChange={e => setIncludeLogo(e.target.checked)} className="accent-orange-500" />
+                  Include VEDD logo when baking words onto slides
+                </div>
+
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                   {generatedCarousel.slides.map((slide, i) => (
-                    <div key={i} className="flex-shrink-0" style={{ width: 240 }}>
-                      {/* Bold typographic quote-card style (à la @wealth /
-                          @entrepreneursonig): near-black ground, heavily dimmed
-                          image, one big statement centered, brand handle footer. */}
-                      <div className="rounded-2xl w-full aspect-square relative overflow-hidden" style={{ border: '1px solid rgba(255,255,255,.12)', background: '#050507' }}>
-                        {slide.imageUrl && (
-                          <div className="absolute inset-0" style={{ backgroundImage: `url(${slide.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', opacity: 0.28 }} />
-                        )}
-                        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,.75) 100%)' }} />
-                        <div className="relative z-10 p-4 w-full h-full flex flex-col">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
-                                <span className="text-[9px] font-black text-white">V</span>
-                              </div>
-                              <span className="text-[9px] font-bold text-gray-400 tracking-widest uppercase">VEDD</span>
-                            </div>
-                            <span className="text-[9px] font-bold text-gray-500">{i + 1}/{generatedCarousel.slides.length}</span>
-                          </div>
-                          <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-                            <h4 className="text-lg font-black text-white leading-tight uppercase tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,.9)' }}>{slide.heading}</h4>
-                            <div className="w-8 h-0.5 my-2.5" style={{ background: 'linear-gradient(90deg,#dc2626,#7c3aed)' }} />
-                            <p className="text-[11px] text-gray-300 leading-relaxed" style={{ textShadow: '0 1px 8px rgba(0,0,0,.9)' }}>{slide.body}</p>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold text-gray-400">@veddbuild</span>
-                            {i < generatedCarousel.slides.length - 1 && <span className="text-[10px] text-gray-500">swipe →</span>}
-                          </div>
-                        </div>
-                      </div>
-                      {slide.imageUrl ? (
-                        <a href={slide.imageUrl} download target="_blank" rel="noreferrer"
-                          className="block text-center text-[10px] font-bold mt-1.5 px-2 py-1.5 rounded-lg"
-                          style={{ background: 'rgba(56,189,248,.1)', color: '#38bdf8', border: '1px solid rgba(56,189,248,.25)' }}>
-                          ⬇ Download Slide {i + 1}
-                        </a>
-                      ) : (
-                        <p className="text-center text-[10px] text-gray-500 mt-1.5">Background image unavailable — text still generated</p>
-                      )}
-                    </div>
+                    <CarouselSlideCard
+                      key={i}
+                      slide={slide}
+                      index={i}
+                      total={generatedCarousel.slides.length}
+                      includeLogo={includeLogo}
+                      referralCode={referralCode}
+                      referralUrl={referralData?.url}
+                    />
                   ))}
                 </div>
 
@@ -1591,7 +1732,7 @@ export default function ContentStudioPage() {
                 {/* Share buttons */}
                 <div>
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Share To</p>
-                  <ShareButtons caption={caption} referralCode={referralCode} referralUrl={referralData?.url} />
+                  <ShareButtons caption={caption} referralCode={referralCode} referralUrl={referralData?.url} imageUrl={flattenedSlideUrl || bgImage} />
                 </div>
 
                 {/* VEDD token reward reminder */}

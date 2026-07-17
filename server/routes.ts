@@ -15330,6 +15330,68 @@ Rules:
     }
   });
 
+  // ── Crypto.com Perpetuals AI Engine — persisted config (FX SS AI Engine parity) ──
+  app.get("/api/cryptocom-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    let config = await storage.getUserCryptocomEngineConfig(userId);
+    if (!config) config = await storage.upsertCryptocomEngineConfig(userId, {});
+    res.json(config);
+  });
+
+  app.patch("/api/cryptocom-engine/config", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const allowed = [
+      'isActive', 'symbols', 'scanIntervalMs', 'strategyMode', 'directionFilter', 'maxOpenTrades',
+      'riskPerTrade', 'minConfidence', 'accountBalance', 'leverage', 'dailyLossLimit', 'dailyProfitTarget',
+      'maxDailyTrades', 'lockSettings', 'aiMode', 'enableAutoExecution',
+      'useKellyCriterion', 'brainLearningMode', 'drawdownShieldThreshold',
+      'trailMethod', 'trailActivationR', 'trailFixedR', 'trailStepR', 'trailProfitLockPct',
+      'trailSarInitialAF', 'trailSarMaxAF', 'breakevenBufferR',
+      'consistencyEnforcementEnabled', 'consistencyMinProfitableDays', 'consistencyPeriodDays',
+      'maxDailyProfitPctOfTotal', 'smartSymbolEscalation', 'highConfidenceOverride',
+    ];
+    const updateData: Record<string, any> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updateData[key] = req.body[key];
+    }
+    const config = await storage.upsertCryptocomEngineConfig(userId, updateData);
+    res.json(config);
+  });
+
+  app.get("/api/cryptocom-engine/activity", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
+    const activity = await storage.getUserCryptocomEngineActivity(userId, limit);
+    res.json({ activity });
+  });
+
+  app.get("/api/cryptocom-engine/trades", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 200);
+    const [open, recent] = await Promise.all([
+      storage.getOpenCryptocomEngineTrades(userId),
+      storage.getUserCryptocomEngineTrades(userId, limit),
+    ]);
+    res.json({ open, recent });
+  });
+
+  app.get("/api/cryptocom-engine/consensus", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const consensus = (global as any).cryptocomEngineConsensus?.[userId] || [];
+    const summary = {
+      strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
+      strongSkip: consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
+      caution: consensus.filter((c: any) => c.consensus === 'CAUTION').length,
+      watch: consensus.filter((c: any) => c.consensus === 'WATCH').length,
+    };
+    res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+  });
+
   app.get("/api/tradelocker/trades", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });
@@ -25768,13 +25830,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
       const persisted = await persistRemoteAsset(image.url);
-      const permanentUrl = persisted?.url ?? image.url;
+      if (!persisted) {
+        console.error('[content-studio] generate-image: persistence failed after retries — not saving to library (would break later when provider URL expires)');
+        return res.json({ ...image, url: image.url, persisted: false });
+      }
 
       await storage.createContentStudioGeneration({
-        userId: u.id, contentType: 'image', prompt, assetUrl: permanentUrl, metadata: { provider: image.provider },
+        userId: u.id, contentType: 'image', prompt, assetUrl: persisted.url, metadata: { provider: image.provider },
       }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
 
-      res.json({ ...image, url: permanentUrl });
+      res.json({ ...image, url: persisted.url, persisted: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25793,7 +25858,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { generateContentImage } = await import('./services/image-generation');
       const image = await generateContentImage(`A social media carousel slide background about: ${subject}`);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
-      res.json(image);
+
+      const { persistRemoteAsset } = await import('./services/content-asset-store');
+      const persisted = await persistRemoteAsset(image.url);
+      res.json({ ...image, url: persisted?.url ?? image.url, persisted: !!persisted });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25816,13 +25884,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
       const persisted = await persistRemoteAsset(video.url);
-      const permanentUrl = persisted?.url ?? video.url;
+      if (!persisted) {
+        console.error('[content-studio] generate-video: persistence failed after retries — not saving to library (would break later when provider URL expires)');
+        return res.json({ ...video, url: video.url, persisted: false });
+      }
 
       await storage.createContentStudioGeneration({
-        userId: u.id, contentType: 'video', prompt, assetUrl: permanentUrl, metadata: { provider: video.provider },
+        userId: u.id, contentType: 'video', prompt, assetUrl: persisted.url, metadata: { provider: video.provider },
       }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
 
-      res.json({ ...video, url: permanentUrl });
+      res.json({ ...video, url: persisted.url, persisted: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25849,14 +25920,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
       const persisted = await persistRemoteAsset(video.url);
-      const permanentUrl = persisted?.url ?? video.url;
+      if (!persisted) {
+        console.error('[content-studio] generate-reel: persistence failed after retries — not saving to library (would break later when provider URL expires)');
+        return res.json({ ...script, url: video.url, persisted: false });
+      }
 
       await storage.createContentStudioGeneration({
         userId: u.id, contentType: 'reel', prompt: topic, title: script.hook ?? null, caption: script.caption ?? null,
-        assetUrl: permanentUrl, metadata: { provider: video.provider, script },
+        assetUrl: persisted.url, metadata: { provider: video.provider, script },
       }).catch((e: any) => console.error('[content-studio] failed to save generation record:', e.message));
 
-      res.json({ ...script, url: permanentUrl });
+      res.json({ ...script, url: persisted.url, persisted: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -25888,15 +25962,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       // triggering the throttle in the first place.
       const { generateContentImage } = await import('./services/image-generation');
       const { persistRemoteAsset } = await import('./services/content-asset-store');
-      const slides: { heading: string; body: string; imageUrl: string | null }[] = [];
+      const slides: { heading: string; body: string; imageUrl: string | null; persisted: boolean }[] = [];
       for (const slide of script.slides) {
         const image = await generateContentImage(slide.imagePrompt);
         let imageUrl: string | null = image?.url ?? null;
+        let persistedOk = false;
         if (imageUrl) {
           const persisted = await persistRemoteAsset(imageUrl);
-          if (persisted) imageUrl = persisted.url;
+          if (persisted) { imageUrl = persisted.url; persistedOk = true; }
+          else console.error(`[content-studio] generate-carousel: slide "${slide.heading}" image failed to persist after retries — using temporary URL, will expire`);
         }
-        slides.push({ heading: slide.heading, body: slide.body, imageUrl });
+        slides.push({ heading: slide.heading, body: slide.body, imageUrl, persisted: persistedOk });
       }
 
       await storage.createContentStudioGeneration({
@@ -27970,6 +28046,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/copy/leaderboard", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     try {
+      // Bridge the requesting user's own closed TradeLocker trades into
+      // ai_trade_results before computing the leaderboard — otherwise a
+      // real-broker trader's stats never appear here at all (this bridge
+      // previously only ran as an incidental side-effect of visiting
+      // unrelated Brain/brain-refresh routes, so most users never triggered
+      // it just by looking at the copy-trading page). Throttled internally
+      // to once/30s per user, so this is cheap even on every page load.
+      await syncTradeLockerOutcomes((req.user as User).id).catch(() => {});
+
       // Pulls from BOTH paper trades (AI SS Engine paper mode) AND real AI trade results
       // so any user running the live engine also appears on the leaderboard.
       const rows = await db.execute(sql`

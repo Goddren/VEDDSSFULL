@@ -841,6 +841,107 @@ export const insertCryptocomConnectionSchema = createInsertSchema(cryptocomConne
 export type CryptocomConnection = typeof cryptocomConnections.$inferSelect;
 export type InsertCryptocomConnection = z.infer<typeof insertCryptocomConnectionSchema>;
 
+// ─── Crypto.com Perpetuals AI Engine — full FX SS AI Engine parity ──────────
+// Previously "Auto-execute" on cryptocomConnections was a dead toggle — no
+// scanner/strategy engine read it back. This is the persisted config for a
+// genuine autonomous engine, mirroring futuresEngineConfigs (perpetuals are
+// structurally closest to futures: contracts/quantity, long/short, leverage).
+export const cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  isActive: boolean("is_active").notNull().default(false),
+  symbols: jsonb("symbols").notNull().default(['BTCUSD-PERP', 'ETHUSD-PERP', 'SOLUSD-PERP']),
+  scanIntervalMs: integer("scan_interval_ms").notNull().default(120000),
+  strategyMode: text("strategy_mode").notNull().default('auto'), // 'auto' | 'trend_following' | 'momentum' | 'order_flow'
+  directionFilter: text("direction_filter").notNull().default('both'), // 'long_only' | 'short_only' | 'both'
+  maxOpenTrades: integer("max_open_trades").notNull().default(3),
+  riskPerTrade: doublePrecision("risk_per_trade").notNull().default(1.0),
+  minConfidence: doublePrecision("min_confidence").notNull().default(70),
+  accountBalance: doublePrecision("account_balance").notNull().default(1000),
+  leverage: doublePrecision("leverage").notNull().default(3),
+  dailyLossLimit: doublePrecision("daily_loss_limit").notNull().default(5.0),
+  dailyProfitTarget: doublePrecision("daily_profit_target").notNull().default(0),
+  maxDailyTrades: integer("max_daily_trades").notNull().default(0),
+  lockSettings: boolean("lock_settings").notNull().default(false),
+  aiMode: text("ai_mode").notNull().default('full'), // 'full' | 'economy' | 'rule_based'
+  enableAutoExecution: boolean("enable_auto_execution").notNull().default(false),
+
+  // ── FX SS AI Engine parity ──────────────────────────────────────────────
+  useKellyCriterion: boolean("use_kelly_criterion").notNull().default(false),
+  brainLearningMode: boolean("brain_learning_mode").notNull().default(true),
+  drawdownShieldThreshold: doublePrecision("drawdown_shield_threshold").notNull().default(3.0),
+  trailMethod: text("trail_method").notNull().default('none'), // same R-multiple methods as futuresEngineConfigs
+  trailActivationR: doublePrecision("trail_activation_r").notNull().default(1.0),
+  trailFixedR: doublePrecision("trail_fixed_r").notNull().default(0.5),
+  trailStepR: doublePrecision("trail_step_r").notNull().default(0.5),
+  trailProfitLockPct: doublePrecision("trail_profit_lock_pct").notNull().default(60),
+  trailSarInitialAF: doublePrecision("trail_sar_initial_af").notNull().default(0.02),
+  trailSarMaxAF: doublePrecision("trail_sar_max_af").notNull().default(0.20),
+  breakevenBufferR: doublePrecision("breakeven_buffer_r").notNull().default(0.1),
+  consistencyEnforcementEnabled: boolean("consistency_enforcement_enabled").notNull().default(false),
+  consistencyMinProfitableDays: integer("consistency_min_profitable_days").notNull().default(10),
+  consistencyPeriodDays: integer("consistency_period_days").notNull().default(15),
+  maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
+  smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
+  highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCryptocomEngineConfigSchema = createInsertSchema(cryptocomEngineConfigs).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CryptocomEngineConfig = typeof cryptocomEngineConfigs.$inferSelect;
+export type InsertCryptocomEngineConfig = z.infer<typeof insertCryptocomEngineConfigSchema>;
+
+export const cryptocomEngineActivity = pgTable("cryptocom_engine_activity", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  symbol: text("symbol").notNull(),
+  decision: text("decision").notNull(), // 'watching' | 'signal' | 'skipped' | 'error'
+  reasoning: text("reasoning").notNull(),
+  score: doublePrecision("score"),
+  price: doublePrecision("price"),
+  dailyChangePercent: doublePrecision("daily_change_percent"),
+  source: text("source").notNull().default('cryptocom'),
+  strategy: text("strategy"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type CryptocomEngineActivity = typeof cryptocomEngineActivity.$inferSelect;
+export type InsertCryptocomEngineActivity = typeof cryptocomEngineActivity.$inferInsert;
+
+export const cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  connectionId: integer("connection_id").notNull(),
+  symbol: text("symbol").notNull(),
+  strategy: text("strategy").notNull(),
+  direction: text("direction").notNull(), // 'long' | 'short'
+  quantity: doublePrecision("quantity").notNull(),
+  entryPrice: doublePrecision("entry_price").notNull(),
+  stopLoss: doublePrecision("stop_loss"),
+  takeProfit: doublePrecision("take_profit"),
+  entryOrderId: text("entry_order_id"),
+  entryReasoning: text("entry_reasoning"),
+  status: text("status").notNull().default('open'), // 'open' | 'closed' | 'failed'
+  exitPrice: doublePrecision("exit_price"),
+  exitOrderId: text("exit_order_id"),
+  exitReason: text("exit_reason"),
+  realizedPnl: doublePrecision("realized_pnl"),
+  closedAt: timestamp("closed_at"),
+  peakRMultiple: doublePrecision("peak_r_multiple").notNull().default(0),
+  trailArmed: boolean("trail_armed").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCryptocomEngineTradeSchema = createInsertSchema(cryptocomEngineTrades).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export type CryptocomEngineTrade = typeof cryptocomEngineTrades.$inferSelect;
+export type InsertCryptocomEngineTrade = z.infer<typeof insertCryptocomEngineTradeSchema>;
+
 // Per-user Options AI Engine settings — mirrors the Forex SS AI Engine's LiveEngineConfig shape
 export const optionsEngineConfigs = pgTable("options_engine_configs", {
   id: serial("id").primaryKey(),

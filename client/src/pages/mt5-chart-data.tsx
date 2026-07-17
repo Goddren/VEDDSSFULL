@@ -25,8 +25,6 @@ import {
   Clock,
   Plus,
   Trash2,
-  Eye,
-  EyeOff,
   TrendingUp,
   BarChart3,
   Layers,
@@ -1407,7 +1405,6 @@ export default function MT5ChartDataPage() {
   const { toast } = useToast();
   const [newTokenName, setNewTokenName] = useState("");
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<Mt5ApiToken | null>(null);
-  const [showToken, setShowToken] = useState<Record<number, boolean>>({});
 
   const [showAiFeed, toggleAiFeed] = useSectionToggle("mt5data", "ai_feed", true);
   const [showAccountBalance, toggleAccountBalance] = useSectionToggle("mt5data", "account_balance", true);
@@ -2676,15 +2673,9 @@ export default function MT5ChartDataPage() {
                           {token.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                         <div className="flex items-center gap-1">
-                          <code className="text-gray-500 text-xs font-mono">
-                            {showToken[token.id] ? token.token : `${token.token.slice(0, 8)}...`}
+                          <code className="text-gray-500 text-xs font-mono" title="Full token is only shown once, at creation, for security. Delete and create a new token if you need to re-paste it into your EA.">
+                            {token.token}
                           </code>
-                          <Button variant="ghost" size="sm" onClick={() => setShowToken(prev => ({ ...prev, [token.id]: !prev[token.id] }))}>
-                            {showToken[token.id] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => copyToClipboard(token.token)}>
-                            <Copy className="w-3 h-3" />
-                          </Button>
                         </div>
                       </div>
                       <Button variant="ghost" size="sm" onClick={() => deleteTokenMutation.mutate(token.id)} className="text-red-400 hover:text-red-300">

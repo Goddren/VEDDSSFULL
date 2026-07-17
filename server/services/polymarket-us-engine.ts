@@ -122,6 +122,7 @@ export function startPmUsEngine(userId: number): void {
   const s = getPmUsEngineState(userId);
   if (s.isRunning) return;
   s.isRunning = true;
+  _persistPmUsRunState(userId, true, s.isPaperMode);
   _runScan(userId).catch(console.error);
   _timers.set(userId, setInterval(() => _runScan(userId).catch(console.error), 5 * 60 * 1000));
 }
@@ -129,8 +130,44 @@ export function startPmUsEngine(userId: number): void {
 export function stopPmUsEngine(userId: number): void {
   const s = getPmUsEngineState(userId);
   s.isRunning = false;
+  _persistPmUsRunState(userId, false, s.isPaperMode);
   const iv = _timers.get(userId);
   if (iv) { clearInterval(iv); _timers.delete(userId); }
+}
+
+// ── Restart-persistence — without this, the engine silently reverts to
+// "stopped" on every server restart/redeploy (Render redeploys on every
+// push), with no error and no user-visible indication. Mirrors
+// kalshi-engine.ts's _persistKalshiRunState/restoreKalshiEngineStateFromDb.
+function _persistPmUsRunState(userId: number, isRunning: boolean, isPaperMode: boolean): void {
+  import('../db').then(({ db }) => {
+    import('../../shared/schema').then(({ engineRunState }) => {
+      db.insert(engineRunState)
+        .values({ userId, engine: 'polymarket-us', isRunning, isPaperMode })
+        .onConflictDoUpdate({
+          target: [engineRunState.userId, engineRunState.engine],
+          set: { isRunning, isPaperMode, updatedAt: new Date() },
+        })
+        .catch(console.error);
+    });
+  });
+}
+
+export async function restorePmUsEngineStateFromDb(userId: number): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { engineRunState } = await import('../../shared/schema');
+    const { eq, and } = await import('drizzle-orm');
+    const rows = await db.select().from(engineRunState)
+      .where(and(eq(engineRunState.userId, userId), eq(engineRunState.engine, 'polymarket-us')));
+    const row = rows[0];
+    if (row?.isRunning) {
+      console.log(`[PolymarketUS] Restoring engine for user ${userId}`);
+      startPmUsEngine(userId);
+    }
+  } catch (e) {
+    console.error('[PolymarketUS] Failed to restore engine state:', e);
+  }
 }
 
 export async function manualPmUsScan(userId: number) { return _runScan(userId, true); }

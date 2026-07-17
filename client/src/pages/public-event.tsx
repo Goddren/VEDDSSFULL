@@ -55,11 +55,23 @@ export default function PublicEventPage() {
   const [authTab, setAuthTab] = useState<"login" | "register">("register");
   const [authForm, setAuthForm] = useState({ username: "", password: "", confirmPassword: "" });
   const [autoRegisterAfterAuth, setAutoRegisterAfterAuth] = useState(false);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
   const slug = params?.slug;
 
   // Check for action=register query param - only show auth form if not logged in
+  // Also capture a referral code (?ref=) so account creation from a shared
+  // event link still credits the ambassador who shared it, same as /auth.
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    const ref = urlParams.get('ref');
+    if (ref) {
+      setReferralCode(ref);
+      fetch('/api/referral/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ referralCode: ref }),
+      }).catch(() => {});
+    }
     if (urlParams.get('action') === 'register') {
       if (!user) {
         setShowAuthForm(true);
@@ -131,10 +143,11 @@ export default function PublicEventPage() {
         toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
         return;
       }
-      authRegisterMutation.mutate({ 
-        username: authForm.username, 
-        password: authForm.password 
-      });
+      authRegisterMutation.mutate({
+        username: authForm.username,
+        password: authForm.password,
+        ...(referralCode ? { referralCode } : {}),
+      } as any);
     } else {
       loginMutation.mutate({ 
         username: authForm.username, 

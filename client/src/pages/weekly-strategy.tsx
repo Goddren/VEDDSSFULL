@@ -5226,7 +5226,7 @@ export default function WeeklyStrategyPage() {
                   <p>2. Copy to: <span className="text-white font-mono text-[11px]">MT5 → File → Open Data Folder → MQL5 → Experts</span></p>
                   <p>3. Restart MT5, open any chart (e.g. EURUSD M1)</p>
                   <p>4. Drag the Signal Receiver EA onto that chart</p>
-                  <p>5. Enter your <span className="text-purple-400 font-medium">Server URL</span> (your .replit.app URL) and <span className="text-purple-400 font-medium">API Key</span> from the MT5 API Token section below</p>
+                  <p>5. Enter your <span className="text-purple-400 font-medium">Server URL</span> (e.g. https://veddbuild.com — copy it from the MT5 Chart Data setup page, do NOT use a .replit.app URL) and <span className="text-purple-400 font-medium">API Key</span> from the MT5 API Token section below</p>
                   <p>6. Enable <span className="text-cyan-400">Allow WebRequest</span> if not already done</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2 mt-1">

@@ -132,4 +132,25 @@ export class CryptoComService {
       status: result?.status ?? 'unknown',
     };
   }
+
+  // ── Public market data (no auth needed) — static so the scanner can pull
+  // candles/price without a per-user connection/credentials. ─────────────────
+  static async getCandles(instrumentName: string, timeframe: string, count: number): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
+    const url = `https://api.crypto.com/exchange/v1/public/get-candlestick?instrument_name=${encodeURIComponent(instrumentName)}&timeframe=${encodeURIComponent(timeframe)}&count=${count}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`Crypto.com candlestick fetch failed: ${res.status}`);
+    const data = await res.json();
+    if (data.code !== undefined && data.code !== 0) throw new Error(`Crypto.com candlestick error ${data.code}: ${data.message}`);
+    const rows = data.result?.data ?? [];
+    return rows.map((r: any) => ({ t: Number(r.t), o: parseFloat(r.o), h: parseFloat(r.h), l: parseFloat(r.l), c: parseFloat(r.c), v: parseFloat(r.v) }));
+  }
+
+  static async getTicker(instrumentName: string): Promise<number | null> {
+    const url = `https://api.crypto.com/exchange/v1/public/get-tickers?instrument_name=${encodeURIComponent(instrumentName)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const t = data.result?.data?.[0];
+    return t ? parseFloat(t.a ?? t.l ?? '0') || null : null;
+  }
 }

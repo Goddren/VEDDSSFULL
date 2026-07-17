@@ -35,6 +35,10 @@ import {
   futuresEngineConfigs, futuresEngineActivity, futuresEngineTrades,
   type ContentStudioGeneration, type InsertContentStudioGeneration,
   contentStudioGenerations,
+  type CryptocomEngineConfig, type InsertCryptocomEngineConfig,
+  type CryptocomEngineActivity, type InsertCryptocomEngineActivity,
+  type CryptocomEngineTrade, type InsertCryptocomEngineTrade,
+  cryptocomEngineConfigs, cryptocomEngineActivity, cryptocomEngineTrades,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
@@ -406,6 +410,22 @@ export interface IStorage {
   createContentStudioGeneration(entry: InsertContentStudioGeneration): Promise<ContentStudioGeneration>;
   getUserContentStudioGenerations(userId: number, contentType?: string, limit?: number): Promise<ContentStudioGeneration[]>;
   deleteContentStudioGeneration(id: number, userId: number): Promise<boolean>;
+
+  // Crypto.com Perpetuals AI Engine — persisted config (FX SS AI Engine parity)
+  getUserCryptocomEngineConfig(userId: number): Promise<CryptocomEngineConfig | undefined>;
+  upsertCryptocomEngineConfig(userId: number, data: Partial<InsertCryptocomEngineConfig>): Promise<CryptocomEngineConfig>;
+  getAllActiveCryptocomEngineConfigs(): Promise<CryptocomEngineConfig[]>;
+  createCryptocomEngineActivity(entry: InsertCryptocomEngineActivity): Promise<CryptocomEngineActivity>;
+  getUserCryptocomEngineActivity(userId: number, limit?: number): Promise<CryptocomEngineActivity[]>;
+  createCryptocomEngineTrade(trade: InsertCryptocomEngineTrade): Promise<CryptocomEngineTrade>;
+  getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]>;
+  getUserCryptocomEngineTrades(userId: number, limit?: number): Promise<CryptocomEngineTrade[]>;
+  closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined>;
+  getTodayCryptocomEngineTradeCount(userId: number): Promise<number>;
+  getTodayCryptocomEngineRealizedPnl(userId: number): Promise<number>;
+  getCryptocomEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }>;
+  getCryptocomEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>>;
+  updateCryptocomEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void>;
 
   // Crypto.com Connection methods (separate crypto-derivatives bucket)
   createCryptocomConnection(connection: InsertCryptocomConnection): Promise<CryptocomConnection>;
@@ -2251,6 +2271,110 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(contentStudioGenerations.id, id), eq(contentStudioGenerations.userId, userId)))
       .returning();
     return result.length > 0;
+  }
+
+  // ── Crypto.com Perpetuals AI Engine ─────────────────────────────────────────
+  async getUserCryptocomEngineConfig(userId: number): Promise<CryptocomEngineConfig | undefined> {
+    const [result] = await db.select().from(cryptocomEngineConfigs).where(eq(cryptocomEngineConfigs.userId, userId));
+    return result;
+  }
+
+  async upsertCryptocomEngineConfig(userId: number, data: Partial<InsertCryptocomEngineConfig>): Promise<CryptocomEngineConfig> {
+    const existing = await this.getUserCryptocomEngineConfig(userId);
+    if (existing) {
+      const [result] = await db.update(cryptocomEngineConfigs)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(cryptocomEngineConfigs.userId, userId))
+        .returning();
+      return result;
+    }
+    const [result] = await db.insert(cryptocomEngineConfigs)
+      .values({ userId, ...data } as InsertCryptocomEngineConfig)
+      .returning();
+    return result;
+  }
+
+  async getAllActiveCryptocomEngineConfigs(): Promise<CryptocomEngineConfig[]> {
+    return db.select().from(cryptocomEngineConfigs).where(eq(cryptocomEngineConfigs.isActive, true));
+  }
+
+  async createCryptocomEngineActivity(entry: InsertCryptocomEngineActivity): Promise<CryptocomEngineActivity> {
+    const [result] = await db.insert(cryptocomEngineActivity).values(entry).returning();
+    return result;
+  }
+
+  async getUserCryptocomEngineActivity(userId: number, limit: number = 50): Promise<CryptocomEngineActivity[]> {
+    return db.select().from(cryptocomEngineActivity)
+      .where(eq(cryptocomEngineActivity.userId, userId))
+      .orderBy(desc(cryptocomEngineActivity.createdAt))
+      .limit(limit);
+  }
+
+  async createCryptocomEngineTrade(trade: InsertCryptocomEngineTrade): Promise<CryptocomEngineTrade> {
+    const [result] = await db.insert(cryptocomEngineTrades).values(trade).returning();
+    return result;
+  }
+
+  async getOpenCryptocomEngineTrades(userId: number): Promise<CryptocomEngineTrade[]> {
+    return db.select().from(cryptocomEngineTrades)
+      .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'open')));
+  }
+
+  async getUserCryptocomEngineTrades(userId: number, limit: number = 50): Promise<CryptocomEngineTrade[]> {
+    return db.select().from(cryptocomEngineTrades)
+      .where(eq(cryptocomEngineTrades.userId, userId))
+      .orderBy(desc(cryptocomEngineTrades.createdAt))
+      .limit(limit);
+  }
+
+  async closeCryptocomEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<CryptocomEngineTrade | undefined> {
+    const [result] = await db.update(cryptocomEngineTrades)
+      .set({ status: 'closed', exitPrice: data.exitPrice, exitOrderId: data.exitOrderId, exitReason: data.exitReason, realizedPnl: data.realizedPnl, closedAt: new Date(), updatedAt: new Date() })
+      .where(eq(cryptocomEngineTrades.id, id))
+      .returning();
+    return result;
+  }
+
+  async getTodayCryptocomEngineTradeCount(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(cryptocomEngineTrades)
+      .where(and(eq(cryptocomEngineTrades.userId, userId), gte(cryptocomEngineTrades.createdAt, startOfDay)));
+    return rows.length;
+  }
+
+  async getTodayCryptocomEngineRealizedPnl(userId: number): Promise<number> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(cryptocomEngineTrades)
+      .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed'), gte(cryptocomEngineTrades.closedAt, startOfDay)));
+    return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+  }
+
+  async getCryptocomEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
+    const rows = await db.select().from(cryptocomEngineTrades)
+      .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed')));
+    const totalClosed = rows.length;
+    const wins = rows.filter(r => (r.realizedPnl || 0) > 0).length;
+    const winRate = totalClosed > 0 ? Math.round((wins / totalClosed) * 100) : 0;
+    return { totalClosed, wins, winRate };
+  }
+
+  async getCryptocomEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {
+    const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - days);
+    const rows = await db.select().from(cryptocomEngineTrades)
+      .where(and(eq(cryptocomEngineTrades.userId, userId), eq(cryptocomEngineTrades.status, 'closed'), gte(cryptocomEngineTrades.closedAt, since)));
+    const history: Record<string, number> = {};
+    for (const r of rows) {
+      if (!r.closedAt) continue;
+      const day = new Date(r.closedAt).toISOString().split('T')[0];
+      history[day] = (history[day] || 0) + (r.realizedPnl || 0);
+    }
+    return history;
+  }
+
+  async updateCryptocomEngineTradeTrailState(id: number, data: { peakRMultiple: number; trailArmed: boolean }): Promise<void> {
+    await db.update(cryptocomEngineTrades)
+      .set({ peakRMultiple: data.peakRMultiple, trailArmed: data.trailArmed, updatedAt: new Date() })
+      .where(eq(cryptocomEngineTrades.id, id));
   }
 
   // ── Crypto.com Connection methods (crypto-derivatives bucket) ──────────────

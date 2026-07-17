@@ -1041,12 +1041,38 @@ export default function BlogPage() {
     queryKey: ['/api/referral/my-link'],
     enabled: !!user,
   });
-  const signupUrl = referralData?.url ?? '/auth';
+
+  // An anonymous visitor who arrives via a shared article link
+  // (/blog/:slug?ref=CODE) previously had that code silently dropped — the
+  // page never read it, so their eventual signup never credited whoever
+  // shared the article. Capture it the same way auth-page.tsx does for
+  // /auth?ref=, so a later signup click still carries it.
+  const [incomingRefCode, setIncomingRefCode] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    const stored = sessionStorage.getItem('referralCode');
+    const code = ref || stored;
+    if (code) {
+      sessionStorage.setItem('referralCode', code);
+      setIncomingRefCode(code);
+      if (ref) fetch('/api/referral/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ referralCode: code }),
+      }).catch(() => {});
+    }
+  }, []);
+
+  const signupUrl = referralData?.url ?? (incomingRefCode ? `${window.location.origin}/auth?ref=${incomingRefCode}` : '/auth');
   // Every card/reader/share component below reads `referralCode` — it was
   // never derived from referralData, so any render path touching it crashed
   // the whole page with "referralCode is not defined" (this is exactly the
-  // "something went wrong" screen users were hitting on /blog).
-  const referralCode: string | null = referralData?.code ?? null;
+  // "something went wrong" screen users were hitting on /blog). Prefer the
+  // logged-in ambassador's own code (for outbound shares); fall back to
+  // whatever code brought this (anonymous) visitor here, so the signup CTA
+  // still credits the original sharer.
+  const referralCode: string | null = referralData?.code ?? incomingRefCode;
 
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [activeCategory, setActiveCategory]         = useState('All');

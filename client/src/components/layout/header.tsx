@@ -40,7 +40,7 @@ import {
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
   DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw,
-  PowerOff, LayoutDashboard, Copy, Layers, Bot, Server,
+  PowerOff, LayoutDashboard, Copy, Layers, Bot, Server, Heart, Building2, Calendar,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -309,6 +309,39 @@ const Header: React.FC = () => {
     { name: 'Pricing', path: '/subscription', active: location === '/subscription', icon: <CreditCard className="h-4 w-4 mr-2" /> },
     { name: 'Support', path: '/support', active: location === '/support', icon: <HelpCircle className="h-4 w-4 mr-2" /> },
     { name: 'Settings', path: '/profile', active: location === '/profile', icon: <Settings className="h-4 w-4 mr-2" /> },
+    // ── Previously only reachable via the mobile nav or a typed-in URL —
+    // every real page in App.tsx now has a clickable path from the desktop
+    // "More" menu too, so nothing on the website is URL-only.
+    { name: 'Devotional', path: '/devotional', active: location === '/devotional', icon: <Heart className="h-4 w-4 mr-2" /> },
+    { name: 'Paper Trades', path: '/paper-trades', active: location === '/paper-trades', icon: <BookOpen className="h-4 w-4 mr-2" /> },
+    { name: 'Content Studio', path: '/ambassador/content-studio', active: location === '/ambassador/content-studio', icon: <Zap className="h-4 w-4 mr-2" /> },
+    { name: 'Content Flow', path: '/ambassador/content-flow', active: location === '/ambassador/content-flow', icon: <Calendar className="h-4 w-4 mr-2" /> },
+    { name: 'Sales Script', path: '/ambassador/sales-script', active: location === '/ambassador/sales-script', icon: <FileText className="h-4 w-4 mr-2" /> },
+    { name: 'Training Calendar', path: '/training-calendar', active: location === '/training-calendar', icon: <Calendar className="h-4 w-4 mr-2" /> },
+    { name: 'Host Dashboard', path: '/host-dashboard', active: location === '/host-dashboard', icon: <Award className="h-4 w-4 mr-2" /> },
+    { name: 'Streak Tracker', path: '/streak', active: location === '/streak', icon: <Flame className="h-4 w-4 mr-2" /> },
+    { name: '7-8 Profit Paths', path: '/seven-eight', active: location === '/seven-eight', icon: <Star className="h-4 w-4 mr-2" /> },
+    { name: 'Strategy Wizard', path: '/strategy-wizard', active: location === '/strategy-wizard', icon: <Wand2 className="h-4 w-4 mr-2" /> },
+    { name: 'Market Insights', path: '/market-insights', active: location === '/market-insights', icon: <Newspaper className="h-4 w-4 mr-2" /> },
+    { name: 'Market Sentiment', path: '/market-sentiment', active: location === '/market-sentiment', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
+    { name: 'Market Mood', path: '/market-mood', active: location === '/market-mood', icon: <Activity className="h-4 w-4 mr-2" /> },
+    { name: 'Market Trend Game', path: '/market-trend-game', active: location === '/market-trend-game', icon: <Target className="h-4 w-4 mr-2" /> },
+    { name: 'SOL Scanner', path: '/sol-scanner', active: location === '/sol-scanner', icon: <Scan className="h-4 w-4 mr-2" /> },
+    { name: 'SOL Scanner Trades', path: '/sol-scanner/trades', active: location === '/sol-scanner/trades', icon: <Scan className="h-4 w-4 mr-2" /> },
+    { name: 'Workforce Academy', path: '/workforce-academy', active: location === '/workforce-academy', icon: <GraduationCap className="h-4 w-4 mr-2" /> },
+    { name: 'Ecosystem Hub', path: '/vedd-ecosystem', active: location === '/vedd-ecosystem', icon: <Building2 className="h-4 w-4 mr-2" /> },
+    { name: 'Community Impact', path: '/community-impact', active: location === '/community-impact', icon: <Users className="h-4 w-4 mr-2" /> },
+    { name: 'Impact Dashboard', path: '/impact-dashboard', active: location === '/impact-dashboard', icon: <BarChart3 className="h-4 w-4 mr-2" /> },
+    { name: 'AI Governance', path: '/ai-governance', active: location === '/ai-governance', icon: <Shield className="h-4 w-4 mr-2" /> },
+    { name: 'Innovation Lab', path: '/innovation-lab', active: location === '/innovation-lab', icon: <Lightbulb className="h-4 w-4 mr-2" /> },
+    { name: 'Compliance', path: '/compliance', active: location === '/compliance', icon: <Shield className="h-4 w-4 mr-2" /> },
+    { name: 'Credit Builder', path: '/credit-builder', active: location === '/credit-builder', icon: <Award className="h-4 w-4 mr-2" /> },
+    { name: 'Biz Credit Builder', path: '/biz-builder', active: location === '/biz-builder', icon: <Building2 className="h-4 w-4 mr-2" /> },
+    { name: 'My Wallet', path: '/my-wallet', active: location === '/my-wallet', icon: <Wallet className="h-4 w-4 mr-2" /> },
+    { name: 'Polymarket Wallet', path: '/polymarket-wallet', active: location === '/polymarket-wallet', icon: <Wallet className="h-4 w-4 mr-2" /> },
+    { name: 'My Subscriptions', path: '/my-subscriptions', active: location === '/my-subscriptions', icon: <CreditCard className="h-4 w-4 mr-2" /> },
+    { name: 'Alerts', path: '/mobile-alerts', active: location === '/mobile-alerts', icon: <Bell className="h-4 w-4 mr-2" /> },
+    { name: 'Notification Settings', path: '/notification-settings', active: location === '/notification-settings', icon: <Bell className="h-4 w-4 mr-2" /> },
   ];
 
   const navItems = [...primaryNavItems, ...moreNavItems];
@@ -374,7 +407,7 @@ const Header: React.FC = () => {
                   <ChevronDown className="h-3 w-3 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="center" className="w-56">
+              <DropdownMenuContent align="center" className="w-56 max-h-[75vh] overflow-y-auto">
                 {/* Quick Access — Prop Firm shortcuts */}
                 <DropdownMenuLabel className="text-[10px] text-gray-500 uppercase tracking-wider py-1">Quick Access</DropdownMenuLabel>
                 <DropdownMenuItem className="cursor-pointer" asChild>

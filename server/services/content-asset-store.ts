@@ -20,31 +20,46 @@ export interface PersistedAsset {
  * Downloads a remote (temporary) asset URL and stores its bytes permanently.
  * Returns null (never throws) on any failure — the caller should fall back
  * to the original remote URL rather than treat this as fatal.
+ *
+ * Retries transient failures (network blips, brief DB hiccups) up to 3
+ * attempts with backoff before giving up — a temporary provider URL that
+ * expires in ~1hr has only one chance to be re-hosted, so a single flaky
+ * attempt here previously meant that asset silently broke for good later.
  */
 export async function persistRemoteAsset(remoteUrl: string): Promise<PersistedAsset | null> {
-  try {
-    const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(60000) });
-    if (!res.ok) {
-      console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status}`);
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(60000) });
+      if (!res.ok) {
+        console.error(`[content-asset-store] fetch failed for ${remoteUrl}: ${res.status} (attempt ${attempt}/${MAX_ATTEMPTS})`);
+        if (attempt < MAX_ATTEMPTS) { await sleep(1000 * attempt); continue; }
+        return null;
+      }
+      const contentType = res.headers.get('content-type') || 'application/octet-stream';
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength > MAX_ASSET_BYTES) {
+        console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) — falling back to remote URL`);
+        return null;
+      }
+      const base64 = buf.toString('base64');
+      const { rows } = await pool.query(
+        `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
+        [contentType, base64],
+      );
+      const id = rows[0].id as number;
+      return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
+    } catch (err: any) {
+      console.error(`[content-asset-store] persistRemoteAsset failed (attempt ${attempt}/${MAX_ATTEMPTS}):`, err?.message ?? err);
+      if (attempt < MAX_ATTEMPTS) { await sleep(1000 * attempt); continue; }
       return null;
     }
-    const contentType = res.headers.get('content-type') || 'application/octet-stream';
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > MAX_ASSET_BYTES) {
-      console.error(`[content-asset-store] asset too large to persist (${buf.byteLength} bytes) — falling back to remote URL`);
-      return null;
-    }
-    const base64 = buf.toString('base64');
-    const { rows } = await pool.query(
-      `INSERT INTO content_studio_assets (mime_type, data) VALUES ($1, $2) RETURNING id`,
-      [contentType, base64],
-    );
-    const id = rows[0].id as number;
-    return { id, url: `/api/content-studio/asset/${id}`, mimeType: contentType };
-  } catch (err: any) {
-    console.error('[content-asset-store] persistRemoteAsset failed (non-fatal):', err?.message ?? err);
-    return null;
   }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /** Fetches a previously-persisted asset's bytes + mime type by id, for the serving route. */

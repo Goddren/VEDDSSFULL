@@ -537,29 +537,74 @@ async function getOrCreateTodayDevotional(today: string) {
 }
 
 // ── Weekly Results Stats ──────────────────────────────────────────────────────
-// Real, aggregated (not cherry-picked) trading performance across every
-// user's closed trades over the last 7 days — the basis for the "Results"
-// post's social proof, and honest even when the number isn't flattering.
+// Real, aggregated (not cherry-picked) trading performance over the last 7
+// days — the basis for the "Results" post's social proof, and honest even
+// when the number isn't flattering.
+//
+// This previously read ONLY ai_trade_results, which is populated exclusively
+// by Kalshi, Polymarket, MT5-EA-push confirmations, and an activity-gated
+// TradeLocker auto-sync poller. Any week where real trades processed through
+// the futures/crypto.com/options engines, paper trading, FX paper trading,
+// or copy trading — all of which log to their own separate tables — showed
+// up as "0 trades" here even though trading genuinely happened, producing a
+// false "building in public, no trades this week" post. This now unions
+// every table that actually represents closed trading activity.
 async function computeWeeklyResultsStats(): Promise<{ totalTrades: number; wins: number; winRate: number; totalPips: number; topSymbol: string | null }> {
   try {
     const rows = await db.execute(drizzleSql`
+      WITH combined AS (
+        SELECT symbol, (result = 'WIN') AS is_win, closed_at
+        FROM ai_trade_results
+        WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM futures_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM cryptocom_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT underlying_symbol AS symbol, (realized_pnl > 0) AS is_win, closed_at
+        FROM options_engine_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (outcome = 'win') AS is_win, resolved_at AS closed_at
+        FROM paper_trades
+        WHERE outcome IS NOT NULL AND outcome != 'pending' AND resolved_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT pair AS symbol, (pnl > 0) AS is_win, closed_at
+        FROM fx_paper_trades
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT pair AS symbol, (pnl > 0) AS is_win, closed_at
+        FROM copy_trade_logs
+        WHERE status = 'closed' AND closed_at >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT symbol, (realized_pnl > 0) AS is_win, created_at AS closed_at
+        FROM tradovate_trade_logs
+        WHERE action = 'CLOSE' AND status = 'executed' AND created_at >= NOW() - INTERVAL '7 days'
+      ),
+      tradelocker_only AS (
+        SELECT COUNT(*) AS cnt
+        FROM tradelocker_trade_logs
+        WHERE action = 'CLOSE' AND status = 'executed' AND created_at >= NOW() - INTERVAL '7 days'
+      )
       SELECT
-        COUNT(*) AS total_trades,
-        COUNT(*) FILTER (WHERE result = 'WIN') AS wins,
-        COALESCE(SUM(profit_loss_pips), 0) AS total_pips,
-        (SELECT symbol FROM ai_trade_results
-          WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
-          GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE result = 'WIN') DESC LIMIT 1) AS top_symbol
-      FROM ai_trade_results
-      WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL
+        (SELECT COUNT(*) FROM combined) AS known_outcome_trades,
+        (SELECT COUNT(*) FILTER (WHERE is_win) FROM combined) AS wins,
+        (SELECT cnt FROM tradelocker_only) AS tradelocker_only_count,
+        COALESCE((SELECT SUM(profit_loss_pips) FROM ai_trade_results WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL), 0) AS total_pips,
+        (SELECT symbol FROM combined GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE is_win) DESC LIMIT 1) AS top_symbol
     `);
     const row: any = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0] ?? {};
-    const totalTrades = parseInt(row.total_trades) || 0;
+    const knownOutcomeTrades = parseInt(row.known_outcome_trades) || 0;
     const wins = parseInt(row.wins) || 0;
+    const tradelockerOnlyCount = parseInt(row.tradelocker_only_count) || 0;
     return {
-      totalTrades,
+      totalTrades: knownOutcomeTrades + tradelockerOnlyCount,
       wins,
-      winRate: totalTrades > 0 ? Math.round((wins / totalTrades) * 1000) / 10 : 0,
+      winRate: knownOutcomeTrades > 0 ? Math.round((wins / knownOutcomeTrades) * 1000) / 10 : 0,
       totalPips: parseFloat(row.total_pips) || 0,
       topSymbol: row.top_symbol || null,
     };

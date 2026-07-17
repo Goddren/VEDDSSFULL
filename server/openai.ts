@@ -4236,7 +4236,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags — those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. No text overlays, no logos, just the scene. If the scene includes people, they should be Black, Brown, or Indigenous people of color in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally — this reflects VEDD's inner-city audience, not a generic stock-footage cast."
+  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. Absolutely no text overlays, no captions, no signage, no readable words of any kind, no logos, just the pure visual scene. If the scene includes people, they should be Black people in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally — this reflects VEDD's inner-city audience, not a generic stock-footage cast, no other ethnicities."
 }`;
 
   const response = await openai.chat.completions.create({
@@ -4361,8 +4361,23 @@ export async function generateDailyDevotional(date: string): Promise<{
   affirmation: string;
   tradingTieIn: string;
 }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const client = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 });
+  // Use the universal failover client — same fix already applied to blog
+  // generation (generateVeddBlogPost above): a raw `new OpenAI(...)` client
+  // silently fails whenever OPENAI_API_KEY is missing/invalid/rate-limited,
+  // which meant every single devotional call fell into the catch block
+  // below and returned identical static content — every day looked the same.
+  let client: any;
+  try {
+    client = await getUniversalAIClientForUser(0);
+  } catch { /* fall through to platform key below */ }
+  if (!client) {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY;
+    if (apiKey) {
+      const isGroq = !process.env.OPENAI_API_KEY;
+      client = new OpenAI({ apiKey, ...(isGroq ? { baseURL: 'https://api.groq.com/openai/v1' } : {}), maxRetries: 4, timeout: 90000 });
+    }
+  }
+  const devotionalModel = (client as any)?.defaultModel || 'gpt-4o-mini';
 
   const systemPrompt = `You are the VEDD Trading AI spiritual coach. VEDD is a faith-based, community-driven fintech and trading AI platform built around mindset, discipline, and excellence. Our ambassador network spans cities worldwide. Our values: faith, resilience, discipline, community, generosity, and excellence in trading.
 
@@ -4388,8 +4403,9 @@ Return ONLY valid JSON, no markdown, no extra text.`;
 }`;
 
   try {
+    if (!client) throw new Error('No AI provider configured (add an AI key in AI Settings)');
     const response = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: devotionalModel,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -4413,16 +4429,31 @@ Return ONLY valid JSON, no markdown, no extra text.`;
       tradingTieIn: data.tradingTieIn || 'Faith-based discipline applies directly to the markets — patience, trust in your system, and community accountability all drive long-term trading success.',
     };
   } catch (err) {
-    console.error('[devotional] AI generation failed:', err);
+    console.error('[devotional] AI generation failed, using rotating static fallback:', err);
+    // Even on total AI failure, rotate through 7 distinct devotionals keyed
+    // by day-of-week rather than returning byte-identical content every
+    // time — this was the visible symptom of the bug above (a raw OpenAI
+    // client silently failing meant this branch ran every single day).
+    const FALLBACKS = [
+      { theme: 'Faith', scripture: 'Proverbs 16:3', scriptureText: 'Commit to the LORD whatever you do, and he will establish your plans.', reflection: 'Every trade you place, every analysis you run, every ambassador you recruit — all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.', prayerPoints: ['For clarity in decision-making', 'For patience in volatile markets', 'For unity among VEDD ambassadors', 'For financial breakthrough in our community'], affirmation: 'I am disciplined, focused, and committed to excellence in every trade and every relationship.', tradingTieIn: 'Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions.' },
+      { theme: 'Patience', scripture: 'James 1:4', scriptureText: 'Let perseverance finish its work so that you may be mature and complete, not lacking anything.', reflection: 'The trader who exits a winning system too early, or abandons a strategy after one losing week, never gives perseverance the chance to finish its work. Maturity in trading — and in life — comes from staying the course through the parts that test you, not just the parts that reward you instantly.', prayerPoints: ['For endurance through drawdowns', 'For trust in a proven process', 'For a community that holds each other accountable', 'For steady, compounding growth'], affirmation: 'Today I trust the process and let perseverance finish its work in me.', tradingTieIn: 'Every profitable system has losing streaks built into its math. Patience is not passive — it is the active decision to let your edge play out over enough trades to matter.' },
+      { theme: 'Community', scripture: 'Ecclesiastes 4:9-10', scriptureText: 'Two are better than one, because they have a good return for their labor. If either of them falls down, one can help the other up.', reflection: 'No ambassador builds alone. The trader isolated from community makes decisions in an echo chamber — fear and greed with no one to check them. VEDD was built on the belief that shared discipline, shared wins, and shared accountability produce a return no individual can match alone.', prayerPoints: ['For ambassadors who lift each other up', 'For humility to ask for help', 'For generosity in sharing what works', 'For a community that grows together'], affirmation: 'Today I show up for my community, and I let my community show up for me.', tradingTieIn: 'Sharing your trade journal, your wins, and your losses with a community keeps you honest in a way that trading alone never will.' },
+      { theme: 'Excellence', scripture: 'Colossians 3:23', scriptureText: 'Whatever you do, work at it with all your heart, as working for the Lord, not for men.', reflection: 'Excellence in trading is not about being right every time — it is about the quality of your process regardless of outcome. A well-executed losing trade, following your rules to the letter, is excellence. A lucky winning trade taken outside your system is not. Work your process with your whole heart, and let the results follow.', prayerPoints: ['For discipline in following your own rules', 'For integrity when no one is watching your trades', 'For excellence that does not depend on outcome', 'For a legacy built on process, not luck'], affirmation: 'Today I trade my process with excellence, and I let the results take care of themselves.', tradingTieIn: 'A trader who journals every trade, honors every stop loss, and reviews every week regardless of P&L is practicing excellence — and that is what compounds over years.' },
+      { theme: 'Wisdom', scripture: 'Proverbs 4:7', scriptureText: 'The beginning of wisdom is this: Get wisdom. Though it cost all you have, get understanding.', reflection: 'Every dollar spent on education, every hour spent studying charts and reviewing losing trades, is an investment in wisdom that compounds far beyond any single trade. The ambassadors who last in this business are the ones who never stop being students of the market and of themselves.', prayerPoints: ['For a teachable spirit', 'For wisdom to know when to act and when to wait', 'For discernment between signal and noise', 'For growth that outlasts any one trade'], affirmation: 'Today I choose to learn, even from my losses, and I let wisdom guide my next decision.', tradingTieIn: 'The market is the most honest teacher there is — it will show you exactly where your discipline breaks down, if you are humble enough to look.' },
+      { theme: 'Resilience', scripture: 'Romans 5:3-4', scriptureText: 'We also glory in our sufferings, because we know that suffering produces perseverance; perseverance, character; and character, hope.', reflection: 'Every trader has a drawdown story. What separates the ones who make it from the ones who quit is not the absence of losing streaks — it is what those losing streaks build in them. Let this season, whatever it looks like in your account, build character rather than despair.', prayerPoints: ['For hope in the middle of a drawdown', 'For character built through hard seasons', 'For the strength to keep showing up', 'For a testimony that helps the next ambassador'], affirmation: 'Today I choose resilience, and I trust that this season is building something in me that a shortcut never could.', tradingTieIn: 'Risk management exists precisely so a losing streak builds your character instead of ending your account — protect your capital so you live to apply the lesson.' },
+      { theme: 'Generosity', scripture: '2 Corinthians 9:6', scriptureText: 'Whoever sows sparingly will also reap sparingly, and whoever sows generously will also reap generously.', reflection: 'The ambassadors who share their signals, their knowledge, and their referral links generously are the ones who see the community — and their own results — grow fastest. Generosity is not just a spiritual principle here; it is the literal growth engine of this platform.', prayerPoints: ['For a generous spirit toward new ambassadors', 'For willingness to share what took you years to learn', 'For a harvest that matches your sowing', 'For a community defined by giving, not just taking'], affirmation: 'Today I sow generously into my community, trusting the harvest that generosity produces.', tradingTieIn: 'Every ambassador who mentors a new trader, or shares an honest losing trade instead of only wins, sows into the credibility of this entire community.' },
+    ];
+    const idx = new Date(date).getDay(); // 0=Sunday..6=Saturday, stable per calendar date
+    const f = FALLBACKS[idx] ?? FALLBACKS[0];
     return {
-      title: `Daily Devotional — ${date}`,
-      theme: 'Discipline',
-      scripture: 'Proverbs 16:3',
-      scriptureText: 'Commit to the LORD whatever you do, and he will establish your plans.',
-      reflection: 'Every trade you place, every analysis you run, every ambassador you recruit — all of it flows from a foundation of discipline and purpose. When you commit your work to God, you trade not from fear or greed, but from a place of peace and clarity. The markets will fluctuate, but your foundation does not have to.',
-      prayerPoints: ['For clarity in decision-making', 'For patience in volatile markets', 'For unity among VEDD ambassadors', 'For financial breakthrough in our community'],
-      affirmation: 'I am disciplined, focused, and committed to excellence in every trade and every relationship.',
-      tradingTieIn: 'Committing your trading plan to a higher purpose removes emotional noise from your decisions. When you follow your system with faith and discipline, you trade with confidence regardless of market conditions.',
+      title: `Daily Devotional — ${f.theme}`,
+      theme: f.theme,
+      scripture: f.scripture,
+      scriptureText: f.scriptureText,
+      reflection: f.reflection,
+      prayerPoints: f.prayerPoints,
+      affirmation: f.affirmation,
+      tradingTieIn: f.tradingTieIn,
     };
   }
 }

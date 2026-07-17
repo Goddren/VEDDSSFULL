@@ -48,6 +48,14 @@ export async function setupVite(app: Express, server: Server) {
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
 
+    // Unmatched /api/* requests must never fall through to the SPA HTML —
+    // a caller with a wrong/misconfigured path (e.g. an MT5 EA pointed at a
+    // stale URL) would otherwise get a false-positive HTTP 200 with no way
+    // to detect the misconfiguration.
+    if (url.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not found", path: url });
+    }
+
     try {
       const clientTemplate = path.resolve(
         import.meta.dirname,
@@ -147,6 +155,13 @@ export function serveStatic(app: Express) {
 </script>`;
 
   app.use("*", async (req, res) => {
+    // Unmatched /api/* requests must never fall through to the SPA HTML —
+    // a caller with a wrong/misconfigured path (e.g. an MT5 EA pointed at a
+    // stale URL) would otherwise get a false-positive HTTP 200 with no way
+    // to detect the misconfiguration.
+    if (req.originalUrl.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not found", path: req.originalUrl });
+    }
     try {
       res.set({
         "Cache-Control": "no-cache, no-store, must-revalidate",

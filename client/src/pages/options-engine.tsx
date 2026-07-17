@@ -372,6 +372,19 @@ export default function OptionsEnginePage() {
     queryKey: ['/api/options-engine/config'],
   });
 
+  // ── Crypto.com Perpetuals AI Engine — full auto-AI trading engine ───────
+  const { data: cryptoEngineConfig } = useQuery<{ isActive: boolean; enableAutoExecution: boolean; symbols: string[] }>({
+    queryKey: ['/api/cryptocom-engine/config'],
+    enabled: cryptocomConnections.length > 0,
+  });
+  const updateCryptoEngineMutation = useMutation({
+    mutationFn: async (data: Record<string, any>) => (await apiRequest('PATCH', '/api/cryptocom-engine/config', data)).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cryptocom-engine/config'] });
+      toast({ title: "Crypto.com AI Engine updated" });
+    },
+  });
+
   // ── Live scan/decision feed — what the engine is seeing and why ───────────
   const { data: activityData, isLoading: activityLoading, refetch: refetchActivity } = useQuery<{ activity: EngineActivity[] }>({
     queryKey: ['/api/options-engine/activity'],
@@ -806,6 +819,23 @@ export default function OptionsEnginePage() {
               )}
             </CardContent>
           </Card>
+
+          {cryptocomConnections.length > 0 && (
+            <Card className="bg-gray-900 border-gray-800 mt-4">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Crypto.com AI Auto-Trading Engine</span>
+                  <Switch
+                    checked={!!cryptoEngineConfig?.isActive}
+                    onCheckedChange={(v) => updateCryptoEngineMutation.mutate({ isActive: v, enableAutoExecution: v })}
+                  />
+                </CardTitle>
+                <CardDescription>
+                  Full FX SS AI Engine parity — trend/momentum strategies, Dual-Vote Consensus, Kelly sizing, Brain Learning Mode, R-multiple trailing stops. Scans {cryptoEngineConfig?.symbols?.join(', ') || 'BTCUSD-PERP, ETHUSD-PERP, SOLUSD-PERP'} every 2 minutes when active. Also requires "Auto-execute" on the connection above.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
         </div>
 
         {/* ── Engine settings (mirrors the Forex SS AI Engine's config shape) ── */}

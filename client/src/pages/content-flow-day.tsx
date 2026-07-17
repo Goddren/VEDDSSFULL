@@ -156,6 +156,7 @@ export default function ContentFlowDay() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Image generation failed');
       const imgRes = await fetch(data.url);
+      if (!imgRes.ok) throw new Error(`Generated image URL returned ${imgRes.status} — try generating again`);
       const blob = await imgRes.blob();
       const file = new File([blob], `ai-generated-${Date.now()}.png`, { type: blob.type || 'image/png' });
       setCarouselImages(prev => ({

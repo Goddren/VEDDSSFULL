@@ -22,6 +22,10 @@ import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStra
 import { getBTCCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
 
+// Session peak-bankroll tracker for Drawdown Shield — same in-memory,
+// session-scoped pattern used by futures-scanner.ts/cryptocom-scanner.ts.
+const _sessionPeakBankroll = new Map<number, number>();
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KalshiTradeRecord {
@@ -80,6 +84,15 @@ export interface KalshiEngineConfig {
   compounding: boolean;         // if true, contracts derive from bankroll % (default false)
   riskPctPerTrade: number;      // % of bankroll to stake per trade when compounding (default 5)
   startingBankroll: number;     // bankroll baseline in $ (paper mode / fallback, default 100)
+
+  // ── FX SS AI Engine parity — same Kelly/Brain-Learning/Drawdown-Shield ────
+  // pattern retrofitted from the options/futures/cryptocom engines this
+  // session, sourced from the already-existing kalshi-performance.ts
+  // per-strategy win-rate data (no new Brain service needed — it already
+  // tracks exactly the win/loss data Kelly and Brain Learning Mode need).
+  useKellyCriterion: boolean;     // size contracts by win-rate history instead of flat count
+  brainLearningMode: boolean;     // lock at 1 contract until 10+ trades & 60%+ win rate
+  drawdownShieldThreshold: number; // % DD from session-peak bankroll that cuts sizing to 25%
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -102,6 +115,9 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   compounding:          false,
   riskPctPerTrade:      5,
   startingBankroll:     100,
+  useKellyCriterion:       false,
+  brainLearningMode:       true,
+  drawdownShieldThreshold: 0, // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
 };
 
 const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
@@ -156,12 +172,48 @@ export function kalshiBankroll(s: KalshiEngineState): number {
   return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
 }
 
-export function kalshiContractsFor(s: KalshiEngineState, priceInCents: number): number {
-  if (!s.config.compounding) return s.config.contractsPerTrade;
-  const bankroll = kalshiBankroll(s);
-  const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
-  const perContract = Math.max(0.01, priceInCents / 100);
-  return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+export async function kalshiContractsFor(userId: number, s: KalshiEngineState, priceInCents: number): Promise<{ contracts: number; reasoning: string }> {
+  const baseContracts = (() => {
+    if (!s.config.compounding) return s.config.contractsPerTrade;
+    const bankroll = kalshiBankroll(s);
+    const stakeTarget = bankroll * ((s.config.riskPctPerTrade || 5) / 100);
+    const perContract = Math.max(0.01, priceInCents / 100);
+    return Math.max(1, Math.min(200, Math.floor(stakeTarget / perContract)));
+  })();
+
+  // Drawdown Shield — cut sizing to 25% once bankroll pulls back from its
+  // session peak by more than the configured threshold.
+  let riskMultiplier = 1;
+  if (s.config.drawdownShieldThreshold > 0) {
+    const bankroll = kalshiBankroll(s);
+    const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+    _sessionPeakBankroll.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? ((peak - bankroll) / peak) * 100 : 0;
+    if (ddFromPeakPct >= s.config.drawdownShieldThreshold) riskMultiplier = 0.25;
+  }
+  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier));
+  const shieldNote = riskMultiplier < 1 ? ` ⚠️ Drawdown Shield active — sized to ${Math.round(riskMultiplier * 100)}%.` : '';
+
+  if (s.config.brainLearningMode) {
+    const perf = getKalshiPerformance(userId);
+    const brainLocked = perf.totals.trades < 10 || perf.totals.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `🧠 Learning Mode: locked at 1 contract (${perf.totals.trades}/10 trades, ${perf.totals.winRate}%/60% WR).${shieldNote}` };
+    }
+    if (s.config.useKellyCriterion) {
+      const fractionalKelly = (perf.totals.winRate / 100) * 0.25;
+      const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `🧠 Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR) + Kelly sizing.${shieldNote}` };
+    }
+    return { contracts: shieldedBase, reasoning: `🧠 Brain unlocked (${perf.totals.trades} trades @ ${perf.totals.winRate}% WR).${shieldNote}` };
+  }
+  if (s.config.useKellyCriterion) {
+    const perf = getKalshiPerformance(userId);
+    const fractionalKelly = (perf.totals.winRate / 100) * 0.25;
+    const kellyContracts = Math.max(1, Math.round(shieldedBase * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${perf.totals.winRate}% WR over ${perf.totals.trades} trades).${shieldNote}` };
+  }
+  return { contracts: shieldedBase, reasoning: shieldNote.trim() };
 }
 
 export function startKalshiEngine(userId: number): void {
@@ -224,8 +276,9 @@ async function _placeKalshiYes(
   s: KalshiEngineState,
   p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
 ): Promise<{ fired: boolean; reason: string }> {
-  // Compounding mode sizes the stake from the growing bankroll; otherwise fixed count
-  const contracts = kalshiContractsFor(s, p.priceInCents);
+  // Compounding mode sizes the stake from the growing bankroll; otherwise fixed
+  // count — then Brain Learning Mode / Kelly / Drawdown Shield adjust it further.
+  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p.priceInCents);
   const stakeUsd = (p.priceInCents / 100) * contracts;
 
   let kalshiOrderId: string | undefined;
@@ -271,7 +324,7 @@ async function _placeKalshiYes(
     ? ` · auto-exit TP ${s.config.takeProfitCents}¢/SL ${s.config.stopLossCents}¢`
     : '';
   const compNote = s.config.compounding ? ` · compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : '';
-  const r = `${modeStr} ${p.label}: bought YES × ${contracts} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}`;
+  const r = `${modeStr} ${p.label}: bought YES × ${contracts} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ''}`;
   s.lastScanResult = r;
   return { fired: true, reason: r };
 }
@@ -802,7 +855,7 @@ export function closeKalshiTrade(
       await db.insert(aiTradeResults).values({
         userId,
         symbol: `KALSHI:${trade.ticker}`,
-        direction: trade.direction === 'SELL' ? 'SELL' : 'BUY',
+        direction: trade.signal.direction === 'SELL' ? 'SELL' : 'BUY',
         entryPrice: trade.entryPriceCents / 100,
         exitPrice: exitCents / 100,
         result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
@@ -810,7 +863,7 @@ export function closeKalshiTrade(
         closedAt: new Date(),
         source: 'kalshi',
         mt5Ticket: trade.id,
-        notes: `${trade.strategy}: ${trade.label}${exitReason !== 'manual' ? ' | ' + exitReason : ''}`,
+        notes: `${trade.strategy}: ${trade.subtitle}${exitReason !== 'manual' ? ' | ' + exitReason : ''}`,
       });
     } catch { /* non-blocking */ }
   });

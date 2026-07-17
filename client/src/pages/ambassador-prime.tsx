@@ -109,6 +109,7 @@ function StatusDot({ status }: { status: string }) {
 
 function ContentCard({ item }: { item: ContentItem }) {
   const [expanded, setExpanded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const text = item.contentText ?? '';
   const preview = text.slice(0, 120);
   return (
@@ -124,10 +125,13 @@ function ContentCard({ item }: { item: ContentItem }) {
           <CopyBtn text={text} />
         </div>
       </div>
-      {item.imageUrl && (
+      {item.imageUrl && !imageFailed && (
         <a href={item.imageUrl} target="_blank" rel="noopener noreferrer" className="block mb-2">
-          <img src={item.imageUrl} alt="" loading="lazy" className="w-full max-h-64 object-cover rounded-md border border-slate-800" />
+          <img src={item.imageUrl} alt="" loading="lazy" onError={() => setImageFailed(true)} className="w-full max-h-64 object-cover rounded-md border border-slate-800" />
         </a>
+      )}
+      {item.imageUrl && imageFailed && (
+        <p className="text-xs text-amber-500 mb-2">Image failed to load (link may have expired) — regenerate to fix.</p>
       )}
       <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
         {expanded ? text : preview}
@@ -183,6 +187,9 @@ export default function AmbassadorPrimePage() {
   const isPolling = Date.now() < pollUntil;
   const [showRunPopup, setShowRunPopup] = useState(false);
   const [runProgress, setRunProgress] = useState(0);
+  const { data: referralData } = useQuery<{ code: string; url: string; shortUrl: string }>({
+    queryKey: ['/api/referral/my-link'],
+  });
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -372,7 +379,7 @@ export default function AmbassadorPrimePage() {
                       <CardContent>
                         <div className="text-xs text-slate-300 bg-slate-800 rounded p-3 relative">
                           {dayContent.community[0].imageUrl && (
-                            <img src={dayContent.community[0].imageUrl} alt="" loading="lazy" className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
+                            <img src={dayContent.community[0].imageUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
                           )}
                           {dayContent.community[0].contentText}
                           <CopyBtn text={dayContent.community[0].contentText} />
@@ -389,7 +396,7 @@ export default function AmbassadorPrimePage() {
                       <CardContent>
                         <div className="text-xs text-slate-300 bg-slate-800 rounded p-3">
                           {dayContent.bonus[0].imageUrl && (
-                            <img src={dayContent.bonus[0].imageUrl} alt="" loading="lazy" className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
+                            <img src={dayContent.bonus[0].imageUrl} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} className="w-full max-h-48 object-cover rounded-md border border-slate-700 mb-2" />
                           )}
                           {dayContent.bonus[0].contentText}
                         </div>
@@ -528,7 +535,7 @@ export default function AmbassadorPrimePage() {
                   Runs automatically at <span className="font-mono text-orange-400">09:00 UTC</span> every day
                 </div>
                 <div className="mt-3 text-xs text-slate-500">
-                  Referral link embedded in all posts: <span className="text-orange-400 font-mono break-all">https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511</span>
+                  Referral link embedded in all posts: <span className="text-orange-400 font-mono break-all">{referralData?.url || `${window.location.origin}/auth?ref=...`}</span>
                 </div>
               </div>
             </div>
