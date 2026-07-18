@@ -9,10 +9,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
 
+type SourceCategory = 'forex' | 'tradelocker';
+
+const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain' };
+
 interface BrainListing {
   id: number;
   sellerId: number;
   sellerUsername: string;
+  sourceCategory: SourceCategory;
   title: string;
   description: string | null;
   priceVedd: number;
@@ -22,6 +27,7 @@ interface BrainListing {
   ageDays: number;
   winRate: number | null;
   purchaseCount: number;
+  isActive?: boolean;
   alreadyPurchased: boolean;
   isOwnListing: boolean;
 }
@@ -41,14 +47,24 @@ export default function BrainDataMarketplacePage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [customPrice, setCustomPrice] = useState('');
+  // Sellers can list two separate brains — one built only from MT5/EA-triggered
+  // forex signals, one built only from TradeLocker-executed trades — rather
+  // than one blended listing.
+  const [sellCategory, setSellCategory] = useState<SourceCategory>('forex');
 
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
   const { data: listings = [], isLoading } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace'] });
-  const { data: myListings = [] } = useQuery<any[]>({ queryKey: ['/api/brain-marketplace/my-listings'] });
-  const { data: preview } = useQuery<PreviewStats>({ queryKey: ['/api/brain-marketplace/my-listings/preview'] });
+  const { data: myListings = [] } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace/my-listings'] });
+  const { data: preview } = useQuery<PreviewStats>({
+    queryKey: ['/api/brain-marketplace/my-listings/preview', sellCategory],
+    queryFn: async () => {
+      const res = await apiRequest('GET', `/api/brain-marketplace/my-listings/preview?sourceCategory=${sellCategory}`);
+      return res.json();
+    },
+  });
 
   const myBalance = wallet?.veddBalance ?? 0;
-  const myActiveListing = myListings.find((l: any) => l.isActive);
+  const myActiveListing = myListings.find(l => l.isActive && l.sourceCategory === sellCategory);
 
   const listMutation = useMutation({
     mutationFn: async () => {
@@ -56,6 +72,7 @@ export default function BrainDataMarketplacePage() {
         title,
         description: description || undefined,
         priceVedd: customPrice ? parseInt(customPrice, 10) : undefined,
+        sourceCategory: sellCategory,
       });
       return res.json();
     },
@@ -66,6 +83,7 @@ export default function BrainDataMarketplacePage() {
       setCustomPrice('');
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings/preview'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Listing failed', description: error.message, variant: 'destructive' });
@@ -107,6 +125,19 @@ export default function BrainDataMarketplacePage() {
             <CardDescription>List a snapshot of your trade history. Buyers get a copy — you keep yours.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              {(['forex', 'tradelocker'] as const).map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSellCategory(cat)}
+                  className={`flex-1 text-sm font-semibold rounded-lg px-3 py-2 border transition-colors ${
+                    sellCategory === cat ? 'bg-purple-500/15 border-purple-500 text-purple-400' : 'border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {CATEGORY_LABEL[cat]}
+                </button>
+              ))}
+            </div>
             {myActiveListing ? (
               <div className="rounded-lg border p-4 space-y-2">
                 <p className="font-semibold">{myActiveListing.title}</p>
@@ -157,6 +188,7 @@ export default function BrainDataMarketplacePage() {
               {listings.filter(l => !l.isOwnListing).map(listing => (
                 <Card key={listing.id} className="hover:shadow-lg transition-shadow">
                   <CardHeader>
+                    <Badge variant="outline" className="w-fit mb-1 text-xs">{CATEGORY_LABEL[listing.sourceCategory] ?? 'Forex / MT5 Brain'}</Badge>
                     <CardTitle className="text-lg">{listing.title}</CardTitle>
                     <CardDescription>by {listing.sellerUsername}</CardDescription>
                     {listing.description && <p className="text-sm text-muted-foreground mt-2">{listing.description}</p>}

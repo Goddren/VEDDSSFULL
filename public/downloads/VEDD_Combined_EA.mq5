@@ -66,6 +66,181 @@ input bool    RECEIVE_SIGNALS_FLAG = true;                           // Should t
 input bool    SHOW_CHART_COMMENT   = true;                           // Show status overlay on chart
 
 //====================================================================
+//  MULTI-TIMEFRAME AI ANALYSIS   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h5                    = "========== MULTI-TF AI ANALYSIS ==========";  // *** AI ANALYSIS TFs ***
+input bool    ENABLE_MULTI_TIMEFRAME = true;                         // Enable Multi-TF AI Analysis
+input bool    ANALYZE_M5             = false;                        // Analyze M5 (Scalping)
+input bool    ANALYZE_M15            = true;                         // Analyze M15 (Short-term)
+input bool    ANALYZE_H1             = true;                         // Analyze H1 (Intraday)
+input bool    ANALYZE_H4             = true;                         // Analyze H4 (Swing)
+input bool    ANALYZE_D1             = false;                        // Analyze D1 (Daily)
+input bool    ANALYZE_W1             = false;                        // Analyze W1 (Weekly)
+
+//====================================================================
+//  EA SETTINGS / RISK   (ported from VEDD_ChartData_EA — reported to
+//  the server via "eaSettings" in the chart-data payload)
+//====================================================================
+input string  _h6               = "========== EA SETTINGS / RISK ==========";  // *** EA SETTINGS ***
+input int     MIN_CONFIDENCE    = 70;                                // Min AI Confidence % to Trade
+input double  LOT_SIZE          = 0.01;                              // Fixed Lot Size
+input bool    USE_RISK_PERCENT  = false;                             // Use Risk % Instead of Fixed Lot
+input double  RISK_PERCENT      = 1.0;                               // Risk Per Trade (% of Balance)
+input int     MAX_OPEN_TRADES   = 1;                                 // Max Positions Open at Once (account-wide, all symbols)
+input int     TRADING_SESSION   = 0;                                 // Session: 0=Custom,1=London,2=NewYork,3=Tokyo,4=Sydney,5=LDN/NY,6=Auto(AI)
+
+//====================================================================
+//  TRAILING STOP   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h7                     = "========== TRAILING STOP ==========";  // *** TRAILING STOP ***
+input bool    ENABLE_TRADE_MANAGEMENT = true;                        // Enable Trade Management
+input bool    ENABLE_TRAILING_STOP    = true;                        // Enable Trailing Stop
+input int     TRAIL_MODE              = 1;                           // Trail Mode (1=Fixed, 2=ATR, 3=BE+Trail)
+input int     TRAIL_START_PIPS        = 20;                          // Start Trailing at X Pips Profit
+input int     TRAIL_DISTANCE_PIPS     = 15;                          // Trailing Distance (pips)
+input double  TRAIL_ATR_MULTIPLIER    = 1.5;                         // ATR Multiplier (Mode 2 Only)
+
+//====================================================================
+//  BREAKEVEN   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h8                 = "========== BREAKEVEN ==========";  // *** BREAKEVEN ***
+input bool    MOVE_TO_BREAKEVEN   = true;                            // Move SL to Breakeven
+input int     BREAKEVEN_PIPS      = 15;                              // Move at X Pips Profit
+input int     BREAKEVEN_LOCK_PIPS = 2;                               // Lock in X Pips at Breakeven
+
+//====================================================================
+//  MOMENTUM & VOLUME EXIT   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h9                        = "========== MOMENTUM & VOLUME EXIT ==========";  // *** MOMENTUM & VOLUME ***
+input bool    ENABLE_MOMENTUM_MANAGEMENT = true;                     // Manage Trades by Momentum
+input bool    CLOSE_ON_MOMENTUM_REVERSAL = true;                     // Close if Momentum Reverses
+input int     RSI_OVERBOUGHT             = 70;                       // RSI Overbought Level (Close Longs)
+input int     RSI_OVERSOLD               = 30;                       // RSI Oversold Level (Close Shorts)
+input bool    ENABLE_VOLUME_MANAGEMENT   = true;                     // Manage Trades by Volume
+input bool    CLOSE_ON_LOW_VOLUME        = false;                    // Close if Volume Drops
+input double  VOLUME_DROP_PERCENT        = 50.0;                     // Close if Volume < X% of Avg
+
+//====================================================================
+//  PYRAMIDING (Add to Winners)   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h10                   = "========== PYRAMIDING (Add to Winners) ==========";  // *** PYRAMIDING ***
+input bool    ENABLE_PYRAMIDING      = false;                        // Enable Pyramiding
+input int     PYRAMID_MAX_POSITIONS  = 3;                            // Max Positions to Stack
+input int     PYRAMID_TRIGGER_PIPS   = 30;                           // Add Position Every X Pips Profit
+input double  PYRAMID_LOT_MULTIPLIER = 1.0;                          // Lot Multiplier for Each Add
+input bool    PYRAMID_MOVE_SL        = true;                         // Move All SL to New Entry
+input int     PYRAMID_MIN_CONFIDENCE = 65;                           // Min AI Confidence to Add
+
+//====================================================================
+//  GRID TRADING (CAREFUL!)   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h11              = "========== GRID TRADING (CAREFUL!) ==========";  // *** GRID TRADING ***
+input bool    ENABLE_GRID       = false;                             // Enable Grid Trading
+input int     GRID_LEVELS       = 3;                                 // Number of Grid Levels
+input int     GRID_SPACING_PIPS = 20;                                // Pips Between Grid Orders
+input double  GRID_LOT_SIZE     = 0.01;                              // Lot Size Per Grid Order
+input bool    GRID_HEDGE_MODE   = false;                             // Place Orders Both Directions
+input int     GRID_TP_PIPS      = 15;                                // Take Profit Per Grid Order
+input int     GRID_MAX_ORDERS   = 6;                                 // Max Total Grid Orders
+
+//====================================================================
+//  MARTINGALE (VERY RISKY!)   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h12                    = "========== MARTINGALE (VERY RISKY!) ==========";  // *** MARTINGALE ***
+input bool    ENABLE_MARTINGALE       = false;                       // Enable Martingale
+input double  MARTINGALE_MULTIPLIER   = 2.0;                         // Lot Multiplier After Loss
+input int     MARTINGALE_MAX_LEVEL    = 3;                           // Max Martingale Levels
+input bool    MARTINGALE_RESET_ON_WIN = true;                        // Reset to Base Lot After Win
+
+//====================================================================
+//  PROP FIRM COMPLIANCE   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h13                    = "========== PROP FIRM COMPLIANCE ==========";  // *** PROP FIRM ***
+input bool    PROP_FIRM_MODE          = false;                       // Enable Prop Firm Mode
+input double  PROP_DAILY_DD_LIMIT     = 5.0;                         // Daily Drawdown Limit (%)
+input double  PROP_MAX_DD_LIMIT       = 10.0;                        // Max Total Drawdown Limit (%)
+input double  PROP_DAILY_LOSS_LIMIT   = 4.0;                         // Daily Loss Limit (% of Balance)
+input double  PROP_MAX_LOT_SIZE       = 0.5;                         // Max Lot Size Allowed
+input int     PROP_MAX_OPEN_TRADES    = 3;                           // Max Simultaneous Positions (account-wide, all symbols)
+input bool    PROP_REQUIRE_SL         = true;                        // Require Stop Loss on All Trades
+input double  PROP_MIN_RR_RATIO       = 1.5;                         // Min Risk:Reward Ratio
+input bool    PROP_NO_NEWS_TRADING    = true;                        // Block Trading During News
+input bool    PROP_NO_WEEKEND_HOLDING = true;                        // Close All Before Weekend
+input int     PROP_FRIDAY_CLOSE_HOUR  = 20;                          // Friday Close Hour (UTC)
+
+//====================================================================
+//  TRADE HISTORY LEARNING   (ported from VEDD_ChartData_EA)
+//====================================================================
+input string  _h14                   = "========== TRADE HISTORY LEARNING ==========";  // *** HISTORY LEARNING ***
+input bool    ENABLE_LEARNING_FILTER = false;                        // Apply AI-Learned Filters
+input int     DIRECTION_BIAS         = 0;                            // Direction Bias: 0=Both, 1=BUY Only, 2=SELL Only
+input bool    AVOID_HOUR_0  = false; // Avoid Hour 00:00
+input bool    AVOID_HOUR_1  = false; // Avoid Hour 01:00
+input bool    AVOID_HOUR_2  = false; // Avoid Hour 02:00
+input bool    AVOID_HOUR_3  = false; // Avoid Hour 03:00
+input bool    AVOID_HOUR_4  = false; // Avoid Hour 04:00
+input bool    AVOID_HOUR_5  = false; // Avoid Hour 05:00
+input bool    AVOID_HOUR_6  = false; // Avoid Hour 06:00
+input bool    AVOID_HOUR_7  = false; // Avoid Hour 07:00
+input bool    AVOID_HOUR_8  = false; // Avoid Hour 08:00
+input bool    AVOID_HOUR_9  = false; // Avoid Hour 09:00
+input bool    AVOID_HOUR_10 = false; // Avoid Hour 10:00
+input bool    AVOID_HOUR_11 = false; // Avoid Hour 11:00
+input bool    AVOID_HOUR_12 = false; // Avoid Hour 12:00
+input bool    AVOID_HOUR_13 = false; // Avoid Hour 13:00
+input bool    AVOID_HOUR_14 = false; // Avoid Hour 14:00
+input bool    AVOID_HOUR_15 = false; // Avoid Hour 15:00
+input bool    AVOID_HOUR_16 = false; // Avoid Hour 16:00
+input bool    AVOID_HOUR_17 = false; // Avoid Hour 17:00
+input bool    AVOID_HOUR_18 = false; // Avoid Hour 18:00
+input bool    AVOID_HOUR_19 = false; // Avoid Hour 19:00
+input bool    AVOID_HOUR_20 = false; // Avoid Hour 20:00
+input bool    AVOID_HOUR_21 = false; // Avoid Hour 21:00
+input bool    AVOID_HOUR_22 = false; // Avoid Hour 22:00
+input bool    AVOID_HOUR_23 = false; // Avoid Hour 23:00
+input bool    AVOID_MONDAY    = false; // Avoid Monday
+input bool    AVOID_TUESDAY   = false; // Avoid Tuesday
+input bool    AVOID_WEDNESDAY = false; // Avoid Wednesday
+input bool    AVOID_THURSDAY  = false; // Avoid Thursday
+input bool    AVOID_FRIDAY    = false; // Avoid Friday
+input int     MAX_TRADES_PER_DAY = 10;                               // Max Trades Per Day (0=Unlimited)
+
+//====================================================================
+//  NEWS FILTER   (ported from VEDD_ChartData_EA — the sentiment/impact
+//  analysis itself runs server-side in server/news-service.ts; this EA
+//  only consumes the mt5News*/mt5HighImpactAlert fields the server
+//  already returns in the /api/mt5/chart-data POST response, the same
+//  source VEDD_ChartData_EA's ParseAndDisplayAnalysis() used. See
+//  ParseChartDataResponse() below, called from SendChartData().
+//  NOTE: BLOCK_ON_MEDIUM_IMPACT, BLOCK_ON_LOW_IMPACT, MINUTES_BEFORE_NEWS,
+//  MINUTES_AFTER_NEWS, CLOSE_TRADES_BEFORE_NEWS, and all BLOCK_ON_NFP /
+//  FOMC / CPI / GDP / INTEREST_RATE / EMPLOYMENT event-type filters are
+//  ported as inputs for settings parity, but — exactly as in the source
+//  VEDD_ChartData_EA — they were never wired into any enforcement logic
+//  there either (only referenced in OnInit Print/log statements), so
+//  none of them gate trading here.
+//====================================================================
+input string  _h15                     = "========== NEWS FILTER ==========";  // *** NEWS FILTER ***
+input bool    NEWS_AWARE_TRADING       = true;                       // Enable News-Aware Trading
+input bool    BLOCK_ON_HIGH_IMPACT     = true;                       // Block on HIGH Impact News
+input bool    BLOCK_ON_MEDIUM_IMPACT   = false;                      // Block on MEDIUM Impact News
+input bool    BLOCK_ON_LOW_IMPACT      = false;                      // Block on LOW Impact News
+input int     MINUTES_BEFORE_NEWS      = 30;                         // Stop Trading X Min BEFORE News
+input int     MINUTES_AFTER_NEWS       = 15;                         // Resume Trading X Min AFTER News
+input bool    CLOSE_TRADES_BEFORE_NEWS = false;                      // Close Open Trades Before News
+input bool    BLOCK_ON_CONFLICTING_NEWS = true;                      // Block on Conflicting Sentiment
+input bool    REQUIRE_ALIGNED_NEWS     = false;                      // Only Trade When News Aligns
+input int     MIN_NEWS_SCORE           = 0;                          // Min News Score (0-100, 0=Any)
+input int     MIN_ABSOLUTE_SCORE       = 0;                          // Min Absolute Score (0-100, trades on extremes +/-)
+input bool    TRADE_ON_EXTREME_NEWS    = false;                      // Trade ONLY on Extreme News (+/- threshold)
+input bool    BLOCK_ON_NFP             = true;                       // Block on Non-Farm Payrolls (NFP)
+input bool    BLOCK_ON_FOMC            = true;                       // Block on FOMC/Fed Decisions
+input bool    BLOCK_ON_CPI             = true;                       // Block on CPI/Inflation Data
+input bool    BLOCK_ON_GDP             = false;                      // Block on GDP Releases
+input bool    BLOCK_ON_INTEREST_RATE   = true;                       // Block on Interest Rate Decisions
+input bool    BLOCK_ON_EMPLOYMENT      = false;                      // Block on Employment Data
+
+//====================================================================
 //  Globals — URLs
 //====================================================================
 string g_signalUrl;
@@ -116,6 +291,80 @@ ulong g_reportedTickets[200];
 int   g_reportedCount = 0;
 
 CTrade g_trade;
+
+//====================================================================
+//  Globals — Per-symbol AI signal/trade-plan state (parsed in
+//  ParseChartDataResponse() from the /api/mt5/chart-data response for
+//  that symbol). VEDD_ChartData_EA kept a single set of these
+//  (lastSignal/lastConfidence/lastEntry/lastSL/lastTP/trailConfidence/
+//  trailATRMultiplier) because it only ever ran on one symbol; this EA
+//  is multi-symbol, so each is an array indexed the same as g_symList.
+//====================================================================
+string g_lastSignal[VEDD_MAX_SYM];
+int    g_lastConfidence[VEDD_MAX_SYM];
+double g_lastEntry[VEDD_MAX_SYM];
+double g_lastSL[VEDD_MAX_SYM];
+double g_lastTP[VEDD_MAX_SYM];
+int    g_trailConfidence[VEDD_MAX_SYM];
+double g_trailATRMultiplier[VEDD_MAX_SYM];
+
+//====================================================================
+//  Globals — News context (parsed from the chart-data response; the
+//  sentiment/impact analysis itself runs server-side in
+//  server/news-service.ts — see NEWS FILTER input section note above)
+//====================================================================
+string g_lastNewsSentiment   = "";
+int    g_lastNewsScore       = 0;
+string g_lastNewsAlignment   = "";
+string g_lastNewsImpact      = "";
+string g_lastHighImpactAlert = "";
+bool   g_hasNewsData         = false;
+
+//====================================================================
+//  Globals — Prop Firm compliance state (account-wide, not per-symbol:
+//  balance/equity/drawdown are account-level figures)
+//====================================================================
+double   g_propStartingBalance  = 0;
+double   g_propDailyHighBalance = 0;
+double   g_propMaxEquityReached = 0;
+datetime g_propDailyResetTime   = 0;
+bool     g_propTradingBlocked   = false;
+string   g_propBlockReason      = "";
+bool     g_propInitialized      = false;
+
+//====================================================================
+//  Globals — Trade History Learning filter state (account-wide: the
+//  original's daily trade counter/reset counted trades EA-wide too)
+//====================================================================
+int      g_dailyTradeCount        = 0;
+datetime g_learningDailyResetTime = 0;
+
+//====================================================================
+//  Globals — Pyramiding state (per symbol)
+//====================================================================
+int    g_pyramidPositionCount[VEDD_MAX_SYM];
+double g_pyramidLastAddPrice[VEDD_MAX_SYM];
+
+//====================================================================
+//  Globals — Martingale state (per symbol — a loss on EURUSD shouldn't
+//  double down the next GBPUSD trade)
+//====================================================================
+int  g_martingaleLevel[VEDD_MAX_SYM];
+bool g_lastTradeWasLoss[VEDD_MAX_SYM];
+
+//====================================================================
+//  Globals — Grid state (per symbol)
+//====================================================================
+int g_activeGridOrders[VEDD_MAX_SYM];
+
+//====================================================================
+//  Globals — Trading session (resolved per-symbol in ResolveSession(),
+//  most recent call's result — used only for the eaSettings JSON report)
+//====================================================================
+int    g_activeSessionStart = 0;
+int    g_activeSessionEnd   = 0;
+string g_activeSessionName  = "Custom";
+int    g_serverRecommendedSession = -1;
 
 //+------------------------------------------------------------------+
 //| Utility: JSON escape                                              |
@@ -385,6 +634,1159 @@ string ExtractNumber(string json, string key, int startPos, int endPos)
 }
 
 //+------------------------------------------------------------------+
+//| Find index of a symbol within g_symList (-1 if not monitored)     |
+//+------------------------------------------------------------------+
+int FindSymIndex(string sym)
+{
+   for(int i = 0; i < g_symCount; i++)
+      if(g_symList[i] == sym) return i;
+   return -1;
+}
+
+//+------------------------------------------------------------------+
+//| Pip value for a symbol (3/5-digit brokers use point*10)           |
+//+------------------------------------------------------------------+
+double PipValue(string sym)
+{
+   double point  = SymbolInfoDouble(sym, SYMBOL_POINT);
+   int    digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   return (digits == 3 || digits == 5) ? point * 10 : point;
+}
+
+//+------------------------------------------------------------------+
+//| Build JSON object with extended account data (ported from         |
+//| VEDD_ChartData_EA's BuildAccountJson) — account-wide, no symbol   |
+//| dependency so no adaptation needed here.                          |
+//+------------------------------------------------------------------+
+string BuildAccountJson()
+{
+   double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity     = AccountInfoDouble(ACCOUNT_EQUITY);
+   double margin     = AccountInfoDouble(ACCOUNT_MARGIN);
+   double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   double profit     = AccountInfoDouble(ACCOUNT_PROFIT);
+   double credit     = AccountInfoDouble(ACCOUNT_CREDIT);
+   string currency   = JsonEscape(AccountInfoString(ACCOUNT_CURRENCY));
+   long   accountNum = AccountInfoInteger(ACCOUNT_LOGIN);
+   string accountNm  = JsonEscape(AccountInfoString(ACCOUNT_NAME));
+   string server     = JsonEscape(AccountInfoString(ACCOUNT_SERVER));
+   int    leverage   = (int)AccountInfoInteger(ACCOUNT_LEVERAGE);
+
+   double marginLevel = 0;
+   if(margin > 0) marginLevel = (equity / margin) * 100;
+
+   static double dayStartBalance = 0;
+   static datetime lastDayChecked = 0;
+
+   MqlDateTime currentTime;
+   TimeToStruct(TimeCurrent(), currentTime);
+   datetime currentDayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00", currentTime.year, currentTime.mon, currentTime.day));
+
+   if(currentDayStart != lastDayChecked)
+   {
+      dayStartBalance = balance - profit;
+      lastDayChecked  = currentDayStart;
+   }
+
+   double dailyPnL = balance - dayStartBalance;
+   double dailyPnLPercent = 0;
+   if(dayStartBalance > 0) dailyPnLPercent = (dailyPnL / dayStartBalance) * 100;
+
+   int openPositions = PositionsTotal();
+   int openOrders    = OrdersTotal();
+
+   double totalBuyLots = 0, totalSellLots = 0, unrealizedProfit = 0;
+   int    buyPositions = 0, sellPositions = 0;
+
+   for(int i = 0; i < openPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      double posLots   = PositionGetDouble(POSITION_VOLUME);
+      double posProfit = PositionGetDouble(POSITION_PROFIT);
+      unrealizedProfit += posProfit;
+      if(posType == POSITION_TYPE_BUY)  { buyPositions++;  totalBuyLots  += posLots; }
+      else if(posType == POSITION_TYPE_SELL) { sellPositions++; totalSellLots += posLots; }
+   }
+
+   string json = StringFormat(
+      "{\"balance\":%.2f,\"equity\":%.2f,\"margin\":%.2f,\"freeMargin\":%.2f,\"profit\":%.2f,\"credit\":%.2f,"
+      "\"currency\":\"%s\",\"accountNumber\":%d,\"accountName\":\"%s\",\"server\":\"%s\",\"leverage\":%d,"
+      "\"marginLevel\":%.2f,\"dailyPnL\":%.2f,\"dailyPnLPercent\":%.2f,"
+      "\"openPositions\":%d,\"pendingOrders\":%d,\"buyPositions\":%d,\"sellPositions\":%d,"
+      "\"totalBuyLots\":%.2f,\"totalSellLots\":%.2f,\"unrealizedProfit\":%.2f}",
+      SafeDouble(balance), SafeDouble(equity), SafeDouble(margin), SafeDouble(freeMargin), SafeDouble(profit), SafeDouble(credit),
+      currency, accountNum, accountNm, server, leverage,
+      SafeDouble(marginLevel), SafeDouble(dailyPnL), SafeDouble(dailyPnLPercent),
+      openPositions, openOrders, buyPositions, sellPositions,
+      SafeDouble(totalBuyLots), SafeDouble(totalSellLots), SafeDouble(unrealizedProfit)
+   );
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Resolve trading session to start/end hours for a given symbol     |
+//| (ported from VEDD_ChartData_EA's ResolveSession — ADAPTED to take  |
+//| a symbol parameter instead of reading the global _Symbol, since   |
+//| this EA sends chart data for many symbols, each of which may      |
+//| resolve to a different Auto-mode session by currency).            |
+//+------------------------------------------------------------------+
+void ResolveSession(string sym)
+{
+   int session = TRADING_SESSION;
+
+   if(session == 6 && g_serverRecommendedSession > 0 && g_serverRecommendedSession <= 5)
+      session = g_serverRecommendedSession;
+
+   switch(session)
+   {
+      case 1:
+         g_activeSessionStart = 8;  g_activeSessionEnd = 17; g_activeSessionName = "London";
+         break;
+      case 2:
+         g_activeSessionStart = 13; g_activeSessionEnd = 22; g_activeSessionName = "New York";
+         break;
+      case 3:
+         g_activeSessionStart = 0;  g_activeSessionEnd = 9;  g_activeSessionName = "Tokyo";
+         break;
+      case 4:
+         g_activeSessionStart = 22; g_activeSessionEnd = 7;  g_activeSessionName = "Sydney";
+         break;
+      case 5:
+         g_activeSessionStart = 13; g_activeSessionEnd = 17; g_activeSessionName = "LDN/NY Overlap";
+         break;
+      case 6:
+      {
+         string s = sym;
+         StringToUpper(s);
+         if(StringFind(s, "JPY") >= 0)
+         {
+            g_activeSessionStart = 0; g_activeSessionEnd = 9; g_activeSessionName = "Tokyo (Auto)";
+         }
+         else if(StringFind(s, "AUD") >= 0 || StringFind(s, "NZD") >= 0)
+         {
+            g_activeSessionStart = 22; g_activeSessionEnd = 7; g_activeSessionName = "Sydney (Auto)";
+         }
+         else if(StringFind(s, "EUR") >= 0 || StringFind(s, "GBP") >= 0 || StringFind(s, "CHF") >= 0)
+         {
+            g_activeSessionStart = 8; g_activeSessionEnd = 17; g_activeSessionName = "London (Auto)";
+         }
+         else if(StringFind(s, "USD") >= 0 || StringFind(s, "CAD") >= 0)
+         {
+            g_activeSessionStart = 13; g_activeSessionEnd = 22; g_activeSessionName = "New York (Auto)";
+         }
+         else
+         {
+            g_activeSessionStart = 8; g_activeSessionEnd = 20; g_activeSessionName = "Default (Auto)";
+         }
+         break;
+      }
+      default:
+         g_activeSessionStart = 8;  g_activeSessionEnd = 20; g_activeSessionName = "Custom";
+         break;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Build data for a specific timeframe (ported from                  |
+//| VEDD_ChartData_EA's BuildTimeframeData — ADAPTED to take a symbol |
+//| parameter instead of _Symbol).                                    |
+//+------------------------------------------------------------------+
+string BuildTimeframeData(string sym, ENUM_TIMEFRAMES tf)
+{
+   int candleCount = 30;
+
+   string candlesJson = "[";
+   bool first = true;
+   for(int i = 0; i < candleCount; i++)
+   {
+      datetime time = iTime(sym, tf, i);
+      if(time == 0) continue;
+
+      double open  = iOpen(sym, tf, i);
+      double high  = iHigh(sym, tf, i);
+      double low   = iLow(sym, tf, i);
+      double close = iClose(sym, tf, i);
+      long   volume = iVolume(sym, tf, i);
+
+      if(open == 0 && high == 0 && low == 0 && close == 0) continue;
+
+      if(!first) candlesJson += ",";
+      first = false;
+
+      candlesJson += StringFormat(
+         "{\"t\":%d,\"o\":%.5f,\"h\":%.5f,\"l\":%.5f,\"c\":%.5f,\"v\":%d}",
+         (long)time, SafeDouble(open), SafeDouble(high), SafeDouble(low), SafeDouble(close), volume
+      );
+   }
+   candlesJson += "]";
+
+   int rsiH = iRSI(sym, tf, 14, PRICE_CLOSE);
+   double rsi = IndVal(rsiH, 0);
+   if(rsiH != INVALID_HANDLE) IndicatorRelease(rsiH);
+
+   int macdH = iMACD(sym, tf, 12, 26, 9, PRICE_CLOSE);
+   double macdMain   = IndVal(macdH, 0);
+   double macdSignal = IndVal(macdH, 1);
+   if(macdH != INVALID_HANDLE) IndicatorRelease(macdH);
+
+   int ema20H = iMA(sym, tf, 20, 0, MODE_EMA, PRICE_CLOSE);
+   double ema20 = IndVal(ema20H, 0);
+   if(ema20H != INVALID_HANDLE) IndicatorRelease(ema20H);
+
+   int ema50H = iMA(sym, tf, 50, 0, MODE_EMA, PRICE_CLOSE);
+   double ema50 = IndVal(ema50H, 0);
+   if(ema50H != INVALID_HANDLE) IndicatorRelease(ema50H);
+
+   int sma200H = iMA(sym, tf, 200, 0, MODE_SMA, PRICE_CLOSE);
+   double sma200 = IndVal(sma200H, 0);
+   if(sma200H != INVALID_HANDLE) IndicatorRelease(sma200H);
+
+   double currentClose = iClose(sym, tf, 0);
+   string trend = "NEUTRAL";
+   if(currentClose > ema20 && ema20 > ema50) trend = "BULLISH";
+   else if(currentClose < ema20 && ema20 < ema50) trend = "BEARISH";
+   else if(currentClose > sma200) trend = "ABOVE_SMA200";
+   else if(currentClose < sma200) trend = "BELOW_SMA200";
+
+   string json = StringFormat(
+      "{\"candles\":%s,\"indicators\":{\"rsi\":%.2f,\"macdMain\":%.5f,\"macdSignal\":%.5f,\"ema20\":%.5f,\"ema50\":%.5f,\"sma200\":%.5f},\"trend\":\"%s\",\"close\":%.5f}",
+      candlesJson,
+      SafeDouble(rsi),
+      SafeDouble(macdMain), SafeDouble(macdSignal),
+      SafeDouble(ema20), SafeDouble(ema50), SafeDouble(sma200),
+      trend,
+      SafeDouble(currentClose)
+   );
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Build multi-timeframe analysis data for a symbol (ported from     |
+//| VEDD_ChartData_EA's BuildMultiTimeframeJson — ADAPTED to take a    |
+//| symbol parameter, see BuildTimeframeData above).                  |
+//+------------------------------------------------------------------+
+string BuildMultiTimeframeJson(string sym)
+{
+   string json = "{";
+   bool first = true;
+
+   if(ANALYZE_M5)  { if(!first) json += ","; json += "\"M5\":"  + BuildTimeframeData(sym, PERIOD_M5);  first = false; }
+   if(ANALYZE_M15) { if(!first) json += ","; json += "\"M15\":" + BuildTimeframeData(sym, PERIOD_M15); first = false; }
+   if(ANALYZE_H1)  { if(!first) json += ","; json += "\"H1\":"  + BuildTimeframeData(sym, PERIOD_H1);  first = false; }
+   if(ANALYZE_H4)  { if(!first) json += ","; json += "\"H4\":"  + BuildTimeframeData(sym, PERIOD_H4);  first = false; }
+   if(ANALYZE_D1)  { if(!first) json += ","; json += "\"D1\":"  + BuildTimeframeData(sym, PERIOD_D1);  first = false; }
+   if(ANALYZE_W1)  { if(!first) json += ","; json += "\"W1\":"  + BuildTimeframeData(sym, PERIOD_W1);  first = false; }
+
+   json += "}";
+   return json;
+}
+
+//+------------------------------------------------------------------+
+//| Parse the /api/mt5/chart-data response for AI signal/trade-plan   |
+//| and news fields (ported from VEDD_ChartData_EA's                  |
+//| ParseAndDisplayAnalysis — ADAPTED: only the field-extraction half  |
+//| is ported (this EA doesn't locally decide trades off chart data,  |
+//! it executes signals polled separately via PollAndExecuteSignals), |
+//| and results are stored per-symbol via symIdx instead of in single |
+//| globals, since this EA is multi-symbol.                           |
+//+------------------------------------------------------------------+
+void ParseChartDataResponse(int symIdx, string resp)
+{
+   if(StringLen(resp) == 0 || symIdx < 0) return;
+   int endPos = StringLen(resp);
+
+   g_lastSignal[symIdx] = ExtractString(resp, "mt5Signal", 0, endPos);
+   string confStr = ExtractNumber(resp, "mt5Confidence", 0, endPos);
+   g_lastConfidence[symIdx] = (int)StringToInteger(confStr);
+
+   string entryStr = ExtractNumber(resp, "mt5Entry", 0, endPos);
+   string slStr    = ExtractNumber(resp, "mt5StopLoss", 0, endPos);
+   string tpStr    = ExtractNumber(resp, "mt5TakeProfit", 0, endPos);
+   g_lastEntry[symIdx] = StringToDouble(entryStr);
+   g_lastSL[symIdx]    = StringToDouble(slStr);
+   g_lastTP[symIdx]    = StringToDouble(tpStr);
+
+   string trailConfStr = ExtractNumber(resp, "mt5TrailConfidence", 0, endPos);
+   g_trailConfidence[symIdx] = (StringLen(trailConfStr) > 0) ? (int)StringToInteger(trailConfStr) : 0;
+   string trailAtrStr = ExtractNumber(resp, "mt5TrailATRMultiplier", 0, endPos);
+   g_trailATRMultiplier[symIdx] = (StringLen(trailAtrStr) > 0) ? StringToDouble(trailAtrStr) : 1.5;
+
+   string recSessionStr = ExtractNumber(resp, "mt5RecommendedSession", 0, endPos);
+   if(StringLen(recSessionStr) > 0)
+   {
+      int recSession = (int)StringToInteger(recSessionStr);
+      if(recSession > 0 && recSession <= 5) g_serverRecommendedSession = recSession;
+   }
+
+   // News context: account/market-wide, not per-symbol — mirrors the source
+   // EA, which also kept a single set of news globals (news sentiment isn't
+   // computed per-symbol server-side either). Last symbol processed in the
+   // OnTimer loop wins, same "last write" semantics the single-chart EA had
+   // implicitly (it only ever had one symbol to begin with).
+   g_lastNewsSentiment   = ExtractString(resp, "mt5NewsSentiment", 0, endPos);
+   g_lastNewsAlignment   = ExtractString(resp, "mt5NewsAlignment", 0, endPos);
+   g_lastNewsImpact      = ExtractString(resp, "mt5NewsImpact", 0, endPos);
+   g_lastHighImpactAlert = ExtractString(resp, "mt5HighImpactAlert", 0, endPos);
+   string newsScoreStr   = ExtractNumber(resp, "mt5NewsScore", 0, endPos);
+   if(StringLen(newsScoreStr) > 0 && StringLen(g_lastNewsSentiment) > 0)
+   {
+      g_lastNewsScore = (int)StringToInteger(newsScoreStr);
+      g_hasNewsData   = true;
+   }
+   else
+   {
+      g_hasNewsData = false;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Count all open positions carrying this EA's magic number, across  |
+//| every monitored symbol (ADAPTATION: VEDD_ChartData_EA's           |
+//| CountOpenTrades() filtered by magic AND _Symbol since it only     |
+//| ever ran on one chart/symbol. This EA is multi-symbol and         |
+//| MAX_OPEN_TRADES / PROP_MAX_OPEN_TRADES are account-wide risk caps, |
+//| so the count must span all symbols, not just one.)                |
+//+------------------------------------------------------------------+
+int CountAllOpenTradesByMagic()
+{
+   int count = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER) count++;
+   }
+   return count;
+}
+
+//+------------------------------------------------------------------+
+//| Check Prop Firm compliance — returns true if trading allowed      |
+//| (ported from VEDD_ChartData_EA's CheckPropFirmCompliance —         |
+//| ADAPTED: uses CountAllOpenTradesByMagic() instead of a             |
+//| single-symbol CountOpenTrades(), see note above).                  |
+//+------------------------------------------------------------------+
+bool CheckPropFirmCompliance()
+{
+   if(!PROP_FIRM_MODE) return true;
+
+   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
+
+   if(!g_propInitialized)
+   {
+      g_propStartingBalance  = balance;
+      g_propDailyHighBalance = balance;
+      g_propMaxEquityReached = balance;
+      g_propDailyResetTime   = TimeCurrent();
+      g_propInitialized      = true;
+   }
+
+   MqlDateTime dt, resetDt;
+   TimeToStruct(TimeCurrent(), dt);
+   TimeToStruct(g_propDailyResetTime, resetDt);
+
+   if(dt.day_of_year != resetDt.day_of_year)
+   {
+      g_propDailyHighBalance = balance;
+      g_propDailyResetTime   = TimeCurrent();
+      g_propTradingBlocked   = false;
+      g_propBlockReason      = "";
+      Print("[PROP FIRM] New day - Daily limits reset. High balance: ", DoubleToString(g_propDailyHighBalance, 2));
+   }
+
+   if(equity > g_propMaxEquityReached) g_propMaxEquityReached = equity;
+   if(balance > g_propDailyHighBalance) g_propDailyHighBalance = balance;
+
+   double dailyDD = ((g_propDailyHighBalance - equity) / g_propDailyHighBalance) * 100.0;
+   if(dailyDD >= PROP_DAILY_DD_LIMIT)
+   {
+      g_propTradingBlocked = true;
+      g_propBlockReason = StringFormat("Daily DD %.2f%% >= %.1f%% limit", dailyDD, PROP_DAILY_DD_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", g_propBlockReason);
+      return false;
+   }
+
+   double maxDD = ((g_propStartingBalance - equity) / g_propStartingBalance) * 100.0;
+   if(maxDD >= PROP_MAX_DD_LIMIT)
+   {
+      g_propTradingBlocked = true;
+      g_propBlockReason = StringFormat("Max DD %.2f%% >= %.1f%% limit", maxDD, PROP_MAX_DD_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", g_propBlockReason);
+      return false;
+   }
+
+   double dailyLoss = ((g_propDailyHighBalance - balance) / g_propDailyHighBalance) * 100.0;
+   if(dailyLoss >= PROP_DAILY_LOSS_LIMIT)
+   {
+      g_propTradingBlocked = true;
+      g_propBlockReason = StringFormat("Daily Loss %.2f%% >= %.1f%% limit", dailyLoss, PROP_DAILY_LOSS_LIMIT);
+      Print("[PROP FIRM] BLOCKED: ", g_propBlockReason);
+      return false;
+   }
+
+   int openTrades = CountAllOpenTradesByMagic();
+   if(openTrades >= PROP_MAX_OPEN_TRADES)
+   {
+      g_propBlockReason = StringFormat("Max trades %d reached", PROP_MAX_OPEN_TRADES);
+      return false;
+   }
+
+   if(PROP_NO_WEEKEND_HOLDING && dt.day_of_week == 5 && dt.hour >= PROP_FRIDAY_CLOSE_HOUR)
+   {
+      g_propBlockReason = "Friday close time - no new trades before weekend";
+      return false;
+   }
+
+   g_propTradingBlocked = false;
+   g_propBlockReason = "";
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Close all EA positions before the weekend (ported from            |
+//| VEDD_ChartData_EA's PropFirmWeekendClose — this one already       |
+//| filtered only by magic number, not by _Symbol, so it was already  |
+//| multi-symbol-safe and needed no adaptation beyond using g_trade).  |
+//+------------------------------------------------------------------+
+void PropFirmWeekendClose()
+{
+   if(!PROP_FIRM_MODE || !PROP_NO_WEEKEND_HOLDING) return;
+
+   MqlDateTime dt;
+   TimeCurrent(dt);
+
+   if(dt.day_of_week == 5 && dt.hour >= PROP_FRIDAY_CLOSE_HOUR)
+   {
+      int total = PositionsTotal();
+      for(int i = total - 1; i >= 0; i--)
+      {
+         ulong ticket = PositionGetTicket(i);
+         if(PositionSelectByTicket(ticket))
+         {
+            if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER)
+            {
+               Print("[PROP FIRM] Closing position before weekend: ", PositionGetString(POSITION_SYMBOL));
+               g_trade.PositionClose(ticket);
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check trade Risk:Reward ratio (ported from VEDD_ChartData_EA's    |
+//| CheckMinRiskReward — ADAPTED to take entry/sl/tp as parameters     |
+//| instead of reading globals, since each AI signal here already     |
+//| carries its own levels).                                          |
+//+------------------------------------------------------------------+
+bool CheckMinRiskReward(double entry, double sl, double tp)
+{
+   if(!PROP_FIRM_MODE || PROP_MIN_RR_RATIO <= 0) return true;
+   if(entry <= 0 || sl <= 0 || tp <= 0) return true;
+
+   double risk   = MathAbs(entry - sl);
+   double reward = MathAbs(tp - entry);
+   if(risk <= 0) return true;
+
+   double rr = reward / risk;
+   if(rr < PROP_MIN_RR_RATIO)
+   {
+      Print("[PROP FIRM] R:R ratio ", DoubleToString(rr, 2), " < min ", DoubleToString(PROP_MIN_RR_RATIO, 2));
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Check Trade History Learning filters (ported from                 |
+//| VEDD_ChartData_EA's CheckLearningFilters — ADAPTED to take the     |
+//| signal's direction as a parameter instead of reading a global      |
+//| lastSignal; hour/day/count logic is otherwise account-wide and     |
+//| symbol-agnostic exactly as in the source EA).                     |
+//+------------------------------------------------------------------+
+bool CheckLearningFilters(string direction, string &blockReason)
+{
+   if(!ENABLE_LEARNING_FILTER) return true;
+
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+
+   MqlDateTime resetDt;
+   TimeToStruct(g_learningDailyResetTime, resetDt);
+   if(dt.day_of_year != resetDt.day_of_year)
+   {
+      g_dailyTradeCount = 0;
+      g_learningDailyResetTime = TimeCurrent();
+      Print("[LEARNING] New day - Daily trade count reset");
+   }
+
+   if(DIRECTION_BIAS == 1 && direction == "SELL")
+   {
+      blockReason = "Learning Filter: BUY Only mode - SELL signal blocked";
+      return false;
+   }
+   if(DIRECTION_BIAS == 2 && direction == "BUY")
+   {
+      blockReason = "Learning Filter: SELL Only mode - BUY signal blocked";
+      return false;
+   }
+
+   if(MAX_TRADES_PER_DAY > 0 && g_dailyTradeCount >= MAX_TRADES_PER_DAY)
+   {
+      blockReason = "Learning Filter: Max trades per day (" + IntegerToString(MAX_TRADES_PER_DAY) + ") reached";
+      return false;
+   }
+
+   int hour = dt.hour;
+   bool hourBlocked = false;
+   switch(hour)
+   {
+      case 0: hourBlocked = AVOID_HOUR_0; break;   case 1: hourBlocked = AVOID_HOUR_1; break;
+      case 2: hourBlocked = AVOID_HOUR_2; break;   case 3: hourBlocked = AVOID_HOUR_3; break;
+      case 4: hourBlocked = AVOID_HOUR_4; break;   case 5: hourBlocked = AVOID_HOUR_5; break;
+      case 6: hourBlocked = AVOID_HOUR_6; break;   case 7: hourBlocked = AVOID_HOUR_7; break;
+      case 8: hourBlocked = AVOID_HOUR_8; break;   case 9: hourBlocked = AVOID_HOUR_9; break;
+      case 10: hourBlocked = AVOID_HOUR_10; break; case 11: hourBlocked = AVOID_HOUR_11; break;
+      case 12: hourBlocked = AVOID_HOUR_12; break; case 13: hourBlocked = AVOID_HOUR_13; break;
+      case 14: hourBlocked = AVOID_HOUR_14; break; case 15: hourBlocked = AVOID_HOUR_15; break;
+      case 16: hourBlocked = AVOID_HOUR_16; break; case 17: hourBlocked = AVOID_HOUR_17; break;
+      case 18: hourBlocked = AVOID_HOUR_18; break; case 19: hourBlocked = AVOID_HOUR_19; break;
+      case 20: hourBlocked = AVOID_HOUR_20; break; case 21: hourBlocked = AVOID_HOUR_21; break;
+      case 22: hourBlocked = AVOID_HOUR_22; break; case 23: hourBlocked = AVOID_HOUR_23; break;
+   }
+   if(hourBlocked)
+   {
+      blockReason = "Learning Filter: Hour " + IntegerToString(hour) + ":00 is in avoid list";
+      return false;
+   }
+
+   int dayOfWeek = dt.day_of_week;
+   bool dayBlocked = false;
+   switch(dayOfWeek)
+   {
+      case 1: dayBlocked = AVOID_MONDAY; break;
+      case 2: dayBlocked = AVOID_TUESDAY; break;
+      case 3: dayBlocked = AVOID_WEDNESDAY; break;
+      case 4: dayBlocked = AVOID_THURSDAY; break;
+      case 5: dayBlocked = AVOID_FRIDAY; break;
+   }
+   if(dayBlocked)
+   {
+      string dayNames[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+      blockReason = "Learning Filter: " + dayNames[dayOfWeek] + " is in avoid list";
+      return false;
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Increment daily trade count (ported from VEDD_ChartData_EA)       |
+//+------------------------------------------------------------------+
+void IncrementDailyTradeCount()
+{
+   if(ENABLE_LEARNING_FILTER)
+   {
+      g_dailyTradeCount++;
+      Print("[LEARNING] Trade count: ", g_dailyTradeCount, "/", MAX_TRADES_PER_DAY);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check if news conditions allow trading (ported from                |
+//| VEDD_ChartData_EA's ShouldAutoTradeWithNews — ADAPTED to take the  |
+//| signal direction as a parameter instead of a global lastSignal;    |
+//| reads g_lastNewsSentiment/g_hasNewsData/etc, which are populated   |
+//| by ParseChartDataResponse() from the same server-computed fields   |
+//| the source EA used. See NEWS FILTER input section note for what   |
+//| is genuinely local vs. server-computed.)                          |
+//+------------------------------------------------------------------+
+bool ShouldAutoTradeWithNews(string direction, string &reason)
+{
+   if(PROP_FIRM_MODE && PROP_NO_NEWS_TRADING && g_hasNewsData)
+   {
+      if(StringLen(g_lastHighImpactAlert) > 0 || g_lastNewsImpact == "HIGH" || g_lastNewsImpact == "MEDIUM")
+      {
+         reason = "Prop Firm Mode - No trading during news events";
+         return false;
+      }
+   }
+
+   if(!NEWS_AWARE_TRADING) return true;
+
+   if(BLOCK_ON_HIGH_IMPACT && StringLen(g_lastHighImpactAlert) > 0)
+   {
+      reason = "High-impact news event imminent";
+      return false;
+   }
+
+   if(g_hasNewsData)
+   {
+      if(BLOCK_ON_CONFLICTING_NEWS && g_lastNewsAlignment == "conflicting")
+      {
+         reason = "News CONFLICTS with " + direction + " signal";
+         return false;
+      }
+
+      if(REQUIRE_ALIGNED_NEWS && g_lastNewsAlignment != "aligned")
+      {
+         reason = "News not aligned (need bullish/bearish confirmation)";
+         return false;
+      }
+
+      if(MIN_NEWS_SCORE > 0 && g_lastNewsScore < MIN_NEWS_SCORE)
+      {
+         reason = "News score " + IntegerToString(g_lastNewsScore) + " below minimum " + IntegerToString(MIN_NEWS_SCORE);
+         return false;
+      }
+
+      if(MIN_ABSOLUTE_SCORE > 0)
+      {
+         int absScore = MathAbs(g_lastNewsScore);
+         if(absScore < MIN_ABSOLUTE_SCORE)
+         {
+            reason = "News score " + IntegerToString(g_lastNewsScore) + " not extreme enough (need +/-" + IntegerToString(MIN_ABSOLUTE_SCORE) + ")";
+            return false;
+         }
+      }
+
+      if(TRADE_ON_EXTREME_NEWS)
+      {
+         int threshold = (MIN_ABSOLUTE_SCORE > 0) ? MIN_ABSOLUTE_SCORE : 50;
+         int absScore = MathAbs(g_lastNewsScore);
+         if(absScore < threshold)
+         {
+            reason = "Waiting for extreme news (current: " + IntegerToString(g_lastNewsScore) + ", need +/-" + IntegerToString(threshold) + ")";
+            return false;
+         }
+      }
+   }
+   else if(REQUIRE_ALIGNED_NEWS)
+   {
+      reason = "No news data available (required for aligned trading)";
+      return false;
+   }
+
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Combined pre-trade risk/compliance filter gate for an AI-provided  |
+//| OPEN signal — mirrors how VEDD_ChartData_EA's ProcessAutoTrade()   |
+//| gated its own local entry logic (Prop Firm / R:R / SL-required /   |
+//| Learning Filter / News Filter checks, in the same order).          |
+//+------------------------------------------------------------------+
+bool PassesPreTradeFilters(string direction, double entry, double sl, double tp, string &reason)
+{
+   if(!CheckPropFirmCompliance())
+   {
+      reason = "Prop Firm: " + g_propBlockReason;
+      return false;
+   }
+   if(PROP_FIRM_MODE && PROP_REQUIRE_SL && sl <= 0)
+   {
+      reason = "Prop Firm: Stop Loss required but not set";
+      return false;
+   }
+   if(!CheckMinRiskReward(entry, sl, tp))
+   {
+      reason = "Prop Firm: R:R ratio below minimum " + DoubleToString(PROP_MIN_RR_RATIO, 2);
+      return false;
+   }
+   string learningReason = "";
+   if(!CheckLearningFilters(direction, learningReason))
+   {
+      reason = learningReason;
+      return false;
+   }
+   string newsReason = "";
+   if(!ShouldAutoTradeWithNews(direction, newsReason))
+   {
+      reason = newsReason;
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| MARTINGALE — lot size after applying the multiplier (ported from  |
+//| VEDD_ChartData_EA's GetMartingaleLotSize — ADAPTED: state is       |
+//| tracked per symbol via symIdx/g_martingaleLevel[] instead of a     |
+//| single global level, so a loss on one pair doesn't double the lot |
+//| on an unrelated pair).                                             |
+//+------------------------------------------------------------------+
+double GetMartingaleLotSize(string sym, int symIdx, double baseLot)
+{
+   if(!ENABLE_MARTINGALE || symIdx < 0) return baseLot;
+
+   if(HistorySelect(TimeCurrent() - 86400, TimeCurrent()))
+   {
+      int totalDeals = HistoryDealsTotal();
+      for(int i = totalDeals - 1; i >= 0; i--)
+      {
+         ulong ticket = HistoryDealGetTicket(i);
+         if(ticket <= 0) continue;
+         if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != MAGIC_NUMBER) continue;
+         if(HistoryDealGetString(ticket, DEAL_SYMBOL) != sym) continue;
+
+         ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(ticket, DEAL_ENTRY);
+         if(entry == DEAL_ENTRY_OUT)
+         {
+            double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
+            if(profit < 0)
+            {
+               g_lastTradeWasLoss[symIdx] = true;
+               if(g_martingaleLevel[symIdx] < MARTINGALE_MAX_LEVEL) g_martingaleLevel[symIdx]++;
+            }
+            else if(profit > 0 && MARTINGALE_RESET_ON_WIN)
+            {
+               g_martingaleLevel[symIdx] = 0;
+               g_lastTradeWasLoss[symIdx] = false;
+            }
+            break;
+         }
+      }
+   }
+
+   double martingaleLot = baseLot * MathPow(MARTINGALE_MULTIPLIER, g_martingaleLevel[symIdx]);
+   if(g_martingaleLevel[symIdx] > 0)
+      Print("[MARTINGALE] ", sym, " level ", g_martingaleLevel[symIdx], " - lot: ", DoubleToString(martingaleLot, 2));
+   return martingaleLot;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate a pyramid-add lot size (ported from                     |
+//| VEDD_ChartData_EA's CalculateLotSize — ADAPTED to take a symbol +  |
+//| symIdx so risk-% sizing uses that symbol's own last known AI      |
+//| entry/SL (g_lastEntry/g_lastSL) instead of single globals).        |
+//+------------------------------------------------------------------+
+double CalculateLotSize(string sym, int symIdx)
+{
+   double lots  = LOT_SIZE;
+   double entry = (symIdx >= 0) ? g_lastEntry[symIdx] : 0;
+   double sl    = (symIdx >= 0) ? g_lastSL[symIdx]    : 0;
+
+   if(USE_RISK_PERCENT && sl > 0 && entry > 0)
+   {
+      double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
+      double riskAmount = balance * (RISK_PERCENT / 100.0);
+      double slDistance = MathAbs(entry - sl);
+      double tickValue  = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE);
+      double tickSize   = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
+
+      if(slDistance > 0 && tickValue > 0 && tickSize > 0)
+      {
+         double slTicks = slDistance / tickSize;
+         lots = riskAmount / (slTicks * tickValue);
+      }
+   }
+
+   if(ENABLE_MARTINGALE) lots = GetMartingaleLotSize(sym, symIdx, lots);
+
+   if(PROP_FIRM_MODE && lots > PROP_MAX_LOT_SIZE)
+      lots = PROP_MAX_LOT_SIZE;
+
+   double minLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+   double maxLot  = SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX);
+   double lotStep = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+
+   lots = MathMax(minLot, MathMin(maxLot, lots));
+   lots = MathFloor(lots / lotStep) * lotStep;
+
+   return NormalizeDouble(lots, 2);
+}
+
+//+------------------------------------------------------------------+
+//| Move all pyramid position stops to the newest entry level         |
+//| (ported from VEDD_ChartData_EA's MovePyramidStops — ADAPTED to    |
+//| filter by an explicit symbol parameter instead of _Symbol).       |
+//+------------------------------------------------------------------+
+void MovePyramidStops(string sym, ENUM_POSITION_TYPE direction, double newSLLevel)
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
+
+      double currentTP = PositionGetDouble(POSITION_TP);
+      g_trade.PositionModify(ticket, newSLLevel, currentTP);
+   }
+   Print("[PYRAMID] ", sym, ": all stops moved to ", newSLLevel);
+}
+
+//+------------------------------------------------------------------+
+//| PYRAMIDING — check for opportunity to add to a winning position   |
+//| for one monitored symbol (ported from VEDD_ChartData_EA's         |
+//| CheckPyramidOpportunity — ADAPTED to operate on one symbol out of  |
+//| g_symList at a time, filtering positions/history by that symbol   |
+//| and reading that symbol's own g_lastSignal/g_lastConfidence/       |
+//| g_lastEntry/g_lastSL/g_lastTP instead of single globals).          |
+//+------------------------------------------------------------------+
+void CheckPyramidOpportunity(int symIdx)
+{
+   if(!ENABLE_PYRAMIDING) return;
+   string sym = g_symList[symIdx];
+   double pipValue = PipValue(sym);
+
+   int posCount = 0;
+   double bestProfitPips = 0;
+   ENUM_POSITION_TYPE currentDirection = POSITION_TYPE_BUY;
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+      if(PositionGetString(POSITION_SYMBOL) != sym) continue;
+
+      posCount++;
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      currentDirection = posType;
+
+      double currentBid = SymbolInfoDouble(sym, SYMBOL_BID);
+      double currentAsk = SymbolInfoDouble(sym, SYMBOL_ASK);
+      double profitPips = 0;
+      if(posType == POSITION_TYPE_BUY) profitPips = (currentBid - openPrice) / pipValue;
+      else                              profitPips = (openPrice - currentAsk) / pipValue;
+
+      if(profitPips > bestProfitPips) bestProfitPips = profitPips;
+   }
+
+   g_pyramidPositionCount[symIdx] = posCount;
+
+   if(posCount == 0 || posCount >= PYRAMID_MAX_POSITIONS) return;
+   if(g_lastConfidence[symIdx] < PYRAMID_MIN_CONFIDENCE) return;
+   if(bestProfitPips < PYRAMID_TRIGGER_PIPS * posCount) return;
+
+   if((currentDirection == POSITION_TYPE_BUY  && g_lastSignal[symIdx] != "BUY") ||
+      (currentDirection == POSITION_TYPE_SELL && g_lastSignal[symIdx] != "SELL"))
+      return;
+
+   string learningReason = "";
+   if(!CheckLearningFilters(g_lastSignal[symIdx], learningReason))
+   {
+      Print("[PYRAMID] ", sym, ": ", learningReason);
+      return;
+   }
+
+   double baseLot = CalculateLotSize(sym, symIdx);
+   double pyramidLot = NormalizeDouble(baseLot * MathPow(PYRAMID_LOT_MULTIPLIER, posCount), 2);
+
+   Print("[PYRAMID] ", sym, ": adding position #", posCount + 1, " — profit ", DoubleToString(bestProfitPips, 1), " pips, lot ", pyramidLot);
+
+   double sl = g_lastSL[symIdx] > 0 ? g_lastSL[symIdx] : 0;
+   double tp = g_lastTP[symIdx] > 0 ? g_lastTP[symIdx] : 0;
+   string comment = "VEDD Pyramid #" + IntegerToString(posCount + 1);
+
+   bool result = false;
+   double addPrice = 0;
+   if(currentDirection == POSITION_TYPE_BUY)
+   {
+      addPrice = SymbolInfoDouble(sym, SYMBOL_ASK);
+      result = g_trade.Buy(pyramidLot, sym, addPrice, sl, tp, comment);
+   }
+   else
+   {
+      addPrice = SymbolInfoDouble(sym, SYMBOL_BID);
+      result = g_trade.Sell(pyramidLot, sym, addPrice, sl, tp, comment);
+   }
+
+   if(result)
+   {
+      Print("[PYRAMID] ", sym, ": stack #", posCount + 1, " opened");
+      g_pyramidLastAddPrice[symIdx] = addPrice;
+      IncrementDailyTradeCount();
+      if(PYRAMID_MOVE_SL) MovePyramidStops(sym, currentDirection, addPrice);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| GRID TRADING — manage grid orders for one monitored symbol        |
+//| (ported from VEDD_ChartData_EA's ManageGridOrders — ADAPTED to    |
+//| operate on one symbol out of g_symList at a time instead of       |
+//| _Symbol, and to use per-symbol g_activeGridOrders[]/              |
+//| g_lastSignal[] state).                                             |
+//+------------------------------------------------------------------+
+void ManageGridOrders(int symIdx)
+{
+   if(!ENABLE_GRID) return;
+   string sym = g_symList[symIdx];
+
+   string learningReason = "";
+   if(!CheckLearningFilters(g_lastSignal[symIdx], learningReason)) return;
+
+   double pipValue   = PipValue(sym);
+   double currentBid = SymbolInfoDouble(sym, SYMBOL_BID);
+   double currentAsk = SymbolInfoDouble(sym, SYMBOL_ASK);
+   int    digits     = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+
+   g_activeGridOrders[symIdx] = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = OrderGetTicket(i);
+      if(ticket > 0 && OrderSelect(ticket))
+      {
+         if(OrderGetInteger(ORDER_MAGIC) == MAGIC_NUMBER + 100 && OrderGetString(ORDER_SYMBOL) == sym)
+            g_activeGridOrders[symIdx]++;
+      }
+   }
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) == MAGIC_NUMBER + 100 && PositionGetString(POSITION_SYMBOL) == sym)
+         g_activeGridOrders[symIdx]++;
+   }
+
+   if(g_activeGridOrders[symIdx] >= GRID_MAX_ORDERS) return;
+   if(g_lastSignal[symIdx] != "BUY" && g_lastSignal[symIdx] != "SELL") return;
+
+   double spacing = GRID_SPACING_PIPS * pipValue;
+   double tp      = GRID_TP_PIPS * pipValue;
+   datetime expiry = TimeCurrent() + 86400;
+
+   MqlTradeRequest request = {};
+   MqlTradeResult  result  = {};
+
+   for(int level = 1; level <= GRID_LEVELS && g_activeGridOrders[symIdx] < GRID_MAX_ORDERS; level++)
+   {
+      if(g_lastSignal[symIdx] == "BUY" || GRID_HEDGE_MODE)
+      {
+         double buyPrice = NormalizeDouble(currentAsk - (spacing * level), digits);
+         double buyTP    = NormalizeDouble(buyPrice + tp, digits);
+
+         request.action      = TRADE_ACTION_PENDING;
+         request.symbol      = sym;
+         request.volume      = GRID_LOT_SIZE;
+         request.type        = ORDER_TYPE_BUY_LIMIT;
+         request.price       = buyPrice;
+         request.sl          = 0;
+         request.tp          = buyTP;
+         request.deviation   = SLIPPAGE_POINTS;
+         request.magic       = MAGIC_NUMBER + 100;
+         request.comment     = "VEDD Grid BUY L" + IntegerToString(level);
+         request.type_time   = ORDER_TIME_SPECIFIED;
+         request.expiration  = expiry;
+
+         if(OrderSend(request, result) && result.retcode == TRADE_RETCODE_DONE)
+         {
+            Print("[GRID] ", sym, ": BUY level ", level, " set @ ", buyPrice);
+            g_activeGridOrders[symIdx]++;
+         }
+      }
+
+      if(g_lastSignal[symIdx] == "SELL" || GRID_HEDGE_MODE)
+      {
+         double sellPrice = NormalizeDouble(currentBid + (spacing * level), digits);
+         double sellTP    = NormalizeDouble(sellPrice - tp, digits);
+
+         request.action      = TRADE_ACTION_PENDING;
+         request.symbol      = sym;
+         request.volume      = GRID_LOT_SIZE;
+         request.type        = ORDER_TYPE_SELL_LIMIT;
+         request.price       = sellPrice;
+         request.sl          = 0;
+         request.tp          = sellTP;
+         request.deviation   = SLIPPAGE_POINTS;
+         request.magic       = MAGIC_NUMBER + 100;
+         request.comment     = "VEDD Grid SELL L" + IntegerToString(level);
+         request.type_time   = ORDER_TIME_SPECIFIED;
+         request.expiration  = expiry;
+
+         if(OrderSend(request, result) && result.retcode == TRADE_RETCODE_DONE)
+         {
+            Print("[GRID] ", sym, ": SELL level ", level, " set @ ", sellPrice);
+            g_activeGridOrders[symIdx]++;
+         }
+      }
+   }
+
+   if(g_activeGridOrders[symIdx] > 0)
+      Print("[GRID] ", sym, ": ", g_activeGridOrders[symIdx], " grid orders active.");
+}
+
+//+------------------------------------------------------------------+
+//| Average tick volume over N bars for a symbol (ported from         |
+//| VEDD_ChartData_EA's GetAverageVolume — ADAPTED to take a symbol    |
+//| parameter instead of _Symbol).                                    |
+//+------------------------------------------------------------------+
+double GetAverageVolume(string sym, int bars)
+{
+   double total = 0;
+   for(int i = 1; i <= bars; i++)
+      total += (double)iVolume(sym, Period(), i);
+   return bars > 0 ? total / bars : 0;
+}
+
+//+------------------------------------------------------------------+
+//| Manage all open EA positions — trailing stop (3 modes), breakeven, |
+//| momentum/volume-based exits (ported from VEDD_ChartData_EA's       |
+//| ManageOpenTrades — ADAPTATION: the source EA looped PositionsTotal |
+//| but filtered to POSITION_SYMBOL == _Symbol since it only ran on    |
+//| one chart. This EA is multi-symbol, so it filters by MAGIC_NUMBER  |
+//| only and reads each position's own symbol via                     |
+//| PositionGetString(POSITION_SYMBOL) plus that symbol's own          |
+//| persistent indicator handles (g_rsiH_a/g_macdH_a/g_atrH_a, created |
+//| once per symbol in OnInit) instead of _Symbol-bound indicators.)   |
+//+------------------------------------------------------------------+
+void ManageAllOpenTrades()
+{
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket <= 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != MAGIC_NUMBER) continue;
+
+      string sym = PositionGetString(POSITION_SYMBOL);
+      int    idx = FindSymIndex(sym);
+      int    digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+      double pipValue = PipValue(sym);
+
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentSL = PositionGetDouble(POSITION_SL);
+      double currentTP = PositionGetDouble(POSITION_TP);
+      ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+      double currentBid = SymbolInfoDouble(sym, SYMBOL_BID);
+      double currentAsk = SymbolInfoDouble(sym, SYMBOL_ASK);
+
+      double profitPips = 0;
+      if(posType == POSITION_TYPE_BUY) profitPips = (currentBid - openPrice) / pipValue;
+      else                              profitPips = (openPrice - currentAsk) / pipValue;
+
+      int    tConf = (idx >= 0) ? g_trailConfidence[idx]    : 0;
+      double tMult = (idx >= 0) ? g_trailATRMultiplier[idx] : 0;
+
+      // 1. MOMENTUM MANAGEMENT
+      if(ENABLE_MOMENTUM_MANAGEMENT && CLOSE_ON_MOMENTUM_REVERSAL && idx >= 0)
+      {
+         double rsi = IndVal(g_rsiH_a[idx], 0);
+         if(rsi == 0) rsi = 50;
+         bool shouldClose = false;
+         string reason = "";
+
+         if(posType == POSITION_TYPE_BUY && rsi >= RSI_OVERBOUGHT)
+         {
+            shouldClose = true; reason = "RSI overbought (" + DoubleToString(rsi, 1) + ")";
+         }
+         else if(posType == POSITION_TYPE_SELL && rsi <= RSI_OVERSOLD)
+         {
+            shouldClose = true; reason = "RSI oversold (" + DoubleToString(rsi, 1) + ")";
+         }
+
+         double macdMain   = IndVal(g_macdH_a[idx], 0);
+         double macdSignal = IndVal(g_macdH_a[idx], 1);
+         if(posType == POSITION_TYPE_BUY && macdMain < macdSignal && profitPips > 10)
+         {
+            shouldClose = true; reason = "MACD bearish crossover";
+         }
+         else if(posType == POSITION_TYPE_SELL && macdMain > macdSignal && profitPips > 10)
+         {
+            shouldClose = true; reason = "MACD bullish crossover";
+         }
+
+         if(shouldClose && profitPips > 5)
+         {
+            Print("[REFINEMENT] ", sym, ": closing on momentum reversal - ", reason);
+            g_trade.PositionClose(ticket);
+            continue;
+         }
+      }
+
+      // 2. VOLUME MANAGEMENT
+      if(ENABLE_VOLUME_MANAGEMENT && CLOSE_ON_LOW_VOLUME)
+      {
+         double avgVolume = GetAverageVolume(sym, 20);
+         long   currentVolume = iVolume(sym, Period(), 0);
+
+         if(avgVolume > 0 && currentVolume < avgVolume * (VOLUME_DROP_PERCENT / 100.0) && profitPips > 5)
+         {
+            Print("[REFINEMENT] ", sym, ": closing on low volume (", currentVolume, " < ", (int)(avgVolume * VOLUME_DROP_PERCENT / 100), ")");
+            g_trade.PositionClose(ticket);
+            continue;
+         }
+      }
+
+      // 3. BREAKEVEN
+      if(MOVE_TO_BREAKEVEN && profitPips >= BREAKEVEN_PIPS)
+      {
+         double newSL = 0;
+         if(posType == POSITION_TYPE_BUY)
+         {
+            newSL = NormalizeDouble(openPrice + (BREAKEVEN_LOCK_PIPS * pipValue), digits);
+            if(currentSL < newSL)
+            {
+               if(g_trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[REFINEMENT] ", sym, ": breakeven + ", BREAKEVEN_LOCK_PIPS, " locked");
+            }
+         }
+         else
+         {
+            newSL = NormalizeDouble(openPrice - (BREAKEVEN_LOCK_PIPS * pipValue), digits);
+            if(currentSL > newSL || currentSL == 0)
+            {
+               if(g_trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[REFINEMENT] ", sym, ": breakeven + ", BREAKEVEN_LOCK_PIPS, " locked");
+            }
+         }
+      }
+
+      // 4. TRAILING STOP (with AI confidence-aware adjustments)
+      if(ENABLE_TRAILING_STOP && profitPips >= TRAIL_START_PIPS)
+      {
+         double trailDistance = 0;
+
+         if(TRAIL_MODE == 1)
+         {
+            trailDistance = TRAIL_DISTANCE_PIPS * pipValue;
+         }
+         else if(TRAIL_MODE == 2)
+         {
+            double atr = (idx >= 0) ? IndVal(g_atrH_a[idx], 0) : 0;
+            double effectiveMultiplier = TRAIL_ATR_MULTIPLIER;
+            if(tConf > 0 && tMult > 0) effectiveMultiplier = tMult;
+            trailDistance = atr * effectiveMultiplier;
+         }
+         else if(TRAIL_MODE == 3)
+         {
+            trailDistance = TRAIL_DISTANCE_PIPS * pipValue;
+         }
+
+         if(tConf > 0)
+         {
+            if(tConf < 45) trailDistance *= 0.8;
+            else if(tConf > 75) trailDistance *= 1.1;
+         }
+
+         double newSL = 0;
+         if(posType == POSITION_TYPE_BUY)
+         {
+            newSL = NormalizeDouble(currentBid - trailDistance, digits);
+            if(newSL > currentSL && newSL > openPrice)
+            {
+               if(g_trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[REFINEMENT] ", sym, ": trail locking profits @ ", newSL);
+            }
+         }
+         else
+         {
+            newSL = NormalizeDouble(currentAsk + trailDistance, digits);
+            if((newSL < currentSL || currentSL == 0) && newSL < openPrice)
+            {
+               if(g_trade.PositionModify(ticket, newSL, currentTP))
+                  Print("[REFINEMENT] ", sym, ": trail locking profits @ ", newSL);
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //| ── SIGNAL RECEIVER ────────────────────────────────────────────── |
 //+------------------------------------------------------------------+
 void PollAndExecuteSignals()
@@ -422,7 +1824,25 @@ void PollAndExecuteSignals()
       double tp      = StringToDouble(tpStr);
 
       bool ok = false;
-      if(action == "OPEN")          ok = ExecuteOpen(symbol, direction, lotSize, entry, sl, tp, id);
+      if(action == "OPEN")
+      {
+         // Pre-trade risk/compliance gate — ported from VEDD_ChartData_EA's
+         // ProcessAutoTrade() filter chain (Prop Firm / R:R / SL-required /
+         // Learning Filter / News Filter), applied here since this EA's
+         // trades originate from polled AI signals rather than a local
+         // ProcessAutoTrade() decision.
+         string filterReason = "";
+         if(!PassesPreTradeFilters(direction, entry, sl, tp, filterReason))
+         {
+            Print("[VEDD] Signal OPEN blocked by risk filters: ", filterReason);
+            ok = false;
+         }
+         else
+         {
+            ok = ExecuteOpen(symbol, direction, lotSize, entry, sl, tp, id);
+            if(ok) IncrementDailyTradeCount();
+         }
+      }
       else if(action == "CLOSE")    ok = ExecuteClose(symbol, posId, id);
       else if(action == "MODIFY")   ok = ExecuteModify(symbol, posId, sl, tp, modAct, id);
       else if(action == "CLOSE_ALL"){ CloseAllPositions(id); ok = true; }
@@ -448,6 +1868,23 @@ bool ExecuteOpen(string rawSym, string direction, double lotSize, double entry,
    if(sl > 0) sl = NormalizeDouble(sl, digits);
    if(tp > 0) tp = NormalizeDouble(tp, digits);
    if(lotSize <= 0) lotSize = 0.01;
+
+   // MARTINGALE — ADAPTATION: VEDD_ChartData_EA only applied martingale
+   // inside its own local CalculateLotSize(), used solely by its local
+   // ProcessAutoTrade(). This EA's OPEN trades come from a server-provided
+   // lotSize instead, so the multiplier is applied here, directly to the
+   // signal's lot, right before the order is built.
+   if(ENABLE_MARTINGALE)
+   {
+      int symIdx = FindSymIndex(sym);
+      lotSize = GetMartingaleLotSize(sym, symIdx, lotSize);
+   }
+   // Prop Firm max lot size cap (ported from VEDD_ChartData_EA's CalculateLotSize)
+   if(PROP_FIRM_MODE && lotSize > PROP_MAX_LOT_SIZE)
+   {
+      Print("[PROP FIRM] Lot size ", DoubleToString(lotSize, 2), " capped to ", DoubleToString(PROP_MAX_LOT_SIZE, 2));
+      lotSize = PROP_MAX_LOT_SIZE;
+   }
 
    ENUM_ORDER_TYPE_FILLING fill = GetFillMode(sym);
 
@@ -699,8 +2136,6 @@ void SendChartData(int symIdx)
       );
    }
 
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
    double spread  = (double)SymbolInfoInteger(sym, SYMBOL_SPREAD) * SymbolInfoDouble(sym, SYMBOL_POINT);
    double ask     = SymbolInfoDouble(sym, SYMBOL_ASK);
    double bid     = SymbolInfoDouble(sym, SYMBOL_BID);
@@ -711,21 +2146,46 @@ void SendChartData(int symIdx)
    // when connectivity itself was fine.
    string openPositionsJson = BuildOpenPositionsJson();
    string closedTradesJson  = BuildClosedTradesJson(30);
+
+   // Multi-timeframe AI analysis data (ported from VEDD_ChartData_EA)
+   string multiTimeframeJson = ENABLE_MULTI_TIMEFRAME ? BuildMultiTimeframeJson(sym) : "null";
+
+   // Extended account object (ported from VEDD_ChartData_EA's BuildAccountJson)
+   string accountJson = BuildAccountJson();
+
+   // Full eaSettings object (ported from VEDD_ChartData_EA — MIN_CONFIDENCE/
+   // LOT_SIZE/USE_RISK_PERCENT/RISK_PERCENT/MAX_OPEN_TRADES/TRADING_SESSION
+   // are new inputs added for this section; autoTradingEnabled maps to this
+   // EA's existing ENABLE_SIGNALS since there is no separate ENABLE_AUTO_TRADING
+   // input here — signal execution IS the auto-trading path in this EA)
+   ResolveSession(sym);
    string eaSettingsJson = StringFormat(
-      "{\"autoTradingEnabled\":%s}",
-      ENABLE_SIGNALS ? "true" : "false"
+      "{\"minConfidence\":%d,\"lotSize\":%.2f,\"useRiskPercent\":%s,\"riskPercent\":%.2f,\"maxOpenTrades\":%d,"
+      "\"autoTradingEnabled\":%s,\"tradingSession\":%d,\"sessionName\":\"%s\",\"sessionStart\":%d,\"sessionEnd\":%d}",
+      MIN_CONFIDENCE,
+      LOT_SIZE,
+      USE_RISK_PERCENT ? "true" : "false",
+      RISK_PERCENT,
+      MAX_OPEN_TRADES,
+      ENABLE_SIGNALS ? "true" : "false",
+      TRADING_SESSION,
+      g_activeSessionName,
+      g_activeSessionStart,
+      g_activeSessionEnd
    );
 
    string body = StringFormat(
       "{\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s,"
       "\"indicators\":%s,"
-      "\"account\":{\"balance\":%.2f,\"equity\":%.2f},"
+      "\"multiTimeframeEnabled\":%s,\"multiTimeframe\":%s,"
+      "\"account\":%s,"
       "\"market\":{\"ask\":%.5f,\"bid\":%.5f,\"spread\":%.5f},"
       "\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s,"
       "\"accountAlias\":\"%s\",\"platform\":\"MT5\"}",
       JsonEscape(sym), tfStr, JsonEscape(AccountInfoString(ACCOUNT_COMPANY)), TimeCurrent(), candlesJson,
       indJson,
-      balance, equity,
+      ENABLE_MULTI_TIMEFRAME ? "true" : "false", multiTimeframeJson,
+      accountJson,
       SafeDouble(ask), SafeDouble(bid), SafeDouble(spread),
       openPositionsJson, closedTradesJson, eaSettingsJson,
       JsonEscape(ACCOUNT_ALIAS)
@@ -736,6 +2196,10 @@ void SendChartData(int symIdx)
    if(httpCode == 200 || httpCode == 201)
    {
       Print("[VEDD] Chart data sent: ", sym, "/", tfStr, " (", copied, " candles)");
+      // Parse the AI signal/trade-plan + news fields out of the response
+      // (ported from VEDD_ChartData_EA's ParseAndDisplayAnalysis, see
+      // ParseChartDataResponse for what was and wasn't carried over)
+      ParseChartDataResponse(symIdx, resp);
    }
    else if(httpCode <= 0)
    {
@@ -915,6 +2379,36 @@ void OnTimer()
 }
 
 //+------------------------------------------------------------------+
+//| OnTick — trade management + risk/compliance subsystems ported from|
+//| VEDD_ChartData_EA's OnTick (Prop Firm weekend-close/compliance,    |
+//| trailing/breakeven/momentum/volume management, pyramiding, grid). |
+//| ADAPTATION: the source EA gated all of this behind                |
+//| ENABLE_AUTO_TRADING (its local auto-trading master switch). This   |
+//| EA has no equivalent single switch — its trades are driven by      |
+//| polled AI signals (ENABLE_SIGNALS) rather than local decisions —   |
+//| so each subsystem here is gated only by its own ENABLE_* input,    |
+//| same as the source EA's inner checks, and loops every monitored    |
+//| symbol (g_symList) instead of running once for _Symbol.            |
+//+------------------------------------------------------------------+
+void OnTick()
+{
+   // Prop Firm: weekend close + continuous compliance monitoring (account-wide)
+   PropFirmWeekendClose();
+   if(PROP_FIRM_MODE) CheckPropFirmCompliance();
+
+   if(ENABLE_TRADE_MANAGEMENT)
+      ManageAllOpenTrades();
+
+   if(ENABLE_PYRAMIDING)
+      for(int i = 0; i < g_symCount; i++)
+         CheckPyramidOpportunity(i);
+
+   if(ENABLE_GRID)
+      for(int i = 0; i < g_symCount; i++)
+         ManageGridOrders(i);
+}
+
+//+------------------------------------------------------------------+
 //| OnInit                                                            |
 //+------------------------------------------------------------------+
 int OnInit()
@@ -987,12 +2481,35 @@ int OnInit()
    g_trade.SetExpertMagicNumber(MAGIC_NUMBER);
    g_trade.SetDeviationInPoints(SLIPPAGE_POINTS);
 
+   // Prop Firm / Learning Filter state init (ported from VEDD_ChartData_EA's
+   // OnInit — CheckPropFirmCompliance() also lazily self-initializes via
+   // g_propInitialized as a safety net if PROP_FIRM_MODE is toggled on later)
+   if(PROP_FIRM_MODE)
+   {
+      g_propStartingBalance  = AccountInfoDouble(ACCOUNT_BALANCE);
+      g_propDailyHighBalance = g_propStartingBalance;
+      g_propMaxEquityReached = g_propStartingBalance;
+      g_propDailyResetTime   = TimeCurrent();
+      g_propTradingBlocked   = false;
+      g_propBlockReason      = "";
+      g_propInitialized      = true;
+      Print("[VEDD] Prop Firm Mode: starting balance = ", DoubleToString(g_propStartingBalance, 2));
+   }
+   if(ENABLE_LEARNING_FILTER)
+   {
+      g_learningDailyResetTime = TimeCurrent();
+      g_dailyTradeCount = 0;
+   }
+
    EventSetTimer(1);
    SendHeartbeat();
 
    Print("[VEDD] MT5 Combined EA v1.01 initialized. Alias=", ACCOUNT_ALIAS,
          " Signals=", ENABLE_SIGNALS, " ChartData=", ENABLE_CHART_DATA,
-         " TradeCopy=", ENABLE_TRADE_COPY);
+         " TradeCopy=", ENABLE_TRADE_COPY,
+         " TradeMgmt=", ENABLE_TRADE_MANAGEMENT, " PropFirm=", PROP_FIRM_MODE,
+         " LearningFilter=", ENABLE_LEARNING_FILTER, " NewsAware=", NEWS_AWARE_TRADING,
+         " Pyramiding=", ENABLE_PYRAMIDING, " Grid=", ENABLE_GRID, " Martingale=", ENABLE_MARTINGALE);
    UpdateChartComment();
    return INIT_SUCCEEDED;
 }

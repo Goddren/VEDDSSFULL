@@ -95,7 +95,7 @@ import {
   type StopOrder,
 } from "@shared/schema";
 import { db, pool } from "./db";
-import { eq, and, sql, desc, isNull, gte, lte } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, gte, lte, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
@@ -611,7 +611,7 @@ export interface IStorage {
   // Brain Data Marketplace
   getActiveBrainListings(limit?: number): Promise<BrainDataListing[]>;
   getBrainListing(id: number): Promise<BrainDataListing | undefined>;
-  getUserActiveBrainListing(sellerId: number): Promise<BrainDataListing | undefined>;
+  getUserActiveBrainListing(sellerId: number, sourceCategory?: string): Promise<BrainDataListing | undefined>;
   getUserBrainListings(sellerId: number): Promise<BrainDataListing[]>;
   createBrainListing(listing: InsertBrainDataListing): Promise<BrainDataListing>;
   deactivateBrainListing(id: number): Promise<void>;
@@ -619,7 +619,7 @@ export interface IStorage {
   getBrainPurchaseByListingAndBuyer(listingId: number, buyerId: number): Promise<BrainDataPurchase | undefined>;
   createBrainPurchase(purchase: InsertBrainDataPurchase): Promise<BrainDataPurchase>;
   getUserBrainPurchases(buyerId: number): Promise<(BrainDataPurchase & { listing: BrainDataListing })[]>;
-  getOutcomesForListing(userId: number): Promise<AiConfirmationOutcome[]>;
+  getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker'): Promise<AiConfirmationOutcome[]>;
   importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number>;
 
   // Ambassador Free Path Journey
@@ -3250,9 +3250,10 @@ export class DatabaseStorage implements IStorage {
     return listing;
   }
 
-  async getUserActiveBrainListing(sellerId: number): Promise<BrainDataListing | undefined> {
-    const [listing] = await db.select().from(brainDataListings)
-      .where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)));
+  async getUserActiveBrainListing(sellerId: number, sourceCategory?: string): Promise<BrainDataListing | undefined> {
+    const conditions = [eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)];
+    if (sourceCategory) conditions.push(eq(brainDataListings.sourceCategory, sourceCategory));
+    const [listing] = await db.select().from(brainDataListings).where(and(...conditions));
     return listing;
   }
 
@@ -3298,12 +3299,22 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getOutcomesForListing(userId: number): Promise<AiConfirmationOutcome[]> {
-    return await db.select().from(aiConfirmationOutcomes)
-      .where(and(
-        eq(aiConfirmationOutcomes.userId, userId),
-        sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
-      ));
+  // sourceCategory splits a seller's history into two sellable brains:
+  // 'forex' = direct MT5/EA-triggered AI confirmations (tradeSource defaults
+  // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
+  // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
+  // old unfiltered behavior (used nowhere anymore, kept for safety).
+  async getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker'): Promise<AiConfirmationOutcome[]> {
+    const conditions = [
+      eq(aiConfirmationOutcomes.userId, userId),
+      sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`,
+    ];
+    if (sourceCategory === 'tradelocker') {
+      conditions.push(inArray(aiConfirmationOutcomes.tradeSource, ['breakout', 'ea_only']));
+    } else if (sourceCategory === 'forex') {
+      conditions.push(sql`${aiConfirmationOutcomes.tradeSource} NOT IN ('breakout', 'ea_only')`);
+    }
+    return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
   }
 
   async importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number> {

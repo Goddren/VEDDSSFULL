@@ -2678,6 +2678,11 @@ var init_schema = __esm({
     brainDataListings = pgTable("brain_data_listings", {
       id: serial("id").primaryKey(),
       sellerId: integer("seller_id").references(() => users.id).notNull(),
+      // Which trade source this brain is built from — sellers can list a
+      // separate brain per platform instead of one blended listing.
+      // 'forex' = MT5/EA-triggered AI confirmations, 'tradelocker' = trades
+      // executed/mirrored through a linked TradeLocker connection.
+      sourceCategory: text("source_category").default("forex").notNull(),
       title: text("title").notNull(),
       description: text("description"),
       priceVedd: integer("price_vedd").notNull(),
@@ -3592,7 +3597,7 @@ __export(storage_exports, {
   DatabaseStorage: () => DatabaseStorage,
   storage: () => storage
 });
-import { eq, and, sql, desc, isNull, gte } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, gte, inArray } from "drizzle-orm";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import crypto from "crypto";
@@ -5323,8 +5328,10 @@ var init_storage = __esm({
         const [listing] = await db.select().from(brainDataListings).where(eq(brainDataListings.id, id));
         return listing;
       }
-      async getUserActiveBrainListing(sellerId) {
-        const [listing] = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)));
+      async getUserActiveBrainListing(sellerId, sourceCategory) {
+        const conditions = [eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true)];
+        if (sourceCategory) conditions.push(eq(brainDataListings.sourceCategory, sourceCategory));
+        const [listing] = await db.select().from(brainDataListings).where(and(...conditions));
         return listing;
       }
       async getUserBrainListings(sellerId) {
@@ -5357,11 +5364,22 @@ var init_storage = __esm({
         }
         return result;
       }
-      async getOutcomesForListing(userId) {
-        return await db.select().from(aiConfirmationOutcomes).where(and(
+      // sourceCategory splits a seller's history into two sellable brains:
+      // 'forex' = direct MT5/EA-triggered AI confirmations (tradeSource defaults
+      // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
+      // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
+      // old unfiltered behavior (used nowhere anymore, kept for safety).
+      async getOutcomesForListing(userId, sourceCategory) {
+        const conditions = [
           eq(aiConfirmationOutcomes.userId, userId),
           sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
-        ));
+        ];
+        if (sourceCategory === "tradelocker") {
+          conditions.push(inArray(aiConfirmationOutcomes.tradeSource, ["breakout", "ea_only"]));
+        } else if (sourceCategory === "forex") {
+          conditions.push(sql`${aiConfirmationOutcomes.tradeSource} NOT IN ('breakout', 'ea_only')`);
+        }
+        return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -6090,7 +6108,7 @@ __export(confirmation_learning_exports, {
   getLearnedInsights: () => getLearnedInsights,
   getWinningStrategyPatterns: () => getWinningStrategyPatterns
 });
-import { eq as eq2, and as and2, gte as gte2, sql as sql2, inArray } from "drizzle-orm";
+import { eq as eq2, and as and2, gte as gte2, sql as sql2, inArray as inArray2 } from "drizzle-orm";
 function winRate(wins, total) {
   return total === 0 ? 0 : wins / total;
 }
@@ -6323,7 +6341,7 @@ async function getWinningStrategyPatterns(userId) {
       and2(
         eq2(aiConfirmationOutcomes.userId, userId),
         gte2(aiConfirmationOutcomes.confirmedAt, ninetyDaysAgo),
-        inArray(aiConfirmationOutcomes.tradeOutcome, ["WIN", "LOSS", "BREAKEVEN"])
+        inArray2(aiConfirmationOutcomes.tradeOutcome, ["WIN", "LOSS", "BREAKEVEN"])
       )
     ).limit(300);
     const groups = {};
@@ -40166,6 +40184,8 @@ CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
   "purchased_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("listing_id", "buyer_id")
 );
+
+ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" text NOT NULL DEFAULT 'forex';
 `;
   }
 });
@@ -71467,19 +71487,21 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const { title, description, priceVedd } = req.body;
+      const { title, description, priceVedd, sourceCategory } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
+      const category = sourceCategory === "tradelocker" ? "tradelocker" : "forex";
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId);
+      const rows = await storage.getOutcomesForListing(userId, category);
       if (rows.length < MIN_TRADES_TO_LIST2) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} trades to list (you have ${rows.length}).` });
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades to list (you have ${rows.length}).` });
       }
       const stats = computeListingStats2(rows);
       const finalPrice = clampPrice2(priceVedd ?? stats.suggestedPriceVedd);
-      const existing = await storage.getUserActiveBrainListing(userId);
+      const existing = await storage.getUserActiveBrainListing(userId, category);
       if (existing) await storage.deactivateBrainListing(existing.id);
       const listing = await storage.createBrainListing({
         sellerId: userId,
+        sourceCategory: category,
         title,
         description: description || null,
         priceVedd: finalPrice,
@@ -71502,8 +71524,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
+      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : "forex";
       const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId);
+      const rows = await storage.getOutcomesForListing(userId, category);
       if (rows.length < MIN_TRADES_TO_LIST2) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
       }

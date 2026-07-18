@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS "brain_data_purchases" (
   "purchased_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("listing_id", "buyer_id")
 );
+
+ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" text NOT NULL DEFAULT 'forex';
 `;
 
 export async function ensureBrainMarketplaceTables(): Promise<void> {

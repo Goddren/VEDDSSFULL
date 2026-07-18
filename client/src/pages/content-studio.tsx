@@ -22,7 +22,11 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface BlogPost { id: number; slug: string; title: string; excerpt: string; category: string; tags: string[]; content: string; publishedAt?: string; }
 interface ChartAnalysis { id: number; symbol: string; direction: string; confidence: string; entryPoint: string; stopLoss: string; takeProfit: string; riskRewardRatio: string; potentialPips: string; trend: string; timeframe: string; createdAt: string; imageUrl?: string; }
-interface Devotional { id: number; title: string; scripture: string; scriptureReference: string; content: string; tradingLesson?: string; createdAt: string; }
+// devotionals table fields: `scripture` is the citation (e.g. "Proverbs 16:3"),
+// `scriptureText` is the actual full verse, `tradingTieIn` is the trading
+// application. GET /api/devotionals returns raw snake_case (server does a
+// raw sql`SELECT *`) — normalized to camelCase where it's fetched below.
+interface Devotional { id: number; title: string; scripture: string; scriptureText: string; reflection: string; tradingTieIn?: string; createdAt: string; }
 
 type ContentType = 'lesson' | 'signal' | 'scripture' | 'update' | 'testimony';
 
@@ -107,8 +111,8 @@ function buildCaption(type: ContentType, item: any, referralCode: string | null,
     );
     case 'scripture': return (
       `✝️ Faith + Finance — VEDD Daily Word\n\n` +
-      `"${truncate(item?.scripture || '', 160)}"\n— ${item?.scriptureReference || ''}\n\n` +
-      `${truncate(item?.tradingLesson || item?.content || '', 200)}\n\n` +
+      `"${truncate(item?.scriptureText || '', 160)}"\n— ${item?.scripture || ''}\n\n` +
+      `${truncate(item?.tradingTieIn || item?.reflection || '', 200)}\n\n` +
       `Trade with purpose. Build with faith. 🙏\n\n` +
       `📖 Daily devotionals + trading inside VEDD:\n${url}\n\n` +
       `#VEDD #FaithAndFinance #Trading #Scripture #TradingMindset`
@@ -139,7 +143,7 @@ function buildImageSubject(type: ContentType, item: any): string {
   switch (type) {
     case 'lesson': return item?.title || 'trading education';
     case 'signal': return `${item?.symbol || 'forex'} ${item?.direction || ''} trade setup`;
-    case 'scripture': return item?.scriptureReference || item?.title || 'faith and trading';
+    case 'scripture': return item?.scripture || item?.title || 'faith and trading';
     case 'update': return item?.headline || 'VEDD platform update';
     case 'testimony': return item?.result || 'trader success story';
     default: return 'trading';
@@ -291,11 +295,11 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
       <div className="flex-1 flex flex-col justify-center">
         <div className="rounded-xl p-3 mb-3" style={{ background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.25)' }}>
           <p className="text-[9px] font-bold uppercase tracking-widest mb-1.5" style={{ color: cfg.color }}>✝️ Daily Scripture</p>
-          <p className="text-xs text-white italic leading-relaxed">"{truncate(item?.scripture || 'Trust in the LORD with all your heart and lean not on your own understanding.', 180)}"</p>
-          <p className="text-[10px] font-bold mt-1.5" style={{ color: cfg.color }}>— {item?.scriptureReference || 'Proverbs 3:5'}</p>
+          <p className="text-xs text-white italic leading-relaxed">"{truncate(item?.scriptureText || 'Trust in the LORD with all your heart and lean not on your own understanding.', 180)}"</p>
+          <p className="text-[10px] font-bold mt-1.5" style={{ color: cfg.color }}>— {item?.scripture || 'Proverbs 3:5'}</p>
         </div>
         <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${cfg.color},transparent)` }} />
-        <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.tradingLesson || item?.content || 'Apply wisdom and patience to every trade. Faith and discipline build lasting wealth.', 160)}</p>
+        <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.tradingTieIn || item?.reflection || 'Apply wisdom and patience to every trade. Faith and discipline build lasting wealth.', 160)}</p>
       </div>
       <Footer />
     </CardShell>
@@ -363,7 +367,16 @@ function ContentBrowser({ type, selected, onSelect }: {
 
   const { data: devotionals = [] } = useQuery<Devotional[]>({
     queryKey: ['/api/devotionals'],
-    queryFn: async () => { const r = await apiRequest('GET', '/api/devotionals'); return r.json(); },
+    queryFn: async () => {
+      const r = await apiRequest('GET', '/api/devotionals');
+      const raw: any[] = await r.json();
+      // Server returns raw snake_case (raw SQL SELECT *) — normalize once here.
+      return raw.map(d => ({
+        id: d.id, title: d.title, scripture: d.scripture,
+        scriptureText: d.scripture_text, reflection: d.reflection,
+        tradingTieIn: d.trading_tie_in, createdAt: d.created_at,
+      }));
+    },
     enabled: type === 'scripture',
   });
 
@@ -430,7 +443,7 @@ function ContentBrowser({ type, selected, onSelect }: {
         : (devotionals as Devotional[]).map(d => (
           <ItemRow key={d.id} item={d}
             label={d.title}
-            sub={`${d.scriptureReference} · ${fmtDate(d.createdAt)}`}
+            sub={`${d.scripture} · ${fmtDate(d.createdAt)}`}
           />
         ))
       }

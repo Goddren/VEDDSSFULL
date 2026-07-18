@@ -2513,6 +2513,11 @@ export type PropFirmAccountState = typeof propFirmAccountState.$inferSelect;
 export const brainDataListings = pgTable("brain_data_listings", {
   id: serial("id").primaryKey(),
   sellerId: integer("seller_id").references(() => users.id).notNull(),
+  // Which trade source this brain is built from — sellers can list a
+  // separate brain per platform instead of one blended listing.
+  // 'forex' = MT5/EA-triggered AI confirmations, 'tradelocker' = trades
+  // executed/mirrored through a linked TradeLocker connection.
+  sourceCategory: text("source_category").default('forex').notNull(),
   title: text("title").notNull(),
   description: text("description"),
   priceVedd: integer("price_vedd").notNull(),
