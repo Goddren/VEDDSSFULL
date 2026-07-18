@@ -2200,6 +2200,28 @@ void SendChartData(int symIdx)
       // (ported from VEDD_ChartData_EA's ParseAndDisplayAnalysis, see
       // ParseChartDataResponse for what was and wasn't carried over)
       ParseChartDataResponse(symIdx, resp);
+
+      // Report the AI's actual analysis to the Experts log per pair — the
+      // source EA (VEDD_ChartData_EA) printed this after every send via
+      // ParseAndDisplayAnalysis; this EA parsed the same fields into
+      // g_lastSignal/g_lastConfidence/etc. but never displayed them.
+      if(symIdx >= 0)
+      {
+         Print("[VEDD] ", sym, "/", tfStr, " AI Signal: ", g_lastSignal[symIdx], " (", g_lastConfidence[symIdx], "% confidence)");
+         if(g_lastEntry[symIdx] > 0)
+         {
+            int symDigits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+            Print("[VEDD] ", sym, " Trade Plan — Entry: ", DoubleToString(g_lastEntry[symIdx], symDigits),
+                  " | SL: ", DoubleToString(g_lastSL[symIdx], symDigits),
+                  " | TP: ", DoubleToString(g_lastTP[symIdx], symDigits));
+         }
+         if(g_trailConfidence[symIdx] > 0)
+            Print("[VEDD] ", sym, " Trailing Confidence: ", g_trailConfidence[symIdx], "% (ATR x", DoubleToString(g_trailATRMultiplier[symIdx], 2), ")");
+      }
+      if(g_hasNewsData)
+         Print("[VEDD] News — Sentiment: ", g_lastNewsSentiment, " | Alignment: ", g_lastNewsAlignment,
+               " | Impact: ", g_lastNewsImpact, " | Score: ", g_lastNewsScore,
+               StringLen(g_lastHighImpactAlert) > 0 ? (" | ALERT: " + g_lastHighImpactAlert) : "");
    }
    else if(httpCode <= 0)
    {
