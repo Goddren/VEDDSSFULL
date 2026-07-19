@@ -36891,19 +36891,26 @@ async function generateFluxImage(prompt, retriesLeft = 2) {
     return null;
   }
 }
-async function generateContentImage(prompt) {
-  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+async function generateContentImage(prompt, template) {
+  const styleSuffix = template ? TEMPLATE_BACKGROUND_SUFFIX[template] : BRAND_STYLE_SUFFIX;
+  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX}`;
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: "dall-e-3" };
   const fluxUrl = await generateFluxImage(brandedPrompt);
   if (fluxUrl) return { url: fluxUrl, provider: "replicate-flux-schnell" };
   return null;
 }
-var BRAND_STYLE_SUFFIX, HUMAN_STYLE_SUFFIX;
+var BRAND_STYLE_SUFFIX, TEMPLATE_BACKGROUND_SUFFIX, HUMAN_STYLE_SUFFIX;
 var init_image_generation = __esm({
   "server/services/image-generation.ts"() {
     "use strict";
     BRAND_STYLE_SUFFIX = ", in the visual style of a modern fintech trading platform: deep navy and charcoal background, vivid orange-red accent highlights, clean sharp UI elements, professional dark-mode dashboard aesthetic, high contrast, no clutter";
+    TEMPLATE_BACKGROUND_SUFFIX = {
+      "dark-minimal": ", background only: near-black (#0A0A0B) with a subtle fine film-grain/noise texture, moody and minimal, no text, no logos, no words, no letters anywhere in the frame",
+      "bold-editorial": ", background only: crumpled/textured paper in a warm red-coral tone (#E8604F to #E86B5A range), soft creases and folds catching light, bold and energetic, no text, no logos, no words, no letters anywhere in the frame",
+      "scripture": ", background only: dark carbon-fiber woven texture with a subtle repeating dot pattern, near-black, calm and reflective mood, no text, no logos, no words, no letters anywhere in the frame",
+      "blog-cover": ", a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame"
+    };
     HUMAN_STYLE_SUFFIX = ". If depicting people: they are Black, Brown, or Indigenous people of color with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city settings \u2014 no generic stock-photo corporate look.";
   }
 });
@@ -37094,8 +37101,13 @@ async function flattenSlideImage(opts) {
   const bodyLines = opts.body ? wrapText3(opts.body, 40, 4) : [];
   const hasText = headingLines.length > 0 || bodyLines.length > 0;
   const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.55, 140 + (headingLines.length + bodyLines.length) * 46) : 0;
+  const GOLD = "#F0D269";
+  const NEAR_BLACK = "#0A0A0B";
   const textSvgParts = [];
   let y = CANVAS_SIZE - gradientHeight + 60;
+  if (headingLines.length > 0) {
+    textSvgParts.push(`<rect x="48" y="${y - 34}" width="48" height="4" fill="${GOLD}" />`);
+  }
   for (const line of headingLines) {
     textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
     y += 60;
@@ -37110,8 +37122,8 @@ async function flattenSlideImage(opts) {
       ${hasText ? `
       <defs>
         <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#000000" stop-opacity="0" />
-          <stop offset="100%" stop-color="#000000" stop-opacity="0.82" />
+          <stop offset="0%" stop-color="${NEAR_BLACK}" stop-opacity="0" />
+          <stop offset="100%" stop-color="${NEAR_BLACK}" stop-opacity="0.88" />
         </linearGradient>
       </defs>
       <rect x="0" y="${CANVAS_SIZE - gradientHeight}" width="${CANVAS_SIZE}" height="${gradientHeight}" fill="url(#fade)" />
@@ -40672,7 +40684,7 @@ async function runScheduledBlogPost() {
     let coverImage;
     try {
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
-      const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+      const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, "blog-cover");
       if (image?.url) {
         const persisted = await persistRemoteAsset(image.url);
         coverImage = persisted?.url ?? image.url;
@@ -69313,7 +69325,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       let coverImage;
       try {
         const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
-        const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+        const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, "blog-cover");
         coverImage = image?.url;
       } catch (err) {
         console.error("[blog/generate] cover image generation failed (non-fatal):", err.message);
@@ -69367,7 +69379,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       };
       const prompt = typePrompts[contentType || ""] ?? `A social media post background about: ${subject}`;
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
-      const image = await generateContentImage2(prompt);
+      const templateByType = {
+        lesson: "dark-minimal",
+        signal: "dark-minimal",
+        scripture: "scripture",
+        update: "bold-editorial",
+        testimony: "bold-editorial"
+      };
+      const template = templateByType[contentType || ""];
+      const image = await generateContentImage2(prompt, template);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(image.url);
@@ -69396,7 +69416,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { subject } = req.body;
       if (!subject) return res.status(400).json({ error: "subject is required" });
       const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
-      const image = await generateContentImage2(`A social media carousel slide background about: ${subject}`);
+      const image = await generateContentImage2(`A social media carousel slide background about: ${subject}`, "dark-minimal");
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(image.url);
@@ -69482,7 +69502,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const slides = [];
       for (const slide of script.slides) {
-        const image = await generateContentImage2(slide.imagePrompt);
+        const image = await generateContentImage2(slide.imagePrompt, "dark-minimal");
         let imageUrl = image?.url ?? null;
         let persistedOk = false;
         if (imageUrl) {
@@ -69716,7 +69736,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       let heroImage;
       try {
         const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
-        const image = await generateContentImage2(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`);
+        const image = await generateContentImage2(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`, "scripture");
         heroImage = image?.url;
       } catch (err) {
         console.error("[devotional] hero image generation failed (non-fatal):", err.message);

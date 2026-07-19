@@ -18,7 +18,7 @@ async function runScheduledBlogPost() {
     let coverImage: string | undefined;
     try {
       const { generateContentImage } = await import('./image-generation');
-      const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+      const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, 'blog-cover');
       if (image?.url) {
         const persisted = await persistRemoteAsset(image.url);
         coverImage = persisted?.url ?? image.url;

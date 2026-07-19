@@ -59,8 +59,18 @@ export async function flattenSlideImage(opts: FlattenSlideOptions): Promise<Buff
   const hasText = headingLines.length > 0 || bodyLines.length > 0;
   const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.55, 140 + (headingLines.length + bodyLines.length) * 46) : 0;
 
+  // VEDD Content Style Guide palette: gold accent divider/eyebrow, white
+  // headline, near-black (#0A0A0B) fade instead of a generic pure-black one.
+  const GOLD = '#F0D269';
+  const NEAR_BLACK = '#0A0A0B';
+
   const textSvgParts: string[] = [];
   let y = CANVAS_SIZE - gradientHeight + 60;
+  if (headingLines.length > 0) {
+    // Small gold divider above the headline, matching every branded card's
+    // accent-colored rule.
+    textSvgParts.push(`<rect x="48" y="${y - 34}" width="48" height="4" fill="${GOLD}" />`);
+  }
   for (const line of headingLines) {
     textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
     y += 60;
@@ -76,8 +86,8 @@ export async function flattenSlideImage(opts: FlattenSlideOptions): Promise<Buff
       ${hasText ? `
       <defs>
         <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#000000" stop-opacity="0" />
-          <stop offset="100%" stop-color="#000000" stop-opacity="0.82" />
+          <stop offset="0%" stop-color="${NEAR_BLACK}" stop-opacity="0" />
+          <stop offset="100%" stop-color="${NEAR_BLACK}" stop-opacity="0.88" />
         </linearGradient>
       </defs>
       <rect x="0" y="${CANVAS_SIZE - gradientHeight}" width="${CANVAS_SIZE}" height="${gradientHeight}" fill="url(#fade)" />

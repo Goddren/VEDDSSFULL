@@ -11,12 +11,13 @@ import { VeddReelWhatIsVedd } from '@/components/vedd-reel-whatisveddbuild';
 import { VeddEduReel, EDU_REELS } from '@/components/vedd-edu-reels';
 import { ReelRecorder } from '@/components/reel-recorder';
 import { FullscreenLoading } from '@/components/ui/fullscreen-loading';
+import VeddLogo from '@/components/ui/vedd-logo';
 import {
   BookOpen, BarChart3, Heart, Megaphone, Star,
   Copy, Check, Share2, ChevronRight, ChevronDown, ChevronUp,
   Sparkles, RefreshCw, Loader2, Radio, ArrowRight,
   TrendingUp, Shield, Award, Users, Zap, ImageIcon,
-  Instagram, Twitter, Mail, Film, Clapperboard, Wand2, Layers,
+  Instagram, Twitter, Mail, Film, Clapperboard, Wand2, Layers, Bookmark,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -60,6 +61,25 @@ async function copyText(text: string) {
 }
 
 // ── Content type config ───────────────────────────────────────────────────────
+// ── VEDD Content Style Guide — brand constants (see project style guide) ────
+// Template A "Dark Minimal" (lesson/signal) and C "Scripture" both use the
+// gold accent on a near-black ground; Template B "Bold Editorial"
+// (update/testimony) uses the red-coral ground with a deep-red accent.
+const BRAND = {
+  bg: '#0A0A0B',
+  gold: '#F0D269',
+  redCoral: '#E8604F',
+  redCoralDark: '#C23B2C',
+  redDeep: '#C41E1E',
+  tagline: 'vous êtes des dieux',
+};
+type CardTemplate = 'dark-minimal' | 'bold-editorial' | 'scripture';
+const TEMPLATE_BY_TYPE: Record<ContentType, CardTemplate> = {
+  lesson: 'dark-minimal', signal: 'dark-minimal',
+  scripture: 'scripture',
+  update: 'bold-editorial', testimony: 'bold-editorial',
+};
+
 const CONTENT_TYPES: { id: ContentType; label: string; emoji: string; color: string; bg: string; desc: string }[] = [
   { id: 'lesson',    label: 'Lesson',         emoji: '📚', color: '#60a5fa', bg: 'rgba(59,130,246,.12)',  desc: 'Share blog articles as branded trading lessons' },
   { id: 'signal',    label: 'Signal Proof',   emoji: '📊', color: '#34d399', bg: 'rgba(16,185,129,.12)',  desc: 'Share live chart analysis as proof of signals' },
@@ -195,44 +215,52 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
   const signupUrl = referralCode ? `${window.location.host}/auth?ref=${referralCode}` : window.location.host;
   const cfg = CONTENT_TYPES.find(c => c.id === type)!;
 
-  // Shared header
+  // Per the VEDD Content Style Guide: Template A/C (dark-minimal, scripture)
+  // use the gold accent on a near-black ground; Template B (bold-editorial)
+  // uses the deep-red accent on a red-coral ground.
+  const tpl = TEMPLATE_BY_TYPE[type];
+  const isBold = tpl === 'bold-editorial';
+  const accent = isBold ? BRAND.redDeep : BRAND.gold;
+
+  // Shared header — VEDD wordmark + red script tagline, always top-left per
+  // the style guide; hashtag badge top-right.
   const Header = () => (
-    <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
-          <span className="text-xs font-black text-white">V</span>
-        </div>
-        <div>
-          <p className="text-[11px] font-black text-white tracking-widest uppercase">VEDD AI Trading</p>
-          <p className="text-[9px] text-gray-500">veddbuild.com</p>
-        </div>
+    <div className="flex items-start justify-between mb-3">
+      <div className="flex flex-col items-start">
+        <VeddLogo height={18} className={isBold ? 'brightness-0' : ''} />
+        <p className="text-[9px] italic leading-none mt-1" style={{ color: '#dc2626', fontFamily: "'Brush Script MT', 'Segoe Script', cursive" }}>{BRAND.tagline}</p>
       </div>
-      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ background: cfg.bg, color: cfg.color }}>
-        {cfg.emoji} {cfg.label.toUpperCase()}
+      <span className="text-[9px] font-black px-1.5 py-0.5 rounded" style={{ background: isBold ? 'rgba(0,0,0,.15)' : 'transparent', color: isBold ? '#1a1210' : accent }}>
+        {cfg.emoji} #{type}
       </span>
     </div>
   );
 
-  // Shared footer
+  // Shared footer — www.veddbuild.com styled per the style guide (italic,
+  // bottom-left) plus the ambassador's actual tracked referral link. On the
+  // Bold Editorial (red-coral) background, gold/red accent text loses
+  // contrast, so both lines stay dark there instead.
   const Footer = () => (
-    <div className="mt-3 pt-2.5 flex items-center justify-between" style={{ borderTop: '1px solid rgba(255,255,255,.08)' }}>
-      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Join Free →</p>
-      <p className="text-[11px] font-black" style={{ color: cfg.color }}>{signupUrl}</p>
+    <div className="mt-3 pt-2.5 flex items-center justify-between" style={{ borderTop: `1px solid ${isBold ? 'rgba(0,0,0,.15)' : 'rgba(255,255,255,.08)'}` }}>
+      <p className="text-[11px] italic" style={{ color: isBold ? '#1a1210' : '#9ca3af' }}>
+        www.<span className="font-black">veddbuild</span>.com
+      </p>
+      <p className="text-[10px] font-bold" style={{ color: isBold ? '#1a1210' : accent }}>{signupUrl}</p>
     </div>
   );
 
   if (type === 'lesson') return (
-    <CardShell gradient="linear-gradient(160deg,#0a0a14 0%,#0d0a1a 60%,#0a0f0a 100%)" color={cfg.color} bgImage={bgImage}>
+    <CardShell gradient={`linear-gradient(160deg, ${BRAND.bg} 0%, #131315 100%)`} color={accent} bgImage={bgImage}>
       <Header />
       <div className="flex-1 flex flex-col justify-center">
-        <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: cfg.color }}>📚 Trading Lesson</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: accent }}>📚 Trading Lesson</p>
         <h3 className="text-base font-black text-white leading-snug mb-2">{item?.title || 'Master Your Trading Edge'}</h3>
-        <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${cfg.color},transparent)` }} />
+        <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${accent},transparent)` }} />
         <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.excerpt || stripHtml(item?.content || ''), 180)}</p>
         {item?.tags?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {item.tags.slice(0, 3).map((t: string) => (
-              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: cfg.bg, color: cfg.color }}>#{t}</span>
+              <span key={t} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${accent}22`, color: accent }}>#{t}</span>
             ))}
           </div>
         )}
@@ -242,13 +270,13 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
   );
 
   if (type === 'signal') return (
-    <CardShell gradient="linear-gradient(160deg,#020f08 0%,#061a12 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
+    <CardShell gradient={`linear-gradient(160deg, ${BRAND.bg} 0%, #131315 100%)`} color={accent} bgImage={bgImage}>
       <Header />
       {/* Live badge */}
       <div className="flex items-center gap-2 mb-3">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(16,185,129,.15)', border: '1px solid rgba(16,185,129,.4)' }}>
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[10px] font-bold text-emerald-400">LIVE SIGNAL</span>
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>
+          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: accent }} />
+          <span className="text-[10px] font-bold" style={{ color: accent }}>LIVE SIGNAL</span>
         </div>
         <span className="text-[10px] text-gray-500">{item?.createdAt ? fmtDate(item.createdAt) : 'Today'}</span>
       </div>
@@ -281,7 +309,7 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
         </div>
         <div className="flex items-center justify-between text-[10px]">
           <span className="text-gray-500">R:R <span className="text-white font-bold">{item?.riskRewardRatio || '1:2'}</span></span>
-          <span style={{ color: cfg.color }}>Confidence: <span className="font-bold">{item?.confidence || 'High'}</span></span>
+          <span style={{ color: accent }}>Confidence: <span className="font-bold">{item?.confidence || 'High'}</span></span>
           <span className="text-gray-500">{item?.potentialPips || '—'} pips</span>
         </div>
       </div>
@@ -290,15 +318,15 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
   );
 
   if (type === 'scripture') return (
-    <CardShell gradient="linear-gradient(160deg,#0d0a1a 0%,#120a14 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
+    <CardShell gradient={`repeating-linear-gradient(45deg, ${BRAND.bg}, ${BRAND.bg} 3px, #121214 3px, #121214 6px)`} color={accent} bgImage={bgImage}>
       <Header />
       <div className="flex-1 flex flex-col justify-center">
-        <div className="rounded-xl p-3 mb-3" style={{ background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.25)' }}>
-          <p className="text-[9px] font-bold uppercase tracking-widest mb-1.5" style={{ color: cfg.color }}>✝️ Daily Scripture</p>
+        <div className="rounded-xl p-3 mb-3" style={{ background: 'rgba(0,0,0,.35)', border: `1px solid ${accent}44` }}>
+          <p className="text-[9px] font-bold uppercase tracking-widest mb-1.5" style={{ color: accent }}>✨ Daily Scripture</p>
           <p className="text-xs text-white italic leading-relaxed">"{truncate(item?.scriptureText || 'Trust in the LORD with all your heart and lean not on your own understanding.', 180)}"</p>
-          <p className="text-[10px] font-bold mt-1.5" style={{ color: cfg.color }}>— {item?.scripture || 'Proverbs 3:5'}</p>
+          <p className="text-[10px] font-bold mt-1.5" style={{ color: accent }}>— {item?.scripture || 'Proverbs 3:5'}</p>
         </div>
-        <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${cfg.color},transparent)` }} />
+        <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${accent},transparent)` }} />
         <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.tradingTieIn || item?.reflection || 'Apply wisdom and patience to every trade. Faith and discipline build lasting wealth.', 160)}</p>
       </div>
       <Footer />
@@ -306,40 +334,40 @@ function BrandedCard({ type, item, referralCode, bgImage }: {
   );
 
   if (type === 'update') return (
-    <CardShell gradient="linear-gradient(160deg,#0f0a05 0%,#1a0f05 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
+    <CardShell gradient={`linear-gradient(160deg, ${BRAND.redCoral} 0%, ${BRAND.redCoralDark} 100%)`} color={accent} bgImage={bgImage}>
       <Header />
       {/* Breaking bar */}
-      <div className="flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(249,115,22,.12)', border: '1px solid rgba(249,115,22,.3)' }}>
-        <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-orange-400">{item?.tag || 'Update'}</span>
-        <span className="text-[9px] text-gray-500 ml-auto">{item?.date || 'April 2025'}</span>
+      <div className="flex items-center gap-2 mb-3 px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(0,0,0,.18)', border: '1px solid rgba(0,0,0,.25)' }}>
+        <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        <span className="text-[10px] font-black uppercase tracking-widest text-white">{item?.tag || 'Update'}</span>
+        <span className="text-[9px] text-white/70 ml-auto">{item?.date || 'April 2025'}</span>
       </div>
       <div className="flex-1 flex flex-col justify-center">
-        <h3 className="text-base font-black text-white leading-snug mb-2">{item?.headline || 'VEDD News'}</h3>
-        <div className="h-px mb-2" style={{ background: `linear-gradient(90deg,${cfg.color},transparent)` }} />
-        <p className="text-[11px] text-gray-300 leading-relaxed">{truncate(item?.body || '', 200)}</p>
+        <h3 className="text-lg font-black text-white leading-tight tracking-tight uppercase mb-2">{item?.headline || 'VEDD News'}</h3>
+        <div className="h-px mb-2 bg-white/30" />
+        <p className="text-[11px] text-white/85 leading-relaxed">{truncate(item?.body || '', 200)}</p>
       </div>
       <Footer />
     </CardShell>
   );
 
   if (type === 'testimony') return (
-    <CardShell gradient="linear-gradient(160deg,#0f0f05 0%,#1a140a 60%,#0a0a14 100%)" color={cfg.color} bgImage={bgImage}>
+    <CardShell gradient={`linear-gradient(160deg, ${BRAND.redCoral} 0%, ${BRAND.redCoralDark} 100%)`} color={accent} bgImage={bgImage}>
       <Header />
       {/* Result badge */}
       <div className="flex items-center justify-center mb-3">
-        <div className="px-4 py-2 rounded-xl" style={{ background: 'rgba(245,158,11,.15)', border: '1px solid rgba(245,158,11,.35)' }}>
-          <p className="text-[10px] text-gray-400 text-center">Verified Result</p>
-          <p className="text-lg font-black text-center" style={{ color: cfg.color }}>{item?.result || '+$1,200 Week 1'}</p>
+        <div className="px-4 py-2 rounded-xl" style={{ background: 'rgba(0,0,0,.2)', border: '1px solid rgba(0,0,0,.3)' }}>
+          <p className="text-[10px] text-white/70 text-center">Verified Result</p>
+          <p className="text-lg font-black text-center text-white">{item?.result || '+$1,200 Week 1'}</p>
         </div>
       </div>
       <div className="flex-1 flex flex-col justify-center">
-        <div className="rounded-xl p-3 mb-2" style={{ background: 'rgba(0,0,0,.4)', border: '1px solid rgba(255,255,255,.06)' }}>
-          <p className="text-xs text-gray-200 italic leading-relaxed">"{truncate(item?.quote || '', 180)}"</p>
+        <div className="rounded-xl p-3 mb-2" style={{ background: 'rgba(0,0,0,.2)', border: '1px solid rgba(0,0,0,.25)' }}>
+          <p className="text-xs text-white italic leading-relaxed">"{truncate(item?.quote || '', 180)}"</p>
         </div>
         <div className="flex items-center justify-between text-[10px]">
           <span className="font-bold text-white">— {item?.author || 'VEDD Trader'}</span>
-          <span style={{ color: cfg.color }}>in {item?.period || '30 days'}</span>
+          <span className="text-white/80">in {item?.period || '30 days'}</span>
         </div>
       </div>
       <Footer />
@@ -603,25 +631,36 @@ function CarouselSlideCard({ slide, index, total, includeLogo, referralCode, ref
         {!flattenedUrl && (
           <>
             <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,.75) 100%)' }} />
+            {/* Ghost slide number — large, low-opacity, pure texture per the
+                VEDD Content Style Guide's Dark Minimal template. */}
+            <span
+              className="absolute bottom-1 right-2 font-black select-none pointer-events-none"
+              style={{ fontSize: 92, lineHeight: 1, color: 'rgba(255,255,255,.06)' }}
+            >
+              {String(index + 1).padStart(2, '0')}
+            </span>
             <div className="relative z-10 p-4 w-full h-full flex flex-col">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#dc2626,#7c3aed)' }}>
-                    <span className="text-[9px] font-black text-white">V</span>
-                  </div>
-                  <span className="text-[9px] font-bold text-gray-400 tracking-widest uppercase">VEDD</span>
+                <VeddLogo height={16} />
+                {index < total - 1 && (
+                  <span className="text-[9px] font-black tracking-[.2em] px-2 py-0.5 rounded border" style={{ color: BRAND.gold, borderColor: `${BRAND.gold}66` }}>
+                    SWIPE
+                  </span>
+                )}
+              </div>
+              {index === total - 1 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center gap-3">
+                  <Bookmark className="w-8 h-8" style={{ color: BRAND.gold }} />
+                  <p className="text-sm font-black text-white">Don't forget to save this post</p>
                 </div>
-                <span className="text-[9px] font-bold text-gray-500">{index + 1}/{total}</span>
-              </div>
-              <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
-                <h4 className="text-lg font-black text-white leading-tight uppercase tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,.9)' }}>{slide.heading}</h4>
-                <div className="w-8 h-0.5 my-2.5" style={{ background: 'linear-gradient(90deg,#dc2626,#7c3aed)' }} />
-                <p className="text-[11px] text-gray-300 leading-relaxed" style={{ textShadow: '0 1px 8px rgba(0,0,0,.9)' }}>{slide.body}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-gray-400">@veddbuild</span>
-                {index < total - 1 && <span className="text-[10px] text-gray-500">swipe →</span>}
-              </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-1">
+                  <h4 className="text-lg font-black text-white leading-tight uppercase tracking-tight" style={{ textShadow: '0 2px 12px rgba(0,0,0,.9)' }}>{slide.heading}</h4>
+                  <div className="w-8 h-0.5 my-2.5" style={{ background: BRAND.gold }} />
+                  <p className="text-[11px] text-gray-300 leading-relaxed" style={{ textShadow: '0 1px 8px rgba(0,0,0,.9)' }}>{slide.body}</p>
+                </div>
+              )}
+              <p className="text-[9px] italic" style={{ color: '#9ca3af' }}>www.<span className="font-black">veddbuild</span>.com</p>
             </div>
           </>
         )}

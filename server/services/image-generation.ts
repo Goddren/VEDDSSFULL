@@ -12,6 +12,20 @@ import { OpenAI } from 'openai';
 // vivid orange-red primary accent (hsl(10,100%,55%)).
 export const BRAND_STYLE_SUFFIX = ', in the visual style of a modern fintech trading platform: deep navy and charcoal background, vivid orange-red accent highlights, clean sharp UI elements, professional dark-mode dashboard aesthetic, high contrast, no clutter';
 
+// VEDD's Content Style Guide defines 3 carousel/post background templates.
+// These describe TEXTURE AND MOOD ONLY — never ask the model to render the
+// VEDD logo, wordmark, tagline, or any caption text: AI image models render
+// legible text/logos unreliably, and the real logo/text gets baked on
+// separately (client BrandedCard overlay, or slide-flattener.ts server-side).
+export type ContentTemplate = 'dark-minimal' | 'bold-editorial' | 'scripture' | 'blog-cover';
+
+const TEMPLATE_BACKGROUND_SUFFIX: Record<ContentTemplate, string> = {
+  'dark-minimal': ', background only: near-black (#0A0A0B) with a subtle fine film-grain/noise texture, moody and minimal, no text, no logos, no words, no letters anywhere in the frame',
+  'bold-editorial': ', background only: crumpled/textured paper in a warm red-coral tone (#E8604F to #E86B5A range), soft creases and folds catching light, bold and energetic, no text, no logos, no words, no letters anywhere in the frame',
+  'scripture': ', background only: dark carbon-fiber woven texture with a subtle repeating dot pattern, near-black, calm and reflective mood, no text, no logos, no words, no letters anywhere in the frame',
+  'blog-cover': ', a photographic scene with a soft dark gradient overlay suitable for a news/article cover, cinematic depth of field, no text, no logos, no words, no letters anywhere in the frame',
+};
+
 // VEDD's audience and representation direction: this platform speaks to
 // inner-city communities building wealth through trading — the people shown
 // should reflect that, not a generic stock-photo cast. Appended to every
@@ -122,8 +136,9 @@ async function generateFluxImage(prompt: string, retriesLeft = 2): Promise<strin
  * or neither API key is configured — callers should treat a missing image
  * as non-fatal.
  */
-export async function generateContentImage(prompt: string): Promise<GeneratedImage | null> {
-  const brandedPrompt = `${prompt}${BRAND_STYLE_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+export async function generateContentImage(prompt: string, template?: ContentTemplate): Promise<GeneratedImage | null> {
+  const styleSuffix = template ? TEMPLATE_BACKGROUND_SUFFIX[template] : BRAND_STYLE_SUFFIX;
+  const brandedPrompt = `${prompt}${styleSuffix}${HUMAN_STYLE_SUFFIX}`;
 
   const dalleUrl = await generateDalleImage(brandedPrompt);
   if (dalleUrl) return { url: dalleUrl, provider: 'dall-e-3' };

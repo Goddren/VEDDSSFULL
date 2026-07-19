@@ -25758,7 +25758,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let coverImage: string | undefined;
       try {
         const { generateContentImage } = await import('./services/image-generation');
-        const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`);
+        const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, 'blog-cover');
         coverImage = image?.url;
       } catch (err: any) {
         console.error('[blog/generate] cover image generation failed (non-fatal):', err.message);
@@ -25824,8 +25824,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       };
       const prompt = typePrompts[contentType || ''] ?? `A social media post background about: ${subject}`;
 
+      // Per the VEDD Content Style Guide: Template A (dark-minimal) for
+      // education/discipline content, Template B (bold-editorial) for
+      // marketing/proof pushes, Template C (scripture) for devotional content.
       const { generateContentImage } = await import('./services/image-generation');
-      const image = await generateContentImage(prompt);
+      const templateByType: Record<string, string> = {
+        lesson: 'dark-minimal', signal: 'dark-minimal',
+        scripture: 'scripture',
+        update: 'bold-editorial', testimony: 'bold-editorial',
+      };
+      const template = templateByType[contentType || ''] as any;
+      const image = await generateContentImage(prompt, template);
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
@@ -25856,7 +25865,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { subject } = req.body as { subject?: string };
       if (!subject) return res.status(400).json({ error: "subject is required" });
       const { generateContentImage } = await import('./services/image-generation');
-      const image = await generateContentImage(`A social media carousel slide background about: ${subject}`);
+      const image = await generateContentImage(`A social media carousel slide background about: ${subject}`, 'dark-minimal');
       if (!image) return res.status(502).json({ error: "Image generation failed (DALL-E and Replicate FLUX both unavailable — check server logs)" });
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
@@ -25964,7 +25973,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { persistRemoteAsset } = await import('./services/content-asset-store');
       const slides: { heading: string; body: string; imageUrl: string | null; persisted: boolean }[] = [];
       for (const slide of script.slides) {
-        const image = await generateContentImage(slide.imagePrompt);
+        // Template A (dark-minimal) — carousels default to the educational/
+        // discipline treatment per the VEDD Content Style Guide.
+        const image = await generateContentImage(slide.imagePrompt, 'dark-minimal');
         let imageUrl: string | null = image?.url ?? null;
         let persistedOk = false;
         if (imageUrl) {
@@ -26249,7 +26260,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       let heroImage: string | undefined;
       try {
         const { generateContentImage } = await import('./services/image-generation');
-        const image = await generateContentImage(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`);
+        const image = await generateContentImage(`Devotional hero image for a trading devotional titled "${generated.title}" on the theme of ${generated.theme}`, 'scripture');
         heroImage = image?.url;
       } catch (err: any) {
         console.error('[devotional] hero image generation failed (non-fatal):', err.message);
