@@ -1164,6 +1164,20 @@ async function withRetry<T>(
     }
 
     try {
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS daily_task_completions (
+        id serial PRIMARY KEY,
+        user_id integer REFERENCES users(id) NOT NULL,
+        day_string text NOT NULL,
+        task_key text NOT NULL,
+        completed_at timestamp DEFAULT now() NOT NULL,
+        UNIQUE(user_id, day_string, task_key)
+      )`);
+      console.log('[startup] Daily task completions table created/verified.');
+    } catch (err) {
+      console.error('[startup] Daily task completions table migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),

@@ -50,6 +50,8 @@ import {
   GraduationCap,
   RefreshCw,
   Building2,
+  CheckCircle2,
+  Circle,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Input } from '@/components/ui/input';
@@ -163,6 +165,71 @@ function SectionHeader({
         className={`h-4 w-4 text-gray-600 transition-transform group-hover:text-gray-400 ${open ? '' : '-rotate-90'}`}
       />
     </button>
+  );
+}
+
+// ── Daily To-Do — 3 tasks tied to today's specific training lesson, blog
+// post, and a setup-share prompt matched to the user's experience level.
+// Distinct from the gamified VEDD Daily Missions further down the page:
+// this is a small, focused "here's what to do today" checklist, not a
+// token-reward system.
+type DailyTask = { key: string; title: string; description: string; link: string; completed: boolean };
+
+const DAILY_TASK_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  training: GraduationCap,
+  knowledge: Newspaper,
+  setup: PenLine,
+};
+
+function DailyToDoCard() {
+  const { data, isLoading } = useQuery<{ dayString: string; tasks: DailyTask[] }>({
+    queryKey: ['/api/dashboard/daily-tasks'],
+  });
+  const queryClient = useQueryClient();
+
+  const completeMutation = useMutation({
+    mutationFn: async (taskKey: string) => (await apiRequest('POST', '/api/dashboard/daily-tasks/complete', { taskKey })).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/dashboard/daily-tasks'] }),
+  });
+
+  if (isLoading || !data) return null;
+
+  const doneCount = data.tasks.filter(t => t.completed).length;
+
+  return (
+    <div className="rounded-xl mb-3 overflow-hidden" style={{ border: '1px solid rgba(245,158,11,.3)', background: 'linear-gradient(135deg,rgba(245,158,11,.08),rgba(15,17,26,.4))' }}>
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-black text-white">📋 Today's To-Do</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">A lesson, a read, and a post — picked fresh each day</p>
+        </div>
+        <span className="text-[10px] font-bold text-amber-400">{doneCount}/{data.tasks.length}</span>
+      </div>
+      <div className="px-4 pb-3 space-y-1.5 mt-2">
+        {data.tasks.map(task => {
+          const Icon = DAILY_TASK_ICONS[task.key] || CheckSquare;
+          return (
+            <div key={task.key} className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 border transition-colors ${task.completed ? 'border-emerald-700/30 bg-emerald-900/10' : 'border-gray-700 bg-gray-900/40'}`}>
+              <button
+                onClick={() => !task.completed && completeMutation.mutate(task.key)}
+                disabled={task.completed || completeMutation.isPending}
+                className="flex-shrink-0"
+                aria-label={task.completed ? 'Completed' : 'Mark complete'}
+              >
+                {task.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-gray-600 hover:text-amber-400 transition-colors" />}
+              </button>
+              <Link href={task.link} className="flex-1 min-w-0 flex items-center gap-2">
+                <Icon className={`w-4 h-4 flex-shrink-0 ${task.completed ? 'text-emerald-400' : 'text-amber-400'}`} />
+                <div className="min-w-0">
+                  <p className={`text-[11px] font-bold leading-tight truncate ${task.completed ? 'text-gray-400 line-through' : 'text-white'}`}>{task.title}</p>
+                  <p className="text-[9px] text-gray-500 truncate">{task.description}</p>
+                </div>
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -956,6 +1023,8 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          <DailyToDoCard />
 
           {/* Row 2: Live account balance cards */}
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">

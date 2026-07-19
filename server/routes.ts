@@ -24545,6 +24545,103 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
     });
 
+    // ============= DAILY TO-DO CHECKLIST (dashboard) =============
+    // Deterministic per-day picks — no content authoring needed, no new
+    // content tables. "Training" cycles through the real Workforce Academy
+    // course list; "Knowledge" is always the latest published blog post;
+    // "Setup" prompt is tailored by the user's trading experience level
+    // (userProfiles.tradingExperience) when set.
+    const DAILY_TRAINING_COURSES: { id: number; title: string; lessons: number }[] = [
+      { id: 1, title: "AI Literacy 101", lessons: 8 },
+      { id: 2, title: "Digital Skills Foundations", lessons: 7 },
+      { id: 3, title: "Trading Fundamentals", lessons: 7 },
+      { id: 4, title: "Financial Planning & Literacy", lessons: 6 },
+      { id: 5, title: "Web3 & Blockchain Basics", lessons: 8 },
+      { id: 6, title: "STEM for Young Traders", lessons: 7 },
+      { id: 7, title: "AI Ethics in Finance", lessons: 7 },
+      { id: 8, title: "Job Readiness & Portfolio Building", lessons: 8 },
+      { id: 9, title: "Advanced AI Trading Strategies", lessons: 9 },
+      { id: 10, title: "Community Finance Leadership", lessons: 8 },
+      { id: 11, title: "Data Privacy & Cybersecurity", lessons: 7 },
+      { id: 12, title: "Entrepreneurship & VEDD Business Launch", lessons: 8 },
+      { id: 13, title: "VEDD Platform Power Features", lessons: 5 },
+    ];
+
+    const dayOfYear = (d: Date): number => {
+      const start = new Date(d.getFullYear(), 0, 0);
+      return Math.floor((d.getTime() - start.getTime()) / 86400000);
+    };
+
+    const SETUP_PROMPTS: Record<string, string> = {
+      beginner: "Share what drew you to trading and one goal you're working toward this week.",
+      intermediate: "Post your current setup or strategy — what's working, what are you tweaking?",
+      advanced: "Break down a recent trade: your thesis, entry, and what you'd do differently.",
+      expert: "Share a lesson learned from a past loss that changed how you trade today.",
+    };
+
+    app.get('/api/dashboard/daily-tasks', async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const today = new Date();
+      const dayString = today.toISOString().slice(0, 10);
+      const doy = dayOfYear(today);
+
+      const course = DAILY_TRAINING_COURSES[doy % DAILY_TRAINING_COURSES.length];
+      const lessonNum = (doy % course.lessons) + 1;
+
+      const [latestPost] = await storage.getBlogPosts({ isPublished: true, limit: 1 });
+      const profile = await storage.getUserProfile(userId);
+      const experience = profile?.tradingExperience || 'beginner';
+      const setupPrompt = SETUP_PROMPTS[experience] || SETUP_PROMPTS.beginner;
+
+      const completedRows = await db.execute(drizzleSql`
+        SELECT task_key FROM daily_task_completions WHERE user_id = ${userId} AND day_string = ${dayString}
+      `);
+      const completedKeys = new Set(((completedRows.rows ?? completedRows) as any[]).map(r => r.task_key));
+
+      const tasks = [
+        {
+          key: 'training',
+          title: `Lesson ${lessonNum} — ${course.title}`,
+          description: `Today's training pick from the Workforce Academy (Course ${course.id} of ${DAILY_TRAINING_COURSES.length}).`,
+          link: '/workforce-academy',
+          completed: completedKeys.has('training'),
+        },
+        {
+          key: 'knowledge',
+          title: latestPost ? latestPost.title : 'No posts published yet',
+          description: latestPost ? "Today's knowledge post — a quick read to sharpen your edge." : 'Check back soon for the latest article.',
+          link: latestPost ? `/blog/${latestPost.slug}` : '/blog',
+          completed: completedKeys.has('knowledge'),
+        },
+        {
+          key: 'setup',
+          title: 'Share Today\'s Setup',
+          description: setupPrompt,
+          link: '/ambassador/content-studio',
+          completed: completedKeys.has('setup'),
+        },
+      ];
+
+      res.json({ dayString, tasks });
+    });
+
+    app.post('/api/dashboard/daily-tasks/complete', async (req: Request, res: Response) => {
+      if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
+      const userId = (req.user as User).id;
+      const { taskKey } = req.body;
+      if (!['training', 'knowledge', 'setup'].includes(taskKey)) {
+        return res.status(400).json({ error: 'Invalid task key' });
+      }
+      const dayString = new Date().toISOString().slice(0, 10);
+      await db.execute(drizzleSql`
+        INSERT INTO daily_task_completions (user_id, day_string, task_key)
+        VALUES (${userId}, ${dayString}, ${taskKey})
+        ON CONFLICT (user_id, day_string, task_key) DO NOTHING
+      `);
+      res.json({ success: true, taskKey });
+    });
+
     // GET /api/activity/leaderboard — top earners this week
     app.get('/api/activity/leaderboard', async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
