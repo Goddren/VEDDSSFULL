@@ -982,6 +982,8 @@ var init_schema = __esm({
       // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
       propFirmAccountSize: doublePrecision("prop_firm_account_size"),
       // Funded account size in $ (for drawdown/target math)
+      weeklyProfitTarget: doublePrecision("weekly_profit_target"),
+      // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -4452,8 +4454,10 @@ var init_storage = __esm({
         const [result] = await db.insert(tradelockerTradeLogs).values(log2).returning();
         return result;
       }
-      async getTradelockerTradeLogs(userId, limit = 100) {
-        return await db.select().from(tradelockerTradeLogs).where(eq(tradelockerTradeLogs.userId, userId)).orderBy(desc(tradelockerTradeLogs.createdAt)).limit(limit);
+      async getTradelockerTradeLogs(userId, limit = 100, connectionId) {
+        const conditions = [eq(tradelockerTradeLogs.userId, userId)];
+        if (connectionId != null) conditions.push(eq(tradelockerTradeLogs.connectionId, connectionId));
+        return await db.select().from(tradelockerTradeLogs).where(and(...conditions)).orderBy(desc(tradelockerTradeLogs.createdAt)).limit(limit);
       }
       // ── Alpaca Connection methods (Options AI Engine) ──────────────────────────
       async createAlpacaConnection(connection2) {
@@ -4820,8 +4824,10 @@ var init_storage = __esm({
         const [result] = await db.select().from(aiTradeResults).where(eq(aiTradeResults.id, id)).limit(1);
         return result;
       }
-      async getAiTradeResults(userId, limit = 100) {
-        return await db.select().from(aiTradeResults).where(eq(aiTradeResults.userId, userId)).orderBy(desc(aiTradeResults.createdAt)).limit(limit);
+      async getAiTradeResults(userId, limit = 100, connectionId) {
+        const conditions = [eq(aiTradeResults.userId, userId)];
+        if (connectionId != null) conditions.push(eq(aiTradeResults.connectionId, connectionId));
+        return await db.select().from(aiTradeResults).where(and(...conditions)).orderBy(desc(aiTradeResults.createdAt)).limit(limit);
       }
       async getAiTradeResultsBySymbol(userId, symbol, limit = 500) {
         return await db.select().from(aiTradeResults).where(and(
@@ -16743,6 +16749,9 @@ var init_tradelocker = __esm({
           const accountData = accounts.find(
             (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
           ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
+          if (!accountData) {
+            throw new Error("TradeLocker returned no accounts for this connection \u2014 the account may have been reset or expired by the broker. Reconnect required.");
+          }
           const balance = parseFloat(
             accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0
           ) || 0;
@@ -60005,11 +60014,16 @@ Rules:
       riskPercent,
       isPropFirmAccount,
       propFirmName,
-      propFirmAccountSize
+      propFirmAccountSize,
+      weeklyProfitTarget
     } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
     if (autoExecute !== void 0) updateDataById.autoExecute = autoExecute;
+    if (weeklyProfitTarget !== void 0) {
+      const target = parseFloat(weeklyProfitTarget);
+      updateDataById.weeklyProfitTarget = isNaN(target) || target <= 0 ? null : target;
+    }
     if (lotMultiplier !== void 0) {
       const mult = parseFloat(lotMultiplier);
       if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
@@ -64084,12 +64098,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
             balance = cached2.balance ?? 0;
             equity = cached2.equity ?? balance;
           } else {
-            try {
-              const balData = await svc.getAccountInfo().catch(() => null);
-              balance = balData?.balance ?? 0;
-              equity = balData?.equity ?? balance;
-            } catch {
-            }
+            const balData = await svc.getAccountInfo();
+            balance = balData?.balance ?? 0;
+            equity = balData?.equity ?? balance;
           }
           tlAccounts.push({
             id: conn.id,
@@ -64167,6 +64178,137 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       polymarket = { isRunning: false, openPositions: 0, totalUnrealizedPnl: 0, totalRealizedPnl: 0, dailyRealizedPnl: 0, weeklyRealizedPnl: 0, tradesOpened: 0 };
     }
     res.json({ mt5, tradelocker: tlAccounts, solana, polymarket });
+  });
+  function computeDailyAndCurve(closed, todayStart) {
+    const todayTrades = closed.filter((t) => new Date(t.closedAt) >= todayStart);
+    const dailyWins = todayTrades.filter((t) => t.result === "WIN").length;
+    const dailyLosses = todayTrades.filter((t) => t.result === "LOSS").length;
+    const dailyWinAmount = Math.round(todayTrades.filter((t) => (t.profitLoss || 0) > 0).reduce((s, t) => s + t.profitLoss, 0) * 100) / 100;
+    const dailyLossAmount = Math.round(todayTrades.filter((t) => (t.profitLoss || 0) < 0).reduce((s, t) => s + t.profitLoss, 0) * 100) / 100;
+    const chronological = [...closed].reverse();
+    let running = 0;
+    const equityCurve = chronological.map((t) => {
+      running = Math.round((running + (t.profitLoss || 0)) * 100) / 100;
+      return { date: t.closedAt, cumulativePnl: running };
+    });
+    return { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve };
+  }
+  app2.get("/api/account-detail/:type/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { type } = req.params;
+    const todayStart = /* @__PURE__ */ new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const weekStart = /* @__PURE__ */ new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    try {
+      if (type === "tradelocker") {
+        const connId = parseInt(req.params.id, 10);
+        const conn = await storage.getTradelockerConnection(connId);
+        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+        const svc = await getOrCreateService(conn);
+        const [balData, positions] = await Promise.all([
+          svc.getAccountInfo().catch((e) => ({ error: e.message })),
+          svc.getPositions().catch(() => [])
+        ]);
+        const balance = balData?.balance ?? 0;
+        const equity = balData?.equity ?? balance;
+        const accountError = balData?.error ?? null;
+        const closed = await storage.getAiTradeResults(userId, 500, connId).then(
+          (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt)
+        ).catch(() => []);
+        const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const wins = closed.filter((t) => t.result === "WIN").length;
+        const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closed, todayStart);
+        return res.json({
+          type: "tradelocker",
+          id: connId,
+          name: conn.brokerName || conn.serverId || "TradeLocker",
+          accountType: conn.accountType,
+          accountId: conn.accountId,
+          balance,
+          equity,
+          currency: balData?.currency ?? "USD",
+          error: accountError,
+          goal: {
+            target: conn.weeklyProfitTarget ?? 0,
+            progress: conn.weeklyProfitTarget ? Math.min(100, Math.round(weeklyPnl / conn.weeklyProfitTarget * 100)) : 0
+          },
+          risk: {
+            useRiskPercent: conn.useRiskPercent,
+            riskPercent: conn.riskPercent,
+            lotMultiplier: conn.lotMultiplier,
+            gateMode: conn.gateMode
+          },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate: winRate2, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: positions.length,
+          tradeHistory: closed.slice(0, 50).map((t) => ({
+            id: t.id,
+            symbol: t.symbol,
+            direction: t.direction,
+            result: t.result,
+            profitLoss: t.profitLoss,
+            actualPips: t.actualPips,
+            closedAt: t.closedAt
+          }))
+        });
+      }
+      if (type === "mt5") {
+        const cached2 = global.mt5AccountData?.[userId];
+        const isOnline = cached2 && Date.now() - new Date(cached2.timestamp || 0).getTime() < 6e5;
+        const balance = cached2?.balance ?? cached2?.accounts?.[0]?.balance ?? 0;
+        const equity = cached2?.equity ?? cached2?.accounts?.[0]?.equity ?? balance;
+        const closed = await storage.getAiTradeResults(userId, 500).then(
+          (rows) => rows.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && !["tradelocker", "kalshi", "polymarket", "solana"].includes(t.source || "manual"))
+        ).catch(() => []);
+        const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const wins = closed.filter((t) => t.result === "WIN").length;
+        const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closed, todayStart);
+        const strategy = await storage.getActiveWeeklyStrategy(userId).catch(() => null);
+        return res.json({
+          type: "mt5",
+          id: "mt5",
+          name: cached2?.broker || "MT5",
+          accountType: "live",
+          accountId: cached2?.accountNumber ?? null,
+          connected: !!isOnline,
+          balance,
+          equity,
+          currency: cached2?.currency ?? "USD",
+          goal: {
+            target: strategy?.profitTarget ?? 0,
+            progress: strategy?.profitTarget ? Math.min(100, Math.round(weeklyPnl / strategy.profitTarget * 100)) : 0,
+            note: "Shared goal set on the AI SS Engine page (applies across all your accounts)"
+          },
+          risk: { note: "Risk settings are configured per-EA on the AI SS Engine page", pairs: strategy?.selectedPairs ?? [] },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate: winRate2, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: cached2?.openPositions?.length ?? 0,
+          tradeHistory: closed.slice(0, 50).map((t) => ({
+            id: t.id,
+            symbol: t.symbol,
+            direction: t.direction,
+            result: t.result,
+            profitLoss: t.profitLoss,
+            actualPips: t.actualPips,
+            closedAt: t.closedAt
+          }))
+        });
+      }
+      return res.status(400).json({ error: "Invalid account type" });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
   app2.get("/api/tradelocker/debug-accounts", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -73684,6 +73826,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
       await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
       await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
       await db.execute(sql11`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
       console.log("[startup] Prop-firm linkage columns verified.");
     } catch (err) {

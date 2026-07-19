@@ -716,6 +716,7 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   isPropFirmAccount: boolean("is_prop_firm_account").notNull().default(false), // Mark this TL account as a prop-firm/funded account
   propFirmName: text("prop_firm_name"), // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
   propFirmAccountSize: doublePrecision("prop_firm_account_size"), // Funded account size in $ (for drawdown/target math)
+  weeklyProfitTarget: doublePrecision("weekly_profit_target"), // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

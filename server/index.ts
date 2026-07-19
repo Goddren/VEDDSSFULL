@@ -779,6 +779,7 @@ async function withRetry<T>(
       await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
       await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
       await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
       await db.execute(sql`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
       console.log('[startup] Prop-firm linkage columns verified.');
     } catch (err) {

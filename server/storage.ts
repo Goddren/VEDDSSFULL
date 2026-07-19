@@ -343,7 +343,7 @@ export interface IStorage {
   
   // TradeLocker Trade Log methods
   createTradelockerTradeLog(log: InsertTradelockerTradeLog): Promise<TradelockerTradeLog>;
-  getTradelockerTradeLogs(userId: number, limit?: number): Promise<TradelockerTradeLog[]>;
+  getTradelockerTradeLogs(userId: number, limit?: number, connectionId?: number): Promise<TradelockerTradeLog[]>;
 
   // Alpaca Connection methods (Options AI Engine)
   createAlpacaConnection(connection: InsertAlpacaConnection): Promise<AlpacaConnection>;
@@ -448,7 +448,7 @@ export interface IStorage {
   updateAiTradeResult(id: number, userId: number, data: Partial<AiTradeResult>): Promise<AiTradeResult | undefined>;
   deleteAiTradeResult(id: number, userId: number): Promise<boolean>;
   getAiTradeResultById(id: number): Promise<AiTradeResult | undefined>;
-  getAiTradeResults(userId: number, limit?: number): Promise<AiTradeResult[]>;
+  getAiTradeResults(userId: number, limit?: number, connectionId?: number): Promise<AiTradeResult[]>;
   getAiTradeResultsBySymbol(userId: number, symbol: string, limit?: number): Promise<AiTradeResult[]>;
   getAiTradeResultByTicket(userId: number, ticket: string): Promise<AiTradeResult | undefined>;
   getAiTradeAccuracy(userId: number): Promise<{ daily: number; weekly: number; monthly: number; yearly: number; allTime: number; totalTrades: number; wins: number; losses: number }>;
@@ -1943,9 +1943,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getTradelockerTradeLogs(userId: number, limit: number = 100): Promise<TradelockerTradeLog[]> {
+  async getTradelockerTradeLogs(userId: number, limit: number = 100, connectionId?: number): Promise<TradelockerTradeLog[]> {
+    const conditions = [eq(tradelockerTradeLogs.userId, userId)];
+    if (connectionId != null) conditions.push(eq(tradelockerTradeLogs.connectionId, connectionId));
     return await db.select().from(tradelockerTradeLogs)
-      .where(eq(tradelockerTradeLogs.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(tradelockerTradeLogs.createdAt))
       .limit(limit);
   }
@@ -2474,9 +2476,11 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getAiTradeResults(userId: number, limit: number = 100): Promise<AiTradeResult[]> {
+  async getAiTradeResults(userId: number, limit: number = 100, connectionId?: number): Promise<AiTradeResult[]> {
+    const conditions = [eq(aiTradeResults.userId, userId)];
+    if (connectionId != null) conditions.push(eq(aiTradeResults.connectionId, connectionId));
     return await db.select().from(aiTradeResults)
-      .where(eq(aiTradeResults.userId, userId))
+      .where(and(...conditions))
       .orderBy(desc(aiTradeResults.createdAt))
       .limit(limit);
   }

@@ -12,6 +12,7 @@ import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
+import AccountDetailPage from "@/pages/account-detail";
 import Analysis from "@/pages/analysis";
 import MultiTimeframeAnalysis from "@/pages/multi-timeframe-analysis";
 import Historical from "@/pages/historical";
@@ -269,6 +270,7 @@ function AppLayout() {
             <ProtectedRoute path="/brain-marketplace" component={BrainDataMarketplacePage} />
             <ProtectedRoute path="/social-hub" component={SocialHub} />
             <ProtectedRoute path="/what-if" component={WhatIfAnalysisPage} />
+            <ProtectedRoute path="/account/:type/:id" component={AccountDetailPage} />
             <ProtectedRoute path="/webhooks" component={WebhooksPage} />
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />

@@ -542,6 +542,14 @@ export class TradeLockerService {
           a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
         ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
 
+      // No matching account in the response — the account was likely
+      // reset/expired by the broker (common for demo accounts). Throw
+      // instead of silently returning a fabricated $0 balance, so the
+      // caller can surface a real "reconnect required" state.
+      if (!accountData) {
+        throw new Error('TradeLocker returned no accounts for this connection — the account may have been reset or expired by the broker. Reconnect required.');
+      }
+
       // TradeLocker list rows expose balance under a few possible keys
       const balance = parseFloat(
         accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0

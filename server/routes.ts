@@ -14684,10 +14684,14 @@ Rules:
     }
 
     const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent,
-            isPropFirmAccount, propFirmName, propFirmAccountSize } = req.body;
+            isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
+    if (weeklyProfitTarget !== undefined) {
+      const target = parseFloat(weeklyProfitTarget);
+      updateDataById.weeklyProfitTarget = isNaN(target) || target <= 0 ? null : target;
+    }
     if (lotMultiplier !== undefined) {
       const mult = parseFloat(lotMultiplier);
       if (!isNaN(mult) && mult >= 0.01 && mult <= 10) updateDataById.lotMultiplier = mult;
@@ -19329,7 +19333,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s: number, p: any) =>
             s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
-          // Use fresh cached balance if available (<120s old); otherwise fetch live
+          // Use fresh cached balance if available (<120s old); otherwise fetch live.
+          // Deliberately NOT swallowing getAccountInfo()'s errors here — a
+          // real API failure must reach the outer catch below so it surfaces
+          // as an explicit "error" state instead of a fabricated $0 balance
+          // that looks identical to a genuinely empty account.
           let balance = 0, equity = 0;
           const cached = _tlCache[conn.accountId];
           const cacheFresh = cached && !cached.error && (Date.now() - new Date(cached.lastUpdated).getTime()) < 120_000;
@@ -19337,11 +19345,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
             balance = cached.balance ?? 0;
             equity  = cached.equity ?? balance;
           } else {
-            try {
-              const balData = await svc.getAccountInfo().catch(() => null);
-              balance = balData?.balance ?? 0;
-              equity  = balData?.equity  ?? balance;
-            } catch {}
+            const balData = await svc.getAccountInfo();
+            balance = balData?.balance ?? 0;
+            equity  = balData?.equity  ?? balance;
           }
           tlAccounts.push({
             id: conn.id, email: conn.email, accountId: conn.accountId,
@@ -19404,6 +19410,135 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     } catch { polymarket = { isRunning: false, openPositions: 0, totalUnrealizedPnl: 0, totalRealizedPnl: 0, dailyRealizedPnl: 0, weeklyRealizedPnl: 0, tradesOpened: 0 }; }
 
     res.json({ mt5, tradelocker: tlAccounts, solana, polymarket });
+  });
+
+  // Daily win/loss count + a chronological cumulative-P&L series (for the
+  // account detail page's line chart) — shared by both branches below.
+  function computeDailyAndCurve(closed: any[], todayStart: Date) {
+    const todayTrades = closed.filter((t: any) => new Date(t.closedAt) >= todayStart);
+    const dailyWins = todayTrades.filter((t: any) => t.result === 'WIN').length;
+    const dailyLosses = todayTrades.filter((t: any) => t.result === 'LOSS').length;
+    const dailyWinAmount = Math.round(todayTrades.filter((t: any) => (t.profitLoss || 0) > 0).reduce((s: number, t: any) => s + t.profitLoss, 0) * 100) / 100;
+    const dailyLossAmount = Math.round(todayTrades.filter((t: any) => (t.profitLoss || 0) < 0).reduce((s: number, t: any) => s + t.profitLoss, 0) * 100) / 100;
+
+    // closed[] is newest-first; walk oldest-to-newest to build a running total.
+    const chronological = [...closed].reverse();
+    let running = 0;
+    const equityCurve = chronological.map((t: any) => {
+      running = Math.round((running + (t.profitLoss || 0)) * 100) / 100;
+      return { date: t.closedAt, cumulativePnl: running };
+    });
+
+    return { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve };
+  }
+
+  // ── GET /api/account-detail/:type/:id ──────────────────────────────────────
+  // Per-account breakdown (tap-through from a Dashboard balance card): the
+  // goal set for THIS account, its risk settings, P&L, and trade history —
+  // as opposed to /api/platform-monitors which only returns bulk summaries.
+  // type: 'mt5' | 'tradelocker'. id: connectionId for tradelocker (ignored
+  // for mt5, which has exactly one account per user today).
+  app.get("/api/account-detail/:type/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { type } = req.params;
+
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0, 0, 0, 0);
+
+    try {
+      if (type === 'tradelocker') {
+        const connId = parseInt(req.params.id, 10);
+        const conn = await storage.getTradelockerConnection(connId);
+        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+
+        const svc = await tlGetOrCreateService(conn);
+        const [balData, positions] = await Promise.all([
+          svc.getAccountInfo().catch((e: any) => ({ error: e.message })),
+          svc.getPositions().catch(() => []),
+        ]);
+        const balance = (balData as any)?.balance ?? 0;
+        const equity = (balData as any)?.equity ?? balance;
+        const accountError = (balData as any)?.error ?? null;
+
+        const closed = await storage.getAiTradeResults(userId, 500, connId).then((rows: any[]) =>
+          rows.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt)
+        ).catch(() => [] as any[]);
+        const dailyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const wins = closed.filter((t: any) => t.result === 'WIN').length;
+        const winRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closed, todayStart);
+
+        return res.json({
+          type: 'tradelocker', id: connId,
+          name: conn.brokerName || conn.serverId || 'TradeLocker',
+          accountType: conn.accountType, accountId: conn.accountId,
+          balance, equity, currency: (balData as any)?.currency ?? 'USD',
+          error: accountError,
+          goal: {
+            target: conn.weeklyProfitTarget ?? 0,
+            progress: conn.weeklyProfitTarget ? Math.min(100, Math.round((weeklyPnl / conn.weeklyProfitTarget) * 100)) : 0,
+          },
+          risk: {
+            useRiskPercent: conn.useRiskPercent, riskPercent: conn.riskPercent,
+            lotMultiplier: conn.lotMultiplier, gateMode: conn.gateMode,
+          },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: positions.length,
+          tradeHistory: closed.slice(0, 50).map((t: any) => ({
+            id: t.id, symbol: t.symbol, direction: t.direction, result: t.result,
+            profitLoss: t.profitLoss, actualPips: t.actualPips, closedAt: t.closedAt,
+          })),
+        });
+      }
+
+      if (type === 'mt5') {
+        const cached = (global as any).mt5AccountData?.[userId];
+        const isOnline = cached && (Date.now() - new Date(cached.timestamp || 0).getTime()) < 600_000;
+        const balance = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
+        const equity = cached?.equity ?? cached?.accounts?.[0]?.equity ?? balance;
+
+        const closed = await storage.getAiTradeResults(userId, 500).then((rows: any[]) =>
+          rows.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt && !['tradelocker', 'kalshi', 'polymarket', 'solana'].includes(t.source || 'manual'))
+        ).catch(() => [] as any[]);
+        const dailyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const wins = closed.filter((t: any) => t.result === 'WIN').length;
+        const winRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closed, todayStart);
+
+        const strategy = await storage.getActiveWeeklyStrategy(userId).catch(() => null);
+
+        return res.json({
+          type: 'mt5', id: 'mt5',
+          name: cached?.broker || 'MT5', accountType: 'live', accountId: cached?.accountNumber ?? null,
+          connected: !!isOnline, balance, equity, currency: cached?.currency ?? 'USD',
+          goal: {
+            target: strategy?.profitTarget ?? 0,
+            progress: strategy?.profitTarget ? Math.min(100, Math.round((weeklyPnl / strategy.profitTarget) * 100)) : 0,
+            note: 'Shared goal set on the AI SS Engine page (applies across all your accounts)',
+          },
+          risk: { note: 'Risk settings are configured per-EA on the AI SS Engine page', pairs: strategy?.selectedPairs ?? [] },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: cached?.openPositions?.length ?? 0,
+          tradeHistory: closed.slice(0, 50).map((t: any) => ({
+            id: t.id, symbol: t.symbol, direction: t.direction, result: t.result,
+            profitLoss: t.profitLoss, actualPips: t.actualPips, closedAt: t.closedAt,
+          })),
+        });
+      }
+
+      return res.status(400).json({ error: "Invalid account type" });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {

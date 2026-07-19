@@ -960,24 +960,37 @@ const Dashboard: React.FC = () => {
           {/* Row 2: Live account balance cards */}
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
             {mt5LiveAcct?.connected && (
-              <div className="flex-shrink-0 rounded-xl border border-indigo-500/25 bg-indigo-500/8 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(99,102,241,0.07)' }}>
+              <Link href="/account/mt5/mt5" className="flex-shrink-0 rounded-xl border border-indigo-500/25 hover:border-indigo-500/50 bg-indigo-500/8 px-3 py-2.5 min-w-[140px] transition-colors block" style={{ background: 'rgba(99,102,241,0.07)' }}>
                 <div className="flex items-center gap-1 mb-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider">MT5 Live</span>
                 </div>
                 <p className="text-base font-black text-white leading-none">{mt5LiveAcct.currency ?? 'USD'} {liveBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 {mt5LiveAcct.equity !== mt5LiveAcct.balance && <p className="text-[10px] text-gray-500 mt-0.5">Equity {(mt5LiveAcct.equity ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
-              </div>
+              </Link>
             )}
-            {tlLiveAccts.filter(t => !t.error).map((t: any) => (
-              <div key={t.id} className="flex-shrink-0 rounded-xl border border-cyan-500/25 px-3 py-2.5 min-w-[140px]" style={{ background: 'rgba(6,182,212,0.07)' }}>
+            {tlLiveAccts.filter((t: any) => !t.error).map((t: any) => (
+              <Link key={t.id} href={`/account/tradelocker/${t.id}`} className="flex-shrink-0 rounded-xl border border-cyan-500/25 hover:border-cyan-500/50 px-3 py-2.5 min-w-[140px] transition-colors block" style={{ background: 'rgba(6,182,212,0.07)' }}>
                 <div className="flex items-center gap-1 mb-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                   <span className="text-[9px] font-bold text-cyan-300 uppercase tracking-wider">{t.brokerName ?? t.accountType?.toUpperCase() ?? 'TL'}</span>
                 </div>
                 <p className="text-base font-black text-white leading-none">{t.currency ?? 'USD'} {(t.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 {t.openTrades > 0 && <p className="text-[10px] text-cyan-400 mt-0.5">{t.openTrades} open</p>}
-              </div>
+              </Link>
+            ))}
+            {/* Errored connections previously vanished silently, looking
+                identical to "no accounts connected" — surface them with a
+                reconnect prompt instead of hiding the failure. */}
+            {tlLiveAccts.filter((t: any) => !!t.error).map((t: any) => (
+              <Link key={t.id} href="/webhooks#tradelocker" className="flex-shrink-0 rounded-xl border border-amber-500/40 hover:border-amber-500/60 px-3 py-2.5 min-w-[160px] bg-amber-500/5 hover:bg-amber-500/10 transition-colors block">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">{t.brokerName ?? 'TradeLocker'}</span>
+                </div>
+                <p className="text-[10px] text-amber-400 font-semibold">Reconnect required →</p>
+                <p className="text-[9px] text-gray-500 mt-0.5 truncate" title={t.error}>{t.error}</p>
+              </Link>
             ))}
             {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && (
               <Link href="/mt5-chart-data" className="flex-shrink-0 rounded-xl border border-gray-700 hover:border-indigo-500/50 px-3 py-2.5 min-w-[160px] bg-gray-900/40 hover:bg-gray-900/60 transition-colors block">
