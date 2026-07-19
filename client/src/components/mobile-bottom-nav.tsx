@@ -79,7 +79,6 @@ const ecosystemItems = [
 
 const financeItems = [
   { name: 'Micro Growth',   path: '/micro-growth',       icon: TrendingUp, color: '#10b981' },
-  { name: 'Micro Growth',   path: '/micro-growth',       icon: TrendingUp, color: '#22c55e' },
   { name: 'Investments',    path: '/token-investments',  icon: Coins,      color: '#f59e0b' },
   { name: 'VEDD Wallet',    path: '/vedd-wallet',        icon: Wallet,     color: '#8b5cf6' },
   { name: 'Referral Hub',   path: '/referral',           icon: DollarSign, color: '#22c55e' },

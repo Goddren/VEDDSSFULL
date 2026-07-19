@@ -922,6 +922,41 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* Getting Started checklist — the first thing a brand-new user with
+              zero connections sees, front and center instead of buried in
+              /weekly-strategy or relying on a generic feature-tour modal. */}
+          {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && (
+            <div className="rounded-xl mb-3 overflow-hidden" style={{ border: '1px solid rgba(99,102,241,.35)', background: 'linear-gradient(135deg,rgba(99,102,241,.10),rgba(15,17,26,.4))' }}>
+              <div className="px-4 pt-3 pb-1">
+                <p className="text-xs font-black text-white">👋 Welcome to VEDD — let's get you set up</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">3 quick steps to start seeing live AI signals</p>
+              </div>
+              <div className="px-4 pb-3 flex flex-col sm:flex-row gap-2 mt-2">
+                <Link href="/mt5-chart-data" className="flex-1 flex items-center gap-2.5 rounded-lg px-3 py-2.5 border border-indigo-500/50 bg-indigo-500/10 hover:bg-indigo-500/20 transition-colors">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black bg-indigo-500 text-white flex-shrink-0">1</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-white leading-tight">Connect your broker</p>
+                    <p className="text-[9px] text-indigo-300">MT5 or TradeLocker →</p>
+                  </div>
+                </Link>
+                <Link href="/analysis" className="flex-1 flex items-center gap-2.5 rounded-lg px-3 py-2.5 border border-gray-700 bg-gray-900/40 hover:bg-gray-900/60 transition-colors">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black bg-gray-700 text-gray-300 flex-shrink-0">2</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-gray-300 leading-tight">See live AI signals</p>
+                    <p className="text-[9px] text-gray-500">Chart analysis →</p>
+                  </div>
+                </Link>
+                <Link href="/weekly-strategy" className="flex-1 flex items-center gap-2.5 rounded-lg px-3 py-2.5 border border-gray-700 bg-gray-900/40 hover:bg-gray-900/60 transition-colors">
+                  <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black bg-gray-700 text-gray-300 flex-shrink-0">3</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-gray-300 leading-tight">Set a weekly goal</p>
+                    <p className="text-[9px] text-gray-500">AI SS Engine →</p>
+                  </div>
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Row 2: Live account balance cards */}
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide mb-3">
             {mt5LiveAcct?.connected && (
@@ -945,10 +980,10 @@ const Dashboard: React.FC = () => {
               </div>
             ))}
             {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && (
-              <div className="flex-shrink-0 rounded-xl border border-gray-700 px-3 py-2.5 min-w-[160px] bg-gray-900/40">
+              <Link href="/mt5-chart-data" className="flex-shrink-0 rounded-xl border border-gray-700 hover:border-indigo-500/50 px-3 py-2.5 min-w-[160px] bg-gray-900/40 hover:bg-gray-900/60 transition-colors block">
                 <p className="text-[10px] text-gray-500">No live accounts connected</p>
-                <p className="text-[9px] text-gray-600 mt-0.5">Connect MT5 EA or TradeLocker →</p>
-              </div>
+                <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">Connect MT5 EA or TradeLocker →</p>
+              </Link>
             )}
           </div>
 
@@ -975,6 +1010,15 @@ const Dashboard: React.FC = () => {
               const dayOfWeek = now.getDay(); // 0=Sun, 5=Fri (trading week ends Fri)
               const tradingDaysLeft = dayOfWeek === 0 ? 5 : Math.max(0, 5 - dayOfWeek);
               const ringColor = weekGoalPct >= 100 ? '#10b981' : weekGoalPct >= 60 ? '#f59e0b' : '#6366f1';
+              if (weeklyTarget <= 0) {
+                return (
+                  <Link href="/weekly-strategy" className="rounded-xl border border-gray-700/60 hover:border-indigo-500/50 bg-gray-900/50 hover:bg-gray-900/70 px-3 py-3 flex flex-col items-center justify-center transition-colors">
+                    <Target className="w-6 h-6 text-gray-500 mb-1" />
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Week Goal</p>
+                    <p className="text-[10px] text-indigo-400 font-semibold mt-0.5">Set your goal →</p>
+                  </Link>
+                );
+              }
               return (
                 <div className="rounded-xl border border-gray-700/60 bg-gray-900/50 px-3 py-3 flex flex-col items-center">
                   <div className="relative">
@@ -1949,7 +1993,13 @@ const Dashboard: React.FC = () => {
               <div className="px-4 py-6 text-center">
                 <Activity className="w-8 h-8 mx-auto text-gray-700 mb-2" />
                 <p className="text-gray-600 text-xs">Waiting for trades from MT5 and TradeLocker…</p>
-                <p className="text-gray-700 text-[10px] mt-1">Trades appear here as they execute</p>
+                {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 ? (
+                  <Link href="/mt5-chart-data" className="inline-block mt-2 text-[10px] font-semibold text-indigo-400 hover:text-indigo-300">
+                    Connect a broker to get started →
+                  </Link>
+                ) : (
+                  <p className="text-gray-700 text-[10px] mt-1">Trades appear here as they execute</p>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-gray-800/50 max-h-72 overflow-y-auto">

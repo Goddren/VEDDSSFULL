@@ -2806,6 +2806,10 @@ export default function MT5ChartDataPage() {
             </Accordion>
 
             {/* Installation + WebRequest */}
+            <p className="text-xs text-gray-500 mb-4">
+              New to MT5? You'll need the MetaTrader 5 desktop app installed with a demo or live account from your broker first —
+              it's free from <a href="https://www.metatrader5.com/en/download" target="_blank" rel="noopener noreferrer" className="text-green-400 underline">metatrader5.com</a> or directly from your broker.
+            </p>
             <div className="grid md:grid-cols-2 gap-6">
               <div>
                 <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
@@ -2814,11 +2818,11 @@ export default function MT5ChartDataPage() {
                 </h4>
                 <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
                   <li>Download the Combined EA file above</li>
-                  <li>In MT5, go to <strong className="text-gray-300">File → Open Data Folder</strong></li>
+                  <li>In MT5, go to <strong className="text-gray-300">File → Open Data Folder</strong> (opens a Windows folder — this is where MT5 keeps its scripts)</li>
                   <li>Navigate to <strong className="text-gray-300">MQL5 → Experts</strong></li>
                   <li>Copy <code className="text-green-400 bg-gray-900 px-1 rounded">VEDD_Combined_EA.mq5</code> into that folder</li>
-                  <li>Restart MT5 or right-click Navigator → Refresh</li>
-                  <li>Drag the EA onto any chart</li>
+                  <li>Restart MT5 or right-click <strong className="text-gray-300">Navigator</strong> (the panel on the left showing your indicators/EAs) → Refresh</li>
+                  <li>Drag the EA from Navigator onto any chart</li>
                   <li>Enter your <strong className="text-green-400">Server URL</strong>, <strong className="text-green-400">API Key</strong>, and a unique <strong className="text-amber-400">Account Alias</strong></li>
                 </ol>
               </div>
@@ -2827,12 +2831,15 @@ export default function MT5ChartDataPage() {
                   <Shield className="w-4 h-4 text-amber-400" />
                   Enable WebRequest (required)
                 </h4>
+                <p className="text-xs text-gray-500 mb-2">
+                  This is a one-time MT5 security setting — it whitelists our server so the EA is allowed to send your chart data to VEDD's AI. Without this, MT5 blocks the connection silently.
+                </p>
                 <ol className="text-sm text-gray-400 space-y-2 list-decimal list-inside">
                   <li>In MT5, go to <strong className="text-gray-300">Tools → Options → Expert Advisors</strong></li>
                   <li>Check <em>"Allow WebRequest for listed URL"</em></li>
                   <li>Click "Add" and paste: <code className="text-green-400 bg-gray-900 px-1 rounded">{baseUrl}</code></li>
                   <li>Click OK to save settings</li>
-                  <li>Ensure "Allow Algo Trading" is enabled (green play button in toolbar)</li>
+                  <li>Ensure "Allow Algo Trading" is enabled (green play button in toolbar — lets the EA actually run)</li>
                 </ol>
               </div>
             </div>

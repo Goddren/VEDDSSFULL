@@ -59,17 +59,17 @@ const guideSections: GuideSection[] = [
     id: 'getting-started',
     title: 'Getting Started',
     icon: Play,
-    description: 'Learn the basics of using AI Trading Vault for your trading analysis',
+    description: 'Learn the basics of using VEDD for your trading analysis',
     content: [
       {
         heading: 'Creating Your Account',
         steps: [
-          'Visit the AI Trading Vault homepage and click "Get Started"',
+          'Visit the VEDD homepage and click "Get Started"',
           'Fill in your username, email, and create a secure password',
-          'Verify your email address to activate your account',
-          'Complete your profile with trading preferences'
+          'You\'re in immediately — no email verification step',
+          'Connect your MT5 or TradeLocker account to start seeing live AI signals'
         ],
-        tips: ['Use a strong password with at least 8 characters', 'Your username will be visible to other traders in the community']
+        tips: ['Use a password with at least 6 characters', 'Your username will be visible to other traders in the community']
       },
       {
         heading: 'Navigating the Dashboard',
@@ -331,7 +331,7 @@ const guideSections: GuideSection[] = [
         heading: 'Sharing Analysis Cards',
         steps: [
           'Generate branded share cards from your analyses',
-          'Cards include AI Trading Vault branding and key metrics',
+          'Cards include VEDD branding and key metrics',
           'Share directly to social media platforms',
           'Track engagement on your shared content'
         ]
@@ -442,7 +442,7 @@ const guideSections: GuideSection[] = [
       {
         heading: 'Understanding AI Providers',
         steps: [
-          'AI Trading Vault uses AI to analyze your charts — but which AI model it uses is up to you',
+          'VEDD uses AI to analyze your charts — but which AI model it uses is up to you',
           'By default, the platform shares a built-in GPT-4o Mini key across all users',
           'Shared keys can hit rate limits during high-traffic periods (you\'ll see a 429 error)',
           'Adding your own AI key gives you dedicated capacity and lets you choose your preferred model',
@@ -1719,7 +1719,7 @@ const faqs = [
   },
   {
     question: 'What trading platforms are supported?',
-    answer: 'AI Trading Vault supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), TradeLocker, and NinjaTrader 8 (NinjaScript C# — for futures trading). Live trade execution is supported via MT5, TradeLocker, and Tradovate (futures).'
+    answer: 'VEDD supports chart uploads from MT4, MT5, TradingView, and TradeLocker. EA code can be generated for MT5, TradingView (Pine Script), TradeLocker, and NinjaTrader 8 (NinjaScript C# — for futures trading). Live trade execution is supported via MT5, TradeLocker, and Tradovate (futures).'
   },
   {
     question: 'Can VEDD trade futures? Which prop firms are supported?',
@@ -1784,10 +1784,10 @@ export default function UserGuidePage() {
             Documentation
           </Badge>
           <h1 className="text-4xl md:text-5xl font-bold mb-4" data-testid="text-guide-title">
-            AI Trading Vault User Guide
+            VEDD User Guide
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Everything you need to know about using AI Trading Vault for smarter trading decisions
+            Everything you need to know about using VEDD for smarter trading decisions
           </p>
           <div className="flex flex-wrap justify-center gap-2 mt-4">
             <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs px-3 py-1 rounded-full">Forex & Crypto</span>
