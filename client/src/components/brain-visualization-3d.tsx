@@ -29,14 +29,14 @@ export default function BrainVisualization3D({ intensity = 1 }: { intensity?: nu
     let width = canvas.clientWidth;
     let height = canvas.clientHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    canvas.width = Math.max(1, width * dpr);
+    canvas.height = Math.max(1, height * dpr);
     ctx.scale(dpr, dpr);
 
-    // ── Generate a brain-shaped point cloud: two lobes with a central
-    // longitudinal gap, flattened vertically, elongated front-to-back, with
-    // a sinusoidal ripple standing in for cortical folds. ──────────────────
-    const NUM_POINTS = 260;
+    // Thin out the mesh on narrow (phone-width) screens — 260 points in a
+    // ~300px-wide card reads as a dense, blurry smear rather than a brain.
+    const isNarrow = width > 0 && width < 420;
+    const NUM_POINTS = isNarrow ? 150 : 260;
     const points: Point3D[] = [];
     for (let i = 0; i < NUM_POINTS; i++) {
       let x = randn(), y = randn(), z = randn();
@@ -95,6 +95,10 @@ export default function BrainVisualization3D({ intensity = 1 }: { intensity?: nu
 
     function draw() {
       if (!running) return;
+      if (width < 1 || height < 1) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
       ctx.clearRect(0, 0, width, height);
       if (!reduceMotion) angle += 0.0028;
 
@@ -147,21 +151,29 @@ export default function BrainVisualization3D({ intensity = 1 }: { intensity?: nu
     }
     draw();
 
-    function handleResize() {
+    // ResizeObserver (not just `window.resize`) so the canvas keeps a correct
+    // size through mobile-specific layout changes that don't fire a window
+    // resize event: orientation change, and the browser chrome collapsing/
+    // expanding on scroll (which shrinks/grows the visual viewport height).
+    function syncSize() {
       if (!canvas) return;
-      width = canvas.clientWidth;
-      height = canvas.clientHeight;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (w === width && h === height) return;
+      width = w; height = h;
+      canvas.width = Math.max(1, width * dpr);
+      canvas.height = Math.max(1, height * dpr);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
     }
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver(syncSize);
+    resizeObserver.observe(canvas);
+    window.addEventListener('orientationchange', syncSize);
 
     return () => {
       running = false;
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
+      window.removeEventListener('orientationchange', syncSize);
     };
   }, [intensity]);
 
