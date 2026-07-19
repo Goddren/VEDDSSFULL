@@ -16594,7 +16594,8 @@ var init_tradelocker = __esm({
         });
         if (!res.ok) throw new Error(`config ${res.status}`);
         const json2 = await res.json();
-        const cols = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        const cfg = json2?.d?.accountDetailsConfig ?? json2?.accountDetailsConfig ?? [];
+        const cols = Array.isArray(cfg) ? cfg : cfg?.columns ?? [];
         this.accountDetailsConfig = cols;
         return cols;
       }
@@ -16745,12 +16746,12 @@ var init_tradelocker = __esm({
           }
           const data = await response.json();
           console.log("[TradeLocker] Account details (list):", JSON.stringify(data));
-          const accounts = Array.isArray(data) ? data : data.accounts || data.d?.accounts || [];
+          const accounts = Array.isArray(data) ? data : Array.isArray(data?.d) ? data.d : data.accounts || data.d?.accounts || [];
           const accountData = accounts.find(
             (a) => a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
-          ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
-          if (!accountData) {
-            throw new Error("TradeLocker returned no accounts for this connection \u2014 the account may have been reset or expired by the broker. Reconnect required.");
+          ) || accounts[0];
+          if (!accountData || accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null) {
+            throw new Error("TradeLocker returned no usable account data \u2014 the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.");
           }
           const balance = parseFloat(
             accountData?.accountBalance ?? accountData?.balance ?? accountData?.projectedBalance ?? 0

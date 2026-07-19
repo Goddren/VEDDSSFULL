@@ -359,7 +359,13 @@ export class TradeLockerService {
     });
     if (!res.ok) throw new Error(`config ${res.status}`);
     const json = await res.json();
-    const cols = json?.d?.accountDetailsConfig ?? json?.accountDetailsConfig ?? [];
+    // accountDetailsConfig is a wrapper object ({id, title, columns: [...]}),
+    // not a bare array — reading it directly as `cols` produced a non-array
+    // object, silently breaking pickStateValue's array-index column lookup
+    // and making every live balance read as unmapped (falling through to a
+    // fallback endpoint that doesn't carry balance data for some accounts).
+    const cfg = json?.d?.accountDetailsConfig ?? json?.accountDetailsConfig ?? [];
+    const cols = Array.isArray(cfg) ? cfg : (cfg?.columns ?? []);
     this.accountDetailsConfig = cols;
     return cols;
   }
@@ -535,19 +541,28 @@ export class TradeLockerService {
       const data = await response.json();
       console.log('[TradeLocker] Account details (list):', JSON.stringify(data));
 
-      // Unwrap the nested { d: { accounts: [...] } } shape (same as resolveAccNum)
-      const accounts = Array.isArray(data) ? data : (data.accounts || data.d?.accounts || []);
-      const accountData =
-        accounts.find((a: any) =>
-          a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
-        ) || accounts[0] || (Array.isArray(data) ? data[0] : data);
+      // Unwrap every observed response shape: a bare array, { accounts: [...] },
+      // { d: { accounts: [...] } }, AND { s: "ok", d: [...] } (TradeLocker's
+      // current live-account shape — "d" IS the array, not a nested object
+      // with an "accounts" key). Missing this last shape meant `accounts`
+      // silently resolved to [], accountData fell through to the raw {s,d}
+      // wrapper object (truthy, so the "no accounts" guard never fired), and
+      // every balance/equity field read undefined off it — parsed as a
+      // "successful" $0 instead of the real, non-zero balance.
+      const accounts = Array.isArray(data) ? data
+        : Array.isArray(data?.d) ? data.d
+        : (data.accounts || data.d?.accounts || []);
+      const accountData = accounts.find((a: any) =>
+        a.id?.toString() === this.accountId || a.accountId?.toString() === this.accountId
+      ) || accounts[0];
 
       // No matching account in the response — the account was likely
-      // reset/expired by the broker (common for demo accounts). Throw
-      // instead of silently returning a fabricated $0 balance, so the
-      // caller can surface a real "reconnect required" state.
-      if (!accountData) {
-        throw new Error('TradeLocker returned no accounts for this connection — the account may have been reset or expired by the broker. Reconnect required.');
+      // reset/expired by the broker (common for demo accounts), or the
+      // response shape wasn't recognized above. Throw instead of silently
+      // returning a fabricated $0 balance, so the caller can surface a real
+      // "reconnect required" state.
+      if (!accountData || (accountData.balance == null && accountData.accountBalance == null && accountData.projectedBalance == null)) {
+        throw new Error('TradeLocker returned no usable account data — the account may have been reset/expired by the broker, or the response shape changed. Reconnect required.');
       }
 
       // TradeLocker list rows expose balance under a few possible keys
