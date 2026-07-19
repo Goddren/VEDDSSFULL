@@ -53,11 +53,17 @@ export async function flattenSlideImage(opts: FlattenSlideOptions): Promise<Buff
     .resize(CANVAS_SIZE, CANVAS_SIZE, { fit: 'cover', position: 'attention' })
     .toBuffer();
 
-  const headingLines = opts.heading ? wrapText(opts.heading, 24, 3) : [];
-  const bodyLines = opts.body ? wrapText(opts.body, 40, 4) : [];
+  // Font sizes match the on-screen CSS preview's proportions (heading/body
+  // relative to card width), scaled up to the 1080px bake canvas — the old
+  // fixed 54/34px sizes were noticeably smaller than what the preview showed,
+  // so the baked download looked like a downgrade from what the user saw.
+  const HEADING_SIZE = 80;
+  const BODY_SIZE = 48;
+  const headingLines = opts.heading ? wrapText(opts.heading, 16, 3) : [];
+  const bodyLines = opts.body ? wrapText(opts.body, 27, 4) : [];
 
   const hasText = headingLines.length > 0 || bodyLines.length > 0;
-  const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.55, 140 + (headingLines.length + bodyLines.length) * 46) : 0;
+  const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.6, 180 + (headingLines.length + bodyLines.length) * 76) : 0;
 
   // VEDD Content Style Guide palette: gold accent divider/eyebrow, white
   // headline, near-black (#0A0A0B) fade instead of a generic pure-black one.
@@ -65,20 +71,21 @@ export async function flattenSlideImage(opts: FlattenSlideOptions): Promise<Buff
   const NEAR_BLACK = '#0A0A0B';
 
   const textSvgParts: string[] = [];
-  let y = CANVAS_SIZE - gradientHeight + 60;
+  let y = CANVAS_SIZE - gradientHeight + 100;
   if (headingLines.length > 0) {
     // Small gold divider above the headline, matching every branded card's
-    // accent-colored rule.
-    textSvgParts.push(`<rect x="48" y="${y - 34}" width="48" height="4" fill="${GOLD}" />`);
+    // accent-colored rule. Sits a full line above the heading's baseline so
+    // it never overlaps the cap-height of the first line of text.
+    textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD}" />`);
   }
   for (const line of headingLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
-    y += 60;
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
+    y += 88;
   }
-  y += 8;
+  y += 12;
   for (const line of bodyLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
-    y += 42;
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
+    y += 60;
   }
 
   const overlaySvg = `

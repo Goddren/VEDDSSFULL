@@ -84,6 +84,7 @@ import CompliancePage from "@/pages/compliance";
 import LiveMonitorPage from "@/pages/live-monitor";
 import WeeklyStrategyPage from "@/pages/weekly-strategy";
 import OptionsEnginePage from "@/pages/options-engine";
+import CryptoEnginePage from "@/pages/crypto-engine";
 import AbbaBotPage from "@/pages/abba-bot";
 import PolymarketWalletPage from "@/pages/polymarket-wallet";
 import PolymarketEnginePage from "@/pages/polymarket-engine";
@@ -275,6 +276,7 @@ function AppLayout() {
             <ProtectedRoute path="/mt5-chart-data" component={MT5ChartDataPage} />
             <ProtectedRoute path="/weekly-strategy" component={WeeklyStrategyPage} />
             <ProtectedRoute path="/options-engine" component={OptionsEnginePage} />
+            <ProtectedRoute path="/crypto-engine" component={CryptoEnginePage} />
             <ProtectedRoute path="/abba" component={AbbaBotPage} />
             <ProtectedRoute path="/polymarket-wallet" component={PolymarketWalletPage} />
             <ProtectedRoute path="/polymarket-engine" component={PolymarketEnginePage} />

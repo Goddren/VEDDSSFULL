@@ -37107,25 +37107,27 @@ function wrapText3(text2, maxCharsPerLine, maxLines) {
 }
 async function flattenSlideImage(opts) {
   const base = await sharp(opts.imageBuffer).resize(CANVAS_SIZE, CANVAS_SIZE, { fit: "cover", position: "attention" }).toBuffer();
-  const headingLines = opts.heading ? wrapText3(opts.heading, 24, 3) : [];
-  const bodyLines = opts.body ? wrapText3(opts.body, 40, 4) : [];
+  const HEADING_SIZE = 80;
+  const BODY_SIZE = 48;
+  const headingLines = opts.heading ? wrapText3(opts.heading, 16, 3) : [];
+  const bodyLines = opts.body ? wrapText3(opts.body, 27, 4) : [];
   const hasText = headingLines.length > 0 || bodyLines.length > 0;
-  const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.55, 140 + (headingLines.length + bodyLines.length) * 46) : 0;
+  const gradientHeight = hasText ? Math.min(CANVAS_SIZE * 0.6, 180 + (headingLines.length + bodyLines.length) * 76) : 0;
   const GOLD = "#F0D269";
   const NEAR_BLACK = "#0A0A0B";
   const textSvgParts = [];
-  let y = CANVAS_SIZE - gradientHeight + 60;
+  let y = CANVAS_SIZE - gradientHeight + 100;
   if (headingLines.length > 0) {
-    textSvgParts.push(`<rect x="48" y="${y - 34}" width="48" height="4" fill="${GOLD}" />`);
+    textSvgParts.push(`<rect x="48" y="${y - 96}" width="60" height="5" fill="${GOLD}" />`);
   }
   for (const line of headingLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
-    y += 60;
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${HEADING_SIZE}" font-weight="800" fill="#ffffff">${escapeXml(line)}</text>`);
+    y += 88;
   }
-  y += 8;
+  y += 12;
   for (const line of bodyLines) {
-    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
-    y += 42;
+    textSvgParts.push(`<text x="48" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="${BODY_SIZE}" font-weight="400" fill="#e5e5e5">${escapeXml(line)}</text>`);
+    y += 60;
   }
   const overlaySvg = `
     <svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">

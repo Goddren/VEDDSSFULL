@@ -834,6 +834,13 @@ export default function OptionsEnginePage() {
                   Full FX SS AI Engine parity — trend/momentum strategies, Dual-Vote Consensus, Kelly sizing, Brain Learning Mode, R-multiple trailing stops. Scans {cryptoEngineConfig?.symbols?.join(', ') || 'BTCUSD-PERP, ETHUSD-PERP, SOLUSD-PERP'} every 2 minutes when active. Also requires "Auto-execute" on the connection above.
                 </CardDescription>
               </CardHeader>
+              <CardContent>
+                <Link href="/crypto-engine">
+                  <Button variant="outline" size="sm" className="w-full h-8 text-xs">
+                    Choose tokens, strategy, risk per trade & view live AI feed →
+                  </Button>
+                </Link>
+              </CardContent>
             </Card>
           )}
         </div>

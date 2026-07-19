@@ -296,6 +296,7 @@ const Header: React.FC = () => {
     { name: 'Futures Connect', path: '/futures-connect', active: location === '/futures-connect', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Futures Live Feed', path: '/futures-live-feed', active: location === '/futures-live-feed', icon: <Activity className="h-4 w-4 mr-2" /> },
     { name: 'Futures EA Gen', path: '/futures-ea-generator', active: location === '/futures-ea-generator', icon: <Code2 className="h-4 w-4 mr-2" /> },
+    { name: 'Crypto.com AI Engine', path: '/crypto-engine', active: location === '/crypto-engine', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'Solana Scanner', path: '/solana-scanner', active: location === '/solana-scanner', icon: <Scan className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', active: location === '/vedd-tokenomics', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Clothing', path: '/vedd-clothing', active: location === '/vedd-clothing', icon: <Shirt className="h-4 w-4 mr-2" /> },

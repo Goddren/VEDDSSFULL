@@ -687,6 +687,14 @@ function CarouselSlideCard({ slide, index, total, includeLogo, referralCode, ref
               </a>
             </>
           )}
+          {/* Original background, before any text is baked on — kept
+              downloadable at all times so an ambassador can grab the clean
+              image for a custom edit, not just the baked, captioned one. */}
+          <a href={slide.imageUrl} download target="_blank" rel="noreferrer"
+            className="block text-center text-[10px] font-bold px-2 py-1.5 rounded-lg"
+            style={{ background: 'rgba(255,255,255,.04)', color: '#9ca3af', border: '1px solid rgba(255,255,255,.1)' }}>
+            🖼 Download Original (no text)
+          </a>
           {error && <p className="text-[9px] text-red-400 text-center">{error}</p>}
         </div>
       ) : (
