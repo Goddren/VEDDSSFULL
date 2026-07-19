@@ -35,7 +35,7 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import {
   Menu, Bell, User, LogOut, Settings, History, LineChart, CreditCard,
-  Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle,
+  Award, Users, Newspaper, Wand2, Clock, Briefcase, Zap, HelpCircle, MapPin,
   BookOpen, GraduationCap, FileText, Lightbulb, ChevronDown, MoreHorizontal,
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
@@ -297,6 +297,9 @@ const Header: React.FC = () => {
     { name: 'Futures Live Feed', path: '/futures-live-feed', active: location === '/futures-live-feed', icon: <Activity className="h-4 w-4 mr-2" /> },
     { name: 'Futures EA Gen', path: '/futures-ea-generator', active: location === '/futures-ea-generator', icon: <Code2 className="h-4 w-4 mr-2" /> },
     { name: 'Crypto.com AI Engine', path: '/crypto-engine', active: location === '/crypto-engine', icon: <Coins className="h-4 w-4 mr-2" /> },
+    { name: 'My Certifications', path: '/certifications', active: location === '/certifications', icon: <Award className="h-4 w-4 mr-2" /> },
+    { name: 'Local Outreach', path: '/ambassador/local-outreach', active: location === '/ambassador/local-outreach', icon: <MapPin className="h-4 w-4 mr-2" /> },
+    { name: 'Prop Firm Setup Event', path: '/ambassador/propfirm-event', active: location === '/ambassador/propfirm-event', icon: <Rocket className="h-4 w-4 mr-2" /> },
     { name: 'Solana Scanner', path: '/solana-scanner', active: location === '/solana-scanner', icon: <Scan className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', active: location === '/vedd-tokenomics', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Clothing', path: '/vedd-clothing', active: location === '/vedd-clothing', icon: <Shirt className="h-4 w-4 mr-2" /> },

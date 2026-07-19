@@ -2,8 +2,8 @@
 import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
-import { User, userApiKeys, users, subscriptionPlans } from "@shared/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { User, userApiKeys, users, subscriptionPlans, optionsEngineTrades } from "@shared/schema";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
@@ -19535,10 +19535,112 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         });
       }
 
+      if (type === 'alpaca' || type === 'tastytrade') {
+        const connId = parseInt(req.params.id, 10);
+        const conn = type === 'alpaca'
+          ? await storage.getAlpacaConnection(connId)
+          : await storage.getTastytradeConnection(connId);
+        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+
+        let balData: any = null, accountError: string | null = null;
+        try {
+          if (type === 'alpaca') {
+            const { decryptApiSecret } = await import('./alpaca');
+            const secret = decryptApiSecret((conn as any).encryptedApiSecret);
+            const service = new AlpacaService((conn as any).accountType as 'paper' | 'live', (conn as any).apiKeyId, secret);
+            balData = await service.authenticate();
+          } else {
+            const { decryptPassword: decryptTastytradePassword } = await import('./tastytrade');
+            const password = decryptTastytradePassword((conn as any).encryptedPassword);
+            const service = new TastyTradeService((conn as any).accountType as 'sandbox' | 'live', (conn as any).username, password);
+            balData = await service.authenticate();
+          }
+        } catch (e: any) {
+          accountError = e.message;
+        }
+
+        const closed = await db.select().from(optionsEngineTrades)
+          .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.connectionId, connId), eq(optionsEngineTrades.broker, type)))
+          .orderBy(desc(optionsEngineTrades.closedAt))
+          .then((rows: any[]) => rows.filter((t: any) => t.status === 'closed' && t.closedAt))
+          .catch(() => [] as any[]);
+        const dailyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s: number, t: any) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const wins = closed.filter((t: any) => (t.realizedPnl || 0) > 0).length;
+        const winRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
+        const closedForCurve = closed.map((t: any) => ({ ...t, result: (t.realizedPnl || 0) > 0 ? 'WIN' : 'LOSS', profitLoss: t.realizedPnl }));
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closedForCurve, todayStart);
+
+        const openCount = await db.select().from(optionsEngineTrades)
+          .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.connectionId, connId), eq(optionsEngineTrades.broker, type), eq(optionsEngineTrades.status, 'open')))
+          .then((rows: any[]) => rows.length)
+          .catch(() => 0);
+
+        return res.json({
+          type, id: connId,
+          name: type === 'alpaca' ? 'Alpaca' : 'TastyTrade',
+          accountType: (conn as any).accountType,
+          accountId: type === 'alpaca' ? (conn as any).accountId : (conn as any).accountNumber,
+          balance: balData?.balance ?? 0, equity: balData?.equity ?? balData?.balance ?? 0,
+          currency: balData?.currency ?? 'USD',
+          error: accountError,
+          goal: { target: 0, progress: 0, note: 'Weekly goals for options accounts aren\'t supported yet — set risk per trade on the Options AI Engine page.' },
+          risk: { note: 'Risk settings are configured on the Options AI Engine page (risk per trade, max contracts, strategy).' },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: openCount,
+          tradeHistory: closed.slice(0, 50).map((t: any) => ({
+            id: t.id, symbol: t.underlyingSymbol, direction: t.optionType, result: (t.realizedPnl || 0) > 0 ? 'WIN' : 'LOSS',
+            profitLoss: t.realizedPnl, closedAt: t.closedAt,
+          })),
+        });
+      }
+
       return res.status(400).json({ error: "Invalid account type" });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ── GET /api/options-engine/balances — live balance for every connected
+  // Alpaca/TastyTrade account, used by the Dashboard quick-nav balance cards
+  // (same pattern as MT5/TradeLocker) ──────────────────────────────────────
+  app.get("/api/options-engine/balances", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const [alpacaConns, tastyConns] = await Promise.all([
+      storage.getUserAlpacaConnections(userId),
+      storage.getUserTastytradeConnections(userId),
+    ]);
+
+    const accounts = await Promise.all([
+      ...alpacaConns.map(async (conn) => {
+        try {
+          const { decryptApiSecret } = await import('./alpaca');
+          const secret = decryptApiSecret(conn.encryptedApiSecret);
+          const service = new AlpacaService(conn.accountType as 'paper' | 'live', conn.apiKeyId, secret);
+          const info = await service.authenticate();
+          return { id: conn.id, broker: 'alpaca', label: 'Alpaca', balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+        } catch (e: any) {
+          return { id: conn.id, broker: 'alpaca', label: 'Alpaca', balance: 0, equity: 0, currency: 'USD', error: e.message };
+        }
+      }),
+      ...tastyConns.map(async (conn) => {
+        try {
+          const { decryptPassword: decryptTastytradePassword } = await import('./tastytrade');
+          const password = decryptTastytradePassword(conn.encryptedPassword);
+          const service = new TastyTradeService(conn.accountType as 'sandbox' | 'live', conn.username, password);
+          const info = await service.authenticate();
+          return { id: conn.id, broker: 'tastytrade', label: 'TastyTrade', balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+        } catch (e: any) {
+          return { id: conn.id, broker: 'tastytrade', label: 'TastyTrade', balance: 0, equity: 0, currency: 'USD', error: e.message };
+        }
+      }),
+    ]);
+
+    res.json({ accounts });
   });
 
   app.get("/api/tradelocker/debug-accounts", async (req: Request, res: Response) => {
@@ -24547,24 +24649,37 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
     // ============= DAILY TO-DO CHECKLIST (dashboard) =============
     // Deterministic per-day picks — no content authoring needed, no new
-    // content tables. "Training" cycles through the real Workforce Academy
-    // course list; "Knowledge" is always the latest published blog post;
-    // "Setup" prompt is tailored by the user's trading experience level
-    // (userProfiles.tradingExperience) when set.
-    const DAILY_TRAINING_COURSES: { id: number; title: string; lessons: number }[] = [
-      { id: 1, title: "AI Literacy 101", lessons: 8 },
-      { id: 2, title: "Digital Skills Foundations", lessons: 7 },
+    // content tables. "Trading" cycles through the trading-focused Workforce
+    // Academy courses specifically (not the full 13-course catalog, which
+    // mixes in digital-skills/AI-ethics/etc — the daily pick should always
+    // be about trading); "Ambassador" cycles through the separate Ambassador
+    // Training curriculum (ambassador-training.tsx) and only shows for users
+    // with the ambassador flag; "Knowledge" is the latest published blog
+    // post; "Setup" prompt is tailored by trading experience level.
+    const DAILY_TRADING_COURSES: { id: number; title: string; lessons: number }[] = [
       { id: 3, title: "Trading Fundamentals", lessons: 7 },
-      { id: 4, title: "Financial Planning & Literacy", lessons: 6 },
-      { id: 5, title: "Web3 & Blockchain Basics", lessons: 8 },
-      { id: 6, title: "STEM for Young Traders", lessons: 7 },
-      { id: 7, title: "AI Ethics in Finance", lessons: 7 },
-      { id: 8, title: "Job Readiness & Portfolio Building", lessons: 8 },
       { id: 9, title: "Advanced AI Trading Strategies", lessons: 9 },
-      { id: 10, title: "Community Finance Leadership", lessons: 8 },
-      { id: 11, title: "Data Privacy & Cybersecurity", lessons: 7 },
-      { id: 12, title: "Entrepreneurship & VEDD Business Launch", lessons: 8 },
       { id: 13, title: "VEDD Platform Power Features", lessons: 5 },
+    ];
+
+    // Module id/title pairs mirrored from ambassador-training.tsx's
+    // trainingModules array — titles only, no lesson content duplicated.
+    const DAILY_AMBASSADOR_MODULES: { id: string; title: string }[] = [
+      { id: 'intro', title: 'Introduction to AI Trading Vault' },
+      { id: 'platforms-intro', title: 'Trading Platforms Explained' },
+      { id: 'features', title: 'Core Features Deep Dive' },
+      { id: 'technical-analysis', title: 'Chart Patterns & Technical Analysis' },
+      { id: 'social-media', title: 'Social Media Promotion' },
+      { id: 'video-creation', title: 'Creating Explainer Videos' },
+      { id: 'live-demos', title: 'Live Demonstration Skills' },
+      { id: 'compliance', title: 'Compliance & Best Practices' },
+      { id: 'solana-scanner', title: 'Solana Token Scanner' },
+      { id: 'platform-essentials', title: 'Platform Essentials' },
+      { id: 'community-building', title: 'Building Your VEDD Community' },
+      { id: 'ai-tools-mastery', title: 'AI Tools Mastery Guide' },
+      { id: 'platform-mastery', title: 'Platform Mastery — Own Every Feature' },
+      { id: 'btc-prediction-kalshi', title: '5-Min BTC Prediction & Kalshi Auto-Trader' },
+      { id: 'full-platform-overview', title: 'Full Platform Features & Tokenomics' },
     ];
 
     const dayOfYear = (d: Date): number => {
@@ -24581,13 +24696,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
     app.get('/api/dashboard/daily-tasks', async (req: Request, res: Response) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
-      const userId = (req.user as User).id;
+      const user = req.user as User;
+      const userId = user.id;
       const today = new Date();
       const dayString = today.toISOString().slice(0, 10);
       const doy = dayOfYear(today);
 
-      const course = DAILY_TRAINING_COURSES[doy % DAILY_TRAINING_COURSES.length];
-      const lessonNum = (doy % course.lessons) + 1;
+      const tradingCourse = DAILY_TRADING_COURSES[doy % DAILY_TRADING_COURSES.length];
+      const tradingLessonNum = (doy % tradingCourse.lessons) + 1;
 
       const [latestPost] = await storage.getBlogPosts({ isPublished: true, limit: 1 });
       const profile = await storage.getUserProfile(userId);
@@ -24602,8 +24718,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const tasks = [
         {
           key: 'training',
-          title: `Lesson ${lessonNum} — ${course.title}`,
-          description: `Today's training pick from the Workforce Academy (Course ${course.id} of ${DAILY_TRAINING_COURSES.length}).`,
+          title: `Lesson ${tradingLessonNum} — ${tradingCourse.title}`,
+          description: `Today's trading lesson from the Workforce Academy.`,
           link: '/workforce-academy',
           completed: completedKeys.has('training'),
         },
@@ -24623,6 +24739,65 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         },
       ];
 
+      if (user.isAmbassador) {
+        const ambModule = DAILY_AMBASSADOR_MODULES[doy % DAILY_AMBASSADOR_MODULES.length];
+        tasks.push({
+          key: 'ambassador',
+          title: `Ambassador Training — ${ambModule.title}`,
+          description: "Today's ambassador training module.",
+          link: '/ambassador-training',
+          completed: completedKeys.has('ambassador'),
+        });
+
+        // ── Company Growth tasks — real-world local outreach, gated behind
+        // BOTH the Ambassador Training certification AND the two business-
+        // building Workforce Academy courses. Hosting an in-person event
+        // shouldn't be suggested to someone who hasn't finished the training
+        // that teaches them how to run one.
+        const [ambassadorCert, workforceCerts] = await Promise.all([
+          storage.getAmbassadorCertification(userId),
+          storage.getUserWorkforceCertificates(userId),
+        ]);
+        const completedCourseIds = new Set(workforceCerts.map(c => c.courseId).filter((id): id is number => id != null));
+        const growthUnlocked = !!ambassadorCert && completedCourseIds.has(10) && completedCourseIds.has(12);
+
+        if (growthUnlocked) {
+          const city = profile?.city;
+          tasks.push({
+            key: 'local_venue_outreach',
+            title: city ? `Book a venue in ${city}` : 'Book a venue for your first event',
+            description: 'Ready-made outreach letters for a library, church, or hotel — pick one, fill in the blanks, and send it today.',
+            link: '/ambassador/local-outreach',
+            completed: completedKeys.has('local_venue_outreach'),
+          });
+          tasks.push({
+            key: 'facebook_page',
+            title: 'Create a Facebook Page for your leads',
+            description: 'A dedicated Page (not a personal profile) is where local leads will find you and RSVP to your events.',
+            link: 'https://www.facebook.com/pages/create',
+            completed: completedKeys.has('facebook_page'),
+          });
+          tasks.push({
+            key: 'local_events',
+            title: city ? `See what's happening in ${city}` : 'Find local events to piggyback on',
+            description: city
+              ? `Check what's big in ${city} this week — a local fair, market, or meetup is a natural place to hand out flyers for your event.`
+              : 'Set your city on the outreach page to get a direct link to local event listings.',
+            link: city ? `https://www.google.com/search?q=events+near+${encodeURIComponent(city)}+this+week` : '/ambassador/local-outreach',
+            completed: completedKeys.has('local_events'),
+          });
+          tasks.push({
+            key: 'propfirm_event',
+            title: 'Host a Prop Firm Setup Event',
+            description: profile?.propFirmReferralLink
+              ? 'Get people signed up with a funded account and connected to the AI SS Engine, all in one session.'
+              : 'Add your prop firm referral link, then run a signup + VEDD setup session in one sitting.',
+            link: '/ambassador/propfirm-event',
+            completed: completedKeys.has('propfirm_event'),
+          });
+        }
+      }
+
       res.json({ dayString, tasks });
     });
 
@@ -24630,7 +24805,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (!req.isAuthenticated()) return res.status(401).json({ error: 'Auth required' });
       const userId = (req.user as User).id;
       const { taskKey } = req.body;
-      if (!['training', 'knowledge', 'setup'].includes(taskKey)) {
+      if (!['training', 'knowledge', 'setup', 'ambassador', 'local_venue_outreach', 'facebook_page', 'local_events', 'propfirm_event'].includes(taskKey)) {
         return res.status(400).json({ error: 'Invalid task key' });
       }
       const dayString = new Date().toISOString().slice(0, 10);
@@ -27322,25 +27497,30 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
 
   // POST /api/workforce/certificates — save a certificate (earned after passing assessment)
+  // Previously wrote to a flat data/certificates.json file, which Render's ephemeral
+  // disk wipes on every deploy — certificates looked "earned" then vanished. Persisted
+  // to the real workforce_certificates Postgres table instead.
   app.post("/api/workforce/certificates", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path.join(process.cwd(), "data", "certificates.json");
-      let certs: any[] = [];
-      try { certs = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
-      const cert = {
-        ...req.body,
-        userId: req.user!.id,
-        userName: (req.user as any).fullName || (req.user as any).username,
-        savedAt: new Date().toISOString(),
-      };
-      // Deduplicate by certId
-      if (!certs.find((c: any) => c.certId === cert.certId)) {
-        certs.push(cert);
-        fs.mkdirSync(path.join(process.cwd(), "data"), { recursive: true });
-        fs.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
-      }
-      res.json({ success: true });
+      const userId = (req.user as User).id;
+      const { courseId, certId, title, score, ceuHours, grantFrameworks, onetCode } = req.body;
+      const existing = certId ? await storage.getWorkforceCertificateByCertId(certId) : undefined;
+      if (existing) return res.json({ success: true, certificate: existing });
+
+      const cert = await storage.createWorkforceCertificate({
+        userId,
+        courseId: courseId != null ? parseInt(courseId, 10) : null,
+        certificateType: 'workforce',
+        certificateId: certId || `VEDD-CERT-${Date.now()}`,
+        title: title || 'Workforce Academy Certificate',
+        recipientName: (req.user as any).fullName || (req.user as any).username,
+        score: score != null ? Math.round(score) : null,
+        ceuHours: ceuHours != null ? Number(ceuHours) : null,
+        grantFrameworks: grantFrameworks ?? null,
+        onetCode: onetCode ?? null,
+      });
+      res.json({ success: true, certificate: cert });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -27350,11 +27530,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/workforce/certificates", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path.join(process.cwd(), "data", "certificates.json");
-      let certs: any[] = [];
-      try { certs = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch {}
-      const mine = certs.filter((c: any) => c.userId === req.user!.id);
-      res.json({ certificates: mine });
+      const userId = (req.user as User).id;
+      const certs = await storage.getUserWorkforceCertificates(userId);
+      res.json({ certificates: certs.map(c => ({ ...c, certId: c.certificateId, date: c.issuedAt })) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

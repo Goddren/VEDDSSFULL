@@ -50,6 +50,9 @@ import BrainDataMarketplacePage from "@/pages/brain-data-marketplace";
 import SocialHub from "@/pages/social-hub";
 import UserGuidePage from "@/pages/user-guide";
 import AmbassadorTrainingPage from "@/pages/ambassador-training";
+import AmbassadorLocalOutreachPage from "@/pages/ambassador-local-outreach";
+import AmbassadorPropFirmEventPage from "@/pages/ambassador-propfirm-event";
+import CertificationsPage from "@/pages/certifications";
 import WorkforceAcademyPage from "@/pages/workforce-academy";
 import AmbassadorSalesScriptPage from "@/pages/ambassador-sales-script";
 import TrainingCalendar from "@/pages/training-calendar";
@@ -228,6 +231,9 @@ function AppLayout() {
             <Route path="/security" component={SecurityPage} />
             <Route path="/user-guide" component={UserGuidePage} />
             <Route path="/ambassador-training" component={AmbassadorTrainingPage} />
+            <ProtectedRoute path="/ambassador/local-outreach" component={AmbassadorLocalOutreachPage} />
+            <ProtectedRoute path="/ambassador/propfirm-event" component={AmbassadorPropFirmEventPage} />
+            <ProtectedRoute path="/certifications" component={CertificationsPage} />
             <Route path="/workforce-academy" component={WorkforceAcademyPage} />
             <Route path="/training-calendar" component={TrainingCalendar} />
             <Route path="/training-calendar/day/:dayNumber" component={TrainingDay} />

@@ -390,7 +390,40 @@ function pushFuturesConsensus(userId: number, entry: FuturesConsensusEntry): voi
   (global as any).futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
 }
 
-function assembleFuturesConsensus(userId: number, symbol: string, strategy: string, direction: 'BUY' | 'SELL', aiConfidence: number, data: any, cfg: FuturesScanConfig): boolean {
+// Genuine second opinion from an LLM call — mirrors options-scanner.ts's
+// getOptionsAiConfirmation. Previously the technical-strategy scan path fed
+// its own quant confidence score back in as "aiConfidence", so the Consensus
+// panel showed one number wearing two hats instead of an independent vote.
+async function getFuturesAiConfirmation(userId: number, symbol: string, strategy: string, direction: 'BUY' | 'SELL', data: any): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+  try {
+    const { getUniversalAIClientForUser } = await import('../openai');
+    const client = await getUniversalAIClientForUser(userId);
+    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Symbol: ${symbol}\nStrategy: ${strategy}\nDirection: ${direction}\nADX: ${data.adx?.adx ?? 'n/a'}\nRSI: ${data.rsi?.value ?? 'n/a'}\nMACD histogram: ${data.macd?.histogram ?? 'n/a'}\nTrend: ${data.trend ?? 'n/a'}\n\nWould you confirm this trade?`;
+    const r = await (client as any).chat.completions.create({
+      model: (client as any).defaultModel || 'gpt-4o-mini',
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      response_format: { type: 'json_object' },
+      max_tokens: 300,
+      temperature: 0.3,
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || '{}');
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || ''),
+    };
+  } catch (err: any) {
+    // AI call failed — fail closed (don't confirm), but don't crash the scan.
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+
+// `precomputedAi` lets a caller that already ran its OWN independent AI pass
+// (the AI-analysis strategy path, which gets a real GPT confidence score from
+// marketAnalysis) pass that through directly instead of triggering a second,
+// redundant AI call here.
+async function assembleFuturesConsensus(userId: number, symbol: string, strategy: string, direction: 'BUY' | 'SELL', data: any, cfg: FuturesScanConfig, precomputedAi?: { confidence: number; reasoning?: string }): Promise<boolean> {
   const quant = quickQuantVerdict(data, direction);
 
   if (cfg.aiMode === 'rule_based') {
@@ -404,7 +437,9 @@ function assembleFuturesConsensus(userId: number, symbol: string, strategy: stri
     return tradeAllowed;
   }
 
-  const aiVerdict: 'CONFIRM' | 'SKIP' = aiConfidence >= Math.max(60, 0) ? 'CONFIRM' : 'SKIP';
+  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
+  const aiConfidence = ai.confidence;
+  const aiVerdict: 'CONFIRM' | 'SKIP' = precomputedAi ? (aiConfidence >= 60 ? 'CONFIRM' : 'SKIP') : (ai.confirmed ? 'CONFIRM' : 'SKIP');
   let consensus: ConsensusLabel;
   if (quant.verdict === 'CONFIRM' && aiVerdict === 'CONFIRM') consensus = 'STRONG_CONFIRM';
   else if (quant.verdict === 'SKIP' && aiVerdict === 'SKIP') consensus = 'STRONG_SKIP';
@@ -708,7 +743,7 @@ async function runFuturesAIAnalysis(userId: number, marketAnalysis: Record<strin
 
       addActivity(userId, { type: 'signal', symbol, direction, confidence: signal.confidence, message: `⚡ ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(', ')}` });
       addSignal(userId, signal);
-      const tradeAllowed = assembleFuturesConsensus(userId, symbol, strategy, direction, signal.confidence, data, config);
+      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
       if (tradeAllowed) {
         await executeSignalIfEnabled(userId, signal);
       } else {
@@ -944,7 +979,7 @@ Rules for decisions array:
       });
 
       addSignal(userId, signal);
-      const tradeAllowed = assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, d.confidence, marketAnalysis[d.symbol] || {}, config);
+      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
       if (tradeAllowed) {
         await executeSignalIfEnabled(userId, signal);
       } else {

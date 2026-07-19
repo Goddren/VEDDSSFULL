@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc9) => {
+var __copyProps = (to, from, except, desc10) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc9 = __getOwnPropDesc(from, key)) || desc9.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc10 = __getOwnPropDesc(from, key)) || desc10.enumerable });
   }
   return to;
 };
@@ -493,6 +493,10 @@ var init_schema = __esm({
       id: serial("id").primaryKey(),
       userId: integer("user_id").references(() => users.id).notNull().unique(),
       bio: text("bio"),
+      city: text("city"),
+      // Free-text city/zip — powers the Ambassador local-outreach to-do tasks (nearby venue templates, local-event prompts)
+      propFirmReferralLink: text("prop_firm_referral_link"),
+      // Ambassador's own prop-firm affiliate link (e.g. atlasfunded.com/?afmc=...) — used in the "host a prop firm setup event" flow
       tradingExperience: text("trading_experience"),
       // 'beginner', 'intermediate', 'advanced', 'expert'
       tradingStyle: text("trading_style"),
@@ -3236,6 +3240,8 @@ var init_schema = __esm({
       id: serial("id").primaryKey(),
       userId: integer("user_id").references(() => users.id).notNull(),
       moduleId: integer("module_id").references(() => workforceModules.id),
+      courseId: integer("course_id"),
+      // client-side Workforce Academy COURSES[] id (1-13) — the actual course this certificate was earned for
       certificateType: text("certificate_type").default("module"),
       // 'module'|'program'|'ambassador'|'workforce'
       certificateId: text("certificate_id").notNull().unique(),
@@ -3243,6 +3249,9 @@ var init_schema = __esm({
       title: text("title").notNull(),
       recipientName: text("recipient_name"),
       score: integer("score"),
+      ceuHours: doublePrecision("ceu_hours"),
+      grantFrameworks: jsonb("grant_frameworks"),
+      onetCode: text("onet_code"),
       issuedAt: timestamp("issued_at").defaultNow().notNull()
     });
     impactMetrics = pgTable("impact_metrics", {
@@ -4957,6 +4966,18 @@ var init_storage = __esm({
       }
       async getAllAmbassadorCertifications() {
         return await db.select().from(ambassadorCertifications).orderBy(desc(ambassadorCertifications.issueDate));
+      }
+      // Workforce Academy certificates
+      async createWorkforceCertificate(cert) {
+        const [result] = await db.insert(workforceCertificates).values(cert).returning();
+        return result;
+      }
+      async getUserWorkforceCertificates(userId) {
+        return await db.select().from(workforceCertificates).where(eq(workforceCertificates.userId, userId)).orderBy(desc(workforceCertificates.issuedAt));
+      }
+      async getWorkforceCertificateByCertId(certificateId) {
+        const [result] = await db.select().from(workforceCertificates).where(eq(workforceCertificates.certificateId, certificateId));
+        return result;
       }
       // Wallet integration methods
       async getUserByWalletAddress(walletAddress) {
@@ -42141,7 +42162,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq14, and as and7, sql as sql9 } from "drizzle-orm";
+import { eq as eq14, and as and7, sql as sql9, desc as desc9 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -45405,7 +45426,38 @@ function pushFuturesConsensus(userId, entry) {
   const deduped = list.filter((e) => e.symbol !== entry.symbol);
   global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
 }
-function assembleFuturesConsensus(userId, symbol, strategy, direction, aiConfidence, data, cfg) {
+async function getFuturesAiConfirmation(userId, symbol, strategy, direction, data) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Symbol: ${symbol}
+Strategy: ${strategy}
+Direction: ${direction}
+ADX: ${data.adx?.adx ?? "n/a"}
+RSI: ${data.rsi?.value ?? "n/a"}
+MACD histogram: ${data.macd?.histogram ?? "n/a"}
+Trend: ${data.trend ?? "n/a"}
+
+Would you confirm this trade?`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || "")
+    };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+async function assembleFuturesConsensus(userId, symbol, strategy, direction, data, cfg, precomputedAi) {
   const quant = quickQuantVerdict(data, direction);
   if (cfg.aiMode === "rule_based") {
     const tradeAllowed2 = quant.verdict !== "SKIP";
@@ -45422,7 +45474,9 @@ function assembleFuturesConsensus(userId, symbol, strategy, direction, aiConfide
     });
     return tradeAllowed2;
   }
-  const aiVerdict = aiConfidence >= Math.max(60, 0) ? "CONFIRM" : "SKIP";
+  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
+  const aiConfidence = ai.confidence;
+  const aiVerdict = precomputedAi ? aiConfidence >= 60 ? "CONFIRM" : "SKIP" : ai.confirmed ? "CONFIRM" : "SKIP";
   let consensus;
   if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
   else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
@@ -45703,7 +45757,7 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
       };
       addActivity(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
       addSignal(userId, signal);
-      const tradeAllowed = assembleFuturesConsensus(userId, symbol, strategy, direction, signal.confidence, data, config);
+      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
       if (tradeAllowed) {
         await executeSignalIfEnabled(userId, signal);
       } else {
@@ -45921,7 +45975,7 @@ Rules for decisions array:
         details: { confluences: d.confluences, holdTime: d.holdTime }
       });
       addSignal(userId, signal);
-      const tradeAllowed = assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, d.confidence, marketAnalysis[d.symbol] || {}, config);
+      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
       if (tradeAllowed) {
         await executeSignalIfEnabled(userId, signal);
       } else {
@@ -64308,10 +64362,98 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           }))
         });
       }
+      if (type === "alpaca" || type === "tastytrade") {
+        const connId = parseInt(req.params.id, 10);
+        const conn = type === "alpaca" ? await storage.getAlpacaConnection(connId) : await storage.getTastytradeConnection(connId);
+        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+        let balData = null, accountError = null;
+        try {
+          if (type === "alpaca") {
+            const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
+            const secret = decryptApiSecret3(conn.encryptedApiSecret);
+            const service = new AlpacaService(conn.accountType, conn.apiKeyId, secret);
+            balData = await service.authenticate();
+          } else {
+            const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
+            const password = decryptTastytradePassword(conn.encryptedPassword);
+            const service = new TastyTradeService(conn.accountType, conn.username, password);
+            balData = await service.authenticate();
+          }
+        } catch (e) {
+          accountError = e.message;
+        }
+        const closed = await db.select().from(optionsEngineTrades).where(and7(eq14(optionsEngineTrades.userId, userId), eq14(optionsEngineTrades.connectionId, connId), eq14(optionsEngineTrades.broker, type))).orderBy(desc9(optionsEngineTrades.closedAt)).then((rows) => rows.filter((t) => t.status === "closed" && t.closedAt)).catch(() => []);
+        const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
+        const wins = closed.filter((t) => (t.realizedPnl || 0) > 0).length;
+        const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
+        const closedForCurve = closed.map((t) => ({ ...t, result: (t.realizedPnl || 0) > 0 ? "WIN" : "LOSS", profitLoss: t.realizedPnl }));
+        const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closedForCurve, todayStart);
+        const openCount = await db.select().from(optionsEngineTrades).where(and7(eq14(optionsEngineTrades.userId, userId), eq14(optionsEngineTrades.connectionId, connId), eq14(optionsEngineTrades.broker, type), eq14(optionsEngineTrades.status, "open"))).then((rows) => rows.length).catch(() => 0);
+        return res.json({
+          type,
+          id: connId,
+          name: type === "alpaca" ? "Alpaca" : "TastyTrade",
+          accountType: conn.accountType,
+          accountId: type === "alpaca" ? conn.accountId : conn.accountNumber,
+          balance: balData?.balance ?? 0,
+          equity: balData?.equity ?? balData?.balance ?? 0,
+          currency: balData?.currency ?? "USD",
+          error: accountError,
+          goal: { target: 0, progress: 0, note: "Weekly goals for options accounts aren't supported yet \u2014 set risk per trade on the Options AI Engine page." },
+          risk: { note: "Risk settings are configured on the Options AI Engine page (risk per trade, max contracts, strategy)." },
+          pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate: winRate2, totalTrades: closed.length },
+          dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
+          equityCurve,
+          openTrades: openCount,
+          tradeHistory: closed.slice(0, 50).map((t) => ({
+            id: t.id,
+            symbol: t.underlyingSymbol,
+            direction: t.optionType,
+            result: (t.realizedPnl || 0) > 0 ? "WIN" : "LOSS",
+            profitLoss: t.realizedPnl,
+            closedAt: t.closedAt
+          }))
+        });
+      }
       return res.status(400).json({ error: "Invalid account type" });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
+  });
+  app2.get("/api/options-engine/balances", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const [alpacaConns, tastyConns] = await Promise.all([
+      storage.getUserAlpacaConnections(userId),
+      storage.getUserTastytradeConnections(userId)
+    ]);
+    const accounts = await Promise.all([
+      ...alpacaConns.map(async (conn) => {
+        try {
+          const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
+          const secret = decryptApiSecret3(conn.encryptedApiSecret);
+          const service = new AlpacaService(conn.accountType, conn.apiKeyId, secret);
+          const info = await service.authenticate();
+          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+        } catch (e) {
+          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: 0, equity: 0, currency: "USD", error: e.message };
+        }
+      }),
+      ...tastyConns.map(async (conn) => {
+        try {
+          const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
+          const password = decryptTastytradePassword(conn.encryptedPassword);
+          const service = new TastyTradeService(conn.accountType, conn.username, password);
+          const info = await service.authenticate();
+          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+        } catch (e) {
+          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: 0, equity: 0, currency: "USD", error: e.message };
+        }
+      })
+    ]);
+    res.json({ accounts });
   });
   app2.get("/api/tradelocker/debug-accounts", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -68279,7 +68421,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql2, eq: eq17, and: and8, desc: desc9 } = await import("drizzle-orm");
+    const { sql: drizzleSql2, eq: eq17, and: and8, desc: desc10 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -68342,20 +68484,27 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       await storage.addToWalletBalance(userId, reward, false);
       res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
     });
-    const DAILY_TRAINING_COURSES = [
-      { id: 1, title: "AI Literacy 101", lessons: 8 },
-      { id: 2, title: "Digital Skills Foundations", lessons: 7 },
+    const DAILY_TRADING_COURSES = [
       { id: 3, title: "Trading Fundamentals", lessons: 7 },
-      { id: 4, title: "Financial Planning & Literacy", lessons: 6 },
-      { id: 5, title: "Web3 & Blockchain Basics", lessons: 8 },
-      { id: 6, title: "STEM for Young Traders", lessons: 7 },
-      { id: 7, title: "AI Ethics in Finance", lessons: 7 },
-      { id: 8, title: "Job Readiness & Portfolio Building", lessons: 8 },
       { id: 9, title: "Advanced AI Trading Strategies", lessons: 9 },
-      { id: 10, title: "Community Finance Leadership", lessons: 8 },
-      { id: 11, title: "Data Privacy & Cybersecurity", lessons: 7 },
-      { id: 12, title: "Entrepreneurship & VEDD Business Launch", lessons: 8 },
       { id: 13, title: "VEDD Platform Power Features", lessons: 5 }
+    ];
+    const DAILY_AMBASSADOR_MODULES = [
+      { id: "intro", title: "Introduction to AI Trading Vault" },
+      { id: "platforms-intro", title: "Trading Platforms Explained" },
+      { id: "features", title: "Core Features Deep Dive" },
+      { id: "technical-analysis", title: "Chart Patterns & Technical Analysis" },
+      { id: "social-media", title: "Social Media Promotion" },
+      { id: "video-creation", title: "Creating Explainer Videos" },
+      { id: "live-demos", title: "Live Demonstration Skills" },
+      { id: "compliance", title: "Compliance & Best Practices" },
+      { id: "solana-scanner", title: "Solana Token Scanner" },
+      { id: "platform-essentials", title: "Platform Essentials" },
+      { id: "community-building", title: "Building Your VEDD Community" },
+      { id: "ai-tools-mastery", title: "AI Tools Mastery Guide" },
+      { id: "platform-mastery", title: "Platform Mastery \u2014 Own Every Feature" },
+      { id: "btc-prediction-kalshi", title: "5-Min BTC Prediction & Kalshi Auto-Trader" },
+      { id: "full-platform-overview", title: "Full Platform Features & Tokenomics" }
     ];
     const dayOfYear = (d) => {
       const start = new Date(d.getFullYear(), 0, 0);
@@ -68369,12 +68518,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     };
     app2.get("/api/dashboard/daily-tasks", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
-      const userId = req.user.id;
+      const user = req.user;
+      const userId = user.id;
       const today = /* @__PURE__ */ new Date();
       const dayString = today.toISOString().slice(0, 10);
       const doy = dayOfYear(today);
-      const course = DAILY_TRAINING_COURSES[doy % DAILY_TRAINING_COURSES.length];
-      const lessonNum = doy % course.lessons + 1;
+      const tradingCourse = DAILY_TRADING_COURSES[doy % DAILY_TRADING_COURSES.length];
+      const tradingLessonNum = doy % tradingCourse.lessons + 1;
       const [latestPost] = await storage.getBlogPosts({ isPublished: true, limit: 1 });
       const profile = await storage.getUserProfile(userId);
       const experience = profile?.tradingExperience || "beginner";
@@ -68386,8 +68536,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const tasks = [
         {
           key: "training",
-          title: `Lesson ${lessonNum} \u2014 ${course.title}`,
-          description: `Today's training pick from the Workforce Academy (Course ${course.id} of ${DAILY_TRAINING_COURSES.length}).`,
+          title: `Lesson ${tradingLessonNum} \u2014 ${tradingCourse.title}`,
+          description: `Today's trading lesson from the Workforce Academy.`,
           link: "/workforce-academy",
           completed: completedKeys.has("training")
         },
@@ -68406,13 +68556,60 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           completed: completedKeys.has("setup")
         }
       ];
+      if (user.isAmbassador) {
+        const ambModule = DAILY_AMBASSADOR_MODULES[doy % DAILY_AMBASSADOR_MODULES.length];
+        tasks.push({
+          key: "ambassador",
+          title: `Ambassador Training \u2014 ${ambModule.title}`,
+          description: "Today's ambassador training module.",
+          link: "/ambassador-training",
+          completed: completedKeys.has("ambassador")
+        });
+        const [ambassadorCert, workforceCerts] = await Promise.all([
+          storage.getAmbassadorCertification(userId),
+          storage.getUserWorkforceCertificates(userId)
+        ]);
+        const completedCourseIds = new Set(workforceCerts.map((c) => c.courseId).filter((id) => id != null));
+        const growthUnlocked = !!ambassadorCert && completedCourseIds.has(10) && completedCourseIds.has(12);
+        if (growthUnlocked) {
+          const city = profile?.city;
+          tasks.push({
+            key: "local_venue_outreach",
+            title: city ? `Book a venue in ${city}` : "Book a venue for your first event",
+            description: "Ready-made outreach letters for a library, church, or hotel \u2014 pick one, fill in the blanks, and send it today.",
+            link: "/ambassador/local-outreach",
+            completed: completedKeys.has("local_venue_outreach")
+          });
+          tasks.push({
+            key: "facebook_page",
+            title: "Create a Facebook Page for your leads",
+            description: "A dedicated Page (not a personal profile) is where local leads will find you and RSVP to your events.",
+            link: "https://www.facebook.com/pages/create",
+            completed: completedKeys.has("facebook_page")
+          });
+          tasks.push({
+            key: "local_events",
+            title: city ? `See what's happening in ${city}` : "Find local events to piggyback on",
+            description: city ? `Check what's big in ${city} this week \u2014 a local fair, market, or meetup is a natural place to hand out flyers for your event.` : "Set your city on the outreach page to get a direct link to local event listings.",
+            link: city ? `https://www.google.com/search?q=events+near+${encodeURIComponent(city)}+this+week` : "/ambassador/local-outreach",
+            completed: completedKeys.has("local_events")
+          });
+          tasks.push({
+            key: "propfirm_event",
+            title: "Host a Prop Firm Setup Event",
+            description: profile?.propFirmReferralLink ? "Get people signed up with a funded account and connected to the AI SS Engine, all in one session." : "Add your prop firm referral link, then run a signup + VEDD setup session in one sitting.",
+            link: "/ambassador/propfirm-event",
+            completed: completedKeys.has("propfirm_event")
+          });
+        }
+      }
       res.json({ dayString, tasks });
     });
     app2.post("/api/dashboard/daily-tasks/complete", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
       const { taskKey } = req.body;
-      if (!["training", "knowledge", "setup"].includes(taskKey)) {
+      if (!["training", "knowledge", "setup", "ambassador", "local_venue_outreach", "facebook_page", "local_events", "propfirm_event"].includes(taskKey)) {
         return res.status(400).json({ error: "Invalid task key" });
       }
       const dayString = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -70734,24 +70931,23 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.post("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
-      let certs = [];
-      try {
-        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
-      } catch {
-      }
-      const cert = {
-        ...req.body,
-        userId: req.user.id,
-        userName: req.user.fullName || req.user.username,
-        savedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      if (!certs.find((c) => c.certId === cert.certId)) {
-        certs.push(cert);
-        fs12.mkdirSync(path12.join(process.cwd(), "data"), { recursive: true });
-        fs12.writeFileSync(dataFile, JSON.stringify(certs, null, 2));
-      }
-      res.json({ success: true });
+      const userId = req.user.id;
+      const { courseId, certId, title, score, ceuHours, grantFrameworks, onetCode } = req.body;
+      const existing = certId ? await storage.getWorkforceCertificateByCertId(certId) : void 0;
+      if (existing) return res.json({ success: true, certificate: existing });
+      const cert = await storage.createWorkforceCertificate({
+        userId,
+        courseId: courseId != null ? parseInt(courseId, 10) : null,
+        certificateType: "workforce",
+        certificateId: certId || `VEDD-CERT-${Date.now()}`,
+        title: title || "Workforce Academy Certificate",
+        recipientName: req.user.fullName || req.user.username,
+        score: score != null ? Math.round(score) : null,
+        ceuHours: ceuHours != null ? Number(ceuHours) : null,
+        grantFrameworks: grantFrameworks ?? null,
+        onetCode: onetCode ?? null
+      });
+      res.json({ success: true, certificate: cert });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -70759,14 +70955,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/certificates", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
-      let certs = [];
-      try {
-        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
-      } catch {
-      }
-      const mine = certs.filter((c) => c.userId === req.user.id);
-      res.json({ certificates: mine });
+      const userId = req.user.id;
+      const certs = await storage.getUserWorkforceCertificates(userId);
+      res.json({ certificates: certs.map((c) => ({ ...c, certId: c.certificateId, date: c.issuedAt })) });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -71295,8 +71486,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { paperTrades: paperTrades2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq17, desc: desc9 } = await import("drizzle-orm");
-      const trades = await db2.select().from(paperTrades2).where(eq17(paperTrades2.userId, req.user.id)).orderBy(desc9(paperTrades2.createdAt)).limit(100);
+      const { eq: eq17, desc: desc10 } = await import("drizzle-orm");
+      const trades = await db2.select().from(paperTrades2).where(eq17(paperTrades2.userId, req.user.id)).orderBy(desc10(paperTrades2.createdAt)).limit(100);
       res.json(trades);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -72021,9 +72212,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc9 } = await import("drizzle-orm");
+      const { desc: desc10 } = await import("drizzle-orm");
       const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
-      const rows = await db2.select().from(leads2).orderBy(desc9(leads2.createdAt)).limit(limit);
+      const rows = await db2.select().from(leads2).orderBy(desc10(leads2.createdAt)).limit(limit);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -72034,8 +72225,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc9 } = await import("drizzle-orm");
-      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc9(leadHunterRuns2.createdAt)).limit(20);
+      const { desc: desc10 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc10(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -72109,10 +72300,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/today", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc9 } = await import("drizzle-orm");
+      const { desc: desc10 } = await import("drizzle-orm");
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const [summary] = await db.select().from(ambassadorRunSummary2).where(eq14(ambassadorRunSummary2.runDate, today)).limit(1);
-      const content = await db.select().from(ambassadorDailyContent2).where(eq14(ambassadorDailyContent2.runDate, today)).orderBy(desc9(ambassadorDailyContent2.createdAt));
+      const content = await db.select().from(ambassadorDailyContent2).where(eq14(ambassadorDailyContent2.runDate, today)).orderBy(desc10(ambassadorDailyContent2.createdAt));
       const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq14(ambassadorDailyKpis2.runDate, today)).limit(1);
       res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
     } catch (e) {
@@ -72122,8 +72313,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/history", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc9 } = await import("drizzle-orm");
-      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc9(ambassadorRunSummary2.createdAt)).limit(30);
+      const { desc: desc10 } = await import("drizzle-orm");
+      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc10(ambassadorRunSummary2.createdAt)).limit(30);
       res.json({ runs });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -72132,7 +72323,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/content/:date", async (req, res) => {
     try {
       const { ambassadorDailyContent: ambassadorDailyContent2, ambassadorHookVariations: ambassadorHookVariations2, ambassadorBonusContent: ambassadorBonusContent2, ambassadorCommunityContent: ambassadorCommunityContent2, ambassadorRedditInsights: ambassadorRedditInsights2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc9 } = await import("drizzle-orm");
+      const { desc: desc10 } = await import("drizzle-orm");
       const { date: date2 } = req.params;
       const [content, hooks, bonus, community, insights, steps] = await Promise.all([
         db.select().from(ambassadorDailyContent2).where(eq14(ambassadorDailyContent2.runDate, date2)),
@@ -72140,7 +72331,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         db.select().from(ambassadorBonusContent2).where(eq14(ambassadorBonusContent2.runDate, date2)),
         db.select().from(ambassadorCommunityContent2).where(eq14(ambassadorCommunityContent2.runDate, date2)),
         db.select().from(ambassadorRedditInsights2).where(eq14(ambassadorRedditInsights2.runDate, date2)),
-        db.select().from(ambassadorRunStepLog2).where(eq14(ambassadorRunStepLog2.runDate, date2)).orderBy(desc9(ambassadorRunStepLog2.createdAt))
+        db.select().from(ambassadorRunStepLog2).where(eq14(ambassadorRunStepLog2.runDate, date2)).orderBy(desc10(ambassadorRunStepLog2.createdAt))
       ]);
       res.json({ content, hooks, bonus, community, insights, steps });
     } catch (e) {
@@ -74294,6 +74485,17 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.log("[startup] Daily task completions table created/verified.");
     } catch (err) {
       console.error("[startup] Daily task completions table migration (non-fatal):", err.message);
+    }
+    try {
+      await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
+      await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
+      await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
+      await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
+      await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
+      await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
+      console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link columns verified.");
+    } catch (err) {
+      console.error("[startup] Workforce certificate/city columns migration (non-fatal):", err.message);
     }
     try {
       await db.execute(sql11`CREATE TABLE IF NOT EXISTS engine_run_state (

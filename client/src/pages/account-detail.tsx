@@ -6,7 +6,7 @@ import { ArrowLeft, Target, Shield, TrendingUp, TrendingDown, History, AlertTria
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface AccountDetail {
-  type: 'mt5' | 'tradelocker';
+  type: 'mt5' | 'tradelocker' | 'alpaca' | 'tastytrade';
   id: string | number;
   name: string;
   accountType?: string;
@@ -87,12 +87,14 @@ export default function AccountDetailPage() {
       <div className="rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5">
         <div className="flex items-center justify-between mb-2">
           <div>
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">{data.type === 'mt5' ? 'MT5 Account' : 'TradeLocker Account'}</p>
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              {data.type === 'mt5' ? 'MT5 Account' : data.type === 'tradelocker' ? 'TradeLocker Account' : data.type === 'alpaca' ? 'Alpaca Account' : 'TastyTrade Account'}
+            </p>
             <h1 className="text-xl font-black text-white">{data.name}</h1>
             {data.accountId && <p className="text-[10px] text-gray-600 mt-0.5">ID {data.accountId} · {data.accountType}</p>}
           </div>
           {data.error && (
-            <Link href={data.type === 'mt5' ? '/mt5-chart-data' : '/webhooks#tradelocker'} className="text-[10px] font-bold text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2.5 py-1">
+            <Link href={data.type === 'mt5' ? '/mt5-chart-data' : data.type === 'tradelocker' ? '/webhooks#tradelocker' : '/options-engine'} className="text-[10px] font-bold text-amber-400 border border-amber-500/40 bg-amber-500/10 rounded-full px-2.5 py-1">
               Reconnect →
             </Link>
           )}

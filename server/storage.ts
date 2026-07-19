@@ -41,6 +41,7 @@ import {
   cryptocomEngineConfigs, cryptocomEngineActivity, cryptocomEngineTrades,
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
+  workforceCertificates, type WorkforceCertificate, type InsertWorkforceCertificate,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
   type AmbassadorContentProgress, type InsertAmbassadorContentProgress,
   type AmbassadorContentStats, type InsertAmbassadorContentStats,
@@ -464,7 +465,12 @@ export interface IStorage {
   createAmbassadorCertification(cert: InsertAmbassadorCertification): Promise<AmbassadorCertification>;
   updateAmbassadorCertification(id: number, data: Partial<AmbassadorCertification>): Promise<AmbassadorCertification | undefined>;
   getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]>;
-  
+
+  // Workforce Academy certificates
+  createWorkforceCertificate(cert: InsertWorkforceCertificate): Promise<WorkforceCertificate>;
+  getUserWorkforceCertificates(userId: number): Promise<WorkforceCertificate[]>;
+  getWorkforceCertificateByCertId(certificateId: string): Promise<WorkforceCertificate | undefined>;
+
   // Wallet integration methods
   getUserByWalletAddress(walletAddress: string): Promise<User | undefined>;
   
@@ -2676,6 +2682,24 @@ export class DatabaseStorage implements IStorage {
   async getAllAmbassadorCertifications(): Promise<AmbassadorCertification[]> {
     return await db.select().from(ambassadorCertifications)
       .orderBy(desc(ambassadorCertifications.issueDate));
+  }
+
+  // Workforce Academy certificates
+  async createWorkforceCertificate(cert: InsertWorkforceCertificate): Promise<WorkforceCertificate> {
+    const [result] = await db.insert(workforceCertificates).values(cert).returning();
+    return result;
+  }
+
+  async getUserWorkforceCertificates(userId: number): Promise<WorkforceCertificate[]> {
+    return await db.select().from(workforceCertificates)
+      .where(eq(workforceCertificates.userId, userId))
+      .orderBy(desc(workforceCertificates.issuedAt));
+  }
+
+  async getWorkforceCertificateByCertId(certificateId: string): Promise<WorkforceCertificate | undefined> {
+    const [result] = await db.select().from(workforceCertificates)
+      .where(eq(workforceCertificates.certificateId, certificateId));
+    return result;
   }
 
   // Wallet integration methods

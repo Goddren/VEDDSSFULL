@@ -204,6 +204,8 @@ export const userProfiles = pgTable("user_profiles", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull().unique(),
   bio: text("bio"),
+  city: text("city"), // Free-text city/zip — powers the Ambassador local-outreach to-do tasks (nearby venue templates, local-event prompts)
+  propFirmReferralLink: text("prop_firm_referral_link"), // Ambassador's own prop-firm affiliate link (e.g. atlasfunded.com/?afmc=...) — used in the "host a prop firm setup event" flow
   tradingExperience: text("trading_experience"), // 'beginner', 'intermediate', 'advanced', 'expert'
   tradingStyle: text("trading_style"), // 'day', 'swing', 'position', 'scalping'
   preferredMarkets: jsonb("preferred_markets"), // Array of markets: forex, stocks, crypto, etc.
@@ -3141,11 +3143,15 @@ export const workforceCertificates = pgTable("workforce_certificates", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
   moduleId: integer("module_id").references(() => workforceModules.id),
+  courseId: integer("course_id"), // client-side Workforce Academy COURSES[] id (1-13) — the actual course this certificate was earned for
   certificateType: text("certificate_type").default("module"), // 'module'|'program'|'ambassador'|'workforce'
   certificateId: text("certificate_id").notNull().unique(), // VEDD-CERT-XXXXX
   title: text("title").notNull(),
   recipientName: text("recipient_name"),
   score: integer("score"),
+  ceuHours: doublePrecision("ceu_hours"),
+  grantFrameworks: jsonb("grant_frameworks"),
+  onetCode: text("onet_code"),
   issuedAt: timestamp("issued_at").defaultNow().notNull(),
 });
 

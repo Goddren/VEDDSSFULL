@@ -179,6 +179,11 @@ const DAILY_TASK_ICONS: Record<string, React.ComponentType<{ className?: string 
   training: GraduationCap,
   knowledge: Newspaper,
   setup: PenLine,
+  ambassador: Users,
+  local_venue_outreach: Building2,
+  facebook_page: Users,
+  local_events: Calendar,
+  propfirm_event: Rocket,
 };
 
 function DailyToDoCard() {
@@ -218,13 +223,23 @@ function DailyToDoCard() {
               >
                 {task.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-gray-600 hover:text-amber-400 transition-colors" />}
               </button>
-              <Link href={task.link} className="flex-1 min-w-0 flex items-center gap-2">
-                <Icon className={`w-4 h-4 flex-shrink-0 ${task.completed ? 'text-emerald-400' : 'text-amber-400'}`} />
-                <div className="min-w-0">
-                  <p className={`text-[11px] font-bold leading-tight truncate ${task.completed ? 'text-gray-400 line-through' : 'text-white'}`}>{task.title}</p>
-                  <p className="text-[9px] text-gray-500 truncate">{task.description}</p>
-                </div>
-              </Link>
+              {task.link.startsWith('http') ? (
+                <a href={task.link} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center gap-2">
+                  <Icon className={`w-4 h-4 flex-shrink-0 ${task.completed ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <div className="min-w-0">
+                    <p className={`text-[11px] font-bold leading-tight truncate ${task.completed ? 'text-gray-400 line-through' : 'text-white'}`}>{task.title}</p>
+                    <p className="text-[9px] text-gray-500 truncate">{task.description}</p>
+                  </div>
+                </a>
+              ) : (
+                <Link href={task.link} className="flex-1 min-w-0 flex items-center gap-2">
+                  <Icon className={`w-4 h-4 flex-shrink-0 ${task.completed ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <div className="min-w-0">
+                    <p className={`text-[11px] font-bold leading-tight truncate ${task.completed ? 'text-gray-400 line-through' : 'text-white'}`}>{task.title}</p>
+                    <p className="text-[9px] text-gray-500 truncate">{task.description}</p>
+                  </div>
+                </Link>
+              )}
             </div>
           );
         })}
@@ -786,6 +801,17 @@ const Dashboard: React.FC = () => {
     staleTime: 0,
   });
 
+  // Options (Alpaca/TastyTrade) live balances — same quick-nav treatment as
+  // MT5/TradeLocker, so options accounts are just as tappable-through to a
+  // full balance breakdown.
+  const { data: optionsBalancesData } = useQuery<{ accounts: Array<{ id: number; broker: 'alpaca' | 'tastytrade'; label: string; balance: number; equity: number; currency: string; error: string | null }> }>({
+    queryKey: ['/api/options-engine/balances'],
+    enabled: !!user,
+    refetchInterval: 30000,
+    staleTime: 0,
+  });
+  const optionsAccounts = optionsBalancesData?.accounts ?? [];
+
   // Derive account balances for header display
   const mt5Accounts: Array<{ label: string; balance: number; equity?: number }> = React.useMemo(() => {
     if (!mt5AccountData) return [];
@@ -1061,7 +1087,27 @@ const Dashboard: React.FC = () => {
                 <p className="text-[9px] text-gray-500 mt-0.5 truncate" title={t.error}>{t.error}</p>
               </Link>
             ))}
-            {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && (
+            {optionsAccounts.filter(a => !a.error).map(a => (
+              <Link key={`${a.broker}-${a.id}`} href={`/account/${a.broker}/${a.id}`} className="flex-shrink-0 rounded-xl border border-purple-500/25 hover:border-purple-500/50 px-3 py-2.5 min-w-[140px] transition-colors block" style={{ background: 'rgba(168,85,247,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-purple-300 uppercase tracking-wider">{a.label}</span>
+                </div>
+                <p className="text-base font-black text-white leading-none">{a.currency} {a.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {a.equity !== a.balance && <p className="text-[10px] text-gray-500 mt-0.5">Equity {a.equity.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
+              </Link>
+            ))}
+            {optionsAccounts.filter(a => !!a.error).map(a => (
+              <Link key={`${a.broker}-${a.id}`} href="/options-engine" className="flex-shrink-0 rounded-xl border border-amber-500/40 hover:border-amber-500/60 px-3 py-2.5 min-w-[160px] bg-amber-500/5 hover:bg-amber-500/10 transition-colors block">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">{a.label}</span>
+                </div>
+                <p className="text-[10px] text-amber-400 font-semibold">Reconnect required →</p>
+                <p className="text-[9px] text-gray-500 mt-0.5 truncate" title={a.error ?? undefined}>{a.error}</p>
+              </Link>
+            ))}
+            {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && optionsAccounts.length === 0 && (
               <Link href="/mt5-chart-data" className="flex-shrink-0 rounded-xl border border-gray-700 hover:border-indigo-500/50 px-3 py-2.5 min-w-[160px] bg-gray-900/40 hover:bg-gray-900/60 transition-colors block">
                 <p className="text-[10px] text-gray-500">No live accounts connected</p>
                 <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">Connect MT5 EA or TradeLocker →</p>

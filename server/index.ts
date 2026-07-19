@@ -1178,6 +1178,22 @@ async function withRetry<T>(
     }
 
     try {
+      // The /api/workforce/certificates routes wrote to a flat data/certificates.json
+      // file — Render's disk is ephemeral, so every certificate a user earned was
+      // silently wiped on the next deploy. These columns let the routes persist to
+      // the real workforce_certificates Postgres table instead.
+      await db.execute(sql`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
+      await db.execute(sql`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
+      await db.execute(sql`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
+      await db.execute(sql`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
+      await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
+      await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
+      console.log('[startup] Workforce certificate durability columns + profile city/prop-firm-link columns verified.');
+    } catch (err) {
+      console.error('[startup] Workforce certificate/city columns migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
