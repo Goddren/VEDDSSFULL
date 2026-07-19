@@ -2521,11 +2521,16 @@ export const brainDataListings = pgTable("brain_data_listings", {
   // 'forex' = MT5/EA-triggered AI confirmations, 'tradelocker' = trades
   // executed/mirrored through a linked TradeLocker connection.
   sourceCategory: text("source_category").default('forex').notNull(),
+  // Optional pair scope (e.g. ["EURUSD"] or ["EURUSD","USDJPY"]) — lets a
+  // seller list several DISTINCT, simultaneously-active brains per category
+  // (one per pair or pair group) instead of just one blended listing. Null/
+  // empty = all pairs in this category, preserving the original behavior.
+  symbolFilter: jsonb("symbol_filter"),
   title: text("title").notNull(),
   description: text("description"),
   priceVedd: integer("price_vedd").notNull(),
   suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
-  snapshotData: jsonb("snapshot_data").notNull(), // frozen array of outcome rows at listing time
+  snapshotData: jsonb("snapshot_data").notNull(), // frozen array of outcome rows at listing time — re-listing the SAME category+symbolFilter combo replaces this with a fresh, updated snapshot
   tradeCount: integer("trade_count").notNull(),
   distinctPairs: integer("distinct_pairs").notNull(),
   ageDays: integer("age_days").notNull(),

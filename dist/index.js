@@ -2689,12 +2689,17 @@ var init_schema = __esm({
       // 'forex' = MT5/EA-triggered AI confirmations, 'tradelocker' = trades
       // executed/mirrored through a linked TradeLocker connection.
       sourceCategory: text("source_category").default("forex").notNull(),
+      // Optional pair scope (e.g. ["EURUSD"] or ["EURUSD","USDJPY"]) — lets a
+      // seller list several DISTINCT, simultaneously-active brains per category
+      // (one per pair or pair group) instead of just one blended listing. Null/
+      // empty = all pairs in this category, preserving the original behavior.
+      symbolFilter: jsonb("symbol_filter"),
       title: text("title").notNull(),
       description: text("description"),
       priceVedd: integer("price_vedd").notNull(),
       suggestedPriceVedd: integer("suggested_price_vedd").notNull(),
       snapshotData: jsonb("snapshot_data").notNull(),
-      // frozen array of outcome rows at listing time
+      // frozen array of outcome rows at listing time — re-listing the SAME category+symbolFilter combo replaces this with a fresh, updated snapshot
       tradeCount: integer("trade_count").notNull(),
       distinctPairs: integer("distinct_pairs").notNull(),
       ageDays: integer("age_days").notNull(),
@@ -5396,7 +5401,7 @@ var init_storage = __esm({
       // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
       // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
       // old unfiltered behavior (used nowhere anymore, kept for safety).
-      async getOutcomesForListing(userId, sourceCategory) {
+      async getOutcomesForListing(userId, sourceCategory, symbols) {
         const conditions = [
           eq(aiConfirmationOutcomes.userId, userId),
           sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
@@ -5406,7 +5411,19 @@ var init_storage = __esm({
         } else if (sourceCategory === "forex") {
           conditions.push(sql`${aiConfirmationOutcomes.tradeSource} NOT IN ('breakout', 'ea_only')`);
         }
+        if (symbols && symbols.length) {
+          conditions.push(inArray(aiConfirmationOutcomes.symbol, symbols));
+        }
         return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+      }
+      // Matches an active listing by (sellerId, sourceCategory, symbolFilter) —
+      // relisting the SAME pair scope replaces that specific brain with a fresh
+      // snapshot; a different pair scope is a distinct, coexisting listing.
+      async getUserActiveBrainListingBySymbols(sellerId, sourceCategory, symbols) {
+        const listings = await db.select().from(brainDataListings).where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
+        const norm = (s) => Array.isArray(s) && s.length ? [...s].map((x) => x.toUpperCase()).sort().join(",") : "";
+        const target = norm(symbols);
+        return listings.find((l) => norm(l.symbolFilter) === target);
       }
       async importBrainDataSnapshot(buyerId, snapshotData) {
         if (!snapshotData.length) return 0;
@@ -71924,21 +71941,23 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const { title, description, priceVedd, sourceCategory } = req.body;
+      const { title, description, priceVedd, sourceCategory, symbols } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
       const category = sourceCategory === "tradelocker" ? "tradelocker" : "forex";
+      const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category);
+      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0);
       if (rows.length < MIN_TRADES_TO_LIST2) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades to list (you have ${rows.length}).` });
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades${symbolFilter ? ` on ${symbolFilter.join("/")}` : ""} to list (you have ${rows.length}).` });
       }
       const stats = computeListingStats2(rows);
       const finalPrice = clampPrice2(priceVedd ?? stats.suggestedPriceVedd);
-      const existing = await storage.getUserActiveBrainListing(userId, category);
+      const existing = await storage.getUserActiveBrainListingBySymbols(userId, category, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
       const listing = await storage.createBrainListing({
         sellerId: userId,
         sourceCategory: category,
+        symbolFilter,
         title,
         description: description || null,
         priceVedd: finalPrice,
@@ -71957,13 +71976,28 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/brain-marketplace/:id/deactivate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    const id = parseInt(req.params.id, 10);
+    try {
+      const listing = await storage.getBrainListing(id);
+      if (!listing || listing.sellerId !== userId) return res.status(404).json({ error: "Listing not found" });
+      await storage.deactivateBrainListing(id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/brain-marketplace/my-listings/preview", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
       const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : "forex";
+      const symbolsParam = typeof req.query.symbols === "string" ? req.query.symbols : "";
+      const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category);
+      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0);
       if (rows.length < MIN_TRADES_TO_LIST2) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
       }
@@ -74487,13 +74521,47 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily task completions table migration (non-fatal):", err.message);
     }
     try {
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS workforce_modules (
+        id serial PRIMARY KEY,
+        title text NOT NULL,
+        description text NOT NULL,
+        category text NOT NULL,
+        difficulty text DEFAULT 'beginner',
+        estimated_minutes integer DEFAULT 30,
+        content jsonb,
+        assessment_questions jsonb,
+        passing_score integer DEFAULT 70,
+        target_audience text DEFAULT 'all',
+        grant_tags jsonb,
+        is_published boolean DEFAULT true,
+        sort_order integer DEFAULT 0,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql11`CREATE TABLE IF NOT EXISTS workforce_certificates (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL REFERENCES users(id),
+        module_id integer REFERENCES workforce_modules(id),
+        certificate_type text DEFAULT 'module',
+        certificate_id text NOT NULL UNIQUE,
+        title text NOT NULL,
+        recipient_name text,
+        score integer,
+        issued_at timestamp DEFAULT now() NOT NULL
+      )`);
+      console.log("[startup] workforce_modules/workforce_certificates tables created/verified.");
+    } catch (err) {
+      console.error("[startup] workforce_modules/workforce_certificates table creation (non-fatal):", err.message);
+    }
+    try {
       await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
       await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
       await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
       await db.execute(sql11`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
       await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
       await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
-      console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link columns verified.");
+      await db.execute(sql11`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
+      console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter columns verified.");
     } catch (err) {
       console.error("[startup] Workforce certificate/city columns migration (non-fatal):", err.message);
     }

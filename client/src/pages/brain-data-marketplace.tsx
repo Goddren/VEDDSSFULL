@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
+import BrainVisualization3D from '@/components/brain-visualization-3d';
 
 type SourceCategory = 'forex' | 'tradelocker';
 
@@ -18,6 +19,7 @@ interface BrainListing {
   sellerId: number;
   sellerUsername: string;
   sourceCategory: SourceCategory;
+  symbolFilter: string[] | null;
   title: string;
   description: string | null;
   priceVedd: number;
@@ -47,24 +49,32 @@ export default function BrainDataMarketplacePage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [customPrice, setCustomPrice] = useState('');
+  const [symbolsInput, setSymbolsInput] = useState('');
   // Sellers can list two separate brains — one built only from MT5/EA-triggered
   // forex signals, one built only from TradeLocker-executed trades — rather
-  // than one blended listing.
+  // than one blended listing. Within a category, an optional pair scope
+  // (symbolsInput) lets several distinct brains coexist (e.g. an EURUSD-only
+  // brain and a USDJPY-only brain), and re-listing the same pair scope
+  // updates that specific brain with a fresh snapshot instead of a new one.
   const [sellCategory, setSellCategory] = useState<SourceCategory>('forex');
+
+  const symbols = symbolsInput.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
 
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
   const { data: listings = [], isLoading } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace'] });
   const { data: myListings = [] } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace/my-listings'] });
   const { data: preview } = useQuery<PreviewStats>({
-    queryKey: ['/api/brain-marketplace/my-listings/preview', sellCategory],
+    queryKey: ['/api/brain-marketplace/my-listings/preview', sellCategory, symbols.join(',')],
     queryFn: async () => {
-      const res = await apiRequest('GET', `/api/brain-marketplace/my-listings/preview?sourceCategory=${sellCategory}`);
+      const res = await apiRequest('GET', `/api/brain-marketplace/my-listings/preview?sourceCategory=${sellCategory}&symbols=${encodeURIComponent(symbols.join(','))}`);
       return res.json();
     },
   });
 
   const myBalance = wallet?.veddBalance ?? 0;
-  const myActiveListing = myListings.find(l => l.isActive && l.sourceCategory === sellCategory);
+  const myActiveListingsForCategory = myListings.filter(l => l.isActive && l.sourceCategory === sellCategory);
+  const normSymbols = (s: string[] | null) => (s && s.length ? [...s].map(x => x.toUpperCase()).sort().join(',') : '');
+  const editingExisting = myActiveListingsForCategory.find(l => normSymbols(l.symbolFilter) === normSymbols(symbols.length ? symbols : null));
 
   const listMutation = useMutation({
     mutationFn: async () => {
@@ -73,20 +83,34 @@ export default function BrainDataMarketplacePage() {
         description: description || undefined,
         priceVedd: customPrice ? parseInt(customPrice, 10) : undefined,
         sourceCategory: sellCategory,
+        symbols: symbols.length ? symbols : undefined,
       });
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: 'Brain data listed!', description: 'Your trade history is now available in the marketplace.' });
+      toast({ title: editingExisting ? 'Brain updated!' : 'Brain data listed!', description: 'Your trade history is now available in the marketplace.' });
       setTitle('');
       setDescription('');
       setCustomPrice('');
+      setSymbolsInput('');
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings'] });
       queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings/preview'] });
     },
     onError: (error: Error) => {
       toast({ title: 'Listing failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async (listingId: number) => (await apiRequest('POST', `/api/brain-marketplace/${listingId}/deactivate`, {})).json(),
+    onSuccess: () => {
+      toast({ title: 'Listing retired' });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/brain-marketplace/my-listings'] });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Could not retire listing', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -118,6 +142,23 @@ export default function BrainDataMarketplacePage() {
           </p>
         </div>
 
+        {/* Live brain visualization — pulse speed/density scales with real
+            marketplace activity (total trades + sales across listings), so
+            it's a genuine (if loose) reflection of how much is flowing
+            through the network right now, not just decoration. */}
+        <Card className="overflow-hidden border-purple-500/20">
+          <CardContent className="p-0 relative h-64 md:h-80">
+            <BrainVisualization3D
+              intensity={0.6 + Math.min(1.9, (listings.reduce((s, l) => s + l.tradeCount + l.purchaseCount * 5, 0)) / 400)}
+            />
+            <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between pointer-events-none">
+              <span className="text-xs font-semibold text-purple-200/80 bg-black/30 backdrop-blur-sm rounded-full px-3 py-1">
+                Live neural activity — {listings.length} brain{listings.length === 1 ? '' : 's'} active
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Sell your data */}
         <Card>
           <CardHeader>
@@ -138,19 +179,18 @@ export default function BrainDataMarketplacePage() {
                 </button>
               ))}
             </div>
-            {myActiveListing ? (
-              <div className="rounded-lg border p-4 space-y-2">
-                <p className="font-semibold">{myActiveListing.title}</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                  <div><p className="text-muted-foreground">Price</p><p className="font-bold">{myActiveListing.priceVedd} VEDD</p></div>
-                  <div><p className="text-muted-foreground">Trades</p><p className="font-bold">{myActiveListing.tradeCount}</p></div>
-                  <div><p className="text-muted-foreground">Purchases</p><p className="font-bold">{myActiveListing.purchaseCount}</p></div>
-                  <div><p className="text-muted-foreground">Earned</p><p className="font-bold">{myActiveListing.purchaseCount * myActiveListing.priceVedd} VEDD</p></div>
-                </div>
-              </div>
-            ) : !preview?.eligible ? (
+            <Input
+              placeholder="Pairs to include (optional, comma-separated — e.g. EURUSD, USDJPY). Leave blank for all pairs."
+              value={symbolsInput}
+              onChange={e => setSymbolsInput(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground -mt-2">
+              Scoping to specific pairs lets you sell multiple, separate brains at once (e.g. an EURUSD-only brain and a USDJPY-only brain). Re-listing the same pair scope updates that brain with your latest trades instead of creating a duplicate.
+            </p>
+
+            {!preview?.eligible ? (
               <p className="text-sm text-muted-foreground">
-                You need at least {preview?.minTradesRequired ?? 10} completed trades to list your brain data (you have {preview?.tradeCount ?? 0}).
+                You need at least {preview?.minTradesRequired ?? 10} completed trades{symbols.length ? ` on ${symbols.join('/')}` : ''} to list this brain (you have {preview?.tradeCount ?? 0}).
               </p>
             ) : (
               <>
@@ -169,9 +209,28 @@ export default function BrainDataMarketplacePage() {
                   onChange={e => setCustomPrice(e.target.value)}
                 />
                 <Button onClick={() => listMutation.mutate()} disabled={!title || listMutation.isPending}>
-                  {listMutation.isPending ? 'Listing…' : 'List My Data'}
+                  {listMutation.isPending ? 'Saving…' : editingExisting ? 'Update This Brain' : 'List My Data'}
                 </Button>
               </>
+            )}
+
+            {myActiveListingsForCategory.length > 0 && (
+              <div className="pt-2 space-y-2">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Your Active Brains — {CATEGORY_LABEL[sellCategory]}</p>
+                {myActiveListingsForCategory.map(l => (
+                  <div key={l.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{l.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {l.symbolFilter?.length ? l.symbolFilter.join('/') : 'All pairs'} · {l.tradeCount} trades · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
+                      </p>
+                    </div>
+                    <Button size="sm" variant="outline" onClick={() => deactivateMutation.mutate(l.id)} disabled={deactivateMutation.isPending}>
+                      Retire
+                    </Button>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -188,7 +247,12 @@ export default function BrainDataMarketplacePage() {
               {listings.filter(l => !l.isOwnListing).map(listing => (
                 <Card key={listing.id} className="hover:shadow-lg transition-shadow">
                   <CardHeader>
-                    <Badge variant="outline" className="w-fit mb-1 text-xs">{CATEGORY_LABEL[listing.sourceCategory] ?? 'Forex / MT5 Brain'}</Badge>
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      <Badge variant="outline" className="w-fit text-xs">{CATEGORY_LABEL[listing.sourceCategory] ?? 'Forex / MT5 Brain'}</Badge>
+                      {listing.symbolFilter?.length ? (
+                        <Badge variant="outline" className="w-fit text-xs border-purple-500/40 text-purple-400">{listing.symbolFilter.join('/')}</Badge>
+                      ) : null}
+                    </div>
                     <CardTitle className="text-lg">{listing.title}</CardTitle>
                     <CardDescription>by {listing.sellerUsername}</CardDescription>
                     {listing.description && <p className="text-sm text-muted-foreground mt-2">{listing.description}</p>}

@@ -28692,33 +28692,40 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   // See shared/schema.ts's brainDataListings comment + server/services/
   // brain-marketplace.ts for the pricing/snapshot design rationale.
 
-  // POST /api/brain-marketplace/list — list (or re-list) your own trade history
+  // POST /api/brain-marketplace/list — list (or re-list/update) a brain,
+  // optionally scoped to specific pairs. Sellers can have several DISTINCT
+  // active listings per category at once (e.g. an "EURUSD brain" and a
+  // "USDJPY brain" side by side) — only relisting the SAME category+pair
+  // scope replaces that specific listing with a fresh, updated snapshot.
   app.post("/api/brain-marketplace/list", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const { title, description, priceVedd, sourceCategory } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string };
+      const { title, description, priceVedd, sourceCategory, symbols } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[] };
       if (!title) return res.status(400).json({ error: "title is required" });
       const category: 'forex' | 'tradelocker' = sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
+      const symbolFilter = Array.isArray(symbols) && symbols.length
+        ? symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean)
+        : null;
 
       const { computeListingStats, clampPrice, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category);
+      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? undefined);
       if (rows.length < MIN_TRADES_TO_LIST) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} ${category === 'tradelocker' ? 'TradeLocker' : 'forex/MT5'} trades to list (you have ${rows.length}).` });
+        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} ${category === 'tradelocker' ? 'TradeLocker' : 'forex/MT5'} trades${symbolFilter ? ` on ${symbolFilter.join('/')}` : ''} to list (you have ${rows.length}).` });
       }
 
       const stats = computeListingStats(rows);
       const finalPrice = clampPrice(priceVedd ?? stats.suggestedPriceVedd);
 
-      // One active listing per seller PER CATEGORY — re-listing the same
-      // category replaces it with a fresh snapshot, but a forex listing and
-      // a TradeLocker listing can both be active at once.
-      const existing = await storage.getUserActiveBrainListing(userId, category);
+      // Re-listing the same category+pair-scope combo updates that specific
+      // brain in place; a different scope creates a new, coexisting listing.
+      const existing = await storage.getUserActiveBrainListingBySymbols(userId, category, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
 
       const listing = await storage.createBrainListing({
         sellerId: userId,
         sourceCategory: category,
+        symbolFilter,
         title,
         description: description || null,
         priceVedd: finalPrice,
@@ -28739,6 +28746,22 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // POST /api/brain-marketplace/:id/deactivate — retire one of your own
+  // listings without replacing it with a new one.
+  app.post("/api/brain-marketplace/:id/deactivate", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    const id = parseInt(req.params.id, 10);
+    try {
+      const listing = await storage.getBrainListing(id);
+      if (!listing || listing.sellerId !== userId) return res.status(404).json({ error: "Listing not found" });
+      await storage.deactivateBrainListing(id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/brain-marketplace/my-listings/preview — suggested price/stats from
   // current live data, without creating a listing (for the "list" form preview)
   app.get("/api/brain-marketplace/my-listings/preview", async (req: Request, res: Response) => {
@@ -28746,8 +28769,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const userId = (req.user as User).id;
     try {
       const category: 'forex' | 'tradelocker' = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
+      const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
+      const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
       const { computeListingStats, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category);
+      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : undefined);
       if (rows.length < MIN_TRADES_TO_LIST) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST });
       }

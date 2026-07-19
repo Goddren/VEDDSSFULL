@@ -618,6 +618,7 @@ export interface IStorage {
   getActiveBrainListings(limit?: number): Promise<BrainDataListing[]>;
   getBrainListing(id: number): Promise<BrainDataListing | undefined>;
   getUserActiveBrainListing(sellerId: number, sourceCategory?: string): Promise<BrainDataListing | undefined>;
+  getUserActiveBrainListingBySymbols(sellerId: number, sourceCategory: string, symbols: string[] | null): Promise<BrainDataListing | undefined>;
   getUserBrainListings(sellerId: number): Promise<BrainDataListing[]>;
   createBrainListing(listing: InsertBrainDataListing): Promise<BrainDataListing>;
   deactivateBrainListing(id: number): Promise<void>;
@@ -625,7 +626,7 @@ export interface IStorage {
   getBrainPurchaseByListingAndBuyer(listingId: number, buyerId: number): Promise<BrainDataPurchase | undefined>;
   createBrainPurchase(purchase: InsertBrainDataPurchase): Promise<BrainDataPurchase>;
   getUserBrainPurchases(buyerId: number): Promise<(BrainDataPurchase & { listing: BrainDataListing })[]>;
-  getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker'): Promise<AiConfirmationOutcome[]>;
+  getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[]): Promise<AiConfirmationOutcome[]>;
   importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number>;
 
   // Ambassador Free Path Journey
@@ -3332,7 +3333,7 @@ export class DatabaseStorage implements IStorage {
   // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
   // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
   // old unfiltered behavior (used nowhere anymore, kept for safety).
-  async getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker'): Promise<AiConfirmationOutcome[]> {
+  async getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[]): Promise<AiConfirmationOutcome[]> {
     const conditions = [
       eq(aiConfirmationOutcomes.userId, userId),
       sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`,
@@ -3342,7 +3343,21 @@ export class DatabaseStorage implements IStorage {
     } else if (sourceCategory === 'forex') {
       conditions.push(sql`${aiConfirmationOutcomes.tradeSource} NOT IN ('breakout', 'ea_only')`);
     }
+    if (symbols && symbols.length) {
+      conditions.push(inArray(aiConfirmationOutcomes.symbol, symbols));
+    }
     return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+  }
+
+  // Matches an active listing by (sellerId, sourceCategory, symbolFilter) —
+  // relisting the SAME pair scope replaces that specific brain with a fresh
+  // snapshot; a different pair scope is a distinct, coexisting listing.
+  async getUserActiveBrainListingBySymbols(sellerId: number, sourceCategory: string, symbols: string[] | null): Promise<BrainDataListing | undefined> {
+    const listings = await db.select().from(brainDataListings)
+      .where(and(eq(brainDataListings.sellerId, sellerId), eq(brainDataListings.isActive, true), eq(brainDataListings.sourceCategory, sourceCategory)));
+    const norm = (s: any): string => (Array.isArray(s) && s.length ? [...s].map((x: string) => x.toUpperCase()).sort().join(',') : '');
+    const target = norm(symbols);
+    return listings.find(l => norm(l.symbolFilter) === target);
   }
 
   async importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number> {

@@ -1178,6 +1178,45 @@ async function withRetry<T>(
     }
 
     try {
+      // workforce_certificates/workforce_modules are defined in shared/schema.ts
+      // but the automatic db:push schema-sync above doesn't reliably create
+      // brand-new tables with FK references in every environment — create
+      // them explicitly so the ALTER TABLE columns below have something to
+      // attach to (this was silently failing: "relation does not exist").
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS workforce_modules (
+        id serial PRIMARY KEY,
+        title text NOT NULL,
+        description text NOT NULL,
+        category text NOT NULL,
+        difficulty text DEFAULT 'beginner',
+        estimated_minutes integer DEFAULT 30,
+        content jsonb,
+        assessment_questions jsonb,
+        passing_score integer DEFAULT 70,
+        target_audience text DEFAULT 'all',
+        grant_tags jsonb,
+        is_published boolean DEFAULT true,
+        sort_order integer DEFAULT 0,
+        created_at timestamp DEFAULT now() NOT NULL,
+        updated_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS workforce_certificates (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL REFERENCES users(id),
+        module_id integer REFERENCES workforce_modules(id),
+        certificate_type text DEFAULT 'module',
+        certificate_id text NOT NULL UNIQUE,
+        title text NOT NULL,
+        recipient_name text,
+        score integer,
+        issued_at timestamp DEFAULT now() NOT NULL
+      )`);
+      console.log('[startup] workforce_modules/workforce_certificates tables created/verified.');
+    } catch (err) {
+      console.error('[startup] workforce_modules/workforce_certificates table creation (non-fatal):', (err as Error).message);
+    }
+
+    try {
       // The /api/workforce/certificates routes wrote to a flat data/certificates.json
       // file — Render's disk is ephemeral, so every certificate a user earned was
       // silently wiped on the next deploy. These columns let the routes persist to
@@ -1188,7 +1227,8 @@ async function withRetry<T>(
       await db.execute(sql`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
       await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
       await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
-      console.log('[startup] Workforce certificate durability columns + profile city/prop-firm-link columns verified.');
+      await db.execute(sql`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
+      console.log('[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter columns verified.');
     } catch (err) {
       console.error('[startup] Workforce certificate/city columns migration (non-fatal):', (err as Error).message);
     }
