@@ -25982,39 +25982,43 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       message: `\u{1F4D0} ${methodLabel}: ${pos.symbol} ${pos.direction} trail \u2192 SL ${Math.round(newSL * 1e5) / 1e5} (was ${currentSL || "none"})`
     });
     if (tlConnections.length > 0) {
-      const positionId = pos.ticket || pos.id || null;
-      if (positionId) {
-        for (const tlConn of tlConnections) {
-          try {
-            const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
-              action: "MODIFY",
+      for (const tlConn of tlConnections) {
+        try {
+          const svc = await getOrCreateService(tlConn);
+          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+          const matchDir = (pos.direction || "BUY").toUpperCase();
+          const tlMatch = tlPositions.find(
+            (p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
+          );
+          if (!tlMatch) continue;
+          const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: "MODIFY",
+            symbol: pos.symbol,
+            direction: pos.direction || "BUY",
+            volume: 0,
+            stopLoss: Math.round(newSL * 1e5) / 1e5,
+            takeProfit: pos.tp || void 0,
+            positionId: tlMatch.id
+          });
+          if (trailResult.success) {
+            addActivity2(userId, {
+              type: "position_update",
               symbol: pos.symbol,
-              direction: pos.direction || "BUY",
-              volume: 0,
-              stopLoss: Math.round(newSL * 1e5) / 1e5,
-              takeProfit: pos.tp || void 0,
-              positionId: String(positionId)
+              message: `\u2705 TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
             });
-            if (trailResult.success) {
-              addActivity2(userId, {
-                type: "position_update",
-                symbol: pos.symbol,
-                message: `\u2705 TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL \u2192 ${Math.round(newSL * 1e5) / 1e5}`
-              });
-            } else {
-              addActivity2(userId, {
-                type: "error",
-                symbol: pos.symbol,
-                message: `\u26A0\uFE0F TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} \u2014 ${trailResult.error}`
-              });
-            }
-          } catch (tlErr) {
+          } else {
             addActivity2(userId, {
               type: "error",
               symbol: pos.symbol,
-              message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
+              message: `\u26A0\uFE0F TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} \u2014 ${trailResult.error}`
             });
           }
+        } catch (tlErr) {
+          addActivity2(userId, {
+            type: "error",
+            symbol: pos.symbol,
+            message: `\u26A0\uFE0F TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} \u2014 ${tlErr.message}`
+          });
         }
       }
     }
@@ -28503,13 +28507,22 @@ async function processDecision(userId, decision, newsCtx) {
         activeTLForMgmt.map(async (tlConn) => {
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           try {
+            const svc = await getOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = (decision.direction || "BUY").toUpperCase();
+            const tlMatch = tlPositions.find(
+              (p) => (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL")
+            );
+            if (!tlMatch) {
+              return;
+            }
             if (signalAction === "CLOSE") {
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: "CLOSE",
                 symbol: decision.symbol,
                 direction: decision.direction || "BUY",
                 volume: partialVolume || 0,
-                positionId: decision.positionId
+                positionId: tlMatch.id
               });
               if (tradeResult.success) {
                 addActivity2(userId, { type: "trade_close", symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
@@ -28525,7 +28538,7 @@ async function processDecision(userId, decision, newsCtx) {
                 volume: 0,
                 stopLoss: newSL,
                 takeProfit: newTP,
-                positionId: decision.positionId
+                positionId: tlMatch.id
               });
               if (tradeResult.success) {
                 addActivity2(userId, { type: "position_update", symbol: decision.symbol, message: `Position MODIFIED via TradeLocker ${acctLabel}: ${decision.symbol} | New SL: ${newSL || "N/A"} | New TP: ${newTP || "N/A"}` });
