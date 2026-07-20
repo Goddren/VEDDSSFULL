@@ -16228,6 +16228,8 @@ __export(tradelocker_exports, {
   executeMT5SignalOnTradeLocker: () => executeMT5SignalOnTradeLocker,
   getOrCreateService: () => getOrCreateService,
   getTLAccountValue: () => getTLAccountValue,
+  isOnAuth429Cooldown: () => isOnAuth429Cooldown,
+  noteAuthResult: () => noteAuthResult,
   warmTradeLockerConnection: () => warmTradeLockerConnection
 });
 import crypto2 from "crypto";
@@ -16242,6 +16244,18 @@ function getEncryptionKey2() {
     return key.padEnd(32, "0");
   }
   return key;
+}
+function isOnAuth429Cooldown(key) {
+  const until = authCooldownUntil.get(key) || 0;
+  return until > Date.now() ? until - Date.now() : 0;
+}
+function noteAuthResult(key, err) {
+  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
+  if (is429) {
+    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
+  } else {
+    authCooldownUntil.delete(key);
+  }
 }
 function encryptPassword(password) {
   const iv = crypto2.randomBytes(IV_LENGTH);
@@ -16301,18 +16315,39 @@ async function getOrCreateService(connection2) {
     try {
       service.setTokens(connection2.accessToken, connection2.refreshToken);
       const refreshed = await service.refreshAccessToken(connection2.refreshToken);
+      noteAuthResult(String(connId), null);
       await persistTokens(connection2, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
     } catch (refreshErr) {
       console.log("[TradeLocker] Token refresh failed \u2014 falling back to full auth");
-      const password = decryptPassword(connection2.encryptedPassword);
-      const authResult = await service.authenticate(connection2.email, password);
-      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      const cooldownMs = isOnAuth429Cooldown(String(connId));
+      if (cooldownMs > 0) {
+        throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+      }
+      try {
+        const password = decryptPassword(connection2.encryptedPassword);
+        const authResult = await service.authenticate(connection2.email, password);
+        noteAuthResult(String(connId), null);
+        await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      } catch (authErr) {
+        noteAuthResult(String(connId), authErr);
+        throw authErr;
+      }
     }
   } else {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying, to avoid making the rate limit worse.`);
+    }
     console.log("[TradeLocker] No cached tokens \u2014 performing full auth");
-    const password = decryptPassword(connection2.encryptedPassword);
-    const authResult = await service.authenticate(connection2.email, password);
-    await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
   }
   if (!connection2.accNum && connId) {
     const origResolve = service.resolveAccNum.bind(service);
@@ -16330,10 +16365,20 @@ async function getOrCreateService(connection2) {
     });
   };
   service.onReauthenticate = async () => {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account \u2014 cooling down for another ${Math.ceil(cooldownMs / 1e3)}s before retrying.`);
+    }
     console.log("[TradeLocker] Full re-authentication triggered via callback");
-    const password = decryptPassword(connection2.encryptedPassword);
-    const authResult = await service.authenticate(connection2.email, password);
-    await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    try {
+      const password = decryptPassword(connection2.encryptedPassword);
+      const authResult = await service.authenticate(connection2.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection2, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
   };
   serviceCache.set(connId, { service, createdAt: Date.now() });
   return service;
@@ -16486,7 +16531,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -16499,6 +16544,8 @@ var init_tradelocker = __esm({
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
     RETRY_DELAYS = [1e3, 2e3];
     RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+    AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
+    authCooldownUntil = /* @__PURE__ */ new Map();
     TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
@@ -60346,10 +60393,18 @@ Rules:
     if (!email || !password || !serverId || !accountId) {
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
+    const cooldownKey = `${serverId}:${accountId}`;
+    const cooldownMs = isOnAuth429Cooldown(cooldownKey);
+    if (cooldownMs > 0) {
+      return res.status(429).json({
+        error: `TradeLocker is rate-limiting login attempts for this account \u2014 wait ${Math.ceil(cooldownMs / 1e3)}s before trying again. Retrying immediately will extend the rate limit, not fix it.`
+      });
+    }
     let resolvedAccNum;
     let resolvedAccountType = accountType === "demo" ? "demo" : "live";
     const attemptOrder = resolvedAccountType === "demo" ? ["demo", "live"] : ["live", "demo"];
     let lastErr = "Unknown error";
+    let lastErrObj = null;
     let authenticated = false;
     for (const tryType of attemptOrder) {
       try {
@@ -60359,12 +60414,15 @@ Rules:
         if (accNum && accNum !== "0") resolvedAccNum = accNum;
         resolvedAccountType = tryType;
         authenticated = true;
+        noteAuthResult(cooldownKey, null);
         break;
       } catch (err) {
         lastErr = err instanceof Error ? err.message : "Unknown error";
+        lastErrObj = err;
       }
     }
     if (!authenticated) {
+      noteAuthResult(cooldownKey, lastErrObj);
       return res.status(400).json({ error: `TradeLocker login failed: ${lastErr}` });
     }
     const encryptedPw = encryptPassword(password);
@@ -60524,6 +60582,14 @@ Rules:
     if (!connection2) {
       return res.status(404).json({ error: "No connection found" });
     }
+    const cooldownKey = String(connection2.id);
+    const cooldownMs = isOnAuth429Cooldown(cooldownKey);
+    if (cooldownMs > 0) {
+      return res.status(429).json({
+        success: false,
+        error: `TradeLocker is rate-limiting login attempts for this account \u2014 wait ${Math.ceil(cooldownMs / 1e3)}s before trying again. Retrying immediately will extend the rate limit, not fix it.`
+      });
+    }
     try {
       const password = decryptPassword(connection2.encryptedPassword);
       const service = new TradeLockerService(
@@ -60533,6 +60599,7 @@ Rules:
         connection2.accNum || void 0
       );
       await service.authenticate(connection2.email, password);
+      noteAuthResult(cooldownKey, null);
       const accountInfo = await service.getAccountInfo();
       const resolvedAccNum = service.getResolvedAccNum();
       const updateData = {
@@ -60545,6 +60612,7 @@ Rules:
       await storage.updateTradelockerConnection(connection2.id, updateData);
       res.json({ success: true, account: accountInfo });
     } catch (err) {
+      noteAuthResult(cooldownKey, err);
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await storage.updateTradelockerConnection(connection2.id, {
         lastError: errorMsg
