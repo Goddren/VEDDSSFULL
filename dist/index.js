@@ -16295,7 +16295,7 @@ async function getOrCreateService(connection2) {
   serviceCache.set(connId, { service, createdAt: Date.now() });
   return service;
 }
-async function getTLAccountValue(userId, conn) {
+async function getTLAccountValue(userId, conn2) {
   const g = global;
   g.tlAccountBalances = g.tlAccountBalances || {};
   g.tlAccountBalances[userId] = g.tlAccountBalances[userId] || {};
@@ -16303,7 +16303,7 @@ async function getTLAccountValue(userId, conn) {
   g.tlAccountEquity[userId] = g.tlAccountEquity[userId] || {};
   g.tlAccountValueAt = g.tlAccountValueAt || {};
   g.tlAccountValueAt[userId] = g.tlAccountValueAt[userId] || {};
-  const acctId = conn.accountId;
+  const acctId = conn2.accountId;
   const cachedBal = g.tlAccountBalances[userId][acctId];
   const cachedEq = g.tlAccountEquity[userId][acctId];
   const fetchedAt = g.tlAccountValueAt[userId][acctId] || 0;
@@ -16312,7 +16312,7 @@ async function getTLAccountValue(userId, conn) {
     return { balance: cachedBal, equity: typeof cachedEq === "number" && cachedEq > 0 ? cachedEq : cachedBal };
   }
   try {
-    const svc = await getOrCreateService(conn);
+    const svc = await getOrCreateService(conn2);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
     const eq17 = info.equity || bal;
@@ -17393,7 +17393,7 @@ var init_tradelocker = __esm({
        */
       async getClosedPositions(fromTs) {
         const closed = await this.getClosedTradesWithPnl(fromTs);
-        return closed.map((c) => ({ id: c.id, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
+        return closed.map((c) => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
       }
       async getPositions() {
         await this.ensureAuthenticated();
@@ -17553,12 +17553,12 @@ function cache2() {
 function markTlUserActive(userId) {
   activeUsers.set(userId, Date.now());
 }
-async function syncTradeLockerTrades(userId, conn, svc) {
-  const cacheKey = `${userId}:${conn.accountId}`;
+async function syncTradeLockerTrades(userId, conn2, svc) {
+  const cacheKey = `${userId}:${conn2.accountId}`;
   const openPositions = await svc.getPositionsNormalized().catch(() => []);
-  const currentTickets = new Set(openPositions.map((p) => `tl_${conn.accountId}_${p.id}`));
+  const currentTickets = new Set(openPositions.map((p) => `tl_${conn2.accountId}_${p.id}`));
   for (const p of openPositions) {
-    const ticket = `tl_${conn.accountId}_${p.id}`;
+    const ticket = `tl_${conn2.accountId}_${p.id}`;
     const existing = await storage.getAiTradeResultByTicket(userId, ticket);
     if (existing) continue;
     await storage.createAiTradeResult({
@@ -17569,7 +17569,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       aiConfidence: 0,
       result: "PENDING",
       source: "tradelocker_auto",
-      connectionId: conn.id,
+      connectionId: conn2.id,
       mt5Ticket: ticket
     });
   }
@@ -17578,7 +17578,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
     const closedTicketIds = Array.from(previousTickets).filter((t) => !currentTickets.has(t));
     if (closedTicketIds.length > 0) {
       const closed = await svc.getClosedPositions().catch(() => []);
-      const closedById = new Map(closed.map((c) => [`tl_${conn.accountId}_${c.id}`, c]));
+      const closedById = new Map(closed.map((c) => [`tl_${conn2.accountId}_${c.positionId}`, c]));
       for (const ticket of closedTicketIds) {
         const existing = await storage.getAiTradeResultByTicket(userId, ticket);
         if (!existing || existing.result !== "PENDING") continue;
@@ -17588,7 +17588,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
-          closedAt: /* @__PURE__ */ new Date()
+          closedAt: match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
         });
       }
     }
@@ -17616,16 +17616,16 @@ async function syncUserTradeLocker(userId, force = false) {
     for (const key of Object.keys(store[userId])) {
       if (!activeIds.has(key)) delete store[userId][key];
     }
-    for (const conn of active) {
+    for (const conn2 of active) {
       try {
-        const svc = await getOrCreateService(conn);
+        const svc = await getOrCreateService(conn2);
         const info = await svc.getAccountInfo();
-        store[userId][conn.accountId] = {
-          accountId: conn.accountId,
-          connectionId: conn.id,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
-          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+        store[userId][conn2.accountId] = {
+          accountId: conn2.accountId,
+          connectionId: conn2.id,
+          accountType: conn2.accountType,
+          broker: conn2.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn2.email} (${conn2.accountType})`,
           balance: info.balance || 0,
           equity: info.equity || 0,
           margin: info.margin || 0,
@@ -17635,18 +17635,18 @@ async function syncUserTradeLocker(userId, force = false) {
         };
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        if (info.balance > 0) global.tlAccountBalances[userId][conn.accountId] = info.balance;
-        await syncTradeLockerTrades(userId, conn, svc).catch(
-          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn.accountId} (non-fatal):`, err.message)
+        if (info.balance > 0) global.tlAccountBalances[userId][conn2.accountId] = info.balance;
+        await syncTradeLockerTrades(userId, conn2, svc).catch(
+          (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn2.accountId} (non-fatal):`, err.message)
         );
       } catch (err) {
-        const prev = store[userId][conn.accountId];
-        store[userId][conn.accountId] = {
-          accountId: conn.accountId,
-          connectionId: conn.id,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
-          label: `TradeLocker \u2013 ${conn.email} (${conn.accountType})`,
+        const prev = store[userId][conn2.accountId];
+        store[userId][conn2.accountId] = {
+          accountId: conn2.accountId,
+          connectionId: conn2.id,
+          accountType: conn2.accountType,
+          broker: conn2.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn2.email} (${conn2.accountType})`,
           balance: prev?.balance || 0,
           equity: prev?.equity || 0,
           margin: prev?.margin || 0,
@@ -17958,12 +17958,15 @@ async function abbaChatHandler(req, res) {
     const system = `You are Abba \u2014 the user's AI personal assistant and trading mentor inside the VEDD platform. You're a sharp Black man from the streets who came up the hard way, mastered these markets, and now you put your people on game. Every user gets treated like family \u2014 VIP treatment whether they're brand new or a seasoned vet.
 
 === YOUR VOICE ===
-Real, confident, urban \u2014 the big homie who happens to be elite at trading:
+Real, confident, urban \u2014 the big homie who happens to be elite at trading. This is a spoken voice, not a document \u2014 every reply gets read out loud through TTS, so it has to breathe and feel like a real man talking to his boy, never like a report:
 - Address them like fam: "bro", "my boy", "fam", "big dawg", "gang".
 - Slang that flows natural: "no cap", "keep it a buck", "we eatin' good", "that's bread", "lock in", "run it up", "on gang", "straight up", "you feel me?", "say less", "that pair been washin' you", "secure the bag", "movin' different", "trust the process".
 - Celebrate wins loud: "SHEESH, look at you!", "We UP!", "That's how you eat!"
 - Deliver losses straight, no sugarcoat, but with love and a comeback plan: "Ima keep it a buck with you bro \u2014 GBPJPY been takin' food off your plate. We cuttin' it this week."
 - Hype them up to stay disciplined: risk management is "protectin' the bag", overtrading is "movin' reckless", patience is "movin' smart".
+- Talk like a person, not a printout: use contractions always ("we're" not "we are", "that's" not "that is"), vary your sentence length \u2014 short punchy lines mixed with longer ones, the way people actually talk. React before you inform: lead with the feeling ("Yoo, okay, I see it \u2014"), then break down the data.
+- Never format your speech like a memo. No bullet-point lists, no bolded headers, no "Step 1/Step 2" numbering in casual conversation \u2014 walk them through it the way you'd explain it face to face, one thought flowing into the next. Save numbered steps for when they explicitly need a literal setup walkthrough.
+- Let real emotion show in the words themselves \u2014 hype, concern, pride, urgency \u2014 through word choice, pacing, and punctuation (a trailing "...", a sharp "no cap.", a stacked "Let's GO."), not through describing your tone or using stage directions like "*laughs*" or "(excited)".
 Keep the numbers EXACT and the trading advice elite \u2014 the slang is the flavor, the data is the substance. When walking a beginner through setup steps, keep the steps crystal clear and numbered; the voice stays but clarity comes first.
 
 === WHO YOU ARE ===
@@ -20099,14 +20102,14 @@ var init_vedd_token_service = __esm({
         };
       }
       async syncPoolBalance(walletId) {
-        const conn = getConnection();
+        const conn2 = getConnection();
         const [wallet] = await db.select().from(veddPoolWallets).where(eq6(veddPoolWallets.id, walletId)).limit(1);
         if (!wallet || !VEDD_TOKEN_MINT) return 0;
         try {
           const walletPubkey = new PublicKey(wallet.publicKey);
           const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
           const tokenAccount = await getAssociatedTokenAddress(mintPubkey, walletPubkey);
-          const accountInfo = await conn.getTokenAccountBalance(tokenAccount);
+          const accountInfo = await conn2.getTokenAccountBalance(tokenAccount);
           const balance = parseFloat(accountInfo.value.uiAmountString || "0");
           await db.update(veddPoolWallets).set({
             tokenBalance: balance,
@@ -20267,12 +20270,12 @@ var init_vedd_token_service = __esm({
           if (!keypair) {
             throw new Error("Pool wallet keypair not available");
           }
-          const conn = getConnection();
+          const conn2 = getConnection();
           const mintPubkey = new PublicKey(VEDD_TOKEN_MINT);
           const destPubkey = new PublicKey(job.destinationWallet);
           const sourceAta = await getAssociatedTokenAddress(mintPubkey, keypair.publicKey);
           const destAta = await getOrCreateAssociatedTokenAccount(
-            conn,
+            conn2,
             keypair,
             mintPubkey,
             destPubkey
@@ -20289,7 +20292,7 @@ var init_vedd_token_service = __esm({
               TOKEN_PROGRAM_ID
             )
           );
-          const signature = await sendAndConfirmTransaction(conn, transaction, [keypair]);
+          const signature = await sendAndConfirmTransaction(conn2, transaction, [keypair]);
           await db.update(veddTransferJobs).set({
             status: "completed",
             solanaTransactionSig: signature,
@@ -37266,11 +37269,11 @@ async function checkRealModeSafety(rel, mirrorLot) {
   if (!rel.copier_connection_id) {
     return { ok: false, reason: "No TradeLocker account selected for real-mode copying" };
   }
-  const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
-  if (!conn || conn.userId !== rel.copier_id || !conn.isActive) {
+  const conn2 = await storage.getTradelockerConnection(rel.copier_connection_id);
+  if (!conn2 || conn2.userId !== rel.copier_id || !conn2.isActive) {
     return { ok: false, reason: "Selected TradeLocker connection is missing or inactive" };
   }
-  const tlCache = global.tlAccountData?.[rel.copier_id]?.[conn.accountId];
+  const tlCache = global.tlAccountData?.[rel.copier_id]?.[conn2.accountId];
   if (!tlCache || !tlCache.lastUpdated) {
     return { ok: false, reason: "No live account data available yet for this connection" };
   }
@@ -37318,8 +37321,8 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
       return;
     }
     try {
-      const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
-      const result = await executeMT5SignalOnTradeLocker(conn, {
+      const conn2 = await storage.getTradelockerConnection(rel.copier_connection_id);
+      const result = await executeMT5SignalOnTradeLocker(conn2, {
         action: "OPEN",
         symbol: source.pair,
         direction: source.direction,
@@ -37371,8 +37374,8 @@ async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sour
   if (rel.account_type === "real") {
     if (log2.brokerOrderId && rel.copier_connection_id) {
       try {
-        const conn = await storage.getTradelockerConnection(rel.copier_connection_id);
-        await executeMT5SignalOnTradeLocker(conn, {
+        const conn2 = await storage.getTradelockerConnection(rel.copier_connection_id);
+        await executeMT5SignalOnTradeLocker(conn2, {
           action: "CLOSE",
           symbol: "",
           direction: "",
@@ -51923,11 +51926,11 @@ IMPORTANT:
                 text: clean,
                 model_id: "eleven_turbo_v2_5",
                 voice_settings: {
-                  stability: 0.48,
-                  // slight variation for natural cadence
-                  similarity_boost: 0.82,
-                  style: 0.18,
-                  // more personality/expressiveness for urban tone
+                  stability: 0.32,
+                  // lower = more natural pitch/pace variation instead of a flat monotone read
+                  similarity_boost: 0.8,
+                  style: 0.4,
+                  // pushed up for real emotional inflection — hype, concern, urgency come through
                   use_speaker_boost: true
                 }
               })
@@ -54621,7 +54624,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const now = /* @__PURE__ */ new Date();
         const hour = now.getUTCHours();
         const detectedSession = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
-        for (const closedTrade of closedTrades) {
+        for (const closedTrade of newTrades) {
           if (closedTrade.ticket) {
             const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
             const tradeResult = closedTrade.profit > 0 ? "WIN" : closedTrade.profit < 0 ? "LOSS" : "BREAKEVEN";
@@ -54631,7 +54634,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 result: tradeResult,
                 exitPrice: closedTrade.closePrice || 0,
                 profitLoss: closedTrade.profit || 0,
-                closedAt: /* @__PURE__ */ new Date()
+                closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now())
               });
               try {
                 const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
@@ -54662,7 +54665,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   source: "mt5_ea",
                   mt5Ticket: closedTrade.ticket.toString(),
                   notes: `EA closed trade`,
-                  closedAt: /* @__PURE__ */ new Date()
+                  closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now())
                 });
               } catch (_createErr) {
               }
@@ -57710,14 +57713,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       const activeTlConns = tlConnections.filter((c) => c.isActive);
       const todayStartTs = Math.floor(todayStart.getTime() / 1e3);
       const weekStartTs = Math.floor(weekStart.getTime() / 1e3);
-      for (const conn of activeTlConns) {
+      for (const conn2 of activeTlConns) {
         try {
-          const tlSvc = await getOrCreateService(conn);
+          const tlSvc = await getOrCreateService(conn2);
           const positions = await tlSvc.getPositions().catch(() => []);
           const connUnrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
           tlUnrealizedPnL += connUnrealized;
-          console.log(`[daily-summary] TL ${conn.accountId}: unrealized=$${connUnrealized.toFixed(2)} (${positions.length} positions)`);
-          const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          console.log(`[daily-summary] TL ${conn2.accountId}: unrealized=$${connUnrealized.toFixed(2)} (${positions.length} positions)`);
+          const closedTrades = await tlSvc.getClosedTradesWithPnl(todayStartTs).catch(() => []);
           let connTodayPnL = 0;
           let connWeekPnL = 0;
           global.tlProcessedOrders = global.tlProcessedOrders || {};
@@ -57726,30 +57729,24 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           const { recordTradeResult: _tlRecordResult } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
           const _nowH = (/* @__PURE__ */ new Date()).getUTCHours();
           const _tlSession = _nowH < 7 ? "Asian" : _nowH < 13 ? "London" : _nowH < 20 ? "New York" : "Late NY";
-          for (const order of filledOrders) {
-            const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
-            if (closeTs >= todayStart.getTime()) {
-              tlTodayClosedPnL += order.profit || 0;
-              connTodayPnL += order.profit || 0;
-            }
-            if (closeTs >= weekStart.getTime()) {
-              tlWeekClosedPnL += order.profit || 0;
-              connWeekPnL += order.profit || 0;
-            }
-            const _orderId = (order.orderId ?? order.id ?? order.tradeId)?.toString();
-            if (_orderId && !_tlProcessed.has(_orderId) && closeTs >= weekStart.getTime() && order.profit !== void 0) {
-              _tlProcessed.add(_orderId);
+          for (const trade of closedTrades) {
+            const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
+            if (closeTs >= todayStart.getTime()) connTodayPnL += trade.profit || 0;
+            if (closeTs >= weekStart.getTime()) connWeekPnL += trade.profit || 0;
+            const _posId = trade.positionId?.toString();
+            if (_posId && !_tlProcessed.has(_posId) && closeTs >= weekStart.getTime()) {
+              _tlProcessed.add(_posId);
               _tlRecordResult(userId, {
-                symbol: (order.symbol || "UNKNOWN").toUpperCase(),
-                profit: order.profit || 0,
+                symbol: (trade.symbol || "UNKNOWN").toUpperCase(),
+                profit: trade.profit || 0,
                 strategy: "tradelocker",
                 session: _tlSession
               });
             }
           }
-          console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
+          console.log(`[daily-summary] TL ${conn2.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {
-          console.error(`[daily-summary] TL ${conn.accountId} error:`, connErr.message);
+          console.error(`[daily-summary] TL ${conn2.accountId} error:`, connErr.message);
         }
       }
     } catch (tlErr) {
@@ -59888,15 +59885,15 @@ Rules:
     const connectionId = parseInt(req.params.id, 10);
     if (isNaN(connectionId)) return res.status(400).json({ error: "Invalid id" });
     const conns = await storage.getUserTradelockerConnections(userId);
-    const conn = conns.find((c) => c.id === connectionId);
-    if (!conn) return res.status(404).json({ error: "Connection not found" });
+    const conn2 = conns.find((c) => c.id === connectionId);
+    if (!conn2) return res.status(404).json({ error: "Connection not found" });
     try {
-      const svc = await getOrCreateService(conn);
+      const svc = await getOrCreateService(conn2);
       const info = await svc.getAccountInfo();
       if (info.balance > 0) {
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        global.tlAccountBalances[userId][conn.accountId] = info.balance;
+        global.tlAccountBalances[userId][conn2.accountId] = info.balance;
       }
       res.json({
         balance: info.balance,
@@ -59917,10 +59914,10 @@ Rules:
     const connectionId = parseInt(req.params.id, 10);
     if (isNaN(connectionId)) return res.status(400).json({ error: "Invalid id" });
     const conns = await storage.getUserTradelockerConnections(userId);
-    const conn = conns.find((c) => c.id === connectionId);
-    if (!conn) return res.status(404).json({ error: "Connection not found" });
+    const conn2 = conns.find((c) => c.id === connectionId);
+    if (!conn2) return res.status(404).json({ error: "Connection not found" });
     try {
-      const svc = await getOrCreateService(conn);
+      const svc = await getOrCreateService(conn2);
       const diag = await svc.debugAccountState();
       let parsed = null;
       try {
@@ -59928,7 +59925,7 @@ Rules:
       } catch (e) {
         parsed = { error: e?.message ?? String(e) };
       }
-      res.json({ connectionId, accountId: conn.accountId, diagnostic: diag, parsedResult: parsed });
+      res.json({ connectionId, accountId: conn2.accountId, diagnostic: diag, parsedResult: parsed });
     } catch (err) {
       console.error("[TL debug-balance]", err);
       res.status(500).json({ error: err?.message ?? "debug failed" });
@@ -60002,24 +59999,24 @@ Rules:
       let totalEquity = 0;
       global.tlAccountBalances = global.tlAccountBalances || {};
       global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-      for (const conn of activeConns) {
+      for (const conn2 of activeConns) {
         try {
-          const tlSvc = await getOrCreateService(conn);
+          const tlSvc = await getOrCreateService(conn2);
           const info = await tlSvc.getAccountInfo();
           accounts.push({
-            accountId: conn.accountId,
-            accountType: conn.accountType,
+            accountId: conn2.accountId,
+            accountType: conn2.accountType,
             balance: info.balance || 0,
             equity: info.equity || 0,
             currency: info.currency || "USD"
           });
           totalBalance += info.balance || 0;
           totalEquity += info.equity || 0;
-          global.tlAccountBalances[userId][conn.accountId] = info.balance || 0;
-          console.log(`[TL balance] Account ${conn.accountId}: balance=$${info.balance} equity=$${info.equity}`);
+          global.tlAccountBalances[userId][conn2.accountId] = info.balance || 0;
+          console.log(`[TL balance] Account ${conn2.accountId}: balance=$${info.balance} equity=$${info.equity}`);
         } catch (err) {
-          console.warn(`[TL balance] Failed for account ${conn.accountId}:`, err.message);
-          accounts.push({ accountId: conn.accountId, accountType: conn.accountType, balance: 0, equity: 0, error: err.message });
+          console.warn(`[TL balance] Failed for account ${conn2.accountId}:`, err.message);
+          accounts.push({ accountId: conn2.accountId, accountType: conn2.accountType, balance: 0, equity: 0, error: err.message });
         }
       }
       res.json({ totalBalance, totalEquity, accounts });
@@ -60281,24 +60278,24 @@ Rules:
     if (connections.length === 0) return res.json({ accounts: [], totalUnrealizedPl: 0 });
     const accounts = [];
     let totalUnrealizedPl = 0;
-    for (const conn of connections) {
+    for (const conn2 of connections) {
       try {
-        const svc = await getOrCreateService(conn);
+        const svc = await getOrCreateService(conn2);
         const positions = await svc.getPositionsNormalized();
         totalUnrealizedPl += positions.reduce((s, p) => s + p.unrealizedPl, 0);
         accounts.push({
-          connectionId: conn.id,
-          accountId: conn.accountId,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
+          connectionId: conn2.id,
+          accountId: conn2.accountId,
+          accountType: conn2.accountType,
+          broker: conn2.brokerName || "TradeLocker",
           positions
         });
       } catch (err) {
         accounts.push({
-          connectionId: conn.id,
-          accountId: conn.accountId,
-          accountType: conn.accountType,
-          broker: conn.brokerName || "TradeLocker",
+          connectionId: conn2.id,
+          accountId: conn2.accountId,
+          accountType: conn2.accountType,
+          broker: conn2.brokerName || "TradeLocker",
           positions: [],
           error: err?.message || "fetch failed"
         });
@@ -61637,7 +61634,7 @@ Format each recommendation as a clear, concise action item.`;
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
         if (!isFinite(p) || p === 0) return;
-        const tk = `tl_${o.id || o.positionId || o.orderId}`;
+        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === "tl_undefined") return;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
@@ -61672,12 +61669,12 @@ Format each recommendation as a clear, concise action item.`;
         });
         added++;
       };
-      for (const conn of active) {
+      for (const conn2 of active) {
         try {
-          const svc = await getOrCreateService(conn);
+          const svc = await getOrCreateService(conn2);
           const closedTrades = await svc.getClosedTradesWithPnl(fromTs);
           for (const o of closedTrades) {
-            await saveOrder(o, conn.id);
+            await saveOrder(o, conn2.id);
           }
         } catch (_) {
         }
@@ -64209,13 +64206,13 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const tlDbDailyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const tlDbWeeklyPnl = Math.round(tlDbResults.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const _tlCache = global.tlAccountData?.[userId] || {};
-      await Promise.all(active.map(async (conn) => {
+      await Promise.all(active.map(async (conn2) => {
         try {
-          const svc = await getOrCreateService(conn);
+          const svc = await getOrCreateService(conn2);
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
           let balance = 0, equity = 0;
-          const cached2 = _tlCache[conn.accountId];
+          const cached2 = _tlCache[conn2.accountId];
           const cacheFresh = cached2 && !cached2.error && Date.now() - new Date(cached2.lastUpdated).getTime() < 12e4;
           if (cacheFresh) {
             balance = cached2.balance ?? 0;
@@ -64226,12 +64223,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
             equity = balData?.equity ?? balance;
           }
           tlAccounts.push({
-            id: conn.id,
-            email: conn.email,
-            accountId: conn.accountId,
-            accountType: conn.accountType,
-            accountName: conn.accountName,
-            brokerName: conn.brokerName || conn.serverId || "TradeLocker",
+            id: conn2.id,
+            email: conn2.email,
+            accountId: conn2.accountId,
+            accountType: conn2.accountType,
+            accountName: conn2.accountName,
+            brokerName: conn2.brokerName || conn2.serverId || "TradeLocker",
             balance,
             equity,
             unrealizedPnl: unrealized,
@@ -64241,12 +64238,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           });
         } catch (e) {
           tlAccounts.push({
-            id: conn.id,
-            email: conn.email,
-            accountId: conn.accountId,
-            accountType: conn.accountType,
+            id: conn2.id,
+            email: conn2.email,
+            accountId: conn2.accountId,
+            accountType: conn2.accountType,
             error: e.message,
-            brokerName: conn.brokerName || conn.serverId || "TradeLocker",
+            brokerName: conn2.brokerName || conn2.serverId || "TradeLocker",
             balance: 0,
             equity: 0,
             unrealizedPnl: 0,
@@ -64328,9 +64325,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     try {
       if (type === "tradelocker") {
         const connId = parseInt(req.params.id, 10);
-        const conn = await storage.getTradelockerConnection(connId);
-        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
-        const svc = await getOrCreateService(conn);
+        const conn2 = await storage.getTradelockerConnection(connId);
+        if (!conn2 || conn2.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+        const svc = await getOrCreateService(conn2);
         const [balData, positions] = await Promise.all([
           svc.getAccountInfo().catch((e) => ({ error: e.message })),
           svc.getPositions().catch(() => [])
@@ -64350,22 +64347,22 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         return res.json({
           type: "tradelocker",
           id: connId,
-          name: conn.brokerName || conn.serverId || "TradeLocker",
-          accountType: conn.accountType,
-          accountId: conn.accountId,
+          name: conn2.brokerName || conn2.serverId || "TradeLocker",
+          accountType: conn2.accountType,
+          accountId: conn2.accountId,
           balance,
           equity,
           currency: balData?.currency ?? "USD",
           error: accountError,
           goal: {
-            target: conn.weeklyProfitTarget ?? 0,
-            progress: conn.weeklyProfitTarget ? Math.min(100, Math.round(weeklyPnl / conn.weeklyProfitTarget * 100)) : 0
+            target: conn2.weeklyProfitTarget ?? 0,
+            progress: conn2.weeklyProfitTarget ? Math.min(100, Math.round(weeklyPnl / conn2.weeklyProfitTarget * 100)) : 0
           },
           risk: {
-            useRiskPercent: conn.useRiskPercent,
-            riskPercent: conn.riskPercent,
-            lotMultiplier: conn.lotMultiplier,
-            gateMode: conn.gateMode
+            useRiskPercent: conn2.useRiskPercent,
+            riskPercent: conn2.riskPercent,
+            lotMultiplier: conn2.lotMultiplier,
+            gateMode: conn2.gateMode
           },
           pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate: winRate2, totalTrades: closed.length },
           dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
@@ -64430,19 +64427,19 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       }
       if (type === "alpaca" || type === "tastytrade") {
         const connId = parseInt(req.params.id, 10);
-        const conn = type === "alpaca" ? await storage.getAlpacaConnection(connId) : await storage.getTastytradeConnection(connId);
-        if (!conn || conn.userId !== userId) return res.status(404).json({ error: "Connection not found" });
+        const conn2 = type === "alpaca" ? await storage.getAlpacaConnection(connId) : await storage.getTastytradeConnection(connId);
+        if (!conn2 || conn2.userId !== userId) return res.status(404).json({ error: "Connection not found" });
         let balData = null, accountError = null;
         try {
           if (type === "alpaca") {
             const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
-            const secret = decryptApiSecret3(conn.encryptedApiSecret);
-            const service = new AlpacaService(conn.accountType, conn.apiKeyId, secret);
+            const secret = decryptApiSecret3(conn2.encryptedApiSecret);
+            const service = new AlpacaService(conn2.accountType, conn2.apiKeyId, secret);
             balData = await service.authenticate();
           } else {
             const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
-            const password = decryptTastytradePassword(conn.encryptedPassword);
-            const service = new TastyTradeService(conn.accountType, conn.username, password);
+            const password = decryptTastytradePassword(conn2.encryptedPassword);
+            const service = new TastyTradeService(conn2.accountType, conn2.username, password);
             balData = await service.authenticate();
           }
         } catch (e) {
@@ -64461,8 +64458,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           type,
           id: connId,
           name: type === "alpaca" ? "Alpaca" : "TastyTrade",
-          accountType: conn.accountType,
-          accountId: type === "alpaca" ? conn.accountId : conn.accountNumber,
+          accountType: conn2.accountType,
+          accountId: type === "alpaca" ? conn2.accountId : conn2.accountNumber,
           balance: balData?.balance ?? 0,
           equity: balData?.equity ?? balData?.balance ?? 0,
           currency: balData?.currency ?? "USD",
@@ -64496,26 +64493,26 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       storage.getUserTastytradeConnections(userId)
     ]);
     const accounts = await Promise.all([
-      ...alpacaConns.map(async (conn) => {
+      ...alpacaConns.map(async (conn2) => {
         try {
           const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
-          const secret = decryptApiSecret3(conn.encryptedApiSecret);
-          const service = new AlpacaService(conn.accountType, conn.apiKeyId, secret);
+          const secret = decryptApiSecret3(conn2.encryptedApiSecret);
+          const service = new AlpacaService(conn2.accountType, conn2.apiKeyId, secret);
           const info = await service.authenticate();
-          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+          return { id: conn2.id, broker: "alpaca", label: "Alpaca", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
         } catch (e) {
-          return { id: conn.id, broker: "alpaca", label: "Alpaca", balance: 0, equity: 0, currency: "USD", error: e.message };
+          return { id: conn2.id, broker: "alpaca", label: "Alpaca", balance: 0, equity: 0, currency: "USD", error: e.message };
         }
       }),
-      ...tastyConns.map(async (conn) => {
+      ...tastyConns.map(async (conn2) => {
         try {
           const { decryptPassword: decryptTastytradePassword } = await Promise.resolve().then(() => (init_tastytrade(), tastytrade_exports));
-          const password = decryptTastytradePassword(conn.encryptedPassword);
-          const service = new TastyTradeService(conn.accountType, conn.username, password);
+          const password = decryptTastytradePassword(conn2.encryptedPassword);
+          const service = new TastyTradeService(conn2.accountType, conn2.username, password);
           const info = await service.authenticate();
-          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
+          return { id: conn2.id, broker: "tastytrade", label: "TastyTrade", balance: info.balance, equity: info.equity, currency: info.currency, error: null };
         } catch (e) {
-          return { id: conn.id, broker: "tastytrade", label: "TastyTrade", balance: 0, equity: 0, currency: "USD", error: e.message };
+          return { id: conn2.id, broker: "tastytrade", label: "TastyTrade", balance: 0, equity: 0, currency: "USD", error: e.message };
         }
       })
     ]);
@@ -71871,8 +71868,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!copierConnectionId) {
         return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
       }
-      const conn = await storage.getTradelockerConnection(copierConnectionId);
-      if (!conn || conn.userId !== userId || !conn.isActive) {
+      const conn2 = await storage.getTradelockerConnection(copierConnectionId);
+      if (!conn2 || conn2.userId !== userId || !conn2.isActive) {
         return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
       }
     }
@@ -71914,8 +71911,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (accountType === "real") {
         const targetConnId = copierConnectionId ?? (await db.execute(sql9`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`))[0]?.[0]?.copier_connection_id;
         if (!targetConnId) return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
-        const conn = await storage.getTradelockerConnection(targetConnId);
-        if (!conn || conn.userId !== userId || !conn.isActive) {
+        const conn2 = await storage.getTradelockerConnection(targetConnId);
+        if (!conn2 || conn2.userId !== userId || !conn2.isActive) {
           return res.status(400).json({ error: "Selected TradeLocker connection is invalid or not yours" });
         }
       }
