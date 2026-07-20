@@ -1204,7 +1204,7 @@ export class TradeLockerService {
    */
   async getClosedPositions(fromTs?: number): Promise<any[]> {
     const closed = await this.getClosedTradesWithPnl(fromTs);
-    return closed.map(c => ({ id: c.id, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
+    return closed.map(c => ({ id: c.id, positionId: c.positionId, symbol: c.symbol, side: c.side, profit: c.profit, closeTime: c.closeTime, qty: c.qty }));
   }
 
   async getPositions(): Promise<any[]> {

@@ -5095,7 +5095,9 @@ IMPORTANT:
         try {
           // Adam (pNInz6obpgDQGcFmaJgB) — deep, natural American male. Perfect for ABBA's urban authority.
           // eleven_turbo_v2_5 = lowest latency + highest naturalness of any current model.
-          // stability 0.5 + style 0.15 = natural, street-intelligent delivery without sounding robotic.
+          // Lower stability + higher style = wider emotional range per-sentence (hype, concern,
+          // pride) instead of a flat, evenly-modulated read — the "sounds like a real person
+          // reacting" quality, not a narrator quality.
           const requestedVoiceId = req.body.voiceId as string | undefined;
           const ELEVENLABS_VOICE_ID = requestedVoiceId || process.env.ELEVENLABS_VOICE_ID || 'pNInz6obpgDQGcFmaJgB'; // Adam (male)
           const elRes = await fetch(
@@ -5107,9 +5109,9 @@ IMPORTANT:
                 text: clean,
                 model_id: 'eleven_turbo_v2_5',
                 voice_settings: {
-                  stability: 0.48,       // slight variation for natural cadence
-                  similarity_boost: 0.82,
-                  style: 0.18,           // more personality/expressiveness for urban tone
+                  stability: 0.32,       // lower = more natural pitch/pace variation instead of a flat monotone read
+                  similarity_boost: 0.8,
+                  style: 0.4,            // pushed up for real emotional inflection — hype, concern, urgency come through
                   use_speaker_boost: true,
                 },
               }),
@@ -8306,7 +8308,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         const hour = now.getUTCHours();
         const detectedSession = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
 
-        for (const closedTrade of closedTrades) {
+        for (const closedTrade of newTrades) {
           if (closedTrade.ticket) {
             const existingResult = await storage.getAiTradeResultByTicket(token.userId, closedTrade.ticket.toString());
             const tradeResult = closedTrade.profit > 0 ? 'WIN' : (closedTrade.profit < 0 ? 'LOSS' : 'BREAKEVEN');
@@ -8318,7 +8320,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 result: tradeResult,
                 exitPrice: closedTrade.closePrice || 0,
                 profitLoss: closedTrade.profit || 0,
-                closedAt: new Date(),
+                closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now()),
               });
               try {
                 const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
@@ -8345,7 +8347,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   source: 'mt5_ea',
                   mt5Ticket: closedTrade.ticket.toString(),
                   notes: `EA closed trade`,
-                  closedAt: new Date(),
+                  closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now()),
                 } as any);
               } catch (_createErr) { /* non-critical */ }
             }
@@ -11951,12 +11953,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           tlUnrealizedPnL += connUnrealized;
           console.log(`[daily-summary] TL ${conn.accountId}: unrealized=$${connUnrealized.toFixed(2)} (${positions.length} positions)`);
 
-          // Realized P&L from today's filled orders
-          const filledOrders = await tlSvc.getFilledOrders(todayStartTs).catch(() => []);
+          // Realized P&L from this week's closed trades (paired entry/exit fills
+          // with actual computed profit — getFilledOrders' raw rows have no
+          // profit field, which previously made this loop a silent no-op:
+          // tlTodayClosedPnL/tlWeekClosedPnL always added 0, and the goalTracker
+          // feed's `order.profit !== undefined` guard was always false).
+          // NOTE: tlTodayClosedPnL/tlWeekClosedPnL are intentionally NOT summed
+          // here — syncTradeLockerOutcomes() (called above, line ~11887) already
+          // writes these same closed trades into ai_trade_results, which todayDb/
+          // weekDb below already include. Adding them again here would double-count
+          // the $ total (the exact bug just fixed on the MT5 side).
+          const closedTrades = await tlSvc.getClosedTradesWithPnl(todayStartTs).catch(() => []);
           let connTodayPnL = 0;
           let connWeekPnL = 0;
 
-          // Dedup guard — each order only feeds goalTracker once per server session
+          // Dedup guard — each position only feeds goalTracker once per server session
           (global as any).tlProcessedOrders = (global as any).tlProcessedOrders || {};
           (global as any).tlProcessedOrders[userId] = (global as any).tlProcessedOrders[userId] || new Set();
           const _tlProcessed: Set<string> = (global as any).tlProcessedOrders[userId];
@@ -11965,24 +11976,24 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const _nowH = new Date().getUTCHours();
           const _tlSession = _nowH < 7 ? 'Asian' : _nowH < 13 ? 'London' : _nowH < 20 ? 'New York' : 'Late NY';
 
-          for (const order of filledOrders) {
-            const closeTs = order.closeTime ? new Date(order.closeTime).getTime() : 0;
-            if (closeTs >= todayStart.getTime()) { tlTodayClosedPnL += (order.profit || 0); connTodayPnL += (order.profit || 0); }
-            if (closeTs >= weekStart.getTime())  { tlWeekClosedPnL  += (order.profit || 0); connWeekPnL  += (order.profit || 0); }
+          for (const trade of closedTrades) {
+            const closeTs = trade.closeTime ? new Date(trade.closeTime).getTime() : 0;
+            if (closeTs >= todayStart.getTime()) connTodayPnL += (trade.profit || 0);
+            if (closeTs >= weekStart.getTime())  connWeekPnL  += (trade.profit || 0);
 
-            // Feed TL closed orders into goalTracker for weekly P&L monitors
-            const _orderId = (order.orderId ?? order.id ?? order.tradeId)?.toString();
-            if (_orderId && !_tlProcessed.has(_orderId) && closeTs >= weekStart.getTime() && order.profit !== undefined) {
-              _tlProcessed.add(_orderId);
+            // Feed TL closed trades into goalTracker for weekly P&L monitors
+            const _posId = trade.positionId?.toString();
+            if (_posId && !_tlProcessed.has(_posId) && closeTs >= weekStart.getTime()) {
+              _tlProcessed.add(_posId);
               _tlRecordResult(userId, {
-                symbol: (order.symbol || 'UNKNOWN').toUpperCase(),
-                profit: order.profit || 0,
+                symbol: (trade.symbol || 'UNKNOWN').toUpperCase(),
+                profit: trade.profit || 0,
                 strategy: 'tradelocker',
                 session: _tlSession,
               });
             }
           }
-          console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${filledOrders.length} filled orders)`);
+          console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {
           console.error(`[daily-summary] TL ${conn.accountId} error:`, (connErr as Error).message);
         }
@@ -16324,7 +16335,11 @@ Format each recommendation as a clear, concise action item.`;
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
         if (!isFinite(p) || p === 0) return; // skip entries (zero P&L = position not yet closed)
-        const tk = `tl_${o.id || o.positionId || o.orderId}`;
+        // Match the ticket format tradelocker-sync.ts uses when it first logs the
+        // position as PENDING (`tl_<accountId>_<positionId>`) so this sync updates
+        // that same row instead of creating a second, differently-keyed duplicate
+        // (previously keyed by the exit order's own id, which never matched).
+        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === 'tl_undefined') return;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {

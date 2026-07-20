@@ -3240,6 +3240,9 @@ export default function WeeklyStrategyPage() {
                                     ))}
                                   </div>
                                 )}
+                                {act.details?.reason && (
+                                  <p className="mt-1 text-[10px] text-purple-300/80 italic border-l border-purple-500/30 pl-2 leading-snug">{act.details.reason}</p>
+                                )}
                                 {act.details?.marketOverview && (
                                   <p className="mt-1 text-[10px] text-cyan-300/80 italic border-l border-cyan-500/30 pl-2">{act.details.marketOverview}</p>
                                 )}

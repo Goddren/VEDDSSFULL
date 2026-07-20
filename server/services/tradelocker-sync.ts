@@ -85,7 +85,11 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
     const closedTicketIds = Array.from(previousTickets).filter(t => !currentTickets.has(t));
     if (closedTicketIds.length > 0) {
       const closed = await svc.getClosedPositions().catch(() => [] as any[]);
-      const closedById = new Map<string, any>(closed.map((c: any) => [`tl_${conn.accountId}_${c.id}`, c] as [string, any]));
+      // Keyed by positionId — matches the ticket format used when the position
+      // was first logged as PENDING (`tl_<accountId>_<positionId>`). Previously
+      // this was keyed by the exit order's own id, which never matched the
+      // PENDING ticket, so every close silently fell back to profit=0/BREAKEVEN.
+      const closedById = new Map<string, any>(closed.map((c: any) => [`tl_${conn.accountId}_${c.positionId}`, c] as [string, any]));
       for (const ticket of closedTicketIds) {
         const existing = await storage.getAiTradeResultByTicket(userId, ticket);
         if (!existing || existing.result !== 'PENDING') continue;
@@ -95,7 +99,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
-          closedAt: new Date(),
+          closedAt: match?.closeTime ? new Date(match.closeTime) : new Date(),
         } as any);
       }
     }
