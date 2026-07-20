@@ -3278,13 +3278,13 @@ export default function WeeklyStrategyPage() {
                                   {data.change >= 0 ? '+' : ''}{data.change}%
                                 </span>
                                 <span className="text-gray-500">RSI {data.rsi}</span>
-                                {data.relativeVolume && (
+                                {data.volumeTrend && (
                                   <Badge className={`text-[8px] px-1 py-0 ${
-                                    data.relativeVolume === 'surging' ? 'bg-emerald-500/20 text-emerald-400' :
-                                    data.relativeVolume === 'above_average' ? 'bg-blue-500/20 text-blue-400' :
-                                    data.relativeVolume === 'dry' ? 'bg-red-500/20 text-red-400' :
+                                    data.volumeTrend === 'surging' ? 'bg-emerald-500/20 text-emerald-400' :
+                                    data.volumeTrend === 'above_average' ? 'bg-blue-500/20 text-blue-400' :
+                                    data.volumeTrend === 'dry' ? 'bg-red-500/20 text-red-400' :
                                     'bg-gray-500/20 text-gray-400'
-                                  }`}>{data.relativeVolume?.replace('_', ' ')}</Badge>
+                                  }`}>{data.volumeTrend.replace('_', ' ')}</Badge>
                                 )}
                               </div>
                             </div>

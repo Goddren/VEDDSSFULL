@@ -2053,39 +2053,49 @@ async function applyServerSideTrails(
     });
 
     if (tlConnections.length > 0) {
-      const positionId = pos.ticket || pos.id || null;
-      if (positionId) {
-        for (const tlConn of tlConnections) {
-          try {
-            const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
-              action: 'MODIFY',
+      for (const tlConn of tlConnections) {
+        try {
+          // pos.ticket is an MT5 ticket number — meaningless on TradeLocker,
+          // which assigns its own position IDs per account. Resolve THIS
+          // account's own matching open position instead of forwarding the
+          // MT5 ticket (same fix as the CLOSE/MODIFY decision path below).
+          const svc = await getTradeLockerService(tlConn);
+          const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+          const matchDir = (pos.direction || 'BUY').toUpperCase();
+          const tlMatch = tlPositions.find((p: any) =>
+            (p.symbol || '').toUpperCase().replace('/', '') === pos.symbol?.toUpperCase().replace('/', '') &&
+            (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL')
+          );
+          if (!tlMatch) continue; // no matching position on this account — nothing to trail here
+
+          const trailResult = await executeMT5SignalOnTradeLocker(tlConn, {
+            action: 'MODIFY',
+            symbol: pos.symbol,
+            direction: pos.direction || 'BUY',
+            volume: 0,
+            stopLoss: Math.round(newSL * 100000) / 100000,
+            takeProfit: pos.tp || undefined,
+            positionId: tlMatch.id,
+          });
+          if (trailResult.success) {
+            addActivity(userId, {
+              type: 'position_update',
               symbol: pos.symbol,
-              direction: pos.direction || 'BUY',
-              volume: 0,
-              stopLoss: Math.round(newSL * 100000) / 100000,
-              takeProfit: pos.tp || undefined,
-              positionId: String(positionId),
+              message: `✅ TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
             });
-            if (trailResult.success) {
-              addActivity(userId, {
-                type: 'position_update',
-                symbol: pos.symbol,
-                message: `✅ TradeLocker trail applied on ${tlConn.accountId}: ${pos.symbol} SL → ${Math.round(newSL * 100000) / 100000}`,
-              });
-            } else {
-              addActivity(userId, {
-                type: 'error',
-                symbol: pos.symbol,
-                message: `⚠️ TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} — ${trailResult.error}`,
-              });
-            }
-          } catch (tlErr: any) {
+          } else {
             addActivity(userId, {
               type: 'error',
               symbol: pos.symbol,
-              message: `⚠️ TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} — ${tlErr.message}`,
+              message: `⚠️ TradeLocker trail failed on ${tlConn.accountId}: ${pos.symbol} — ${trailResult.error}`,
             });
           }
+        } catch (tlErr: any) {
+          addActivity(userId, {
+            type: 'error',
+            symbol: pos.symbol,
+            message: `⚠️ TradeLocker trail error on ${tlConn.accountId}: ${pos.symbol} — ${tlErr.message}`,
+          });
         }
       }
     }
@@ -5131,13 +5141,38 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         activeTLForMgmt.map(async (tlConn: any) => {
           const acctLabel = tlConn.email ? `[${tlConn.email}]` : `[Account ${tlConn.id}]`;
           try {
+            // decision.positionId (when present at all) is resolved from
+            // mt5OpenPositions and is an MT5 ticket number — it has no
+            // relationship to TradeLocker's own position IDs, which are
+            // per-account and assigned independently. Blindly forwarding it
+            // here either 404s against a nonexistent TL position or, when
+            // the AI's decision never included a positionId in the first
+            // place (common — it reasons by symbol, not ticket), hits
+            // "Position ID required" on every connected TL account. Resolve
+            // THIS account's own matching open position by symbol/direction
+            // instead of trusting the MT5-scoped id.
+            const svc = await getTradeLockerService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = (decision.direction || 'BUY').toUpperCase();
+            const tlMatch = tlPositions.find((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '') &&
+              (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL')
+            );
+            if (!tlMatch) {
+              // No open position for this symbol on this account — nothing to
+              // close/modify here (the trade likely lives on MT5 or a
+              // different TL account). Skip silently instead of logging a
+              // confusing "position ID required" error for every account.
+              return;
+            }
+
             if (signalAction === 'CLOSE') {
               const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
                 action: 'CLOSE',
                 symbol: decision.symbol,
                 direction: decision.direction || 'BUY',
                 volume: partialVolume || 0,
-                positionId: decision.positionId,
+                positionId: tlMatch.id,
               });
               if (tradeResult.success) {
                 addActivity(userId, { type: 'trade_close', symbol: decision.symbol, message: `Position CLOSED via TradeLocker ${acctLabel}: ${decision.symbol} - ${decision.reason}` });
@@ -5154,7 +5189,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 volume: 0,
                 stopLoss: newSL,
                 takeProfit: newTP,
-                positionId: decision.positionId,
+                positionId: tlMatch.id,
               });
               if (tradeResult.success) {
                 addActivity(userId, { type: 'position_update', symbol: decision.symbol, message: `Position MODIFIED via TradeLocker ${acctLabel}: ${decision.symbol} | New SL: ${newSL || 'N/A'} | New TP: ${newTP || 'N/A'}` });
