@@ -1239,6 +1239,10 @@ var init_schema = __esm({
       // avoid the volatile open/close minutes
       avoidLastMinutesBeforeClose: integer("avoid_last_minutes_before_close").notNull().default(15),
       // pin-risk / illiquidity guard near close
+      maxSpreadPct: doublePrecision("max_spread_pct").notNull().default(8),
+      // reject a contract if (ask-bid)/mid exceeds this % — wide spreads eat the edge on both entry and exit
+      minOpenInterest: integer("min_open_interest").notNull().default(50),
+      // reject illiquid contracts below this open interest
       // Strategy-specific parameters
       orbRangeMinutes: integer("orb_range_minutes").notNull().default(15),
       // opening range window length
@@ -1381,6 +1385,19 @@ var init_schema = __esm({
       // server restarts (mirrors the FX engine's per-position trail tracking).
       peakPnlPercent: doublePrecision("peak_pnl_percent").notNull().default(0),
       trailArmed: boolean("trail_armed").notNull().default(false),
+      // Trade-detail columns — without these the Options Brain can never calibrate
+      // confidence or break down losses by DTE/IV/spread; previously nothing here
+      // was recorded, so post-hoc "what do the losers have in common" analysis was
+      // structurally impossible no matter how much trade history accumulated.
+      entryConfidence: doublePrecision("entry_confidence"),
+      // the strategy's own 0-100 score at entry
+      dte: integer("dte"),
+      // days-to-expiry of the contract actually traded
+      ivAtEntry: doublePrecision("iv_at_entry"),
+      // raw implied volatility (0-1) at entry
+      underlyingPriceAtEntry: doublePrecision("underlying_price_at_entry"),
+      bidAskSpreadPct: doublePrecision("bid_ask_spread_pct"),
+      // (ask-bid)/mid at entry, as a %
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -4602,7 +4619,13 @@ var init_storage = __esm({
         const totalClosed = rows.length;
         const wins = rows.filter((r) => (r.realizedPnl || 0) > 0).length;
         const winRate2 = totalClosed > 0 ? Math.round(wins / totalClosed * 100) : 0;
-        return { totalClosed, wins, winRate: winRate2 };
+        const chrono = [...rows].sort((a, b) => new Date(b.closedAt ?? b.createdAt).getTime() - new Date(a.closedAt ?? a.createdAt).getTime());
+        let lossStreak = 0;
+        for (const r of chrono) {
+          if ((r.realizedPnl ?? 0) <= 0) lossStreak++;
+          else break;
+        }
+        return { totalClosed, wins, winRate: winRate2, lossStreak };
       }
       async getOptionsEngineDailyPnlHistory(userId, days) {
         const since = /* @__PURE__ */ new Date();
@@ -29834,6 +29857,10 @@ function buildContractKnowledge(trades) {
     if ((t.realizedPnl ?? 0) > 0) byStrategy[t.strategy].wins++;
   }
   const bestStrategies = Object.entries(byStrategy).filter(([, v]) => v.total >= 2).sort((a, b) => b[1].wins / b[1].total - a[1].wins / a[1].total).slice(0, 2).map(([s]) => s);
+  const strategyWinRates = {};
+  for (const [s, v] of Object.entries(byStrategy)) {
+    strategyWinRates[s] = { winRate: Math.round(v.wins / v.total * 100), total: v.total };
+  }
   const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
   let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
   for (const t of chrono) {
@@ -29861,6 +29888,7 @@ function buildContractKnowledge(trades) {
     topHours,
     worstHours,
     bestStrategies,
+    strategyWinRates,
     maxWinStreak,
     maxLossStreak,
     recommendedContractMultiplier
@@ -29898,9 +29926,21 @@ async function computeOptionsBrain(userId) {
   const wins = closed.filter((t) => (t.realizedPnl ?? 0) > 0).length;
   const overallWinRate = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
   const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
+  const CONFIDENCE_STAIRCASE = [85, 80, 75, 70, 65];
   const optimalMinConfidence = {};
   for (const symbol of uniqueSymbols) {
-    optimalMinConfidence[symbol] = 70;
+    const symbolClosed = closed.filter((t) => t.underlyingSymbol === symbol && t.entryConfidence != null);
+    let calibrated = 70;
+    for (const floor of CONFIDENCE_STAIRCASE) {
+      const above = symbolClosed.filter((t) => (t.entryConfidence ?? 0) >= floor);
+      if (above.length < 5) continue;
+      const wr = above.filter((t) => (t.realizedPnl ?? 0) > 0).length / above.length;
+      if (wr >= 0.7) {
+        calibrated = floor;
+        break;
+      }
+    }
+    optimalMinConfidence[symbol] = calibrated;
   }
   const brain = {
     lastLearned: (/* @__PURE__ */ new Date()).toISOString(),
@@ -40489,7 +40529,7 @@ __export(ensure_options_engine_parity_columns_exports, {
 async function ensureOptionsEngineParityColumns() {
   try {
     await pool.query(DDL7);
-    console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras).");
+    console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
@@ -40537,6 +40577,15 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "composite_min_edg
 
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "peak_pnl_percent" double precision NOT NULL DEFAULT 0;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "trail_armed" boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "max_spread_pct" double precision NOT NULL DEFAULT 8;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "min_open_interest" integer NOT NULL DEFAULT 50;
+
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "entry_confidence" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "dte" integer;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "iv_at_entry" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "underlying_price_at_entry" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "bid_ask_spread_pct" double precision;
 `;
   }
 });
@@ -41345,7 +41394,7 @@ function pushOptionsConsensus(userId, entry) {
 async function assembleOptionsConsensus(userId, symbol, result, cfg) {
   const quantVerdict = quantVerdictFromScore(result.score);
   if (cfg.aiMode === "rule_based") {
-    const tradeAllowed2 = quantVerdict !== "SKIP";
+    const tradeAllowed2 = quantVerdict !== "SKIP" && (result.score ?? 0) >= cfg.minConfidence;
     pushOptionsConsensus(userId, {
       symbol,
       strategy: result.strategy,
@@ -41435,6 +41484,15 @@ function daysUntil(dateStr, from) {
   const target = /* @__PURE__ */ new Date(dateStr + "T00:00:00Z");
   return Math.round((target.getTime() - from.getTime()) / (24 * 60 * 6e4));
 }
+function passesLiquidityAndIvGate(c, cfg) {
+  if (!c.bid || c.bid <= 0 || !c.ask || c.ask <= 0) return false;
+  const mid = (c.bid + c.ask) / 2;
+  const spreadPct = mid > 0 ? (c.ask - c.bid) / mid * 100 : Infinity;
+  if (spreadPct > cfg.maxSpreadPct) return false;
+  if ((c.openInterest ?? 0) < cfg.minOpenInterest) return false;
+  if (typeof c.impliedVolatility === "number" && c.impliedVolatility * 100 > cfg.ivRankMax) return false;
+  return true;
+}
 async function resolveContract(service, underlyingSymbol, direction, cfg) {
   const optType = direction === "up" ? "call" : "put";
   const chain = await service.getOptionsChain(underlyingSymbol);
@@ -41444,67 +41502,82 @@ async function resolveContract(service, underlyingSymbol, direction, cfg) {
     const dte = daysUntil(c.expirationDate, now);
     return dte >= cfg.minDaysToExpiry && dte <= cfg.maxDaysToExpiry;
   });
+  candidates = candidates.filter((c) => passesLiquidityAndIvGate(c, cfg));
   if (candidates.length === 0) return null;
-  const targetDte = cfg.expiryPreference === "0dte" ? 0 : cfg.expiryPreference === "weekly" ? 7 : cfg.expiryPreference === "monthly" ? 30 : cfg.minDaysToExpiry;
+  const targetDte = cfg.expiryPreference === "0dte" ? 0 : cfg.expiryPreference === "weekly" ? 7 : cfg.expiryPreference === "monthly" ? 30 : 7;
   const sortedByExpiry = [...candidates].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - targetDte) - Math.abs(daysUntil(b.expirationDate, now) - targetDte));
   const chosenExpiry = sortedByExpiry[0].expirationDate;
   candidates = candidates.filter((c) => c.expirationDate === chosenExpiry);
   const snap = await service.getSnapshot(underlyingSymbol);
   if (!snap) return null;
   const price = snap.price;
+  const bySpread = (a, b) => {
+    const spreadA = a.bid && a.ask ? (a.ask - a.bid) / ((a.ask + a.bid) / 2) : Infinity;
+    const spreadB = b.bid && b.ask ? (b.ask - b.bid) / ((b.ask + b.bid) / 2) : Infinity;
+    return spreadA - spreadB;
+  };
   const sortedByStrike = [...candidates].sort((a, b) => a.strikePrice - b.strikePrice);
   if (cfg.strikeSelectionMode === "delta_target") {
     const withDelta = sortedByStrike.filter((c) => typeof c.delta === "number");
     if (withDelta.length > 0) {
-      return withDelta.sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.targetDelta) - Math.abs(Math.abs(b.delta) - cfg.targetDelta))[0];
+      const byDeltaDistance = withDelta.sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.targetDelta) - Math.abs(Math.abs(b.delta) - cfg.targetDelta));
+      return [...byDeltaDistance.slice(0, 3)].sort(bySpread)[0] ?? byDeltaDistance[0];
     }
   }
   if (cfg.strikeSelectionMode === "itm") {
     const itm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice < price) : sortedByStrike.filter((c) => c.strikePrice > price);
     if (itm.length === 0) return null;
-    return optType === "call" ? itm[itm.length - 1] : itm[0];
+    const closest = optType === "call" ? itm.slice(-3) : itm.slice(0, 3);
+    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? itm[itm.length - 1] : itm[0]);
   }
   if (cfg.strikeSelectionMode === "otm") {
     const otm = optType === "call" ? sortedByStrike.filter((c) => c.strikePrice > price) : sortedByStrike.filter((c) => c.strikePrice < price);
     if (otm.length === 0) return null;
-    return optType === "call" ? otm[0] : otm[otm.length - 1];
+    const closest = optType === "call" ? otm.slice(0, 3) : otm.slice(-3);
+    return [...closest].sort(bySpread)[0] ?? (optType === "call" ? otm[0] : otm[otm.length - 1]);
   }
-  return sortedByStrike.sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price))[0] ?? null;
+  const nearAtm = [...sortedByStrike].sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price)).slice(0, 3);
+  return [...nearAtm].sort(bySpread)[0] ?? null;
 }
-async function computeContractQuantity(userId, cfg, equity, askPrice, signalScore = null) {
+async function computeContractQuantity(userId, cfg, equity, askPrice, signalScore = null, brainMultiplier = null, contractIv = null) {
   if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: "" };
   const contractCost = askPrice * 100;
   const riskAmount = equity * (cfg.riskPerTrade / 100);
-  const baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  let baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  const notes = [];
+  const stats = await storage.getOptionsEngineTradeStats(userId);
+  if (cfg.volatileCapMode === "risk_scaled" && typeof contractIv === "number" && contractIv > 0.5 && baseQty > 1) {
+    baseQty = Math.max(1, Math.floor(baseQty / 2));
+    notes.push(`Volatile Cap: high IV (${(contractIv * 100).toFixed(0)}%) halved base size to ${baseQty}`);
+  }
+  const finalize = (qty, reason) => {
+    if (stats.lossStreak >= 3 && qty > 1) {
+      const relocked = qty > 0 ? 1 : 0;
+      return { quantity: relocked, reasoning: `${reason} \u26A0\uFE0F Loss-streak re-lock: ${stats.lossStreak} losses in a row \u2014 capped to ${relocked} contract.` };
+    }
+    return { quantity: qty, reasoning: [reason, ...notes].filter(Boolean).join(" ") };
+  };
   if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
-    const kelly = cfg.useKellyCriterion ? await storage.getOptionsEngineTradeStats(userId) : null;
-    const qty = kelly ? Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + kelly.winRate / 100 * 0.25)))) : baseQty;
-    return { quantity: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock \u2014 ${qty} contracts.` };
+    const qty = brainMultiplier != null ? Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier))) : baseQty;
+    return finalize(qty, `\u26A1 High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock \u2014 ${qty} contracts.`);
   }
   if (cfg.brainLearningMode) {
-    const stats = await storage.getOptionsEngineTradeStats(userId);
     const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
     if (brainLocked) {
       const lockedQty = baseQty > 0 ? 1 : 0;
-      return {
-        quantity: lockedQty,
-        reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) \u2014 full sizing unlocks automatically.`
-      };
+      return finalize(lockedQty, `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) \u2014 full sizing unlocks automatically.`);
     }
-    if (cfg.useKellyCriterion) {
-      const fractionalKelly = stats.winRate / 100 * 0.25;
-      const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
-      return { quantity: kellyQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing: ${kellyQty} contracts.` };
+    if (cfg.useKellyCriterion && brainMultiplier != null) {
+      const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+      return finalize(kellyQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + real Kelly sizing (${brainMultiplier.toFixed(2)}x): ${kellyQty} contracts.`);
     }
-    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing active.` };
+    return finalize(baseQty, `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing active.`);
   }
-  if (cfg.useKellyCriterion) {
-    const stats = await storage.getOptionsEngineTradeStats(userId);
-    const fractionalKelly = stats.winRate / 100 * 0.25;
-    const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
-    return { quantity: kellyQty, reasoning: `Kelly Criterion sizing (${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.` };
+  if (cfg.useKellyCriterion && brainMultiplier != null) {
+    const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+    return finalize(kellyQty, `Kelly Criterion sizing (${brainMultiplier.toFixed(2)}x, ${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.`);
   }
-  return { quantity: baseQty, reasoning: "" };
+  return finalize(baseQty, "");
 }
 async function checkSafetyGates(userId, cfg, equity) {
   if (cfg.maxDailyTrades > 0) {
@@ -41561,7 +41634,7 @@ async function checkSafetyGates(userId, cfg, equity) {
   }
   return { allowed: true, riskMultiplier };
 }
-async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg) {
+async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
   if (!result.direction) return;
   let account;
   try {
@@ -41596,6 +41669,36 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     });
     return;
   }
+  if (gate.riskMultiplier < 1) {
+    if ((result.score ?? 0) < 80) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: underlyingSymbol,
+        decision: "skipped",
+        strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${result.score}/100).`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca"
+      });
+      return;
+    }
+    if (bestStrategies.length > 0 && !bestStrategies.includes(result.strategy)) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: underlyingSymbol,
+        decision: "skipped",
+        strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${result.strategy}" isn't one of them).`,
+        score: result.score,
+        price: result.price,
+        dailyChangePercent: result.dailyChangePercent,
+        source: "alpaca"
+      });
+      return;
+    }
+  }
   const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
   if (!contract || !contract.ask) {
     await storage.createOptionsEngineActivity({
@@ -41603,7 +41706,22 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
       symbol: underlyingSymbol,
       decision: "error",
       strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract was found for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry.`,
+      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract cleared the liquidity/spread filter for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry (max spread ${cfg.maxSpreadPct}%, min OI ${cfg.minOpenInterest}).`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const dte = daysUntil(contract.expirationDate, /* @__PURE__ */ new Date());
+  if (dte <= 1 && (result.score ?? 0) < cfg.minConfidence + 15) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE \u2014 requires ${cfg.minConfidence + 15}%+ confidence for same-day/1-day expiry (this signal: ${result.score}/100).`,
       score: result.score,
       price: result.price,
       dailyChangePercent: result.dailyChangePercent,
@@ -41612,7 +41730,15 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     return;
   }
   const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(userId, sizingCfg, account.equity, contract.ask, result.score);
+  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(
+    userId,
+    sizingCfg,
+    account.equity,
+    contract.ask,
+    result.score,
+    brainMultiplier,
+    contract.impliedVolatility ?? null
+  );
   const sizingReasoning = gate.riskMultiplier < 1 ? `${sizingReasoningRaw} \u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).` : sizingReasoningRaw;
   if (quantity < 1) {
     await storage.createOptionsEngineActivity({
@@ -41628,9 +41754,11 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     });
     return;
   }
+  const entryMid = contract.bid ? Math.round((contract.bid + contract.ask) / 2 * 100) / 100 : contract.ask;
+  const entrySpreadPct = contract.bid ? (contract.ask - contract.bid) / entryMid * 100 : 0;
   let order;
   try {
-    order = await service.placeOrder({ optionSymbol: contract.symbol, side: "buy", quantity, type: "market", timeInForce: "day" });
+    order = await service.placeOrder({ optionSymbol: contract.symbol, side: "buy", quantity, type: "limit", limitPrice: entryMid, timeInForce: "day" });
   } catch (err) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -41654,17 +41782,22 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     strategy: result.strategy,
     optionType: result.direction === "up" ? "call" : "put",
     quantity,
-    entryPrice: contract.ask,
+    entryPrice: entryMid,
     entryOrderId: order.orderId,
     entryReasoning: result.reasoning,
-    status: "open"
+    status: "open",
+    entryConfidence: result.score,
+    dte,
+    ivAtEntry: contract.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price,
+    bidAskSpreadPct: entrySpreadPct
   });
   await storage.createOptionsEngineActivity({
     userId,
     symbol: underlyingSymbol,
     decision: "signal",
     strategy: result.strategy,
-    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
+    reasoning: `${underlyingSymbol}: EXECUTED \u2014 bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}, ${dte} DTE) @ ~$${entryMid.toFixed(2)}/contract (limit, mid of $${contract.bid?.toFixed(2) ?? "?"}/$${contract.ask.toFixed(2)}). ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
     score: result.score,
     price: result.price,
     dailyChangePercent: result.dailyChangePercent,
@@ -41722,7 +41855,8 @@ async function monitorOpenPositions(service, userId, cfg) {
         }
       }
       if (!exitReason) continue;
-      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "market", timeInForce: "day" });
+      const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
+      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "limit", limitPrice: exitLimitPrice, timeInForce: "day" });
       const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
       await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
       await storage.createOptionsEngineActivity({
@@ -41792,6 +41926,7 @@ async function scanOneUser(userId) {
   const symbolDaySchedule = config.symbolDaySchedule || {};
   const symbolDirectionOverrides = config.symbolDirectionOverrides || {};
   const symbolContractOverrides = config.symbolContractOverrides || {};
+  const brain = await getOrRefreshOptionsBrain(userId).catch(() => null);
   const symbols = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
@@ -41813,7 +41948,24 @@ async function scanOneUser(userId) {
           symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
         }
       }
-      const result = await scanSymbol(service, symbol, symbolCfg);
+      let result = await scanSymbol(service, symbol, symbolCfg);
+      const symbolKnowledge = brain?.contractKnowledge?.[symbol];
+      if (result.decision === "signal" && symbolKnowledge) {
+        const stratStats = symbolKnowledge.strategyWinRates?.[result.strategy];
+        if (stratStats && stratStats.total >= 5 && stratStats.winRate < 45) {
+          result = {
+            ...result,
+            decision: "skipped",
+            reasoning: `${symbol}: ${result.reasoning} \u2014 BLOCKED by brain: "${result.strategy}" has only a ${stratStats.winRate}% win rate on ${symbol} over ${stratStats.total} trades.`
+          };
+        } else if (symbolKnowledge.preferredDirection !== "both" && symbolKnowledge.totalTrades >= 5 && (symbolKnowledge.preferredDirection === "call" && result.direction === "down" || symbolKnowledge.preferredDirection === "put" && result.direction === "up") && (result.score ?? 0) < symbolCfg.minConfidence + 15) {
+          result = {
+            ...result,
+            decision: "watching",
+            reasoning: `${symbol}: ${result.reasoning} \u2014 brain shows a strong ${symbolKnowledge.preferredDirection.toUpperCase()} bias on ${symbol}; this counter-bias signal needs ${symbolCfg.minConfidence + 15}%+ confidence (has ${result.score}/100).`
+          };
+        }
+      }
       await storage.createOptionsEngineActivity({
         userId,
         symbol,
@@ -41828,10 +41980,12 @@ async function scanOneUser(userId) {
       if (result.decision === "signal" && canAutoExecute) {
         const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e) => {
           console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
-          return true;
+          return false;
         });
         if (tradeAllowed) {
-          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg).catch(
+          const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
+          const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
+          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
             (e) => console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
           );
         } else {
@@ -41891,6 +42045,7 @@ var init_options_scanner = __esm({
     "use strict";
     init_storage();
     init_alpaca();
+    init_options_brain();
     MIN_SCAN_INTERVAL_MS = 3e4;
     lastScanAt = /* @__PURE__ */ new Map();
     STRATEGY_RUNNERS = {
