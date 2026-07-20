@@ -63,6 +63,37 @@ const SERVICE_CACHE_TTL = 50 * 60 * 1000;
 const RETRY_DELAYS = [1000, 2000];
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+// Per-connection login-rate-limit circuit breaker. authenticate()/refreshAccessToken()
+// hit the broker's login endpoint directly (not through the generic retryable
+// request() wrapper), so a 429 there previously threw immediately with no
+// backoff — and every subsequent call to getOrCreateService for that SAME
+// connection (the 20s background TL-sync loop, platform-monitors polls, a
+// user repeatedly clicking "Connect") retried the exact same login instantly,
+// re-triggering the broker's rate limit every cycle forever. That's why one
+// specific account (whichever one actually got rate-limited, e.g. a stricter
+// white-label broker) could get stuck failing indefinitely — including its
+// balance, since every fetch first needs a service instance that never
+// authenticates — while other, unaffected connections traded/synced fine.
+const AUTH_429_COOLDOWN_MS = 5 * 60 * 1000;
+const authCooldownUntil = new Map<string, number>();
+
+// Keyed by string so both an existing connection (String(connId)) and a
+// not-yet-created one (serverId:accountId, used by the initial "Connect"
+// form which authenticates before any DB row exists) share the same breaker.
+export function isOnAuth429Cooldown(key: string): number {
+  const until = authCooldownUntil.get(key) || 0;
+  return until > Date.now() ? until - Date.now() : 0;
+}
+
+export function noteAuthResult(key: string, err: unknown): void {
+  const is429 = err instanceof Error && /(^|\D)429(\D|$)/.test(err.message);
+  if (is429) {
+    authCooldownUntil.set(key, Date.now() + AUTH_429_COOLDOWN_MS);
+  } else {
+    authCooldownUntil.delete(key);
+  }
+}
+
 export function encryptPassword(password: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
   const salt = crypto.randomBytes(SALT_LENGTH);
@@ -1425,18 +1456,39 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
     try {
       service.setTokens(connection.accessToken, connection.refreshToken);
       const refreshed = await service.refreshAccessToken(connection.refreshToken);
+      noteAuthResult(String(connId), null);
       await persistTokens(connection, refreshed.accessToken, refreshed.refreshToken, refreshed.expiresIn, service.getResolvedAccNum());
     } catch (refreshErr) {
       console.log('[TradeLocker] Token refresh failed — falling back to full auth');
-      const password = decryptPassword(connection.encryptedPassword);
-      const authResult = await service.authenticate(connection.email, password);
-      await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      const cooldownMs = isOnAuth429Cooldown(String(connId));
+      if (cooldownMs > 0) {
+        throw new Error(`TradeLocker login is rate-limited (429) for this account — cooling down for another ${Math.ceil(cooldownMs / 1000)}s before retrying, to avoid making the rate limit worse.`);
+      }
+      try {
+        const password = decryptPassword(connection.encryptedPassword);
+        const authResult = await service.authenticate(connection.email, password);
+        noteAuthResult(String(connId), null);
+        await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+      } catch (authErr) {
+        noteAuthResult(String(connId), authErr);
+        throw authErr;
+      }
     }
   } else {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account — cooling down for another ${Math.ceil(cooldownMs / 1000)}s before retrying, to avoid making the rate limit worse.`);
+    }
     console.log('[TradeLocker] No cached tokens — performing full auth');
-    const password = decryptPassword(connection.encryptedPassword);
-    const authResult = await service.authenticate(connection.email, password);
-    await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const authResult = await service.authenticate(connection.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
   }
 
   // After lazy resolveAccNum completes (e.g. on first placeOrder/getAccountInfo), persist the accNum so
@@ -1457,10 +1509,20 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
   };
 
   service.onReauthenticate = async () => {
+    const cooldownMs = isOnAuth429Cooldown(String(connId));
+    if (cooldownMs > 0) {
+      throw new Error(`TradeLocker login is rate-limited (429) for this account — cooling down for another ${Math.ceil(cooldownMs / 1000)}s before retrying.`);
+    }
     console.log('[TradeLocker] Full re-authentication triggered via callback');
-    const password = decryptPassword(connection.encryptedPassword);
-    const authResult = await service.authenticate(connection.email, password);
-    await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    try {
+      const password = decryptPassword(connection.encryptedPassword);
+      const authResult = await service.authenticate(connection.email, password);
+      noteAuthResult(String(connId), null);
+      await persistTokens(connection, authResult.accessToken, authResult.refreshToken, authResult.expiresIn, service.getResolvedAccNum());
+    } catch (authErr) {
+      noteAuthResult(String(connId), authErr);
+      throw authErr;
+    }
   };
 
   serviceCache.set(connId, { service, createdAt: Date.now() });

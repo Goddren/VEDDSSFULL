@@ -61,7 +61,7 @@ import { newsService, type NewsItem, type NewsSentiment } from "./news-service";
 import { sendSubscriptionConfirmation } from "./email";
 import { extractFramesFromVideo, cleanupFrames } from "./video-processor";
 import { getGoldSentiment, getMockGoldSentiment, isTelegramConfigured } from "./telegram-sentiment";
-import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue } from "./tradelocker";
+import { encryptPassword, executeMT5SignalOnTradeLocker, TradeLockerService, decryptPassword, getOrCreateService as tlGetOrCreateService, getTLAccountValue, isOnAuth429Cooldown as tlIsOnAuth429Cooldown, noteAuthResult as tlNoteAuthResult } from "./tradelocker";
 import { getPipSize, getPipValue } from "./utils/pipUtils";
 import { getTLRisk } from "./services/tl-risk-settings";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
@@ -14616,6 +14616,21 @@ Rules:
       return res.status(400).json({ error: "Missing required fields: email, password, serverId, accountId" });
     }
 
+    // Login-rate-limit circuit breaker — this handler previously tried BOTH
+    // demo and live auth on every submission (2 raw login calls with zero
+    // backoff), so retrying a failed connect a few times could trip the
+    // broker's own login rate limit within seconds. Once that happens, keep
+    // retrying only makes it worse and never recovers — check/track the
+    // cooldown by serverId+accountId (no DB connection row exists yet at this
+    // point, so connection.id isn't available as a key).
+    const cooldownKey = `${serverId}:${accountId}`;
+    const cooldownMs = tlIsOnAuth429Cooldown(cooldownKey);
+    if (cooldownMs > 0) {
+      return res.status(429).json({
+        error: `TradeLocker is rate-limiting login attempts for this account — wait ${Math.ceil(cooldownMs / 1000)}s before trying again. Retrying immediately will extend the rate limit, not fix it.`,
+      });
+    }
+
     // Test connection FIRST — authenticate before encrypting anything.
     // TradeLocker demo and live accounts live on entirely different API hosts
     // (demo.tradelocker.com vs live.tradelocker.com) — the Account Type dropdown
@@ -14628,6 +14643,7 @@ Rules:
     let resolvedAccountType: 'demo' | 'live' = accountType === 'demo' ? 'demo' : 'live';
     const attemptOrder: Array<'demo' | 'live'> = resolvedAccountType === 'demo' ? ['demo', 'live'] : ['live', 'demo'];
     let lastErr: string = 'Unknown error';
+    let lastErrObj: unknown = null;
     let authenticated = false;
     for (const tryType of attemptOrder) {
       try {
@@ -14637,12 +14653,15 @@ Rules:
         if (accNum && accNum !== '0') resolvedAccNum = accNum;
         resolvedAccountType = tryType;
         authenticated = true;
+        tlNoteAuthResult(cooldownKey, null);
         break;
       } catch (err) {
         lastErr = err instanceof Error ? err.message : 'Unknown error';
+        lastErrObj = err;
       }
     }
     if (!authenticated) {
+      tlNoteAuthResult(cooldownKey, lastErrObj);
       return res.status(400).json({ error: `TradeLocker login failed: ${lastErr}` });
     }
 
@@ -14819,7 +14838,16 @@ Rules:
     if (!connection) {
       return res.status(404).json({ error: "No connection found" });
     }
-    
+
+    const cooldownKey = String(connection.id);
+    const cooldownMs = tlIsOnAuth429Cooldown(cooldownKey);
+    if (cooldownMs > 0) {
+      return res.status(429).json({
+        success: false,
+        error: `TradeLocker is rate-limiting login attempts for this account — wait ${Math.ceil(cooldownMs / 1000)}s before trying again. Retrying immediately will extend the rate limit, not fix it.`,
+      });
+    }
+
     try {
       const password = decryptPassword(connection.encryptedPassword);
       const service = new TradeLockerService(
@@ -14829,8 +14857,9 @@ Rules:
         connection.accNum || undefined
       );
       await service.authenticate(connection.email, password);
+      tlNoteAuthResult(cooldownKey, null);
       const accountInfo = await service.getAccountInfo();
-      
+
       const resolvedAccNum = service.getResolvedAccNum();
       const updateData: any = {
         lastConnectedAt: new Date(),
@@ -14840,9 +14869,10 @@ Rules:
         updateData.accNum = resolvedAccNum;
       }
       await storage.updateTradelockerConnection(connection.id, updateData);
-      
+
       res.json({ success: true, account: accountInfo });
     } catch (err) {
+      tlNoteAuthResult(cooldownKey, err);
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       await storage.updateTradelockerConnection(connection.id, {
         lastError: errorMsg,
