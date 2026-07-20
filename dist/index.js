@@ -2694,6 +2694,11 @@ var init_schema = __esm({
       // (one per pair or pair group) instead of just one blended listing. Null/
       // empty = all pairs in this category, preserving the original behavior.
       symbolFilter: jsonb("symbol_filter"),
+      // Opt-in only — manually-logged (discretionary) trades live in a separate
+      // table (ai_trade_results) from AI-confirmed trades and are excluded from
+      // the snapshot unless the seller explicitly includes them. Surfaced to
+      // buyers so they know whether a listing covers AI-only or AI+manual history.
+      includesManualTrades: boolean("includes_manual_trades").default(false).notNull(),
       title: text("title").notNull(),
       description: text("description"),
       priceVedd: integer("price_vedd").notNull(),
@@ -5401,7 +5406,7 @@ var init_storage = __esm({
       // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
       // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
       // old unfiltered behavior (used nowhere anymore, kept for safety).
-      async getOutcomesForListing(userId, sourceCategory, symbols) {
+      async getOutcomesForListing(userId, sourceCategory, symbols, includeManualTrades) {
         const conditions = [
           eq(aiConfirmationOutcomes.userId, userId),
           sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`
@@ -5414,7 +5419,51 @@ var init_storage = __esm({
         if (symbols && symbols.length) {
           conditions.push(inArray(aiConfirmationOutcomes.symbol, symbols));
         }
-        return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+        const rows = await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+        if (includeManualTrades && sourceCategory !== "tradelocker") {
+          const manualConditions = [
+            eq(aiTradeResults.userId, userId),
+            eq(aiTradeResults.source, "manual"),
+            sql`${aiTradeResults.result} IS NOT NULL`,
+            sql`${aiTradeResults.result} != 'PENDING'`
+          ];
+          if (symbols && symbols.length) manualConditions.push(inArray(aiTradeResults.symbol, symbols));
+          const manualRows = await db.select().from(aiTradeResults).where(and(...manualConditions));
+          for (const r of manualRows) {
+            rows.push({
+              id: -r.id,
+              userId: r.userId,
+              symbol: r.symbol,
+              timeframe: r.timeframe,
+              direction: r.direction,
+              confluenceGrade: null,
+              confluenceScore: null,
+              session: null,
+              ictMacroValid: null,
+              smcVerdict: null,
+              adxValue: null,
+              rsiValue: null,
+              macdDirection: null,
+              htfAligned: null,
+              newsConflict: null,
+              aiDecision: "MANUAL",
+              aiConfidence: r.aiConfidence,
+              proposedConfidence: null,
+              tradeOutcome: r.result,
+              actualPips: r.profitLossPips,
+              confirmedAt: r.closedAt ?? r.createdAt,
+              closedAt: r.closedAt,
+              tradeSource: "manual",
+              modelUsed: null,
+              providerUsed: null,
+              reasoningText: null,
+              bullCase: null,
+              bearCase: null,
+              deepReasoningUsed: false
+            });
+          }
+        }
+        return rows;
       }
       // Matches an active listing by (sellerId, sourceCategory, symbolFilter) —
       // relisting the SAME pair scope replaces that specific brain with a fresh
@@ -71941,12 +71990,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const { title, description, priceVedd, sourceCategory, symbols } = req.body;
+      const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
       const category = sourceCategory === "tradelocker" ? "tradelocker" : "forex";
       const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
+      const manualOptIn = !!includeManualTrades && category === "forex";
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0);
+      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST2) {
         return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades${symbolFilter ? ` on ${symbolFilter.join("/")}` : ""} to list (you have ${rows.length}).` });
       }
@@ -71958,6 +72008,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         sellerId: userId,
         sourceCategory: category,
         symbolFilter,
+        includesManualTrades: manualOptIn,
         title,
         description: description || null,
         priceVedd: finalPrice,
@@ -71996,8 +72047,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : "forex";
       const symbolsParam = typeof req.query.symbols === "string" ? req.query.symbols : "";
       const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const manualOptIn = req.query.includeManualTrades === "true" && category === "forex";
       const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0);
+      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST2) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
       }
@@ -74561,7 +74613,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
       await db.execute(sql11`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
       await db.execute(sql11`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
-      console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter columns verified.");
+      await db.execute(sql11`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
+      console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter/includes_manual_trades columns verified.");
     } catch (err) {
       console.error("[startup] Workforce certificate/city columns migration (non-fatal):", err.message);
     }

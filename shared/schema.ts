@@ -2526,6 +2526,11 @@ export const brainDataListings = pgTable("brain_data_listings", {
   // (one per pair or pair group) instead of just one blended listing. Null/
   // empty = all pairs in this category, preserving the original behavior.
   symbolFilter: jsonb("symbol_filter"),
+  // Opt-in only — manually-logged (discretionary) trades live in a separate
+  // table (ai_trade_results) from AI-confirmed trades and are excluded from
+  // the snapshot unless the seller explicitly includes them. Surfaced to
+  // buyers so they know whether a listing covers AI-only or AI+manual history.
+  includesManualTrades: boolean("includes_manual_trades").default(false).notNull(),
   title: text("title").notNull(),
   description: text("description"),
   priceVedd: integer("price_vedd").notNull(),

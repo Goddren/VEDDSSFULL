@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
 import BrainVisualization3D from '@/components/brain-visualization-3d';
@@ -20,6 +21,7 @@ interface BrainListing {
   sellerUsername: string;
   sourceCategory: SourceCategory;
   symbolFilter: string[] | null;
+  includesManualTrades: boolean;
   title: string;
   description: string | null;
   priceVedd: number;
@@ -50,6 +52,10 @@ export default function BrainDataMarketplacePage() {
   const [description, setDescription] = useState('');
   const [customPrice, setCustomPrice] = useState('');
   const [symbolsInput, setSymbolsInput] = useState('');
+  // Manually-logged (discretionary) trades live in a separate table from
+  // AI-confirmed trades and are excluded by default — opt-in only, and only
+  // meaningful for the forex/MT5 category (manual logging is MT5-side).
+  const [includeManualTrades, setIncludeManualTrades] = useState(false);
   // Sellers can list two separate brains — one built only from MT5/EA-triggered
   // forex signals, one built only from TradeLocker-executed trades — rather
   // than one blended listing. Within a category, an optional pair scope
@@ -63,10 +69,12 @@ export default function BrainDataMarketplacePage() {
   const { data: wallet } = useQuery<{ veddBalance: number }>({ queryKey: ['/api/wallet/balance'] });
   const { data: listings = [], isLoading } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace'] });
   const { data: myListings = [] } = useQuery<BrainListing[]>({ queryKey: ['/api/brain-marketplace/my-listings'] });
+  const manualOptInActive = includeManualTrades && sellCategory === 'forex';
+
   const { data: preview } = useQuery<PreviewStats>({
-    queryKey: ['/api/brain-marketplace/my-listings/preview', sellCategory, symbols.join(',')],
+    queryKey: ['/api/brain-marketplace/my-listings/preview', sellCategory, symbols.join(','), manualOptInActive],
     queryFn: async () => {
-      const res = await apiRequest('GET', `/api/brain-marketplace/my-listings/preview?sourceCategory=${sellCategory}&symbols=${encodeURIComponent(symbols.join(','))}`);
+      const res = await apiRequest('GET', `/api/brain-marketplace/my-listings/preview?sourceCategory=${sellCategory}&symbols=${encodeURIComponent(symbols.join(','))}&includeManualTrades=${manualOptInActive}`);
       return res.json();
     },
   });
@@ -84,6 +92,7 @@ export default function BrainDataMarketplacePage() {
         priceVedd: customPrice ? parseInt(customPrice, 10) : undefined,
         sourceCategory: sellCategory,
         symbols: symbols.length ? symbols : undefined,
+        includeManualTrades: manualOptInActive,
       });
       return res.json();
     },
@@ -188,6 +197,23 @@ export default function BrainDataMarketplacePage() {
               Scoping to specific pairs lets you sell multiple, separate brains at once (e.g. an EURUSD-only brain and a USDJPY-only brain). Re-listing the same pair scope updates that brain with your latest trades instead of creating a duplicate.
             </p>
 
+            {sellCategory === 'forex' && (
+              <div className="flex items-start gap-2 rounded-lg border p-3">
+                <Checkbox
+                  id="include-manual-trades"
+                  checked={includeManualTrades}
+                  onCheckedChange={c => setIncludeManualTrades(c === true)}
+                  className="mt-0.5"
+                />
+                <label htmlFor="include-manual-trades" className="text-sm cursor-pointer">
+                  <span className="font-semibold">Include my manually-logged trades</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Off by default — your discretionary (manually entered) trades live separately from AI-confirmed trades. Turning this on blends them into this brain, and buyers will see it's marked as including manual trades.
+                  </p>
+                </label>
+              </div>
+            )}
+
             {!preview?.eligible ? (
               <p className="text-sm text-muted-foreground">
                 You need at least {preview?.minTradesRequired ?? 10} completed trades{symbols.length ? ` on ${symbols.join('/')}` : ''} to list this brain (you have {preview?.tradeCount ?? 0}).
@@ -222,7 +248,7 @@ export default function BrainDataMarketplacePage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-sm truncate">{l.title}</p>
                       <p className="text-xs text-muted-foreground">
-                        {l.symbolFilter?.length ? l.symbolFilter.join('/') : 'All pairs'} · {l.tradeCount} trades · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
+                        {l.symbolFilter?.length ? l.symbolFilter.join('/') : 'All pairs'} · {l.tradeCount} trades{l.includesManualTrades ? ' (incl. manual)' : ''} · {l.priceVedd} VEDD · {l.purchaseCount} sold ({l.purchaseCount * l.priceVedd} VEDD earned)
                       </p>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => deactivateMutation.mutate(l.id)} disabled={deactivateMutation.isPending}>
@@ -252,6 +278,9 @@ export default function BrainDataMarketplacePage() {
                       {listing.symbolFilter?.length ? (
                         <Badge variant="outline" className="w-fit text-xs border-purple-500/40 text-purple-400">{listing.symbolFilter.join('/')}</Badge>
                       ) : null}
+                      {listing.includesManualTrades && (
+                        <Badge variant="outline" className="w-fit text-xs border-amber-500/40 text-amber-400">Includes manual trades</Badge>
+                      )}
                     </div>
                     <CardTitle className="text-lg">{listing.title}</CardTitle>
                     <CardDescription>by {listing.sellerUsername}</CardDescription>

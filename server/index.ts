@@ -1228,7 +1228,8 @@ async function withRetry<T>(
       await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
       await db.execute(sql`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
       await db.execute(sql`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
-      console.log('[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter columns verified.');
+      await db.execute(sql`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
+      console.log('[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter/includes_manual_trades columns verified.');
     } catch (err) {
       console.error('[startup] Workforce certificate/city columns migration (non-fatal):', (err as Error).message);
     }

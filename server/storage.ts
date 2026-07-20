@@ -626,7 +626,7 @@ export interface IStorage {
   getBrainPurchaseByListingAndBuyer(listingId: number, buyerId: number): Promise<BrainDataPurchase | undefined>;
   createBrainPurchase(purchase: InsertBrainDataPurchase): Promise<BrainDataPurchase>;
   getUserBrainPurchases(buyerId: number): Promise<(BrainDataPurchase & { listing: BrainDataListing })[]>;
-  getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[]): Promise<AiConfirmationOutcome[]>;
+  getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[], includeManualTrades?: boolean): Promise<AiConfirmationOutcome[]>;
   importBrainDataSnapshot(buyerId: number, snapshotData: any[]): Promise<number>;
 
   // Ambassador Free Path Journey
@@ -3333,7 +3333,7 @@ export class DatabaseStorage implements IStorage {
   // to 'ai_confirmation'); 'tradelocker' = trades executed/mirrored through
   // a linked TradeLocker connection ('breakout'/'ea_only'). Omit to get the
   // old unfiltered behavior (used nowhere anymore, kept for safety).
-  async getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[]): Promise<AiConfirmationOutcome[]> {
+  async getOutcomesForListing(userId: number, sourceCategory?: 'forex' | 'tradelocker', symbols?: string[], includeManualTrades?: boolean): Promise<AiConfirmationOutcome[]> {
     const conditions = [
       eq(aiConfirmationOutcomes.userId, userId),
       sql`${aiConfirmationOutcomes.tradeSource} IS DISTINCT FROM 'purchased_brain'`,
@@ -3346,7 +3346,57 @@ export class DatabaseStorage implements IStorage {
     if (symbols && symbols.length) {
       conditions.push(inArray(aiConfirmationOutcomes.symbol, symbols));
     }
-    return await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+    const rows = await db.select().from(aiConfirmationOutcomes).where(and(...conditions));
+
+    // Manually-logged (discretionary) trades live in a separate table and
+    // are excluded by default — a seller must explicitly opt in. They only
+    // ever come from the MT5/dashboard side, so they're merged into 'forex'
+    // listings only (never 'tradelocker'). Mapped into the same shape so
+    // downstream pricing/stat/import code doesn't need to know the difference.
+    if (includeManualTrades && sourceCategory !== 'tradelocker') {
+      const manualConditions = [
+        eq(aiTradeResults.userId, userId),
+        eq(aiTradeResults.source, 'manual'),
+        sql`${aiTradeResults.result} IS NOT NULL`,
+        sql`${aiTradeResults.result} != 'PENDING'`,
+      ];
+      if (symbols && symbols.length) manualConditions.push(inArray(aiTradeResults.symbol, symbols));
+      const manualRows = await db.select().from(aiTradeResults).where(and(...manualConditions));
+      for (const r of manualRows) {
+        rows.push({
+          id: -r.id,
+          userId: r.userId,
+          symbol: r.symbol,
+          timeframe: r.timeframe,
+          direction: r.direction,
+          confluenceGrade: null,
+          confluenceScore: null,
+          session: null,
+          ictMacroValid: null,
+          smcVerdict: null,
+          adxValue: null,
+          rsiValue: null,
+          macdDirection: null,
+          htfAligned: null,
+          newsConflict: null,
+          aiDecision: 'MANUAL',
+          aiConfidence: r.aiConfidence,
+          proposedConfidence: null,
+          tradeOutcome: r.result,
+          actualPips: r.profitLossPips,
+          confirmedAt: r.closedAt ?? r.createdAt,
+          closedAt: r.closedAt,
+          tradeSource: 'manual',
+          modelUsed: null,
+          providerUsed: null,
+          reasoningText: null,
+          bullCase: null,
+          bearCase: null,
+          deepReasoningUsed: false,
+        } as AiConfirmationOutcome);
+      }
+    }
+    return rows;
   }
 
   // Matches an active listing by (sellerId, sourceCategory, symbolFilter) —

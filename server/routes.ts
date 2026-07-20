@@ -28701,15 +28701,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const { title, description, priceVedd, sourceCategory, symbols } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[] };
+      const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
       if (!title) return res.status(400).json({ error: "title is required" });
       const category: 'forex' | 'tradelocker' = sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
       const symbolFilter = Array.isArray(symbols) && symbols.length
         ? symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean)
         : null;
+      const manualOptIn = !!includeManualTrades && category === 'forex';
 
       const { computeListingStats, clampPrice, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? undefined);
+      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? undefined, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST) {
         return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} ${category === 'tradelocker' ? 'TradeLocker' : 'forex/MT5'} trades${symbolFilter ? ` on ${symbolFilter.join('/')}` : ''} to list (you have ${rows.length}).` });
       }
@@ -28726,6 +28727,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         sellerId: userId,
         sourceCategory: category,
         symbolFilter,
+        includesManualTrades: manualOptIn,
         title,
         description: description || null,
         priceVedd: finalPrice,
@@ -28771,8 +28773,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const category: 'forex' | 'tradelocker' = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
       const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
       const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      const manualOptIn = req.query.includeManualTrades === 'true' && category === 'forex';
       const { computeListingStats, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : undefined);
+      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : undefined, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST });
       }
