@@ -22,6 +22,7 @@ interface ContractKnowledge {
   topHours: { hour: number; winRate: number; total: number }[];
   worstHours: { hour: number; winRate: number; total: number }[];
   bestStrategies: string[];
+  strategyWinRates: Record<string, { winRate: number; total: number }>; // every strategy seen, not just the top-2 — lets the scanner check the SPECIFIC fired strategy, not just whether it made the shortlist
   maxWinStreak: number;
   maxLossStreak: number;
   recommendedContractMultiplier: number; // Kelly-clamped 0.25-1.5, same clamp as FX
@@ -77,6 +78,10 @@ function buildContractKnowledge(trades: OptionsEngineTrade[]): ContractKnowledge
     .sort((a, b) => (b[1].wins / b[1].total) - (a[1].wins / a[1].total))
     .slice(0, 2)
     .map(([s]) => s);
+  const strategyWinRates: Record<string, { winRate: number; total: number }> = {};
+  for (const [s, v] of Object.entries(byStrategy)) {
+    strategyWinRates[s] = { winRate: Math.round((v.wins / v.total) * 100), total: v.total };
+  }
 
   // Win/loss streaks, in chronological order.
   const chrono = [...closed].sort((a, b) => new Date(a.closedAt ?? a.createdAt).getTime() - new Date(b.closedAt ?? b.createdAt).getTime());
@@ -94,7 +99,7 @@ function buildContractKnowledge(trades: OptionsEngineTrade[]): ContractKnowledge
   return {
     totalTrades: closed.length, winRate, avgWinPct, avgLossPct, riskRewardRatio,
     preferredDirection, callWinRate, putWinRate, topHours, worstHours,
-    bestStrategies, maxWinStreak, maxLossStreak, recommendedContractMultiplier,
+    bestStrategies, strategyWinRates, maxWinStreak, maxLossStreak, recommendedContractMultiplier,
   };
 }
 
@@ -134,11 +139,24 @@ async function computeOptionsBrain(userId: number): Promise<any> {
   const overallWinRate = closed.length > 0 ? Math.round((wins / closed.length) * 100) : 0;
   const totalProfit = closed.reduce((s, t) => s + (t.realizedPnl ?? 0), 0);
 
-  // Per-symbol calibrated minimum confidence — same staircase FX uses (85/80/75/70/65),
-  // picking the lowest gate whose above-threshold trades still clear 70% WR.
+  // Per-symbol calibrated minimum confidence — same staircase FX uses
+  // (85/80/75/70/65), picking the lowest gate whose above-threshold trades
+  // still clear 70% WR. Requires entryConfidence to have been recorded at
+  // trade time (added alongside this fix) — trades from before that column
+  // existed have entryConfidence = null and are excluded from the calibration,
+  // falling back to the 70 default until enough post-fix trades accumulate.
+  const CONFIDENCE_STAIRCASE = [85, 80, 75, 70, 65];
   const optimalMinConfidence: Record<string, number> = {};
   for (const symbol of uniqueSymbols) {
-    optimalMinConfidence[symbol] = 70; // default; per-trade score isn't stored today, so this stays a fixed calibrated floor
+    const symbolClosed = closed.filter(t => t.underlyingSymbol === symbol && t.entryConfidence != null);
+    let calibrated = 70;
+    for (const floor of CONFIDENCE_STAIRCASE) {
+      const above = symbolClosed.filter(t => (t.entryConfidence ?? 0) >= floor);
+      if (above.length < 5) continue; // not enough samples at this floor to trust it
+      const wr = above.filter(t => (t.realizedPnl ?? 0) > 0).length / above.length;
+      if (wr >= 0.70) { calibrated = floor; break; }
+    }
+    optimalMinConfidence[symbol] = calibrated;
   }
 
   const brain = {

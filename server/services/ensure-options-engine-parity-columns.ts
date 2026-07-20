@@ -44,12 +44,21 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "composite_min_edg
 
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "peak_pnl_percent" double precision NOT NULL DEFAULT 0;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "trail_armed" boolean NOT NULL DEFAULT false;
+
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "max_spread_pct" double precision NOT NULL DEFAULT 8;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "min_open_interest" integer NOT NULL DEFAULT 50;
+
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "entry_confidence" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "dte" integer;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "iv_at_entry" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "underlying_price_at_entry" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "bid_ask_spread_pct" double precision;
 `;
 
 export async function ensureOptionsEngineParityColumns(): Promise<void> {
   try {
     await pool.query(DDL);
-    console.log('[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras).');
+    console.log('[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).');
   } catch (err: any) {
     console.error('[startup] ensureOptionsEngineParityColumns failed (non-fatal):', err?.message ?? err);
   }

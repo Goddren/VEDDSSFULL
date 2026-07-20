@@ -2120,13 +2120,21 @@ export class DatabaseStorage implements IStorage {
     return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
   }
 
-  async getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
+  async getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number; lossStreak: number }> {
     const rows = await db.select().from(optionsEngineTrades)
       .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed')));
     const totalClosed = rows.length;
     const wins = rows.filter(r => (r.realizedPnl || 0) > 0).length;
     const winRate = totalClosed > 0 ? Math.round((wins / totalClosed) * 100) : 0;
-    return { totalClosed, wins, winRate };
+    // Current consecutive-loss streak (most recent trades backward) — used to
+    // re-lock position sizing after a losing run, since the Kelly math below
+    // only ever scaled size UP and never re-tightened after a drawdown.
+    const chrono = [...rows].sort((a, b) => new Date(b.closedAt ?? b.createdAt).getTime() - new Date(a.closedAt ?? a.createdAt).getTime());
+    let lossStreak = 0;
+    for (const r of chrono) {
+      if ((r.realizedPnl ?? 0) <= 0) lossStreak++; else break;
+    }
+    return { totalClosed, wins, winRate, lossStreak };
   }
 
   async getOptionsEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {

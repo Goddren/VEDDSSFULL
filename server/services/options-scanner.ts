@@ -10,6 +10,7 @@
 import { storage } from '../storage';
 import { AlpacaService, decryptApiSecret, type AlpacaOptionContract } from '../alpaca';
 import type { OptionsEngineConfig, AlpacaConnection } from '../../shared/schema';
+import { getOrRefreshOptionsBrain } from './options-brain';
 
 const MIN_SCAN_INTERVAL_MS = 30000; // never scan a single user faster than this
 const lastScanAt = new Map<number, number>();
@@ -421,8 +422,11 @@ async function assembleOptionsConsensus(userId: number, symbol: string, result: 
   const quantVerdict = quantVerdictFromScore(result.score);
 
   if (cfg.aiMode === 'rule_based') {
-    // No AI call — quant-only consensus. Quant SKIP hard-blocks; CONFIRM/WATCH proceed.
-    const tradeAllowed = quantVerdict !== 'SKIP';
+    // No AI call — quant-only consensus. Quant SKIP hard-blocks; CONFIRM/WATCH
+    // proceed only if the score also clears the user's own minConfidence —
+    // previously this used a fixed 65 floor regardless of what the user set,
+    // so a lower minConfidence setting had no effect on rule_based mode.
+    const tradeAllowed = quantVerdict !== 'SKIP' && (result.score ?? 0) >= cfg.minConfidence;
     pushOptionsConsensus(userId, {
       symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0,
       aiVerdict: 'CONFIRM', aiConfidence: 0, aiReasoning: 'Rule-based mode — AI confirmation skipped.',
@@ -533,6 +537,23 @@ function daysUntil(dateStr: string, from: Date): number {
   return Math.round((target.getTime() - from.getTime()) / (24 * 60 * 60000));
 }
 
+// Spread/liquidity/IV-approximation gate — options need this more than stocks
+// since a wide bid-ask spread eats the whole edge before the trade even moves,
+// and buying rich premium at a high IV level structurally favors the seller.
+// Note: Alpaca's snapshot endpoint gives raw impliedVolatility, not a true
+// historical IV-rank percentile (that needs 1yr+ IV history this codebase
+// doesn't fetch anywhere) — cfg.ivRankMax is applied here as an approximate
+// raw-IV cap (IV*100) until real IV-rank data is wired in.
+function passesLiquidityAndIvGate(c: AlpacaOptionContract, cfg: OptionsEngineConfig): boolean {
+  if (!c.bid || c.bid <= 0 || !c.ask || c.ask <= 0) return false;
+  const mid = (c.bid + c.ask) / 2;
+  const spreadPct = mid > 0 ? ((c.ask - c.bid) / mid) * 100 : Infinity;
+  if (spreadPct > cfg.maxSpreadPct) return false;
+  if ((c.openInterest ?? 0) < cfg.minOpenInterest) return false;
+  if (typeof c.impliedVolatility === 'number' && c.impliedVolatility * 100 > cfg.ivRankMax) return false;
+  return true;
+}
+
 async function resolveContract(service: AlpacaService, underlyingSymbol: string, direction: 'up' | 'down', cfg: OptionsEngineConfig): Promise<AlpacaOptionContract | null> {
   const optType: 'call' | 'put' = direction === 'up' ? 'call' : 'put';
   const chain = await service.getOptionsChain(underlyingSymbol);
@@ -543,9 +564,14 @@ async function resolveContract(service: AlpacaService, underlyingSymbol: string,
     const dte = daysUntil(c.expirationDate, now);
     return dte >= cfg.minDaysToExpiry && dte <= cfg.maxDaysToExpiry;
   });
+  candidates = candidates.filter(c => passesLiquidityAndIvGate(c, cfg));
   if (candidates.length === 0) return null;
 
-  const targetDte = cfg.expiryPreference === '0dte' ? 0 : cfg.expiryPreference === 'weekly' ? 7 : cfg.expiryPreference === 'monthly' ? 30 : cfg.minDaysToExpiry;
+  // 'auto' no longer targets the absolute minimum DTE (often 1) — theta decay
+  // is steepest in the final days before expiry, so the default now aims for
+  // a ~7-day (weekly-equivalent) contract unless the user explicitly chose
+  // '0dte'/'weekly'/'monthly'.
+  const targetDte = cfg.expiryPreference === '0dte' ? 0 : cfg.expiryPreference === 'weekly' ? 7 : cfg.expiryPreference === 'monthly' ? 30 : 7;
   const sortedByExpiry = [...candidates].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - targetDte) - Math.abs(daysUntil(b.expirationDate, now) - targetDte));
   const chosenExpiry = sortedByExpiry[0].expirationDate;
   candidates = candidates.filter(c => c.expirationDate === chosenExpiry);
@@ -554,74 +580,106 @@ async function resolveContract(service: AlpacaService, underlyingSymbol: string,
   if (!snap) return null;
   const price = snap.price;
 
+  // Among liquid candidates at the chosen expiry, prefer the tightest spread
+  // when multiple strikes are otherwise equally valid for the selection mode.
+  const bySpread = (a: AlpacaOptionContract, b: AlpacaOptionContract) => {
+    const spreadA = a.bid && a.ask ? (a.ask - a.bid) / ((a.ask + a.bid) / 2) : Infinity;
+    const spreadB = b.bid && b.ask ? (b.ask - b.bid) / ((b.ask + b.bid) / 2) : Infinity;
+    return spreadA - spreadB;
+  };
+
   const sortedByStrike = [...candidates].sort((a, b) => a.strikePrice - b.strikePrice);
 
   if (cfg.strikeSelectionMode === 'delta_target') {
     const withDelta = sortedByStrike.filter(c => typeof c.delta === 'number');
     if (withDelta.length > 0) {
-      return withDelta.sort((a, b) => Math.abs(Math.abs(a.delta!) - cfg.targetDelta) - Math.abs(Math.abs(b.delta!) - cfg.targetDelta))[0];
+      const byDeltaDistance = withDelta.sort((a, b) => Math.abs(Math.abs(a.delta!) - cfg.targetDelta) - Math.abs(Math.abs(b.delta!) - cfg.targetDelta));
+      // Take the 3 closest-delta candidates, then pick the tightest spread among them
+      // rather than blindly taking the single closest-delta strike regardless of liquidity.
+      return [...byDeltaDistance.slice(0, 3)].sort(bySpread)[0] ?? byDeltaDistance[0];
     }
     // no delta data available — fall through to ATM as the safest default
   }
   if (cfg.strikeSelectionMode === 'itm') {
     const itm = optType === 'call' ? sortedByStrike.filter(c => c.strikePrice < price) : sortedByStrike.filter(c => c.strikePrice > price);
     if (itm.length === 0) return null;
-    return optType === 'call' ? itm[itm.length - 1] : itm[0]; // closest ITM strike to spot
+    const closest = optType === 'call' ? itm.slice(-3) : itm.slice(0, 3);
+    return [...closest].sort(bySpread)[0] ?? (optType === 'call' ? itm[itm.length - 1] : itm[0]);
   }
   if (cfg.strikeSelectionMode === 'otm') {
     const otm = optType === 'call' ? sortedByStrike.filter(c => c.strikePrice > price) : sortedByStrike.filter(c => c.strikePrice < price);
     if (otm.length === 0) return null;
-    return optType === 'call' ? otm[0] : otm[otm.length - 1]; // closest OTM strike to spot
+    const closest = optType === 'call' ? otm.slice(0, 3) : otm.slice(-3);
+    return [...closest].sort(bySpread)[0] ?? (optType === 'call' ? otm[0] : otm[otm.length - 1]);
   }
   // atm (default/fallback)
-  return sortedByStrike.sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price))[0] ?? null;
+  const nearAtm = [...sortedByStrike].sort((a, b) => Math.abs(a.strikePrice - price) - Math.abs(b.strikePrice - price)).slice(0, 3);
+  return [...nearAtm].sort(bySpread)[0] ?? null;
 }
 
-// ── Sizing — base risk% sizing, then Brain Learning Mode lock / Kelly boost,
-// mirroring the FX engine's exact same two gates (in the same precedence:
-// Brain lock overrides everything else while it's active). ──────────────────
-async function computeContractQuantity(userId: number, cfg: OptionsEngineConfig, equity: number, askPrice: number, signalScore: number | null = null): Promise<{ quantity: number; reasoning: string }> {
+// ── Sizing — base risk% sizing, then Brain Learning Mode lock / Kelly sizing /
+// volatile-pair cap / loss-streak re-lock, mirroring the FX engine's gates. ──
+// Real fractional-Kelly (via brainMultiplier, from options-brain.ts) can size
+// DOWN as well as up — the previous formula only ever multiplied size up
+// (1 + fraction), so a losing system still got bigger positions.
+async function computeContractQuantity(
+  userId: number, cfg: OptionsEngineConfig, equity: number, askPrice: number,
+  signalScore: number | null = null, brainMultiplier: number | null = null, contractIv: number | null = null,
+): Promise<{ quantity: number; reasoning: string }> {
   if (!askPrice || askPrice <= 0 || equity <= 0) return { quantity: 0, reasoning: '' };
   const contractCost = askPrice * 100; // options are quoted per-share; contract = 100 shares
   const riskAmount = equity * (cfg.riskPerTrade / 100);
-  const baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  let baseQty = Math.max(0, Math.min(Math.floor(riskAmount / contractCost), cfg.maxContractsPerTrade));
+  const notes: string[] = [];
+
+  const stats = await storage.getOptionsEngineTradeStats(userId);
+
+  // Volatile Cap — halve size on richly-priced premium (approximate IV proxy,
+  // same caveat as the entry gate: raw IV, not a true historical IV-rank).
+  if (cfg.volatileCapMode === 'risk_scaled' && typeof contractIv === 'number' && contractIv > 0.5 && baseQty > 1) {
+    baseQty = Math.max(1, Math.floor(baseQty / 2));
+    notes.push(`Volatile Cap: high IV (${(contractIv * 100).toFixed(0)}%) halved base size to ${baseQty}`);
+  }
+
+  const finalize = (qty: number, reason: string): { quantity: number; reasoning: string } => {
+    // Loss-streak re-lock — applies on top of every other sizing path. The old
+    // Kelly math never re-tightened after a drawdown; 3+ losses in a row now
+    // force size back to 1 regardless of how it was otherwise computed.
+    if (stats.lossStreak >= 3 && qty > 1) {
+      const relocked = qty > 0 ? 1 : 0;
+      return { quantity: relocked, reasoning: `${reason} ⚠️ Loss-streak re-lock: ${stats.lossStreak} losses in a row — capped to ${relocked} contract.` };
+    }
+    return { quantity: qty, reasoning: [reason, ...notes].filter(Boolean).join(' ') };
+  };
 
   // High Confidence Override — a 90+ score signal bypasses the Brain Learning
   // lock, same exception the FX engine grants its R:R floor at 88%+ confidence.
   if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
-    const kelly = cfg.useKellyCriterion ? await storage.getOptionsEngineTradeStats(userId) : null;
-    const qty = kelly
-      ? Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + (kelly.winRate / 100) * 0.25))))
+    const qty = brainMultiplier != null
+      ? Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)))
       : baseQty;
-    return { quantity: qty, reasoning: `⚡ High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock — ${qty} contracts.` };
+    return finalize(qty, `⚡ High Confidence Override: ${signalScore}/100 score bypasses Brain Learning lock — ${qty} contracts.`);
   }
 
   if (cfg.brainLearningMode) {
-    const stats = await storage.getOptionsEngineTradeStats(userId);
     const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
     if (brainLocked) {
       const lockedQty = baseQty > 0 ? 1 : 0;
-      return {
-        quantity: lockedQty,
-        reasoning: `🧠 Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) — full sizing unlocks automatically.`,
-      };
+      return finalize(lockedQty, `🧠 Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR) — full sizing unlocks automatically.`);
     }
-    if (cfg.useKellyCriterion) {
-      const fractionalKelly = (stats.winRate / 100) * 0.25;
-      const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
-      return { quantity: kellyQty, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing: ${kellyQty} contracts.` };
+    if (cfg.useKellyCriterion && brainMultiplier != null) {
+      const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+      return finalize(kellyQty, `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + real Kelly sizing (${brainMultiplier.toFixed(2)}x): ${kellyQty} contracts.`);
     }
-    return { quantity: baseQty, reasoning: `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) — full risk sizing active.` };
+    return finalize(baseQty, `🧠 Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) — full risk sizing active.`);
   }
 
-  if (cfg.useKellyCriterion) {
-    const stats = await storage.getOptionsEngineTradeStats(userId);
-    const fractionalKelly = (stats.winRate / 100) * 0.25;
-    const kellyQty = Math.min(cfg.maxContractsPerTrade, Math.max(baseQty, Math.round(baseQty * (1 + fractionalKelly))));
-    return { quantity: kellyQty, reasoning: `Kelly Criterion sizing (${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.` };
+  if (cfg.useKellyCriterion && brainMultiplier != null) {
+    const kellyQty = Math.max(0, Math.min(cfg.maxContractsPerTrade, Math.round(baseQty * brainMultiplier)));
+    return finalize(kellyQty, `Kelly Criterion sizing (${brainMultiplier.toFixed(2)}x, ${stats.winRate}% WR over ${stats.totalClosed} trades): ${kellyQty} contracts.`);
   }
 
-  return { quantity: baseQty, reasoning: '' };
+  return finalize(baseQty, '');
 }
 
 // Session high-watermark for Drawdown Shield — resets on process restart,
@@ -696,7 +754,10 @@ async function checkSafetyGates(userId: number, cfg: OptionsEngineConfig, equity
   return { allowed: true, riskMultiplier };
 }
 
-async function executeSignal(service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<void> {
+async function executeSignal(
+  service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string,
+  result: StrategyResult, cfg: OptionsEngineConfig, brainMultiplier: number | null, bestStrategies: string[],
+): Promise<void> {
   if (!result.direction) return;
 
   // Account info is fetched BEFORE the safety gates so the gates run against
@@ -729,11 +790,49 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
     return;
   }
 
+  // Drawdown Shield strengthening — previously the shield only shrank size
+  // (below), which still let the SAME low-confidence setups fire smaller.
+  // Mirrors the FX engine's shield: while active, additionally demand 80%+
+  // confidence and restrict to the brain's own best-performing strategies
+  // for this symbol (once enough trade history exists to trust that list).
+  if (gate.riskMultiplier < 1) {
+    if ((result.score ?? 0) < 80) {
+      await storage.createOptionsEngineActivity({
+        userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active — only 80%+ confidence setups allowed during drawdown (this signal: ${result.score}/100).`,
+        score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+      });
+      return;
+    }
+    if (bestStrategies.length > 0 && !bestStrategies.includes(result.strategy)) {
+      await storage.createOptionsEngineActivity({
+        userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
+        reasoning: `${underlyingSymbol}: Drawdown Shield active — only this symbol's best-performing strategies (${bestStrategies.join(', ')}) are allowed during drawdown ("${result.strategy}" isn't one of them).`,
+        score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+      });
+      return;
+    }
+  }
+
   const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
   if (!contract || !contract.ask) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'error', strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract was found for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry.`,
+      reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract cleared the liquidity/spread filter for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry (max spread ${cfg.maxSpreadPct}%, min OI ${cfg.minOpenInterest}).`,
+      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+    });
+    return;
+  }
+
+  const dte = daysUntil(contract.expirationDate, new Date());
+  // Theta-safety gate — 0-1 DTE is the most time-decay-hostile a long-premium
+  // position can be; require a materially higher bar than the user's own
+  // minConfidence before taking that risk, rather than treating it the same
+  // as any other expiry.
+  if (dte <= 1 && (result.score ?? 0) < cfg.minConfidence + 15) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
+      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE — requires ${cfg.minConfidence + 15}%+ confidence for same-day/1-day expiry (this signal: ${result.score}/100).`,
       score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
     });
     return;
@@ -742,7 +841,9 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
   // Drawdown Shield / consistency-rule risk reduction applies as a multiplier
   // on the configured risk% before sizing — never on the base cfg object.
   const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(userId, sizingCfg, account.equity, contract.ask, result.score);
+  const { quantity, reasoning: sizingReasoningRaw } = await computeContractQuantity(
+    userId, sizingCfg, account.equity, contract.ask, result.score, brainMultiplier, contract.impliedVolatility ?? null,
+  );
   const sizingReasoning = gate.riskMultiplier < 1
     ? `${sizingReasoningRaw} ⚠️ Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% of normal (Drawdown Shield / consistency rule active).`
     : sizingReasoningRaw;
@@ -755,9 +856,17 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
     return;
   }
 
+  // Marketable limit at the mid (or ask if no bid is quoted) instead of a bare
+  // market order — on options a market order pays the full spread, and this
+  // engine trades short-dated/liquid-filtered contracts where that spread is
+  // still real money. A limit at mid fills almost as fast as market on a
+  // liquid contract but caps the worst-case slippage.
+  const entryMid = contract.bid ? Math.round(((contract.bid + contract.ask) / 2) * 100) / 100 : contract.ask;
+  const entrySpreadPct = contract.bid ? ((contract.ask - contract.bid) / entryMid) * 100 : 0;
+
   let order;
   try {
-    order = await service.placeOrder({ optionSymbol: contract.symbol, side: 'buy', quantity, type: 'market', timeInForce: 'day' });
+    order = await service.placeOrder({ optionSymbol: contract.symbol, side: 'buy', quantity, type: 'limit', limitPrice: entryMid, timeInForce: 'day' });
   } catch (err: any) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'error', strategy: result.strategy,
@@ -771,12 +880,14 @@ async function executeSignal(service: AlpacaService, connection: AlpacaConnectio
     userId, connectionId: connection.id, broker: 'alpaca',
     underlyingSymbol, optionSymbol: contract.symbol, strategy: result.strategy,
     optionType: result.direction === 'up' ? 'call' : 'put', quantity,
-    entryPrice: contract.ask, entryOrderId: order.orderId, entryReasoning: result.reasoning, status: 'open',
-  });
+    entryPrice: entryMid, entryOrderId: order.orderId, entryReasoning: result.reasoning, status: 'open',
+    entryConfidence: result.score, dte, ivAtEntry: contract.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price, bidAskSpreadPct: entrySpreadPct,
+  } as any);
 
   await storage.createOptionsEngineActivity({
     userId, symbol: underlyingSymbol, decision: 'signal', strategy: result.strategy,
-    reasoning: `${underlyingSymbol}: EXECUTED — bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}) @ ~$${contract.ask.toFixed(2)}/contract. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ''}`,
+    reasoning: `${underlyingSymbol}: EXECUTED — bought ${quantity}x ${contract.symbol} (${contract.type}, strike $${contract.strikePrice}, exp ${contract.expirationDate}, ${dte} DTE) @ ~$${entryMid.toFixed(2)}/contract (limit, mid of $${contract.bid?.toFixed(2) ?? '?'}/$${contract.ask.toFixed(2)}). ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ''}`,
     score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
   });
 }
@@ -856,7 +967,13 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
 
       if (!exitReason) continue;
 
-      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: 'sell', quantity: trade.quantity, type: 'market', timeInForce: 'day' });
+      // Limit at the current bid (not market) — a sell limit at bid is
+      // immediately marketable against the best bid in a liquid market (fills
+      // about as fast as a market order would) while capping the worst-case
+      // slippage if the quote is stale or the book is thin, unlike a bare
+      // market order which accepts whatever fill the exchange gives it.
+      const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
+      const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: 'sell', quantity: trade.quantity, type: 'limit', limitPrice: exitLimitPrice, timeInForce: 'day' });
       const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
       await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
       await storage.createOptionsEngineActivity({
@@ -923,6 +1040,11 @@ async function scanOneUser(userId: number): Promise<void> {
   const symbolDirectionOverrides: Record<string, string> = (config.symbolDirectionOverrides as any) || {};
   const symbolContractOverrides: Record<string, number> = (config.symbolContractOverrides as any) || {};
 
+  // Load the Options Brain once per scan cycle — previously computed but
+  // never consumed here, so the "self-learning" brain never actually
+  // influenced a single trade decision (only displayed in the UI).
+  const brain = await getOrRefreshOptionsBrain(userId).catch(() => null);
+
   const symbols: string[] = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
     try {
@@ -954,7 +1076,34 @@ async function scanOneUser(userId: number): Promise<void> {
         }
       }
 
-      const result = await scanSymbol(service, symbol, symbolCfg);
+      let result = await scanSymbol(service, symbol, symbolCfg);
+
+      // Brain-informed strategy/direction gating — the whole point of a
+      // "self-learning brain" is that a strategy or direction with a
+      // demonstrated losing record on THIS symbol should get harder to fire,
+      // not just recorded for the dashboard. Applied only once enough trade
+      // history exists to trust the numbers (min sample sizes below).
+      const symbolKnowledge = brain?.contractKnowledge?.[symbol];
+      if (result.decision === 'signal' && symbolKnowledge) {
+        const stratStats = symbolKnowledge.strategyWinRates?.[result.strategy];
+        if (stratStats && stratStats.total >= 5 && stratStats.winRate < 45) {
+          result = {
+            ...result, decision: 'skipped',
+            reasoning: `${symbol}: ${result.reasoning} — BLOCKED by brain: "${result.strategy}" has only a ${stratStats.winRate}% win rate on ${symbol} over ${stratStats.total} trades.`,
+          };
+        } else if (
+          symbolKnowledge.preferredDirection !== 'both' && symbolKnowledge.totalTrades >= 5 &&
+          ((symbolKnowledge.preferredDirection === 'call' && result.direction === 'down') ||
+           (symbolKnowledge.preferredDirection === 'put' && result.direction === 'up')) &&
+          (result.score ?? 0) < symbolCfg.minConfidence + 15
+        ) {
+          result = {
+            ...result, decision: 'watching',
+            reasoning: `${symbol}: ${result.reasoning} — brain shows a strong ${symbolKnowledge.preferredDirection.toUpperCase()} bias on ${symbol}; this counter-bias signal needs ${symbolCfg.minConfidence + 15}%+ confidence (has ${result.score}/100).`,
+          };
+        }
+      }
+
       await storage.createOptionsEngineActivity({
         userId, symbol, decision: result.decision, reasoning: result.reasoning,
         score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent,
@@ -963,10 +1112,19 @@ async function scanOneUser(userId: number): Promise<void> {
       if (result.decision === 'signal' && canAutoExecute) {
         const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e: any) => {
           console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
-          return true; // consensus check itself failing shouldn't block an otherwise-valid signal
+          // Fail CLOSED — a broken consensus check (e.g. the AI call erroring)
+          // must not silently let an unconfirmed trade through. Previously
+          // this returned true, meaning any consensus failure defaulted to
+          // executing the trade anyway.
+          return false;
         });
         if (tradeAllowed) {
-          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg).catch((e: any) =>
+          // Only trust the brain's real fractional-Kelly multiplier once there's
+          // enough history to calibrate it; otherwise sizing falls back to the
+          // warm-up/ad-hoc paths already inside computeContractQuantity.
+          const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
+          const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
+          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch((e: any) =>
             console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
           );
         } else {

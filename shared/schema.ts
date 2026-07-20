@@ -982,6 +982,8 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   ivRankMax: doublePrecision("iv_rank_max").notNull().default(80), // skip entries when IV rank exceeds this (expensive premium)
   sessionFilterEnabled: boolean("session_filter_enabled").notNull().default(true), // avoid the volatile open/close minutes
   avoidLastMinutesBeforeClose: integer("avoid_last_minutes_before_close").notNull().default(15), // pin-risk / illiquidity guard near close
+  maxSpreadPct: doublePrecision("max_spread_pct").notNull().default(8), // reject a contract if (ask-bid)/mid exceeds this % — wide spreads eat the edge on both entry and exit
+  minOpenInterest: integer("min_open_interest").notNull().default(50), // reject illiquid contracts below this open interest
 
   // Strategy-specific parameters
   orbRangeMinutes: integer("orb_range_minutes").notNull().default(15), // opening range window length
@@ -1123,6 +1125,15 @@ export const optionsEngineTrades = pgTable("options_engine_trades", {
   // server restarts (mirrors the FX engine's per-position trail tracking).
   peakPnlPercent: doublePrecision("peak_pnl_percent").notNull().default(0),
   trailArmed: boolean("trail_armed").notNull().default(false),
+  // Trade-detail columns — without these the Options Brain can never calibrate
+  // confidence or break down losses by DTE/IV/spread; previously nothing here
+  // was recorded, so post-hoc "what do the losers have in common" analysis was
+  // structurally impossible no matter how much trade history accumulated.
+  entryConfidence: doublePrecision("entry_confidence"), // the strategy's own 0-100 score at entry
+  dte: integer("dte"), // days-to-expiry of the contract actually traded
+  ivAtEntry: doublePrecision("iv_at_entry"), // raw implied volatility (0-1) at entry
+  underlyingPriceAtEntry: doublePrecision("underlying_price_at_entry"),
+  bidAskSpreadPct: doublePrecision("bid_ask_spread_pct"), // (ask-bid)/mid at entry, as a %
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
