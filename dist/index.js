@@ -20764,7 +20764,7 @@ var twelve_data_exports = {};
 __export(twelve_data_exports, {
   TwelveDataProvider: () => TwelveDataProvider
 });
-var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, TwelveDataProvider;
+var TWELVE_DATA_BASE_URL, FOREX_PAIRS, CRYPTO_PAIRS, FUTURES_TD_SYMBOL_MAP, INDEX_TD_SYMBOL_MAP, VALID_TD_INDEX_SYMBOLS, INDEX_ALIAS_MAP, TwelveDataProvider;
 var init_twelve_data = __esm({
   "server/market-data/providers/twelve-data.ts"() {
     "use strict";
@@ -20843,6 +20843,56 @@ var init_twelve_data = __esm({
       HK50: "HSI"
       // Hang Seng
     };
+    VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
+    INDEX_ALIAS_MAP = {
+      WS30: "US30",
+      DJIA: "US30",
+      DOW: "US30",
+      DOW30: "US30",
+      DOWJONES: "US30",
+      USA30: "US30",
+      CASH30: "US30",
+      DJA: "US30",
+      WALLST30: "US30",
+      WALLSTREET30: "US30",
+      USWALL: "US30",
+      YM: "US30",
+      USTEC: "US100",
+      NASDAQ100: "US100",
+      NDX100: "US100",
+      NASDAQ: "US100",
+      NQ: "US100",
+      QQQ: "US100",
+      NDAQ: "US100",
+      NA100: "US100",
+      NASUSD: "US100",
+      TECH100: "US100",
+      USTECH100: "US100",
+      NASD100: "US100",
+      NAS100: "US100",
+      SPXUSD: "US500",
+      SP500USD: "US500",
+      USINDEX: "US500",
+      SPX500USD: "US500",
+      ES: "US500",
+      SPXC: "US500",
+      SP500C: "US500",
+      SPXUSDM: "US500",
+      SP500: "US500",
+      SPX500: "US500",
+      FTSE100: "UK100",
+      UKX: "UK100",
+      GER30: "GER40",
+      DAX30: "GER40",
+      DAX40: "GER40",
+      NKY: "JP225",
+      NIKKEI: "JP225",
+      N225: "JP225",
+      AUS200: "AU200",
+      ASX: "AU200",
+      ASX200: "AU200",
+      HSI: "HK50"
+    };
     TwelveDataProvider = class {
       name = "twelvedata";
       supportedAssets = ["forex", "stock", "crypto", "index", "futures"];
@@ -20863,7 +20913,12 @@ var init_twelve_data = __esm({
         }
         if (assetType === "index") {
           const root = normalized.replace(/1!.*$/, "").replace(/:.*$/, "");
-          return INDEX_TD_SYMBOL_MAP[root] || root;
+          if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
+          if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
+          if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
+          const stripped = root.replace(/[.#]/g, "").replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, "");
+          const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
+          return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
         }
         if (!normalized.includes("/")) {
           if (assetType === "forex" && normalized.length === 6) {
@@ -28500,6 +28555,15 @@ function scheduleGapScanner(userId) {
     message: `\u{1F319} Sunday gap scanner scheduled for ${targetSunday.toISOString().slice(0, 16)} UTC (${Math.round(msUntilScan / 36e5)}h away)`
   });
 }
+function getNYTime(ts) {
+  const parts = NY_TIME_FMT.formatToParts(new Date(ts));
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return {
+    hour: get("hour") % 24,
+    minute: get("minute"),
+    dateStr: `${get("year")}-${String(get("month")).padStart(2, "0")}-${String(get("day")).padStart(2, "0")}`
+  };
+}
 async function runORBAutonomousScan(userId) {
   const state = engineStates[userId];
   if (!state) return;
@@ -28507,20 +28571,10 @@ async function runORBAutonomousScan(userId) {
   if (config.enableORBAutonomous === false) return;
   if (!state.orbDailyFired) state.orbDailyFired = {};
   const nowUTC = /* @__PURE__ */ new Date();
-  const estOffsets = [-4, -5];
-  let estHour = -1, estMin = -1;
-  for (const off of estOffsets) {
-    const h = ((nowUTC.getUTCHours() + off) % 24 + 24) % 24;
-    const m = nowUTC.getUTCMinutes();
-    const totalMins = h * 60 + m;
-    if (totalMins >= 9 * 60 + 30 && totalMins < 14 * 60) {
-      estHour = h;
-      estMin = m;
-      break;
-    }
-  }
-  if (estHour === -1) return;
-  const todayKey = nowUTC.toISOString().slice(0, 10);
+  const nowNY = getNYTime(nowUTC.getTime());
+  const nowTotalMins = nowNY.hour * 60 + nowNY.minute;
+  if (nowTotalMins < 9 * 60 + 30 || nowTotalMins >= 15 * 60) return;
+  const todayKey = nowNY.dateStr;
   for (const symbol of config.pairs) {
     try {
       if (state.orbDailyFired[symbol] === todayKey) continue;
@@ -28545,37 +28599,23 @@ async function runORBAutonomousScan(userId) {
       const m5BC = [...m5Bars].reverse().map(toBC);
       const h1BC = [...h1Bars].reverse().map(toBC);
       let orbHigh = 0, orbLow = 0;
-      for (const off of estOffsets) {
-        const orbCandles = m5BC.filter((c) => {
-          if (!c.t) return false;
-          const d = new Date(c.t * 1e3);
-          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
-          const m = d.getUTCMinutes();
-          return h === 9 && m >= 30 && m < 45;
-        });
-        if (orbCandles.length > 0) {
-          orbHigh = Math.max(...orbCandles.map((c) => c.h));
-          orbLow = Math.min(...orbCandles.map((c) => c.l));
-          break;
-        }
+      const orbCandles = m5BC.filter((c) => {
+        if (!c.t) return false;
+        const nyC = getNYTime(c.t * 1e3);
+        return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
+      });
+      if (orbCandles.length > 0) {
+        orbHigh = Math.max(...orbCandles.map((c) => c.h));
+        orbLow = Math.min(...orbCandles.map((c) => c.l));
       }
       if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
       const orbRange = orbHigh - orbLow;
-      const retestBuffer = orbRange * 0.15;
+      const retestBuffer = orbRange * 0.25;
       let breakoutDir = null;
-      const todayUTCDate = nowUTC.toISOString().slice(0, 10);
       const postORBCandles = m5BC.filter((c) => {
         if (!c.t) return false;
-        const candleDate = new Date(c.t * 1e3).toISOString().slice(0, 10);
-        if (candleDate !== todayUTCDate) return false;
-        for (const off of estOffsets) {
-          const d = new Date(c.t * 1e3);
-          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
-          const m = d.getUTCMinutes();
-          const total = h * 60 + m;
-          if (total >= 9 * 60 + 45) return true;
-        }
-        return false;
+        const nyC = getNYTime(c.t * 1e3);
+        return nyC.dateStr === todayKey && nyC.hour * 60 + nyC.minute >= 9 * 60 + 45;
       });
       for (const c of postORBCandles.slice(1)) {
         const bodyHigh = Math.max(c.o, c.c);
@@ -28595,11 +28635,11 @@ async function runORBAutonomousScan(userId) {
       if (!isRetestLong && !isRetestShort) continue;
       const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
       const aiScore = scoreResult.percentage;
-      if (aiScore < 70) {
+      if (aiScore < 60) {
         addActivity2(userId, {
           type: "info",
           symbol,
-          message: `\u{1F4CA} ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 70 \u2014 skipping`
+          message: `\u{1F4CA} ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 60 \u2014 skipping`
         });
         continue;
       }
@@ -29139,7 +29179,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS;
+var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -29196,6 +29236,15 @@ var init_live_trading_engine = __esm({
       profit_lock: "Profit Lock %",
       stepped_fixed: "Stepped Fixed Trail"
     };
+    NY_TIME_FMT = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
   }
 });
 
