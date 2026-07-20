@@ -5216,19 +5216,40 @@ function scheduleGapScanner(userId: number): void {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ORB AUTONOMOUS SCAN
-// Runs every engine cycle. Detects 9:30 AM EST opening range breakout + retest
-// and fires trades autonomously when SS AI Bot score ≥ 70.
+// Runs every engine cycle. Detects 9:30 AM real US Eastern opening range
+// breakout + retest and fires trades autonomously when SS AI Bot score ≥ 60.
 //
-// Rules (matches the manual ORB page exactly):
-//   • Valid window: 9:30 AM – 2:00 PM EST only
-//   • ORB range = high/low of the 9:30 AM M1 candle (15-min range via M1 data)
-//   • Breakout: full-body 6-min candle close above ORB High (LONG) or below ORB Low (SHORT)
-//   • Entry: on the RETEST of the broken level (ORB High → support / ORB Low → resistance)
-//   • Score gate: computeBreakoutScore ≥ 70 required
+// Rules:
+//   • Valid window: 9:30 AM – 3:00 PM US Eastern (DST-aware via Intl timeZone)
+//   • ORB range = high/low of the 9:30–9:45 AM opening candles
+//   • Breakout: full-body 5-min candle close above ORB High (LONG) or below ORB Low (SHORT)
+//   • Entry: on the RETEST of the broken level (ORB High → support / ORB Low → resistance),
+//     with a 25%-of-range tolerance
+//   • Score gate: computeBreakoutScore ≥ 60 required
 //   • One trade per pair per day (orbDailyFired)
 //   • SL: ORB Low – 10% range (LONG) / ORB High + 10% range (SHORT)
 //   • TP1: 2:1 R:R | TP2: 3:1 R:R
 // ─────────────────────────────────────────────────────────────────────────────
+// Correct DST-aware US Eastern time for a given instant — replaces the old
+// "try -4, then -5, whichever lands in the window" guess, which doesn't
+// actually determine the real daylight-saving state. That guess could accept
+// the wrong offset (e.g. treating true 8:30am EST as 9:30am), shifting the
+// whole scan — opening-range candle, breakout window, retest window — by a
+// full hour on the wrong side of a DST boundary.
+const NY_TIME_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York', hour12: false,
+  year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+});
+function getNYTime(ts: number): { hour: number; minute: number; dateStr: string } {
+  const parts = NY_TIME_FMT.formatToParts(new Date(ts));
+  const get = (t: string) => Number(parts.find(p => p.type === t)?.value ?? 0);
+  return {
+    hour: get('hour') % 24,
+    minute: get('minute'),
+    dateStr: `${get('year')}-${String(get('month')).padStart(2, '0')}-${String(get('day')).padStart(2, '0')}`,
+  };
+}
+
 async function runORBAutonomousScan(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
@@ -5237,22 +5258,15 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
 
   if (!state.orbDailyFired) state.orbDailyFired = {};
 
-  // ── 1. Time gate — EST 9:30 AM to 2:00 PM ────────────────────────────────
+  // ── 1. Time gate — 9:30 AM to 3:00 PM real US Eastern time ───────────────
+  // Widened from 2:00 PM close to 3:00 PM — the old cutoff dropped valid
+  // afternoon retests of a morning breakout that just took longer to come back.
   const nowUTC = new Date();
-  // Try EDT (-4) and EST (-5) — pick whichever puts us in a valid window
-  const estOffsets = [-4, -5];
-  let estHour = -1, estMin = -1;
-  for (const off of estOffsets) {
-    const h = ((nowUTC.getUTCHours() + off) % 24 + 24) % 24;
-    const m = nowUTC.getUTCMinutes();
-    const totalMins = h * 60 + m;
-    if (totalMins >= 9 * 60 + 30 && totalMins < 14 * 60) {
-      estHour = h; estMin = m; break;
-    }
-  }
-  if (estHour === -1) return; // outside trading window
+  const nowNY = getNYTime(nowUTC.getTime());
+  const nowTotalMins = nowNY.hour * 60 + nowNY.minute;
+  if (nowTotalMins < 9 * 60 + 30 || nowTotalMins >= 15 * 60) return; // outside trading window
 
-  const todayKey = nowUTC.toISOString().slice(0, 10); // YYYY-MM-DD
+  const todayKey = nowNY.dateStr;
 
   // ── 2. Scan configured pairs ──────────────────────────────────────────────
   for (const symbol of config.pairs) {
@@ -5281,48 +5295,31 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
       const m5BC = [...m5Bars].reverse().map(toBC);
       const h1BC = [...h1Bars].reverse().map(toBC);
 
-      // ── 3. Find today's ORB high/low from 9:30 AM candle ─────────────────
-      // UTC offsets for EST (-5) and EDT (-4)
+      // ── 3. Find today's ORB high/low from the 9:30 AM real NY candle ────
       let orbHigh = 0, orbLow = 0;
-      for (const off of estOffsets) {
-        const orbCandles = m5BC.filter(c => {
-          if (!c.t) return false;
-          const d = new Date(c.t * 1000);
-          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
-          const m = d.getUTCMinutes();
-          // 9:30–9:45 AM EST = opening range window
-          return h === 9 && m >= 30 && m < 45;
-        });
-        if (orbCandles.length > 0) {
-          orbHigh = Math.max(...orbCandles.map(c => c.h));
-          orbLow  = Math.min(...orbCandles.map(c => c.l));
-          break;
-        }
+      const orbCandles = m5BC.filter(c => {
+        if (!c.t) return false;
+        const nyC = getNYTime(c.t * 1000);
+        return nyC.dateStr === todayKey && nyC.hour === 9 && nyC.minute >= 30 && nyC.minute < 45;
+      });
+      if (orbCandles.length > 0) {
+        orbHigh = Math.max(...orbCandles.map(c => c.h));
+        orbLow  = Math.min(...orbCandles.map(c => c.l));
       }
       if (orbHigh === 0 || orbLow === 0 || orbHigh <= orbLow) continue;
 
       const orbRange = orbHigh - orbLow;
-      const retestBuffer = orbRange * 0.15; // 15% tolerance for retest detection
+      const retestBuffer = orbRange * 0.25; // widened from 0.15 — less strict on how close price must retrace to count as a retest
 
       // ── 4. Detect phase: did a breakout happen and is price retesting? ───
-      // Look at candles after 9:45 AM for breakout close, then check retest
+      // Look at candles after 9:45 AM (real NY time, same calendar day) for
+      // breakout close, then check retest.
       let breakoutDir: 'BUY' | 'SELL' | null = null;
 
-      // Candles are newest-first in m5BC — find candles after 9:45 AM TODAY only.
-      // Must include date boundary so yesterday's post-9:45 candles are excluded.
-      const todayUTCDate = nowUTC.toISOString().slice(0, 10); // YYYY-MM-DD
       const postORBCandles = m5BC.filter(c => {
         if (!c.t) return false;
-        const candleDate = new Date(c.t * 1000).toISOString().slice(0, 10);
-        if (candleDate !== todayUTCDate) return false; // ← date boundary fix (C2)
-        for (const off of estOffsets) {
-          const d = new Date(c.t * 1000);
-          const h = ((d.getUTCHours() + off) % 24 + 24) % 24;
-          const m = d.getUTCMinutes();
-          const total = h * 60 + m;
-          if (total >= 9 * 60 + 45) return true;
-        }
-        return false;
+        const nyC = getNYTime(c.t * 1000);
+        return nyC.dateStr === todayKey && (nyC.hour * 60 + nyC.minute) >= 9 * 60 + 45;
       });
 
       // Check if any past candle had a full-body close beyond the ORB
@@ -5344,13 +5341,15 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
 
       if (!isRetestLong && !isRetestShort) continue; // not at retest yet
 
-      // ── 6. SS AI Bot score gate (≥ 70) ───────────────────────────────────
+      // ── 6. SS AI Bot score gate (≥ 60) ───────────────────────────────────
+      // Lowered from 70 — the old threshold was filtering out a lot of
+      // otherwise-valid retest setups.
       const scoreResult = await computeBreakoutScore(currentPrice, [], m5BC, [], h1BC, []);
       const aiScore = scoreResult.percentage;
-      if (aiScore < 70) {
+      if (aiScore < 60) {
         addActivity(userId, {
           type: 'info', symbol,
-          message: `📊 ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 70 — skipping`,
+          message: `📊 ORB AUTO [${symbol}]: ${breakoutDir} retest detected but SS AI score ${aiScore}/100 < 60 — skipping`,
         });
         continue;
       }

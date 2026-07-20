@@ -32,6 +32,26 @@ const INDEX_TD_SYMBOL_MAP: Record<string, string> = {
   AU200: 'AS51',    // ASX 200
   HK50: 'HSI',      // Hang Seng
 };
+const VALID_TD_INDEX_SYMBOLS = new Set(Object.values(INDEX_TD_SYMBOL_MAP));
+
+// Broker instrument-name variants for the same underlying index (MT5/TradeLocker
+// brokers name these differently — e.g. "WS30", "DOWJONES", "DJIA" all mean US30) —
+// resolved to the canonical key above before the Twelvedata symbol lookup.
+const INDEX_ALIAS_MAP: Record<string, string> = {
+  WS30: 'US30', DJIA: 'US30', DOW: 'US30', DOW30: 'US30', DOWJONES: 'US30',
+  USA30: 'US30', CASH30: 'US30', DJA: 'US30', WALLST30: 'US30', WALLSTREET30: 'US30',
+  USWALL: 'US30', YM: 'US30',
+  USTEC: 'US100', NASDAQ100: 'US100', NDX100: 'US100', NASDAQ: 'US100',
+  NQ: 'US100', QQQ: 'US100', NDAQ: 'US100', NA100: 'US100', NASUSD: 'US100',
+  TECH100: 'US100', USTECH100: 'US100', NASD100: 'US100', NAS100: 'US100',
+  SPXUSD: 'US500', SP500USD: 'US500', USINDEX: 'US500', SPX500USD: 'US500',
+  ES: 'US500', SPXC: 'US500', SP500C: 'US500', SPXUSDM: 'US500', SP500: 'US500', SPX500: 'US500',
+  FTSE100: 'UK100', UKX: 'UK100',
+  GER30: 'GER40', DAX30: 'GER40', DAX40: 'GER40',
+  NKY: 'JP225', NIKKEI: 'JP225', N225: 'JP225',
+  AUS200: 'AU200', ASX: 'AU200', ASX200: 'AU200',
+  HSI: 'HK50',
+};
 
 export class TwelveDataProvider implements MarketDataProvider {
   name = 'twelvedata';
@@ -58,7 +78,18 @@ export class TwelveDataProvider implements MarketDataProvider {
 
     if (assetType === 'index') {
       const root = normalized.replace(/1!.*$/, '').replace(/:.*$/, '');
-      return INDEX_TD_SYMBOL_MAP[root] || root;
+      // Already a correct Twelvedata symbol (e.g. "DJI", "SPX") — pass through
+      // untouched. Checked first so the suffix-stripping below never mangles
+      // a symbol that's already right (e.g. stripping trailing "I" off "DJI").
+      if (VALID_TD_INDEX_SYMBOLS.has(root)) return root;
+      if (INDEX_TD_SYMBOL_MAP[root]) return INDEX_TD_SYMBOL_MAP[root];
+      if (INDEX_ALIAS_MAP[root]) return INDEX_TD_SYMBOL_MAP[INDEX_ALIAS_MAP[root]] || INDEX_ALIAS_MAP[root];
+      // Broker suffix variants — "US30.cash", "US30USD", "US30m" etc — none of
+      // which match the exact-key lookups above and previously fell straight
+      // through to Twelvedata unmapped, producing a 404.
+      const stripped = root.replace(/[.#]/g, '').replace(/(CASH|USD|RAW|PRO|ECN|MT5|SB|[MCI])$/, '');
+      const canonical = INDEX_ALIAS_MAP[stripped] || stripped;
+      return INDEX_TD_SYMBOL_MAP[canonical] || canonical;
     }
 
     if (!normalized.includes('/')) {
