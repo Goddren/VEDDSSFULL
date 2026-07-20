@@ -625,6 +625,16 @@ export function addAiConfirmationLog(userId: number, entry: Omit<AiConfirmationL
   const logs = aiConfirmationLogs.get(userId)!;
   logs.unshift({ ...entry, id: logIdCounter++ });
   if (logs.length > 50) logs.pop();
+
+  // Durable mirror — the in-memory Map above is process memory only and is
+  // wiped on every server restart, which made the "AI Strategy Action Feed"
+  // go blank even though confirmations kept happening. Persisting here too
+  // (non-blocking, fire-and-forget) means GET /api/ai-confirmation-logs can
+  // read from the DB and survive restarts. Dynamic import avoids a static
+  // storage<->openai circular-import edge case.
+  import('./storage').then(({ storage }) =>
+    storage.createAiConfirmationLogEntry(userId, entry)
+  ).catch(err => console.error('[AI Confirmation Log] DB persist failed (non-fatal):', err?.message));
 }
 
 export function getAiConfirmationLogs(userId: number): AiConfirmationLogEntry[] {

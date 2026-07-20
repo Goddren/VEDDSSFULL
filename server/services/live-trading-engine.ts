@@ -1,5 +1,5 @@
 import { marketDataService } from '../market-data/service';
-import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue } from '../tradelocker';
+import { executeMT5SignalOnTradeLocker, warmTradeLockerConnection, getTLAccountValue, getOrCreateService as getTradeLockerService } from '../tradelocker';
 import { refreshTlAfterTrade } from './tradelocker-sync';
 import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import { storage } from '../storage';
@@ -4550,6 +4550,54 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       ? Math.min(0.02, config.maxLotSize || 0.10)
       : Math.max(config.maxLotSize || 0, _dynMaxLot);
 
+    // ── FX Paper Trading Mode ──────────────────────────────────────────────
+    // Checked here — BEFORE the drawdown-shield branch below and every other
+    // live-order path — so paper mode intercepts everything. Previously this
+    // check sat ~170 lines further down, after the shield branch's own live
+    // MT5 broadcast + return, so a shield-mode trade placed a REAL order
+    // regardless of the paper toggle (the shield activates automatically
+    // during a losing session, so this wasn't a rare edge case).
+    try {
+      const _paperAcctRows = await db.execute(sql`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+      const _paperAcct = (_paperAcctRows as any)[0]?.[0] ?? (_paperAcctRows as any).rows?.[0];
+      if (_paperAcct?.is_enabled) {
+        const _paperTradeRows = await db.execute(sql`
+          INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
+          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${rawLotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
+          RETURNING id
+        `);
+        const _newPaperTradeId = (_paperTradeRows as any)[0]?.[0]?.id ?? (_paperTradeRows as any).rows?.[0]?.id;
+
+        // Mirror to active copiers — same logic as the POST /api/fx-paper/trades
+        // route handler, duplicated here since engine-generated signals bypass
+        // that route entirely.
+        try {
+          const _copiers = await db.execute(sql`
+            SELECT id, copier_id, max_lot_size FROM copy_relationships
+            WHERE source_user_id=${userId} AND is_active=true
+          `);
+          const _copierList: any[] = (_copiers as any)[0] ?? (_copiers as any).rows ?? [];
+          for (const rel of _copierList) {
+            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, rawLotSize || 0.01);
+            await db.execute(sql`
+              INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
+              VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${_newPaperTradeId ?? null}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${_mirrorLot}, 'open', now())
+            `);
+          }
+        } catch (_mirrorErr) { /* non-critical — don't fail the paper trade if mirroring errors */ }
+
+        addActivity(userId, {
+          type: 'trade_open',
+          symbol: decision.symbol,
+          message: `📝 PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? '—'} (${rawLotSize} lots, ${adjustedConfidence}% confidence) — simulated, no live order placed.`,
+          confidence: adjustedConfidence,
+        });
+        return; // paper mode — skip live MT5 broadcast + TradeLocker execution entirely, including shield mode below
+      }
+    } catch (_paperErr) {
+      console.error(`[Paper Mode] Check failed for user ${userId} (non-critical, falling through to live path):`, (_paperErr as Error)?.message);
+    }
+
     // ── Drawdown Shield Lot Override ──────────────────────────────────
     if (state.drawdownShieldActive && config.accountBalance > 0) {
       const shieldLot = Math.max(0.01, Math.round(config.accountBalance * 0.0025 / 1000 * 100) / 100);
@@ -4721,53 +4769,6 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🛡️ RISK BLOCK: aggregate exposure ${(_openLots + lotSize).toFixed(2)} lots exceeds cap ${_aggCap.toFixed(2)} — trade skipped` });
         return;
       }
-    }
-
-    // ── FX Paper Trading Mode ──────────────────────────────────────────────
-    // The paper-trading toggle (fx_paper_accounts.is_enabled, set from the
-    // Weekly Strategy page) previously did nothing — the engine only ever
-    // broadcast live MT5 signals / executed on TradeLocker and never checked
-    // it, so turning "paper mode" on had no effect. Check it here and, when
-    // enabled, log a simulated fx_paper_trades row instead of trading live.
-    try {
-      const _paperAcctRows = await db.execute(sql`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const _paperAcct = (_paperAcctRows as any)[0]?.[0] ?? (_paperAcctRows as any).rows?.[0];
-      if (_paperAcct?.is_enabled) {
-        const _paperTradeRows = await db.execute(sql`
-          INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
-          VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
-          RETURNING id
-        `);
-        const _newPaperTradeId = (_paperTradeRows as any)[0]?.[0]?.id ?? (_paperTradeRows as any).rows?.[0]?.id;
-
-        // Mirror to active copiers — same logic as the POST /api/fx-paper/trades
-        // route handler, duplicated here since engine-generated signals bypass
-        // that route entirely.
-        try {
-          const _copiers = await db.execute(sql`
-            SELECT id, copier_id, max_lot_size FROM copy_relationships
-            WHERE source_user_id=${userId} AND is_active=true
-          `);
-          const _copierList: any[] = (_copiers as any)[0] ?? (_copiers as any).rows ?? [];
-          for (const rel of _copierList) {
-            const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, lotSize || 0.01);
-            await db.execute(sql`
-              INSERT INTO copy_trade_logs (relationship_id, copier_id, source_user_id, original_trade_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, status, opened_at)
-              VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${_newPaperTradeId ?? null}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${_mirrorLot}, 'open', now())
-            `);
-          }
-        } catch (_mirrorErr) { /* non-critical — don't fail the paper trade if mirroring errors */ }
-
-        addActivity(userId, {
-          type: 'trade',
-          symbol: decision.symbol,
-          message: `📝 PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? '—'} (${lotSize} lots, ${adjustedConfidence}% confidence) — simulated, no live order placed.`,
-          confidence: adjustedConfidence,
-        });
-        return; // paper mode — skip live MT5 broadcast + TradeLocker execution entirely
-      }
-    } catch (_paperErr) {
-      console.error(`[Paper Mode] Check failed for user ${userId} (non-critical, falling through to live path):`, (_paperErr as Error)?.message);
     }
 
     const mt5Signal: PendingMT5Signal = {
@@ -5250,6 +5251,59 @@ function getNYTime(ts: number): { hour: number; minute: number; dateStr: string 
   };
 }
 
+// Broker instrument-name variants per canonical index symbol — used to find the
+// right cached MT5 EA chart-data entry (or match a TradeLocker instrument)
+// regardless of what name the user's broker/chart actually uses.
+const INDEX_BROKER_ALIASES: Record<string, string[]> = {
+  US30: ['US30CASH', 'US30C', 'DOW30', 'DOWJONES', 'DJIA', 'DJI', 'WS30', 'YM', 'DOW', 'USA30', 'CASH30', 'US30USD', 'DJA', 'WALLST30', 'WALLSTREET30', 'USWALL'],
+  NAS100: ['NAS100CASH', 'NAS100C', 'NASDAQ100', 'USTEC', 'NDX100', 'US100', 'NQ', 'NASDAQ', 'NASUSD', 'NA100', 'NDAQ', 'QQQ', 'TECH100', 'USTECH100', 'NASD100', 'NAS100USD'],
+  US500: ['SPXUSD', 'US500CASH', 'SP500USD', 'USINDEX', 'SPX500USD', 'ES', 'SPX', 'SPXC', 'SP500C', 'SPXUSDM', 'SPX500', 'SP500'],
+};
+
+// Twelve Data doesn't carry raw US index tickers (DJI/SPX/NDX) at all — confirmed
+// directly against their own reference API, independent of plan/API key. Feeding
+// an ETF proxy (DIA/SPY/QQQ) instead would be wrong too: those trade ~100x below
+// the real index level, so any SL/TP computed from them would be nowhere near the
+// broker's real price and get caught by the stale-price guard anyway. The only
+// source with real, correctly-scaled index price action is the user's own
+// connected broker — the MT5 EA's chart-data push, or TradeLocker's own candle
+// history — so ORB sources index candles from there instead of Twelve Data.
+async function getBrokerIndexCandles(
+  userId: number, symbol: string, mt5Tf: 'M5' | 'H1'
+): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[] | null> {
+  // 1. MT5 EA chart-data cache — real broker index candles, already newest-first
+  // (see BuildCandlesJson() in the EA: i=0 is the current/most-recent bar).
+  const cache = (global as any).mt5ChartDataCache || {};
+  const wanted = new Set(
+    [symbol, ...(INDEX_BROKER_ALIASES[symbol] || [])].map(s => s.replace(/[^A-Z0-9]/gi, '').toUpperCase())
+  );
+  const prefix = `mt5_chart_${userId}_`;
+  const suffix = `_${mt5Tf}`;
+  for (const key of Object.keys(cache)) {
+    if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
+    const symPart = key.slice(prefix.length, key.length - suffix.length);
+    if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, '').toUpperCase())) {
+      const entry = cache[key];
+      if (entry?.candles?.length) return entry.candles;
+    }
+  }
+
+  // 2. TradeLocker — real candle history via the platform's own history endpoint.
+  // getCandlesticks returns oldest-first; reverse to match the EA's newest-first order.
+  try {
+    const conns = await storage.getUserTradelockerConnections(userId);
+    const active = conns.find((c: any) => c.isActive);
+    if (active) {
+      const svc = await getTradeLockerService(active);
+      const resMinutes = mt5Tf === 'H1' ? 60 : 5;
+      const bars = await svc.getCandlesticks(symbol, resMinutes);
+      if (bars?.length) return [...bars].reverse();
+    }
+  } catch (_) { /* no TL connection, or fetch failed — non-fatal, caller just skips */ }
+
+  return null;
+}
+
 async function runORBAutonomousScan(userId: number): Promise<void> {
   const state = engineStates[userId];
   if (!state) return;
@@ -5274,26 +5328,39 @@ async function runORBAutonomousScan(userId: number): Promise<void> {
       // Skip if already traded this pair today
       if (state.orbDailyFired[symbol] === todayKey) continue;
 
-      // Fetch M5 candles for ORB detection (need ~30 candles for today's session)
+      // Fetch M5 (and H1) candles for ORB detection. Indices (US30/NAS100/US500)
+      // source from the user's own connected MT5/TradeLocker feed instead of
+      // Twelve Data — see getBrokerIndexCandles for why.
       const assetType = marketDataService.detectAssetType(symbol);
-      const m5Result = await marketDataService.fetchMarketData({
-        symbol, assetType, timeframe: '5m', limit: 60,
-      });
-      if (!m5Result.bars || m5Result.bars.length < 6) continue;
+      let m5BC: { t: number; o: number; h: number; l: number; c: number; v: number }[];
+      let h1BC: { t: number; o: number; h: number; l: number; c: number; v: number }[];
+      let currentPrice: number;
 
-      // Also fetch H1 for ATR / breakout score
-      const h1Result = await marketDataService.fetchMarketData({
-        symbol, assetType, timeframe: '1h', limit: 30,
-      });
+      if (assetType === 'index') {
+        const brokerM5 = await getBrokerIndexCandles(userId, symbol, 'M5');
+        if (!brokerM5 || brokerM5.length < 6) continue; // no broker candle feed available for this index yet
+        m5BC = brokerM5;
+        h1BC = (await getBrokerIndexCandles(userId, symbol, 'H1')) || [];
+        currentPrice = m5BC[0].c; // newest-first — first element is the most recent bar
+      } else {
+        const m5Result = await marketDataService.fetchMarketData({
+          symbol, assetType, timeframe: '5m', limit: 60,
+        });
+        if (!m5Result.bars || m5Result.bars.length < 6) continue;
 
-      const m5Bars = m5Result.bars;
-      const h1Bars = h1Result.bars || [];
-      const currentPrice = m5Bars[m5Bars.length - 1].close;
+        const h1Result = await marketDataService.fetchMarketData({
+          symbol, assetType, timeframe: '1h', limit: 30,
+        });
 
-      // Convert bars to BreakoutCandle format (newest-first for breakoutEngine)
-      const toBC = (b: any) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1000) });
-      const m5BC = [...m5Bars].reverse().map(toBC);
-      const h1BC = [...h1Bars].reverse().map(toBC);
+        const m5Bars = m5Result.bars;
+        const h1Bars = h1Result.bars || [];
+        currentPrice = m5Bars[m5Bars.length - 1].close;
+
+        // Convert bars to BreakoutCandle format (newest-first for breakoutEngine)
+        const toBC = (b: any) => ({ o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume ?? 0, t: Math.floor((b.timestamp ?? Date.now()) / 1000) });
+        m5BC = [...m5Bars].reverse().map(toBC);
+        h1BC = [...h1Bars].reverse().map(toBC);
+      }
 
       // ── 3. Find today's ORB high/low from the 9:30 AM real NY candle ────
       let orbHigh = 0, orbLow = 0;

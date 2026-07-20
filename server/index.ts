@@ -1235,6 +1235,21 @@ async function withRetry<T>(
     }
 
     try {
+      // AI Second Opinion / Strategy Action Feed durability — previously kept
+      // only in an in-memory Map (server/openai.ts), wiped on every restart.
+      await db.execute(sql`CREATE TABLE IF NOT EXISTS ai_confirmation_logs (
+        id serial PRIMARY KEY,
+        user_id integer NOT NULL REFERENCES users(id),
+        entry jsonb NOT NULL,
+        created_at timestamp DEFAULT now() NOT NULL
+      )`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ai_confirmation_logs_user ON ai_confirmation_logs(user_id, id DESC)`);
+      console.log('[startup] ai_confirmation_logs table verified.');
+    } catch (err) {
+      console.error('[startup] ai_confirmation_logs table migration (non-fatal):', (err as Error).message);
+    }
+
+    try {
       await db.execute(sql`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),

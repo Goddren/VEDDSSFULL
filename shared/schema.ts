@@ -2484,6 +2484,21 @@ export type InsertAiConfirmationOutcome = z.infer<typeof insertAiConfirmationOut
   providerUsed?: string;
 };
 
+// AI Second Opinion / Strategy Action Feed — durable log of every confirmation
+// decision (APPROVED/REJECTED/ADJUSTED/AI_OVERRIDE/ERROR). Previously this was
+// only kept in an in-memory Map (server/openai.ts) with no persistence, so it
+// went blank on every server restart even though the underlying confirmations
+// kept happening. `entry` stores the full AiConfirmationLogEntry as JSON —
+// same durable-storage philosophy as the options/futures engine activity logs.
+export const aiConfirmationLogs = pgTable("ai_confirmation_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  entry: jsonb("entry").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AiConfirmationLogRow = typeof aiConfirmationLogs.$inferSelect;
+
 // Persisted prop-firm challenge phase tracking — the in-memory PropFirmContext
 // (server/openai.ts) is lost on every restart, so a multi-day/multi-week
 // challenge had no durable record of which phase an account is in. This lets

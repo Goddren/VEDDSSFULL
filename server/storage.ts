@@ -70,6 +70,7 @@ import {
   aiModelConfigs,
   aiConfirmationOutcomes,
   type AiConfirmationOutcome, type InsertAiConfirmationOutcome,
+  aiConfirmationLogs,
   grants, grantApplications, grantScanSessions,
   type Grant, type InsertGrant,
   type GrantApplication, type InsertGrantApplication,
@@ -2559,6 +2560,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(aiConfirmationOutcomes.userId, userId))
       .orderBy(desc(aiConfirmationOutcomes.confirmedAt))
       .limit(limit);
+  }
+
+  // AI Second Opinion / Strategy Action Feed durability — mirrors every
+  // addAiConfirmationLog() call (server/openai.ts's in-memory Map) so the
+  // feed survives a server restart instead of going blank.
+  async createAiConfirmationLogEntry(userId: number, entry: unknown): Promise<void> {
+    await db.insert(aiConfirmationLogs).values({ userId, entry: entry as any });
+  }
+
+  async getAiConfirmationLogEntries(userId: number, limit = 50): Promise<any[]> {
+    const rows = await db
+      .select()
+      .from(aiConfirmationLogs)
+      .where(eq(aiConfirmationLogs.userId, userId))
+      .orderBy(desc(aiConfirmationLogs.id))
+      .limit(limit);
+    return rows.map(r => ({ ...(r.entry as object), id: r.id }));
   }
 
   async getBrainSummary(userId: number): Promise<any[]> {

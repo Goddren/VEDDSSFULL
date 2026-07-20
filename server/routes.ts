@@ -19304,8 +19304,13 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     // Sync TL closed trades so daily/weekly P&L reflects latest data (throttled internally to 30s)
     try { await syncTradeLockerOutcomes(userId); } catch (_) {}
 
-    const todayStart  = new Date(); todayStart.setHours(0,0,0,0);
-    const weekStart   = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
+    // Monday-start, UTC — matches every other weekly boundary in this file
+    // (getWeekStart() below, and routes.ts ~11894/13200/17517). The old
+    // Sunday-start/local-time boundary here disagreed with the main weekly
+    // summary card whenever a trade landed near Sunday or the local/UTC
+    // midnight offset.
+    const todayStart  = new Date(); todayStart.setUTCHours(0,0,0,0);
+    const weekStart   = new Date(getWeekStart());
     const todayStartTs = Math.floor(todayStart.getTime() / 1000);
     const weekStartTs  = Math.floor(weekStart.getTime() / 1000);
 
@@ -19338,11 +19343,18 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const active = conns.filter((c: any) => c.isActive);
       // P&L from ai_trade_results (source=tradelocker) — already synced, no API round-trip needed
       const tlDbResults = _allClosed.filter((t: any) => t.source === 'tradelocker');
-      const tlDbDailyPnl  = Math.round(tlDbResults.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
-      const tlDbWeeklyPnl = Math.round(tlDbResults.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
       // Prefer the background-sync cache for balances to avoid an API round-trip per poll
       const _tlCache = (global as any).tlAccountData?.[userId] || {};
       await Promise.all(active.map(async (conn: any) => {
+        // Scoped to THIS connection — previously tlDbDailyPnl/tlDbWeeklyPnl were
+        // computed once across ALL of the user's TradeLocker accounts combined,
+        // so every account card showed the same aggregate figure instead of its
+        // own. ai_trade_results.connectionId is populated by both TL sync paths
+        // (tradelocker-sync.ts and syncTradeLockerOutcomes) specifically to
+        // support this per-account scoping.
+        const connResults = tlDbResults.filter((t: any) => t.connectionId === conn.id);
+        const dailyPnl  = Math.round(connResults.filter((t: any) => new Date(t.closedAt) >= todayStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
+        const weeklyPnl = Math.round(connResults.filter((t: any) => new Date(t.closedAt) >= weekStart).reduce((s: number, t: any) => s + (t.profitLoss || 0), 0) * 100) / 100;
         try {
           const svc = await tlGetOrCreateService(conn);
           const positions = await svc.getPositions().catch(() => []);
@@ -19369,14 +19381,14 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
             accountType: conn.accountType, accountName: conn.accountName,
             brokerName: conn.brokerName || conn.serverId || 'TradeLocker',
             balance, equity, unrealizedPnl: unrealized,
-            dailyPnl: tlDbDailyPnl, weeklyPnl: tlDbWeeklyPnl, openTrades: positions.length,
+            dailyPnl, weeklyPnl, openTrades: positions.length,
           });
         } catch (e: any) {
           tlAccounts.push({
             id: conn.id, email: conn.email, accountId: conn.accountId,
             accountType: conn.accountType, error: e.message,
             brokerName: conn.brokerName || conn.serverId || 'TradeLocker',
-            balance: 0, equity: 0, unrealizedPnl: 0, dailyPnl: tlDbDailyPnl, weeklyPnl: tlDbWeeklyPnl, openTrades: 0,
+            balance: 0, equity: 0, unrealizedPnl: 0, dailyPnl, weeklyPnl, openTrades: 0,
           });
         }
       }));
@@ -23999,6 +24011,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   app.get("/api/ai-confirmation-logs", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    // Read from the durable DB table so the feed survives a server restart —
+    // previously this read the in-memory Map only, which went blank on every
+    // restart even though confirmations kept happening. Fall back to the
+    // in-memory log if the DB read comes back empty (e.g. brand-new table
+    // right after migration, or a transient DB error) so nothing regresses.
+    try {
+      const dbLogs = await storage.getAiConfirmationLogEntries(req.user!.id, 50);
+      if (dbLogs.length > 0) return res.json(dbLogs);
+    } catch (_dbErr) { /* fall through to in-memory */ }
     const { getAiConfirmationLogs } = await import('./openai');
     const logs = getAiConfirmationLogs(req.user!.id);
     res.json(logs);
