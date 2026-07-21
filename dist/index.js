@@ -5674,12 +5674,14 @@ var init_storage = __esm({
         await db.update(weeklyStrategies).set(fields).where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
       }
       async updateWeeklyStrategyProgress(userId, progress2) {
-        await db.update(weeklyStrategies).set({
+        const updates = {
           currentProfit: progress2.currentProfit,
           progressTrades: progress2.progressTrades,
           progressWinRate: progress2.progressWinRate,
           progressPercentage: progress2.progressPercentage
-        }).where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
+        };
+        if (progress2.accountBalance !== void 0) updates.accountBalance = progress2.accountBalance;
+        await db.update(weeklyStrategies).set(updates).where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
       }
       async deleteWeeklyStrategy(userId) {
         await db.update(weeklyStrategies).set({ isActive: false }).where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
@@ -17725,7 +17727,7 @@ async function syncUserTradeLocker(userId, force = false) {
         };
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
-        if (info.balance > 0) global.tlAccountBalances[userId][conn2.accountId] = info.balance;
+        global.tlAccountBalances[userId][conn2.accountId] = info.balance || 0;
         await syncTradeLockerTrades(userId, conn2, svc).catch(
           (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn2.accountId} (non-fatal):`, err.message)
         );
@@ -57594,7 +57596,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     volume: connLot,
                     refLot: tradeVolume,
                     copyMode: _eaCopyMode,
-                    tlBal: _tlCachedBal,
+                    tlBal: _tlBal,
                     mt5Bal: accountBalance,
                     orderType: _eaOrderType
                   });
@@ -57675,7 +57677,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               }
             }
           } else {
-            const cooldownRemaining = Math.round((TRADE_COOLDOWN_MS - (now - lastTradeTime)) / 1e3);
+            const cooldownRemaining = Math.round((BASE_COOLDOWN_MS - (now - lastTradeTime)) / 1e3);
             console.log(`[MT5 Chart Data AutoTrade] Skipping trade - cooldown active (${cooldownRemaining}s remaining)`);
           }
         }
@@ -59087,6 +59089,14 @@ Respond with ONLY valid JSON:
       await syncTradeLockerOutcomes(userId);
     } catch (_) {
     }
+    let _tlUnrealizedLive = 0;
+    try {
+      const { syncUserTradeLocker: syncUserTradeLocker2, markTlUserActive: markTlUserActive2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+      markTlUserActive2(userId);
+      const _tlAccts = await syncUserTradeLocker2(userId, true);
+      _tlUnrealizedLive = (_tlAccts || []).reduce((s, a) => s + ((a?.equity || 0) - (a?.balance || 0)), 0);
+    } catch (_) {
+    }
     let strategy = global.mt5WeeklyStrategies?.[userId];
     if (!strategy) {
       const dbStrat = await storage.getActiveWeeklyStrategy(userId);
@@ -59178,7 +59188,8 @@ Respond with ONLY valid JSON:
       const sym = (p.symbol || "").toUpperCase().replace("/", "");
       return planPairs.includes(sym);
     });
-    const unrealizedPnL = activeTrades.reduce((s, p) => s + (p.profit || 0), 0);
+    const mt5UnrealizedPnL = activeTrades.reduce((s, p) => s + (p.profit || 0), 0);
+    const unrealizedPnL = mt5UnrealizedPnL + _tlUnrealizedLive;
     const isLive = global.mt5VeddSSAILive?.[userId] === true;
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const todayName = dayNames[(/* @__PURE__ */ new Date()).getUTCDay()];
@@ -59250,6 +59261,15 @@ Respond with ONLY valid JSON:
     strategy.progressTrades = tradeCount;
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
+    const _mt5BalLive = (() => {
+      const cache4 = global.mt5AccountData?.[userId];
+      return cache4 ? Object.values(cache4).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+    })();
+    const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
+    const _liveBalance = _mt5BalLive + _tlBalLive;
+    if (_liveBalance > 0) {
+      strategy.accountBalance = Math.round(_liveBalance * 100) / 100;
+    }
     const todayAllDbTrades = dbTrades.filter((t) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
       return tradeDate >= todayStart && t.result && t.result !== "PENDING";
@@ -59278,13 +59298,22 @@ Respond with ONLY valid JSON:
         currentProfit: strategy.currentProfit,
         progressTrades: strategy.progressTrades,
         progressWinRate: strategy.progressWinRate,
-        progressPercentage: strategy.progressPercentage
+        progressPercentage: strategy.progressPercentage,
+        accountBalance: _liveBalance > 0 ? strategy.accountBalance : void 0
       });
     } catch (dbErr) {
       console.error("[Weekly Strategy] DB progress update error:", dbErr);
     }
     res.json({
       currentProfit: strategy.currentProfit,
+      accountBalance: strategy.accountBalance,
+      // Live balance breakdown so the client can show a real, current figure
+      // (equity = balance + open floating P&L) instead of the plan snapshot.
+      liveBalance: Math.round(_liveBalance * 100) / 100,
+      accountEquity: Math.round((_liveBalance + _tlUnrealizedLive) * 100) / 100,
+      mt5Balance: Math.round(_mt5BalLive * 100) / 100,
+      tlBalance: Math.round(_tlBalLive * 100) / 100,
+      tlUnrealizedPnL: Math.round(_tlUnrealizedLive * 100) / 100,
       progressTrades: tradeCount,
       progressWinRate: winRate2,
       progressPercentage: strategy.progressPercentage,
