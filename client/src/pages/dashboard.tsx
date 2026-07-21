@@ -942,12 +942,18 @@ const Dashboard: React.FC = () => {
 
   // Derived live values for motherboard
   const mt5LiveAcct   = mt5AccountData?.accounts?.[0];
-  const liveBalance   = mt5LiveAcct?.connected ? (mt5LiveAcct.balance ?? 0) : (platformMonitors?.mt5?.balance ?? 0);
+  const mt5Balance    = mt5LiveAcct?.connected ? (mt5LiveAcct.balance ?? 0) : (platformMonitors?.mt5?.balance ?? 0);
+  const tlLiveAccts   = platformMonitors?.tradelocker ?? [];
+  // Combined balance across ALL connected brokers — previously this was
+  // MT5-only, so a TradeLocker-only trader saw $0 on the main balance tile.
+  const tlBalanceSum  = Array.isArray(tlLiveAccts)
+    ? tlLiveAccts.reduce((s: number, a: any) => s + (a?.balance ?? 0), 0)
+    : 0;
+  const liveBalance   = mt5Balance + tlBalanceSum;
   const liveDailyPnl  = mt5LiveAcct?.connected ? (mt5LiveAcct.dailyPnL ?? mt5LiveAcct.profit ?? 0) : (todayClosedProfit + unrealizedPnL);
   const liveWeeklyPnl = platformMonitors?.mt5?.weeklyPnl ?? weekClosedProfit;
   const weekGoalPct   = Math.min(100, weekProgressPct);
   const dayGoalPct    = Math.min(100, dayProgressPct);
-  const tlLiveAccts   = platformMonitors?.tradelocker ?? [];
 
   return (
     <div className="app-page">

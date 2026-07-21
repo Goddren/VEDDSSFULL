@@ -13190,6 +13190,21 @@ Respond with ONLY valid JSON:
     // Sync TL closed trades first so weekly progress includes them
     try { await syncTradeLockerOutcomes(userId); } catch (_) {}
 
+    // Actively refresh TradeLocker live balances so the weekly plan's balance
+    // reflects the broker RIGHT NOW — not whatever the 20s background loop
+    // happened to have cached (which is empty right after a deploy or for a
+    // user the loop hasn't marked active yet). Without this, the balance below
+    // silently falls back to the stale plan-creation snapshot.
+    let _tlUnrealizedLive = 0;
+    try {
+      const { syncUserTradeLocker, markTlUserActive } = await import('./services/tradelocker-sync');
+      markTlUserActive(userId);
+      const _tlAccts = await syncUserTradeLocker(userId, true);
+      // Floating (open-trade) P&L across all TL accounts = equity − balance.
+      _tlUnrealizedLive = (_tlAccts || []).reduce((s: number, a: any) =>
+        s + ((a?.equity || 0) - (a?.balance || 0)), 0);
+    } catch (_) { /* non-fatal — falls back to cached balance below */ }
+
     // Load strategy from memory OR database (survives deploys)
     let strategy = (global as any).mt5WeeklyStrategies?.[userId];
     if (!strategy) {
@@ -13282,7 +13297,11 @@ Respond with ONLY valid JSON:
       const sym = (p.symbol || '').toUpperCase().replace('/', '');
       return planPairs.includes(sym);
     });
-    const unrealizedPnL = activeTrades.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+    // Floating P&L = MT5 open positions on plan pairs + ALL TradeLocker open
+    // trades (equity − balance, computed live above). Previously TradeLocker
+    // open trades were ignored, so the "including open" profit was understated.
+    const mt5UnrealizedPnL = activeTrades.reduce((s: number, p: any) => s + (p.profit || 0), 0);
+    const unrealizedPnL = mt5UnrealizedPnL + _tlUnrealizedLive;
 
     const isLive = (global as any).mt5VeddSSAILive?.[userId] === true;
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -13445,6 +13464,13 @@ Respond with ONLY valid JSON:
     res.json({
       currentProfit: strategy.currentProfit,
       accountBalance: strategy.accountBalance,
+      // Live balance breakdown so the client can show a real, current figure
+      // (equity = balance + open floating P&L) instead of the plan snapshot.
+      liveBalance: Math.round(_liveBalance * 100) / 100,
+      accountEquity: Math.round((_liveBalance + _tlUnrealizedLive) * 100) / 100,
+      mt5Balance: Math.round(_mt5BalLive * 100) / 100,
+      tlBalance: Math.round(_tlBalLive * 100) / 100,
+      tlUnrealizedPnL: Math.round(_tlUnrealizedLive * 100) / 100,
       progressTrades: tradeCount,
       progressWinRate: winRate,
       progressPercentage: strategy.progressPercentage,
