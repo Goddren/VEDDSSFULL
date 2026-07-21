@@ -15,6 +15,15 @@ import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 // the only way to auto-detect a trade closing.
 const lastOpenTickets = new Map<string, Set<string>>();
 
+// Per-connection throttle for the order-history reconciliation. The poll-and-diff
+// above only catches a close if we saw the position OPEN in a prior in-memory
+// cycle — so closes that happen across a deploy (memory wiped) or between polls
+// are missed forever. This reconciliation pulls the broker's real ordersHistory
+// and backfills ANY closed trade the DB is missing, independent of what we saw
+// open. Throttled to keep it gentle on the login/API rate limit.
+const lastOutcomeReconcile = new Map<string, number>();
+const OUTCOME_RECONCILE_MS = 5 * 60 * 1000; // every 5 min per connection
+
 export interface TlLiveAccount {
   accountId: string;
   connectionId: number;
@@ -105,6 +114,55 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
     }
   }
   lastOpenTickets.set(cacheKey, currentTickets);
+
+  // ── Order-history reconciliation (throttled) ────────────────────────────
+  // Reliable backfill of closed trades regardless of whether we observed them
+  // open. This is what keeps the closed-trades feed + realized P&L current
+  // across deploys and fast open→close cycles that poll-and-diff misses.
+  const lastRecon = lastOutcomeReconcile.get(cacheKey) || 0;
+  if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
+    lastOutcomeReconcile.set(cacheKey, Date.now());
+    try {
+      const fromTs = Math.floor((Date.now() - 14 * 24 * 3600 * 1000) / 1000); // last 14 days
+      const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => [] as any[]);
+      for (const o of closedTrades) {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
+        if (!isFinite(p) || p === 0) continue; // zero P&L = not actually closed
+        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
+        if (!tk || tk === 'tl_undefined') continue;
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          if (existing.result === 'PENDING' || (existing as any).connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: p > 0 ? 'WIN' : 'LOSS',
+              profitLoss: p,
+              connectionId: conn.id,
+              closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+            } as any).catch(() => {});
+          }
+          continue;
+        }
+        await storage.createAiTradeResult({
+          userId,
+          symbol: (o.symbol || 'UNKNOWN').toUpperCase().replace('/', ''),
+          direction: /sell|short/i.test(o.side || '') ? 'SELL' : 'BUY',
+          entryPrice: o.openPrice || 0,
+          exitPrice: o.closePrice || 0,
+          aiConfidence: 0,
+          result: p > 0 ? 'WIN' : 'LOSS',
+          profitLoss: p,
+          source: 'tradelocker',
+          connectionId: conn.id,
+          mt5Ticket: tk,
+          notes: 'TradeLocker closed position (auto-reconciled)',
+          closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+        } as any).catch(() => {});
+      }
+    } catch (err: any) {
+      console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
+    }
+  }
 }
 
 /**
