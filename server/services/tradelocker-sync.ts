@@ -153,10 +153,12 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
           currency: info.currency || 'USD',
           lastUpdated: new Date().toISOString(),
         };
-        // Keep the legacy balance cache used for proportional lot sizing in sync
+        // Keep the legacy balance cache used for proportional lot sizing in sync.
+        // Always overwrite (even with 0) — a genuinely-zeroed account should size
+        // to 0, not silently keep sizing off a stale prior positive balance.
         (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
         (global as any).tlAccountBalances[userId] = (global as any).tlAccountBalances[userId] || {};
-        if (info.balance > 0) (global as any).tlAccountBalances[userId][conn.accountId] = info.balance;
+        (global as any).tlAccountBalances[userId][conn.accountId] = info.balance || 0;
 
         // Auto-log this account's trades — no manual entry, no EA/webhook
         // needed. TradeLocker has no push mechanism like MT5's EA, so this

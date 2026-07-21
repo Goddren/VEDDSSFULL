@@ -3657,14 +3657,16 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
   }
 
-  async updateWeeklyStrategyProgress(userId: number, progress: { currentProfit: number; progressTrades: number; progressWinRate: number; progressPercentage: number }): Promise<void> {
+  async updateWeeklyStrategyProgress(userId: number, progress: { currentProfit: number; progressTrades: number; progressWinRate: number; progressPercentage: number; accountBalance?: number }): Promise<void> {
+    const updates: any = {
+      currentProfit: progress.currentProfit,
+      progressTrades: progress.progressTrades,
+      progressWinRate: progress.progressWinRate,
+      progressPercentage: progress.progressPercentage,
+    };
+    if (progress.accountBalance !== undefined) updates.accountBalance = progress.accountBalance;
     await db.update(weeklyStrategies)
-      .set({
-        currentProfit: progress.currentProfit,
-        progressTrades: progress.progressTrades,
-        progressWinRate: progress.progressWinRate,
-        progressPercentage: progress.progressPercentage,
-      })
+      .set(updates)
       .where(and(eq(weeklyStrategies.userId, userId), eq(weeklyStrategies.isActive, true)));
   }
 

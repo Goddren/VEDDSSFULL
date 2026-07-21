@@ -11399,7 +11399,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                 action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal,
                 volume: connLot, refLot: tradeVolume, copyMode: _eaCopyMode,
-                tlBal: _tlCachedBal, mt5Bal: accountBalance, orderType: _eaOrderType,
+                tlBal: _tlBal, mt5Bal: accountBalance, orderType: _eaOrderType,
               });
 
               try {
@@ -11483,7 +11483,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } // end else (analysisGuard.allow)
             }
           } else {
-            const cooldownRemaining = Math.round((TRADE_COOLDOWN_MS - (now - lastTradeTime)) / 1000);
+            const cooldownRemaining = Math.round((BASE_COOLDOWN_MS - (now - lastTradeTime)) / 1000);
             console.log(`[MT5 Chart Data AutoTrade] Skipping trade - cooldown active (${cooldownRemaining}s remaining)`);
           }
         }
@@ -13373,6 +13373,21 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round((closedProfit / strategy.profitTarget) * 100)));
 
+    // ── Keep the plan's accountBalance current with live MT5 + TradeLocker
+    // balances. Previously this was a one-time snapshot taken when the plan
+    // was generated — TradeLocker deposits/withdrawals/P&L after that point
+    // never made it back into the stored plan, only into currentProfit.
+    const _mt5BalLive: number = (() => {
+      const cache = (global as any).mt5AccountData?.[userId];
+      return cache ? (Object.values(cache) as any[]).reduce((s: number, a: any) => s + (a?.balance || 0), 0) : 0;
+    })();
+    const _tlBalLive: number = Object.values((global as any).tlAccountData?.[userId] || {})
+      .reduce((s: number, a: any) => s + (a?.balance || 0), 0);
+    const _liveBalance = _mt5BalLive + _tlBalLive;
+    if (_liveBalance > 0) {
+      strategy.accountBalance = Math.round(_liveBalance * 100) / 100;
+    }
+
     // ── Daily profit (today's closed P&L including open unrealized) ──────────
     const todayAllDbTrades = dbTrades.filter((t: any) => {
       const tradeDate = new Date(t.closedAt || t.createdAt);
@@ -13421,6 +13436,7 @@ Respond with ONLY valid JSON:
         progressTrades: strategy.progressTrades,
         progressWinRate: strategy.progressWinRate,
         progressPercentage: strategy.progressPercentage,
+        accountBalance: _liveBalance > 0 ? strategy.accountBalance : undefined,
       });
     } catch (dbErr) {
       console.error('[Weekly Strategy] DB progress update error:', dbErr);
@@ -13428,6 +13444,7 @@ Respond with ONLY valid JSON:
 
     res.json({
       currentProfit: strategy.currentProfit,
+      accountBalance: strategy.accountBalance,
       progressTrades: tradeCount,
       progressWinRate: winRate,
       progressPercentage: strategy.progressPercentage,
