@@ -16533,7 +16533,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -16542,6 +16542,7 @@ var init_tradelocker = __esm({
     SALT_LENGTH = 16;
     INSTRUMENT_CACHE_TTL = 10 * 60 * 1e3;
     instrumentCache = /* @__PURE__ */ new Map();
+    instrumentsListCache = /* @__PURE__ */ new Map();
     serviceCache = /* @__PURE__ */ new Map();
     SERVICE_CACHE_TTL = 50 * 60 * 1e3;
     RETRY_DELAYS = [1e3, 2e3];
@@ -17290,16 +17291,26 @@ var init_tradelocker = __esm({
         await this.resolveAccNum();
         const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
         let tradableInstrumentId = null;
+        let infoRouteId = null;
         const cached2 = instrumentCache.get(instCacheKey);
-        if (cached2 && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
+        if (cached2 && cached2.infoRouteId != null && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
           tradableInstrumentId = cached2.tradableInstrumentId;
+          infoRouteId = cached2.infoRouteId;
         } else {
-          const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-          });
-          if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
-          const instrData = await instrResp.json();
-          const instruments = instrData.d?.instruments || instrData.instruments || instrData || [];
+          const listKey = `${this.baseUrl}:${this.accountId}`;
+          let instruments;
+          const listCached = instrumentsListCache.get(listKey);
+          if (listCached && Date.now() - listCached.cachedAt < INSTRUMENT_CACHE_TTL) {
+            instruments = listCached.instruments;
+          } else {
+            const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+            });
+            if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
+            const instrData = await instrResp.json();
+            instruments = instrData.d?.instruments || instrData.instruments || instrData || [];
+            instrumentsListCache.set(listKey, { instruments, cachedAt: Date.now() });
+          }
           const sym = symbol.toUpperCase();
           const ALIASES = {
             "XAUUSD": ["GOLD", "XAU/USD"],
@@ -17316,30 +17327,37 @@ var init_tradelocker = __esm({
           if (!matched) throw new Error(`Instrument not found in TradeLocker: ${symbol}`);
           tradableInstrumentId = matched.tradableInstrumentId || matched.id;
           const routes = Array.isArray(matched.routes) ? matched.routes : [];
-          const routeId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
-          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId, cachedAt: Date.now() });
+          const tradeRouteId = (routes.find((r) => r.type === "TRADE" || r.name === "TRADE") ?? routes[0])?.id ?? 1;
+          infoRouteId = (routes.find((r) => r.type === "INFO" || r.name === "INFO") ?? routes[0])?.id ?? tradeRouteId;
+          instrumentCache.set(instCacheKey, { tradableInstrumentId, routeId: tradeRouteId, infoRouteId, cachedAt: Date.now() });
         }
-        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "H" : String(resolutionMinutes);
-        const now = Math.floor(Date.now() / 1e3);
-        const startTime = fromTs ?? now - 86400;
-        const endTime = toTs ?? now;
-        const url = `${this.baseUrl}/trade/accounts/${this.accountId}/instruments/${tradableInstrumentId}/history?resolution=${resolution}&startTime=${startTime}&endTime=${endTime}`;
-        const histResp = await fetch(url, {
-          headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-        });
+        const resolution = resolutionMinutes >= 1440 ? "1D" : resolutionMinutes >= 60 ? String(resolutionMinutes / 60) + "h" : String(resolutionMinutes) + "m";
+        const nowMs = Date.now();
+        const fromMs = fromTs != null ? fromTs * 1e3 : nowMs - 864e5;
+        const toMs = toTs != null ? toTs * 1e3 : nowMs;
+        const url = `${this.baseUrl}/trade/history?routeId=${infoRouteId}&tradableInstrumentId=${tradableInstrumentId}&resolution=${resolution}&from=${fromMs}&to=${toMs}`;
+        let histResp = null;
+        const backoffs = [400, 900];
+        for (let attempt = 0; ; attempt++) {
+          histResp = await fetch(url, {
+            headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
+          });
+          if (histResp.status !== 429 || attempt >= backoffs.length) break;
+          await new Promise((r) => setTimeout(r, backoffs[attempt]));
+        }
         if (!histResp.ok) {
           const txt = await histResp.text();
           throw new Error(`TradeLocker history error: ${histResp.status} \u2014 ${txt}`);
         }
         const histData = await histResp.json();
-        const bars = histData.d?.bars || histData.bars || histData || [];
+        const bars = histData.d?.barDetails || histData.d?.bars || histData.barDetails || histData.bars || [];
         return bars.map((b) => ({
-          t: b.time ?? b.t ?? b.timestamp ?? 0,
-          o: b.open ?? b.o ?? 0,
-          h: b.high ?? b.h ?? 0,
-          l: b.low ?? b.l ?? 0,
-          c: b.close ?? b.c ?? 0,
-          v: b.volume ?? b.v ?? 0
+          t: b.t ?? b.time ?? b.timestamp ?? 0,
+          o: b.o ?? b.open ?? 0,
+          h: b.h ?? b.high ?? 0,
+          l: b.l ?? b.low ?? 0,
+          c: b.c ?? b.close ?? 0,
+          v: b.v ?? b.volume ?? 0
         })).sort((a, b) => a.t - b.t);
       }
       async closePosition(positionId) {
