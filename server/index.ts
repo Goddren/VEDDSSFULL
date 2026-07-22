@@ -781,7 +781,11 @@ async function withRetry<T>(
       await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
       await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
       await db.execute(sql`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
-      console.log('[startup] Prop-firm linkage columns verified.');
+      // Last-known balance snapshot so the UI shows real figures across restarts / while re-authing
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
+      await db.execute(sql`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
+      console.log('[startup] Prop-firm linkage + balance-snapshot columns verified.');
     } catch (err) {
       console.error('[startup] Prop-firm linkage migration (non-fatal):', (err as Error).message);
     }

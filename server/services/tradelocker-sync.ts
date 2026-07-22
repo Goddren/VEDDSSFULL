@@ -24,6 +24,10 @@ const lastOpenTickets = new Map<string, Set<string>>();
 const lastOutcomeReconcile = new Map<string, number>();
 const OUTCOME_RECONCILE_MS = 5 * 60 * 1000; // every 5 min per connection
 
+// Throttle DB writes of the balance snapshot (don't write every 20s sync).
+const lastBalancePersist = new Map<string, { at: number; balance: number }>();
+const BALANCE_PERSIST_MS = 60 * 1000;
+
 export interface TlLiveAccount {
   accountId: string;
   connectionId: number;
@@ -193,6 +197,29 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
       if (!activeIds.has(key)) delete store[userId][key];
     }
 
+    // Cold-start hydration: seed the cache from each account's last-known DB
+    // balance so the UI shows the real figure immediately (across a deploy or
+    // while the first live fetch / re-auth is in flight) instead of $0.
+    for (const conn of active) {
+      if (store[userId][conn.accountId]) continue;
+      const lb = (conn as any).lastBalance;
+      if (lb != null) {
+        store[userId][conn.accountId] = {
+          accountId: conn.accountId,
+          connectionId: conn.id,
+          accountType: conn.accountType,
+          broker: (conn as any).brokerName || 'TradeLocker',
+          label: `TradeLocker – ${conn.email} (${conn.accountType})`,
+          balance: lb || 0,
+          equity: (conn as any).lastEquity ?? lb ?? 0,
+          margin: 0,
+          freeMargin: 0,
+          currency: 'USD',
+          lastUpdated: (conn as any).lastBalanceAt ? new Date((conn as any).lastBalanceAt).toISOString() : new Date(0).toISOString(),
+        };
+      }
+    }
+
     // Sequential to avoid concurrent auth storms against the TL API
     for (const conn of active) {
       try {
@@ -217,6 +244,22 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
         (global as any).tlAccountBalances = (global as any).tlAccountBalances || {};
         (global as any).tlAccountBalances[userId] = (global as any).tlAccountBalances[userId] || {};
         (global as any).tlAccountBalances[userId][conn.accountId] = info.balance || 0;
+
+        // Persist the balance snapshot to the DB (throttled) so it survives
+        // restarts and is shown while a future re-auth is in flight.
+        if (info.balance > 0) {
+          const pk = `${userId}:${conn.accountId}`;
+          const prevPersist = lastBalancePersist.get(pk);
+          const changed = !prevPersist || Math.abs(prevPersist.balance - info.balance) > 0.01;
+          if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
+            lastBalancePersist.set(pk, { at: Date.now(), balance: info.balance });
+            storage.updateTradelockerConnection(conn.id, {
+              lastBalance: info.balance,
+              lastEquity: info.equity || info.balance,
+              lastBalanceAt: new Date(),
+            } as any).catch(() => {});
+          }
+        }
 
         // Auto-log this account's trades — no manual entry, no EA/webhook
         // needed. TradeLocker has no push mechanism like MT5's EA, so this

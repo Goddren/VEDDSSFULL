@@ -14701,6 +14701,15 @@ Rules:
       } catch (err) {
         lastErr = err instanceof Error ? err.message : 'Unknown error';
         lastErrObj = err;
+        // A 429 is a rate-limit, NOT a wrong-account-type error — trying the
+        // other host just burns another login against the limit. Stop, record
+        // the cooldown, and tell the user to wait.
+        if (/(^|\D)429(\D|$)/.test(lastErr)) {
+          tlNoteAuthResult(cooldownKey, lastErrObj);
+          return res.status(429).json({
+            error: `TradeLocker is rate-limiting logins right now — wait ~60s, then this account will connect. (Adding several accounts at once? They now connect one-by-one automatically.)`,
+          });
+        }
       }
     }
     if (!authenticated) {

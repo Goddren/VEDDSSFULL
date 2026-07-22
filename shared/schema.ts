@@ -719,6 +719,12 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   propFirmName: text("prop_firm_name"), // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
   propFirmAccountSize: doublePrecision("prop_firm_account_size"), // Funded account size in $ (for drawdown/target math)
   weeklyProfitTarget: doublePrecision("weekly_profit_target"), // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
+  // Last-known balance snapshot — persisted so the UI shows the real figure
+  // immediately after a deploy/restart (and while a re-auth is in flight)
+  // instead of $0 or an error. Refreshed by the background sync.
+  lastBalance: doublePrecision("last_balance"),
+  lastEquity: doublePrecision("last_equity"),
+  lastBalanceAt: timestamp("last_balance_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

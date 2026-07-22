@@ -99,6 +99,47 @@ export function noteAuthResult(key: string, err: unknown): void {
   }
 }
 
+// ── Global login serializer ────────────────────────────────────────────────
+// TradeLocker rate-limits its /auth endpoints per IP, so firing several logins
+// at once — a user connecting 3 accounts, or the 20s sync loop refreshing many
+// connections — trips a 429 that has nothing to do with any single account.
+// Funnel EVERY login/refresh through one chain with a minimum gap so N accounts
+// authenticate back-to-back instead of all at once. This makes "add as many
+// accounts as you want" actually work.
+let authChain: Promise<any> = Promise.resolve();
+let lastAuthAt = 0;
+const MIN_AUTH_GAP_MS = 1500;
+async function serializeAuth<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const run = authChain.then(async () => {
+    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    try {
+      return await fn();
+    } finally {
+      lastAuthAt = Date.now();
+    }
+  });
+  // Keep the chain alive even if this link rejects, so one failure doesn't wedge the queue.
+  authChain = run.then(() => {}, () => {});
+  return run;
+}
+
+// One login attempt with 429 backoff — the broker occasionally 429s even a
+// single serialized login under load; a short wait clears it.
+async function loginFetchWith429Retry(url: string, body: any): Promise<Response> {
+  const backoffs = [1500, 3500];
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
+    await new Promise(r => setTimeout(r, backoffs[attempt]));
+  }
+}
+
 export function encryptPassword(password: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
   const salt = crypto.randomBytes(SALT_LENGTH);
@@ -282,18 +323,12 @@ export class TradeLockerService {
     });
     
     try {
-      const response = await fetch(`${this.baseUrl}/auth/jwt/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const response = await serializeAuth(`login:${this.serverId}:${email}`, () =>
+        loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
           email,
           password,
           server: this.serverId,
-        }),
-        signal: AbortSignal.timeout(12000),
-      });
+        }));
 
       console.log('[TradeLocker Auth] Response status:', response.status);
       
@@ -325,16 +360,8 @@ export class TradeLockerService {
 
   async refreshAccessToken(refreshToken: string): Promise<TradeLockerAuthResponse> {
     try {
-      const response = await fetch(`${this.baseUrl}/auth/jwt/refresh`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          refreshToken,
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
+      const response = await serializeAuth(`refresh:${this.serverId}`, () =>
+        loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
 
       if (!response.ok) {
         throw new Error(`Token refresh failed: ${response.status}`);
