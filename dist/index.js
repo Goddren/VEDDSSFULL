@@ -17686,6 +17686,52 @@ async function syncTradeLockerTrades(userId, conn2, svc) {
     }
   }
   lastOpenTickets.set(cacheKey, currentTickets);
+  const lastRecon = lastOutcomeReconcile.get(cacheKey) || 0;
+  if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
+    lastOutcomeReconcile.set(cacheKey, Date.now());
+    try {
+      const fromTs = Math.floor((Date.now() - 14 * 24 * 3600 * 1e3) / 1e3);
+      const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
+      for (const o of closedTrades) {
+        const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+        const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+        if (!isFinite(p) || p === 0) continue;
+        const tk = o.positionId ? `tl_${conn2.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
+        if (!tk || tk === "tl_undefined") continue;
+        const existing = await storage.getAiTradeResultByTicket(userId, tk);
+        if (existing) {
+          if (existing.result === "PENDING" || existing.connectionId == null) {
+            await storage.updateAiTradeResult(existing.id, userId, {
+              result: p > 0 ? "WIN" : "LOSS",
+              profitLoss: p,
+              connectionId: conn2.id,
+              closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+            }).catch(() => {
+            });
+          }
+          continue;
+        }
+        await storage.createAiTradeResult({
+          userId,
+          symbol: (o.symbol || "UNKNOWN").toUpperCase().replace("/", ""),
+          direction: /sell|short/i.test(o.side || "") ? "SELL" : "BUY",
+          entryPrice: o.openPrice || 0,
+          exitPrice: o.closePrice || 0,
+          aiConfidence: 0,
+          result: p > 0 ? "WIN" : "LOSS",
+          profitLoss: p,
+          source: "tradelocker",
+          connectionId: conn2.id,
+          mt5Ticket: tk,
+          notes: "TradeLocker closed position (auto-reconciled)",
+          closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+        }).catch(() => {
+        });
+      }
+    } catch (err) {
+      console.error(`[TL-sync] Outcome reconciliation failed for ${conn2.accountId} (non-fatal):`, err?.message);
+    }
+  }
 }
 async function syncUserTradeLocker(userId, force = false) {
   const now = Date.now();
@@ -17793,13 +17839,15 @@ function startTradeLockerSync() {
   }, SYNC_INTERVAL_MS);
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
-var lastOpenTickets, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
     init_storage();
     init_tradelocker();
     lastOpenTickets = /* @__PURE__ */ new Map();
+    lastOutcomeReconcile = /* @__PURE__ */ new Map();
+    OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
     activeUsers = /* @__PURE__ */ new Map();
     ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
     SYNC_INTERVAL_MS = 20 * 1e3;
