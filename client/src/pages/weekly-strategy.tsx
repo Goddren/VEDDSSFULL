@@ -1412,7 +1412,7 @@ export default function WeeklyStrategyPage() {
   const [engineTrailActivationPips, setEngineTrailActivationPips] = useState(15);
   const [engineTrailSarInitialAF, setEngineTrailSarInitialAF] = useState(0.02);
   const [engineTrailSarMaxAF, setEngineTrailSarMaxAF] = useState(0.20);
-  const [engineRiskPerTrade, setEngineRiskPerTrade] = useState(1);
+  const [engineRiskPerTrade, setEngineRiskPerTrade] = useState(0.5);
   const [engineBreakevenBufferPips, setEngineBreakevenBufferPips] = useState(5);
   const [trailCalcOpen, setTrailCalcOpen] = useState(false);
 
@@ -2315,9 +2315,11 @@ export default function WeeklyStrategyPage() {
                         <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                           {c.accountType?.toUpperCase()}
                         </span>
-                        {c.lotMultiplier && c.lotMultiplier !== 1 && (
+                        {c.useRiskPercent ? (
+                          <span className="text-[9px] font-mono font-bold text-emerald-400">Risk {c.riskPercent ?? 0.5}%</span>
+                        ) : c.lotMultiplier && c.lotMultiplier !== 1 ? (
                           <span className={`text-[9px] font-mono font-bold ${c.lotMultiplier > 1 ? 'text-amber-400' : 'text-blue-400'}`}>×{c.lotMultiplier}</span>
-                        )}
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -6361,12 +6363,16 @@ export default function WeeklyStrategyPage() {
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${c.accountType === 'live' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
                           {c.accountType?.toUpperCase()}
                         </span>
-                        {c.lotMultiplier && c.lotMultiplier !== 1 ? (
-                          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${c.lotMultiplier > 1 ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`}>
+                        {c.useRiskPercent ? (
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400" title="This account sizes each trade to this % of its own balance">
+                            Risk {c.riskPercent ?? 0.5}%
+                          </span>
+                        ) : c.lotMultiplier && c.lotMultiplier !== 1 ? (
+                          <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${c.lotMultiplier > 1 ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/15 text-blue-400'}`} title="Fixed lot multiplier — enable % Risk Sizing for per-account risk">
                             ×{c.lotMultiplier}
                           </span>
                         ) : (
-                          <span className="text-[10px] text-gray-500">×1.0</span>
+                          <span className="text-[10px] text-gray-500" title="No per-account risk set — tap Manage to enable % Risk Sizing">×1.0</span>
                         )}
                         <a href="/webhooks" className="text-[10px] text-cyan-400 hover:text-cyan-300">Manage →</a>
                       </div>

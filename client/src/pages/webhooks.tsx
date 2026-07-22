@@ -1729,7 +1729,17 @@ export default function WebhooksPage() {
                                 <p className="text-gray-500 text-[10px]">Size lots from THIS account's balance &amp; stop distance (ignores the source lot)</p>
                               </div>
                               <button
-                                onClick={() => updateTLConnectionMutation.mutate({ id: conn.id, data: { useRiskPercent: !conn.useRiskPercent } })}
+                                onClick={() => {
+                                  const enabling = !conn.useRiskPercent;
+                                  // When enabling, seed a sensible 0.5% default if the account is still
+                                  // on the 1.0 placeholder — each account keeps its own value thereafter.
+                                  const data: any = { useRiskPercent: enabling };
+                                  if (enabling && (conn.riskPercent == null || conn.riskPercent === 1)) {
+                                    data.riskPercent = 0.5;
+                                    setRiskPercentEdits(prev => ({ ...prev, [conn.id]: '0.5' }));
+                                  }
+                                  updateTLConnectionMutation.mutate({ id: conn.id, data });
+                                }}
                                 className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ${conn.useRiskPercent ? 'bg-emerald-600' : 'bg-gray-700'}`}
                               >
                                 <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${conn.useRiskPercent ? 'translate-x-[18px]' : 'translate-x-0.5'}`} />
