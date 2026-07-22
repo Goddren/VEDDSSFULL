@@ -989,6 +989,12 @@ var init_schema = __esm({
       // Funded account size in $ (for drawdown/target math)
       weeklyProfitTarget: doublePrecision("weekly_profit_target"),
       // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
+      // Last-known balance snapshot — persisted so the UI shows the real figure
+      // immediately after a deploy/restart (and while a re-auth is in flight)
+      // instead of $0 or an error. Refreshed by the background sync.
+      lastBalance: doublePrecision("last_balance"),
+      lastEquity: doublePrecision("last_equity"),
+      lastBalanceAt: timestamp("last_balance_at"),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -16259,6 +16265,34 @@ function noteAuthResult(key, err) {
     authCooldownUntil.delete(key);
   }
 }
+async function serializeAuth(label, fn) {
+  const run = authChain.then(async () => {
+    const wait = MIN_AUTH_GAP_MS - (Date.now() - lastAuthAt);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    try {
+      return await fn();
+    } finally {
+      lastAuthAt = Date.now();
+    }
+  });
+  authChain = run.then(() => {
+  }, () => {
+  });
+  return run;
+}
+async function loginFetchWith429Retry(url, body) {
+  const backoffs = [1500, 3500];
+  for (let attempt = 0; ; attempt++) {
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12e3)
+    });
+    if (resp.status !== 429 || attempt >= backoffs.length) return resp;
+    await new Promise((r) => setTimeout(r, backoffs[attempt]));
+  }
+}
 function encryptPassword(password) {
   const iv = crypto2.randomBytes(IV_LENGTH);
   const salt = crypto2.randomBytes(SALT_LENGTH);
@@ -16533,7 +16567,7 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
     };
   }
 }
-var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, TradeLockerService, TL_VALUE_TTL;
+var IV_LENGTH, DEFAULT_ENCRYPTION_KEY, SALT_LENGTH, INSTRUMENT_CACHE_TTL, instrumentCache, instrumentsListCache, serviceCache, SERVICE_CACHE_TTL, RETRY_DELAYS, RETRYABLE_STATUSES, AUTH_429_COOLDOWN_MS, authCooldownUntil, authChain, lastAuthAt, MIN_AUTH_GAP_MS, TradeLockerService, TL_VALUE_TTL;
 var init_tradelocker = __esm({
   "server/tradelocker.ts"() {
     "use strict";
@@ -16549,6 +16583,9 @@ var init_tradelocker = __esm({
     RETRYABLE_STATUSES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
     AUTH_429_COOLDOWN_MS = 5 * 60 * 1e3;
     authCooldownUntil = /* @__PURE__ */ new Map();
+    authChain = Promise.resolve();
+    lastAuthAt = 0;
+    MIN_AUTH_GAP_MS = 1500;
     TradeLockerService = class _TradeLockerService {
       baseUrl;
       accessToken = null;
@@ -16677,18 +16714,11 @@ var init_tradelocker = __esm({
           accountId: this.accountId
         });
         try {
-          const response = await fetch(`${this.baseUrl}/auth/jwt/token`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              email,
-              password,
-              server: this.serverId
-            }),
-            signal: AbortSignal.timeout(12e3)
-          });
+          const response = await serializeAuth(`login:${this.serverId}:${email}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/token`, {
+            email,
+            password,
+            server: this.serverId
+          }));
           console.log("[TradeLocker Auth] Response status:", response.status);
           if (!response.ok) {
             const errorText = await response.text();
@@ -16712,16 +16742,7 @@ var init_tradelocker = __esm({
       }
       async refreshAccessToken(refreshToken) {
         try {
-          const response = await fetch(`${this.baseUrl}/auth/jwt/refresh`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              refreshToken
-            }),
-            signal: AbortSignal.timeout(1e4)
-          });
+          const response = await serializeAuth(`refresh:${this.serverId}`, () => loginFetchWith429Retry(`${this.baseUrl}/auth/jwt/refresh`, { refreshToken }));
           if (!response.ok) {
             throw new Error(`Token refresh failed: ${response.status}`);
           }
@@ -17773,6 +17794,25 @@ async function syncUserTradeLocker(userId, force = false) {
       if (!activeIds.has(key)) delete store[userId][key];
     }
     for (const conn2 of active) {
+      if (store[userId][conn2.accountId]) continue;
+      const lb = conn2.lastBalance;
+      if (lb != null) {
+        store[userId][conn2.accountId] = {
+          accountId: conn2.accountId,
+          connectionId: conn2.id,
+          accountType: conn2.accountType,
+          broker: conn2.brokerName || "TradeLocker",
+          label: `TradeLocker \u2013 ${conn2.email} (${conn2.accountType})`,
+          balance: lb || 0,
+          equity: conn2.lastEquity ?? lb ?? 0,
+          margin: 0,
+          freeMargin: 0,
+          currency: "USD",
+          lastUpdated: conn2.lastBalanceAt ? new Date(conn2.lastBalanceAt).toISOString() : (/* @__PURE__ */ new Date(0)).toISOString()
+        };
+      }
+    }
+    for (const conn2 of active) {
       try {
         const svc = await getOrCreateService(conn2);
         const info = await svc.getAccountInfo();
@@ -17792,6 +17832,20 @@ async function syncUserTradeLocker(userId, force = false) {
         global.tlAccountBalances = global.tlAccountBalances || {};
         global.tlAccountBalances[userId] = global.tlAccountBalances[userId] || {};
         global.tlAccountBalances[userId][conn2.accountId] = info.balance || 0;
+        if (info.balance > 0) {
+          const pk = `${userId}:${conn2.accountId}`;
+          const prevPersist = lastBalancePersist.get(pk);
+          const changed = !prevPersist || Math.abs(prevPersist.balance - info.balance) > 0.01;
+          if (changed && (!prevPersist || Date.now() - prevPersist.at > BALANCE_PERSIST_MS)) {
+            lastBalancePersist.set(pk, { at: Date.now(), balance: info.balance });
+            storage.updateTradelockerConnection(conn2.id, {
+              lastBalance: info.balance,
+              lastEquity: info.equity || info.balance,
+              lastBalanceAt: /* @__PURE__ */ new Date()
+            }).catch(() => {
+            });
+          }
+        }
         await syncTradeLockerTrades(userId, conn2, svc).catch(
           (err) => console.error(`[TL-sync] Trade auto-log failed for ${conn2.accountId} (non-fatal):`, err.message)
         );
@@ -17857,7 +17911,7 @@ function startTradeLockerSync() {
   }, SYNC_INTERVAL_MS);
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
@@ -17866,6 +17920,8 @@ var init_tradelocker_sync = __esm({
     lastOpenTickets = /* @__PURE__ */ new Map();
     lastOutcomeReconcile = /* @__PURE__ */ new Map();
     OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
+    lastBalancePersist = /* @__PURE__ */ new Map();
+    BALANCE_PERSIST_MS = 60 * 1e3;
     activeUsers = /* @__PURE__ */ new Map();
     ACTIVE_WINDOW_MS = 15 * 60 * 1e3;
     SYNC_INTERVAL_MS = 20 * 1e3;
@@ -60514,6 +60570,12 @@ Rules:
       } catch (err) {
         lastErr = err instanceof Error ? err.message : "Unknown error";
         lastErrObj = err;
+        if (/(^|\D)429(\D|$)/.test(lastErr)) {
+          noteAuthResult(cooldownKey, lastErrObj);
+          return res.status(429).json({
+            error: `TradeLocker is rate-limiting logins right now \u2014 wait ~60s, then this account will connect. (Adding several accounts at once? They now connect one-by-one automatically.)`
+          });
+        }
       }
     }
     if (!authenticated) {
@@ -74634,7 +74696,10 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
       await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
       await db.execute(sql11`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
-      console.log("[startup] Prop-firm linkage columns verified.");
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
+      await db.execute(sql11`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
+      console.log("[startup] Prop-firm linkage + balance-snapshot columns verified.");
     } catch (err) {
       console.error("[startup] Prop-firm linkage migration (non-fatal):", err.message);
     }
