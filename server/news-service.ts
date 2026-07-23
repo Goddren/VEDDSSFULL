@@ -86,13 +86,19 @@ class NewsService {
   initialize(finnhubApiKey?: string, openaiApiKey?: string) {
     this.apiKey = finnhubApiKey || process.env.FINNHUB_API_KEY || null;
     const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
-    if (oaiKey) {
-      try {
+    const orKey = process.env.OPENROUTER_API_KEY;
+    try {
+      if (oaiKey) {
         this.openai = new OpenAI({ apiKey: oaiKey });
-      } catch (e) {
-        console.log('Failed to initialize OpenAI for news sentiment:', e);
-        this.openai = null;
+      } else if (orKey) {
+        // No platform OpenAI key — fall back to OpenRouter's free tier so
+        // news sentiment analysis still runs instead of silently no-op'ing.
+        this.openai = new OpenAI({ apiKey: orKey, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
+        (this.openai as any).defaultModel = 'deepseek/deepseek-chat-v3-0324:free';
       }
+    } catch (e) {
+      console.log('Failed to initialize AI client for news sentiment:', e);
+      this.openai = null;
     }
     this.initialized = true;
   }

@@ -509,9 +509,22 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
 
     // Use caller-supplied client (Groq in economy mode, user's key in full mode).
     // Platform fallback uses gpt-4o-mini — NOT gpt-4o. A 2-sentence blurb does
-    // not require the premium model.
-    const openaiClient = openaiOverride || new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const model = (openaiClient as any).defaultModel || 'gpt-4o-mini';
+    // not require the premium model. When no OPENAI_API_KEY is set at all,
+    // fall back to OpenRouter's free tier instead of always hitting the
+    // deterministic canned-text catch block below.
+    let openaiClient = openaiOverride;
+    let fallbackModel = 'gpt-4o-mini';
+    if (!openaiClient) {
+      if (process.env.OPENAI_API_KEY) {
+        openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      } else if (process.env.OPENROUTER_API_KEY) {
+        openaiClient = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
+        fallbackModel = 'deepseek/deepseek-chat-v3-0324:free';
+      } else {
+        openaiClient = new OpenAI({ apiKey: '' }); // no key at all — will throw below, caught into canned text
+      }
+    }
+    const model = (openaiClient as any).defaultModel || fallbackModel;
     const response = await openaiClient.chat.completions.create({
       model,
       messages: [{ role: 'user', content: prompt }],

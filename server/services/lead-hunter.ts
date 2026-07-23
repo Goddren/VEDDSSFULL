@@ -49,28 +49,41 @@ export interface RunResult {
 
 // ── AI client ────────────────────────────────────────────────────────────────
 
-function getAI(): OpenAI | null {
+function getAI(): { client: OpenAI; model: string } | null {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
-  if (groq) return new OpenAI({ apiKey: groq, baseURL: 'https://api.groq.com/openai/v1' });
-  if (oai) return new OpenAI({ apiKey: oai });
+  const or_ = process.env.OPENROUTER_API_KEY;
+  if (groq) return { client: new OpenAI({ apiKey: groq, baseURL: 'https://api.groq.com/openai/v1' }), model: 'openai/gpt-oss-20b' };
+  if (oai) return { client: new OpenAI({ apiKey: oai }), model: 'gpt-4o-mini' };
+  // No Groq/OpenAI key at all — OpenRouter (free-tier DeepSeek) keeps the lead
+  // scoring/reply-drafting running instead of silently returning empty strings.
+  if (or_) return { client: new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } }), model: 'deepseek/deepseek-chat-v3-0324:free' };
   return null;
 }
 
 async function aiChat(messages: { role: 'system' | 'user'; content: string }[]): Promise<string> {
   const ai = getAI();
   if (!ai) return '';
-  // Groq: use current fast model. OpenAI: use gpt-4o-mini.
-  const model = process.env.GROQ_API_KEY ? 'openai/gpt-oss-20b' : 'gpt-4o-mini';
   try {
-    const res = await ai.chat.completions.create({
-      model,
+    const res = await ai.client.chat.completions.create({
+      model: ai.model,
       messages,
       max_tokens: 1000,
       temperature: 0.3,
     });
     return res.choices[0]?.message?.content?.trim() || '';
-  } catch {
+  } catch (e: any) {
+    // Primary provider failed (rate-limit/quota/outage) — retry once via
+    // OpenRouter's free tier if it's configured and wasn't already tried.
+    const or_ = process.env.OPENROUTER_API_KEY;
+    if (or_ && ai.model !== 'deepseek/deepseek-chat-v3-0324:free') {
+      try {
+        const orClient = new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
+        const res = await orClient.chat.completions.create({ model: 'deepseek/deepseek-chat-v3-0324:free', messages, max_tokens: 1000, temperature: 0.3 });
+        return res.choices[0]?.message?.content?.trim() || '';
+      } catch { /* give up */ }
+    }
+    console.error('[LeadHunter] aiChat failed:', e?.message);
     return '';
   }
 }
