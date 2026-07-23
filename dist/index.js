@@ -18583,13 +18583,17 @@ var init_news_service = __esm({
       initialize(finnhubApiKey, openaiApiKey) {
         this.apiKey = finnhubApiKey || process.env.FINNHUB_API_KEY || null;
         const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
-        if (oaiKey) {
-          try {
+        const orKey = process.env.OPENROUTER_API_KEY;
+        try {
+          if (oaiKey) {
             this.openai = new OpenAI2({ apiKey: oaiKey });
-          } catch (e) {
-            console.log("Failed to initialize OpenAI for news sentiment:", e);
-            this.openai = null;
+          } else if (orKey) {
+            this.openai = new OpenAI2({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+            this.openai.defaultModel = "deepseek/deepseek-chat-v3-0324:free";
           }
+        } catch (e) {
+          console.log("Failed to initialize AI client for news sentiment:", e);
+          this.openai = null;
         }
         this.initialized = true;
       }
@@ -23181,8 +23185,19 @@ async function analyzeToken(token, options = {}) {
     const macroBlock = macro ? ` Macro: BTC${macro.btcChange >= 0 ? "+" : ""}${macro.btcChange.toFixed(1)}%/ETH${macro.ethChange >= 0 ? "+" : ""}${macro.ethChange.toFixed(1)}%/SOL${macro.solChange >= 0 ? "+" : ""}${macro.solChange.toFixed(1)}% (${macro.bias}).` : "";
     const weightsBlock = signalWeights ? ` DEX weights: ${buildDexWeightsBlock(signalWeights)}.` : "";
     const prompt = `Solana token: ${token.symbol} | DEX: ${token.dexId || "?"} | Price: $${token.priceUsd} | 24h: ${token.priceChange24h.toFixed(1)}% | Vol: $${(token.volume24h / 1e3).toFixed(0)}K | Liq: $${(token.liquidity / 1e3).toFixed(0)}K | Buys/Sells: ${token.txns24h.buys}/${token.txns24h.sells} | Traders: ${token.makers24h} | Scores: sent=${sentimentScore} tok=${tokenomicsScore} whale=${whaleScore} | Signal: ${signal} ${confidence2}% | Risk: ${riskLevel}.${macroBlock}${weightsBlock} Give a sharp 2-sentence trade analysis. Be direct.`;
-    const openaiClient = openaiOverride || new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
-    const model = openaiClient.defaultModel || "gpt-4o-mini";
+    let openaiClient = openaiOverride;
+    let fallbackModel = "gpt-4o-mini";
+    if (!openaiClient) {
+      if (process.env.OPENAI_API_KEY) {
+        openaiClient = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
+      } else if (process.env.OPENROUTER_API_KEY) {
+        openaiClient = new OpenAI3({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+        fallbackModel = "deepseek/deepseek-chat-v3-0324:free";
+      } else {
+        openaiClient = new OpenAI3({ apiKey: "" });
+      }
+    }
+    const model = openaiClient.defaultModel || fallbackModel;
     const response = await openaiClient.chat.completions.create({
       model,
       messages: [{ role: "user", content: prompt }],
@@ -38441,23 +38456,34 @@ import sgMail2 from "@sendgrid/mail";
 function getAI() {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
-  if (groq) return new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" });
-  if (oai) return new OpenAI6({ apiKey: oai });
+  const or_ = process.env.OPENROUTER_API_KEY;
+  if (groq) return { client: new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" }), model: "openai/gpt-oss-20b" };
+  if (oai) return { client: new OpenAI6({ apiKey: oai }), model: "gpt-4o-mini" };
+  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "deepseek/deepseek-chat-v3-0324:free" };
   return null;
 }
 async function aiChat(messages) {
   const ai = getAI();
   if (!ai) return "";
-  const model = process.env.GROQ_API_KEY ? "openai/gpt-oss-20b" : "gpt-4o-mini";
   try {
-    const res = await ai.chat.completions.create({
-      model,
+    const res = await ai.client.chat.completions.create({
+      model: ai.model,
       messages,
       max_tokens: 1e3,
       temperature: 0.3
     });
     return res.choices[0]?.message?.content?.trim() || "";
-  } catch {
+  } catch (e) {
+    const or_ = process.env.OPENROUTER_API_KEY;
+    if (or_ && ai.model !== "deepseek/deepseek-chat-v3-0324:free") {
+      try {
+        const orClient = new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
+        const res = await orClient.chat.completions.create({ model: "deepseek/deepseek-chat-v3-0324:free", messages, max_tokens: 1e3, temperature: 0.3 });
+        return res.choices[0]?.message?.content?.trim() || "";
+      } catch {
+      }
+    }
+    console.error("[LeadHunter] aiChat failed:", e?.message);
     return "";
   }
 }
