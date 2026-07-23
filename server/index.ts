@@ -222,6 +222,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Persona Content Engine tables exist (Don Chism founder-brand, 3x/week)
+  try {
+    const { ensurePersonaContentTables } = await import('./services/ensure-persona-content-tables');
+    await ensurePersonaContentTables();
+  } catch (err: any) {
+    console.error(`[startup] ensurePersonaContentTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure content-image columns exist (devotionals, ambassador daily/bonus/community content)
   try {
     const { ensureContentImageColumns } = await import('./services/ensure-content-image-columns');
@@ -1302,6 +1310,10 @@ async function withRetry<T>(
     // Start Ambassador Prime daily content engine (runs at 09:00 UTC)
     const { startAmbassadorPrimeScheduler } = await import('./services/ambassador-prime');
     startAmbassadorPrimeScheduler();
+
+    // Start Persona Content Engine — Don Chism founder-brand, 3x/week (Mon/Wed/Fri 10:00 UTC)
+    const { startPersonaContentScheduler } = await import('./services/persona-content-engine');
+    startPersonaContentScheduler();
 
     // Start auto blog post generation (runs Wed + Fri at 13:00 UTC)
     const { startBlogPostScheduler } = await import('./services/blog-scheduler');

@@ -217,6 +217,26 @@ export default function AmbassadorPrimePage() {
 
   const { data: historyData } = useQuery<{ runs: RunSummary[] }>({ queryKey: ['/api/ambassador-prime/history'] });
 
+  const { data: personaStatus, isLoading: personaStatusLoading } = useQuery<{
+    arcState: { current_index: number; loops_completed: number };
+    pillars: { pillar: string; times_used: number; last_used_date: string | null }[];
+    recentRuns: { content_date: string; pillar: string; theme: string; arc_stage: string; arc_index: number; email_sent: boolean; created_at: string }[];
+  }>({ queryKey: ['/api/persona-content/status'] });
+
+  const personaRunMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/persona-content/run'),
+    onSuccess: (data: any) => {
+      toast({ title: 'Persona content run started', description: data?.message || 'Email will arrive at donchismkos@gmail.com when done.' });
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['/api/persona-content/status'] }), 15000);
+    },
+    onError: (e: any) => toast({ title: 'Failed to start run', description: e.message, variant: 'destructive' }),
+  });
+
+  const ARC_STAGE_NAMES = [
+    'Reintroduce Don', 'Explain why he disappeared', 'Show the mission', 'Document the build',
+    'Teach valuable lessons', 'Introduce VEDD naturally', 'Invite people to explore the platform',
+  ];
+
   const { data: dayContent, isLoading: dayLoading } = useQuery<DayContent>({
     queryKey: ['/api/ambassador-prime/content', selectedDate],
     queryFn: () => fetch(`/api/ambassador-prime/content/${selectedDate}`).then(r => r.json()),
@@ -537,6 +557,40 @@ export default function AmbassadorPrimePage() {
                 <div className="mt-3 text-xs text-slate-500">
                   Referral link embedded in all posts: <span className="text-orange-400 font-mono break-all">{referralData?.url || `${window.location.origin}/auth?ref=...`}</span>
                 </div>
+              </div>
+
+              {/* Persona Content Engine — Don Chism founder-brand, separate 3x/week job */}
+              <div className="bg-slate-900 border border-slate-700 rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-white">Persona Content Engine (Don Chism)</h3>
+                  <Button
+                    size="sm"
+                    onClick={() => personaRunMutation.mutate()}
+                    disabled={personaRunMutation.isPending}
+                    className="bg-orange-500 hover:bg-orange-600"
+                  >
+                    {personaRunMutation.isPending ? 'Starting…' : 'Run Now'}
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-slate-300 mb-3">
+                  <Clock className="h-4 w-4 text-orange-400" />
+                  Runs automatically <span className="font-mono text-orange-400">Mon/Wed/Fri, 10:00 UTC</span> — one content day, 8 platforms, emailed to <span className="font-mono text-orange-400">donchismkos@gmail.com</span>
+                </div>
+                {!personaStatusLoading && personaStatus && (
+                  <div className="space-y-2 text-xs">
+                    <div className="text-slate-400">
+                      Story arc: <span className="text-white font-medium">{ARC_STAGE_NAMES[personaStatus.arcState.current_index]}</span>
+                      {' '}(stage {personaStatus.arcState.current_index + 1}/7, loop {personaStatus.arcState.loops_completed + 1})
+                    </div>
+                    {personaStatus.recentRuns[0] && (
+                      <div className="text-slate-500">
+                        Last run: {personaStatus.recentRuns[0].content_date} — {personaStatus.recentRuns[0].theme} ({personaStatus.recentRuns[0].pillar})
+                        {personaStatus.recentRuns[0].email_sent ? <span className="text-emerald-400 ml-1">✓ emailed</span> : <span className="text-red-400 ml-1">✗ email failed</span>}
+                      </div>
+                    )}
+                    <div className="text-slate-500">Next pillar up: <span className="text-slate-300">{personaStatus.pillars[0]?.pillar}</span></div>
+                  </div>
+                )}
               </div>
             </div>
           </TabsContent>

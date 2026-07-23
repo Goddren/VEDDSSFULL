@@ -2998,6 +2998,39 @@ export const ambassadorMarketBriefing = pgTable("ambassador_market_briefing", {
 
 export type AmbassadorMarketBriefing = typeof ambassadorMarketBriefing.$inferSelect;
 
+// ─── PERSONA CONTENT ENGINE (Don Chism / VEDD founder brand, 3x/week, 8-platform) ───
+// Separate from the daily Ambassador Prime engine above — its own rotation/arc state.
+
+export const personaPillarRotation = pgTable("persona_pillar_rotation", {
+  id: serial("id").primaryKey(),
+  pillar: text("pillar").notNull().unique(),
+  timesUsed: integer("times_used").default(0).notNull(),
+  lastUsedDate: varchar("last_used_date", { length: 20 }),
+});
+
+export const personaArcState = pgTable("persona_arc_state", {
+  id: integer("id").primaryKey(), // fixed row id=1
+  currentIndex: integer("current_index").default(0).notNull(),
+  loopsCompleted: integer("loops_completed").default(0).notNull(),
+});
+
+export const personaContentDays = pgTable("persona_content_days", {
+  id: serial("id").primaryKey(),
+  contentDate: varchar("content_date", { length: 20 }).notNull(),
+  pillar: text("pillar").notNull(),
+  theme: text("theme").notNull(),
+  arcStage: text("arc_stage").notNull(),
+  arcIndex: integer("arc_index").notNull(),
+  goal: text("goal"),
+  platformsCount: integer("platforms_count").default(8).notNull(),
+  emailSent: boolean("email_sent").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PersonaContentDay = typeof personaContentDays.$inferSelect;
+export type PersonaPillarRotation = typeof personaPillarRotation.$inferSelect;
+export type PersonaArcState = typeof personaArcState.$inferSelect;
+
 // ─── BLOG POSTS ────────────────────────────────────────────────
 
 export const blogPosts = pgTable("blog_posts", {

@@ -29250,6 +29250,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Persona Content Engine (Don Chism founder-brand, 3x/week, 8-platform) ──
+  app.post("/api/persona-content/run", async (_req: Request, res: Response) => {
+    try {
+      const { runPersonaContentEngine } = await import('./services/persona-content-engine');
+      res.json({ ok: true, message: 'Persona content run started — email will arrive at donchismkos@gmail.com when done.' });
+      runPersonaContentEngine('manual').catch((e: any) => console.error('[persona-content] Manual run error:', e.message));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/persona-content/status", async (_req: Request, res: Response) => {
+    try {
+      const { pool } = await import('./db');
+      const arcRes = await pool.query('SELECT current_index, loops_completed FROM persona_arc_state WHERE id = 1');
+      const pillarRes = await pool.query('SELECT pillar, times_used, last_used_date FROM persona_pillar_rotation ORDER BY times_used ASC, last_used_date ASC');
+      const historyRes = await pool.query('SELECT content_date, pillar, theme, arc_stage, arc_index, email_sent, created_at FROM persona_content_days ORDER BY created_at DESC LIMIT 10');
+      res.json({
+        arcState: arcRes.rows[0] || { current_index: 0, loops_completed: 0 },
+        pillars: pillarRes.rows,
+        recentRuns: historyRes.rows,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get("/api/ambassador-prime/today", async (_req: Request, res: Response) => {
     try {
       const { ambassadorRunSummary, ambassadorDailyContent, ambassadorDailyKpis } = await import('../shared/schema');
