@@ -234,6 +234,9 @@ __export(schema_exports, {
   optionsEngineConfigs: () => optionsEngineConfigs,
   optionsEngineTrades: () => optionsEngineTrades,
   paperTrades: () => paperTrades,
+  personaArcState: () => personaArcState,
+  personaContentDays: () => personaContentDays,
+  personaPillarRotation: () => personaPillarRotation,
   priceAlerts: () => priceAlerts,
   propFirmAccountState: () => propFirmAccountState,
   quizLeads: () => quizLeads,
@@ -282,7 +285,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -3108,6 +3111,30 @@ var init_schema = __esm({
       narrativeText: text("narrative_text").notNull(),
       // JSON array: [{ symbol, direction, strategyIdea, confidenceBoost, mentionCount }]
       pairs: jsonb("pairs").notNull().default([]),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    personaPillarRotation = pgTable("persona_pillar_rotation", {
+      id: serial("id").primaryKey(),
+      pillar: text("pillar").notNull().unique(),
+      timesUsed: integer("times_used").default(0).notNull(),
+      lastUsedDate: varchar("last_used_date", { length: 20 })
+    });
+    personaArcState = pgTable("persona_arc_state", {
+      id: integer("id").primaryKey(),
+      // fixed row id=1
+      currentIndex: integer("current_index").default(0).notNull(),
+      loopsCompleted: integer("loops_completed").default(0).notNull()
+    });
+    personaContentDays = pgTable("persona_content_days", {
+      id: serial("id").primaryKey(),
+      contentDate: varchar("content_date", { length: 20 }).notNull(),
+      pillar: text("pillar").notNull(),
+      theme: text("theme").notNull(),
+      arcStage: text("arc_stage").notNull(),
+      arcIndex: integer("arc_index").notNull(),
+      goal: text("goal"),
+      platformsCount: integer("platforms_count").default(8).notNull(),
+      emailSent: boolean("email_sent").default(false),
       createdAt: timestamp("created_at").defaultNow().notNull()
     });
     blogPosts = pgTable("blog_posts", {
@@ -10388,7 +10415,7 @@ DIFFERENTIATORS (use these to stand out):
   const aiClient = options?.userId ? await getUniversalAIClientForUser(options.userId) : null;
   const client2 = aiClient || openai;
   const model = aiClient ? aiClient.defaultModel : "gpt-4o";
-  const callAI2 = async (systemMsg, userMsg, maxTokens = 4500) => {
+  const callAI3 = async (systemMsg, userMsg, maxTokens = 4500) => {
     const response = await client2.chat.completions.create({
       model,
       messages: [{ role: "system", content: systemMsg }, { role: "user", content: userMsg }],
@@ -10398,7 +10425,7 @@ DIFFERENTIATORS (use these to stand out):
     return response.choices[0]?.message?.content || "";
   };
   if (mode === "auto") {
-    const content = await callAI2(
+    const content = await callAI3(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write a complete, competition-winning grant proposal for VEDD AI Trading to submit to ${grant.funder} for the "${grant.title}" grant.
 
@@ -10538,7 +10565,7 @@ End with a confident, forward-looking sentence that makes approving this proposa
       }
     };
     const section = sectionInstructions[sectionKey] || sectionInstructions.executiveSummary;
-    const content = await callAI2(
+    const content = await callAI3(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write the "${section.title}" section (${section.words} words) for a grant proposal from VEDD AI Trading to ${grant.funder} for "${grant.title}".
 
@@ -10571,7 +10598,7 @@ This proposal emphasizes VEDD's faith-based community trust networks, inter-city
 Lead with the racial wealth gap and the specific barriers that VEDD is dismantling. Show how VEDD's community-embedded model works where traditional fintech cannot reach.
 Key metrics: household income impact, new investor accounts opened, community GDP contribution, ambassador business development outcomes, generational wealth indicators.`
     };
-    const content = await callAI2(
+    const content = await callAI3(
       MASTER_GRANT_WRITER_SYSTEM,
       `Write a complete, ready-to-submit grant proposal (2,000\u20132,500 words) for VEDD AI Trading applying to ${grant.funder} for "${grant.title}."
 
@@ -26710,8 +26737,8 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     let _usingGroq = false;
     if (aiMode === "economy" && process.env.GROQ_API_KEY) {
       try {
-        const OpenAI8 = (await import("openai")).default;
-        const groqClient = new OpenAI8({
+        const OpenAI9 = (await import("openai")).default;
+        const groqClient = new OpenAI9({
           apiKey: process.env.GROQ_API_KEY,
           baseURL: "https://api.groq.com/openai/v1",
           maxRetries: 4,
@@ -33485,8 +33512,8 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     if (useEconomy) {
       const groqKey = process.env.GROQ_API_KEY;
       if (groqKey) {
-        const OpenAI8 = (await import("openai")).default;
-        openai2 = new OpenAI8({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+        const OpenAI9 = (await import("openai")).default;
+        openai2 = new OpenAI9({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         openai2.defaultModel = "openai/gpt-oss-120b";
         modelLabel = "Groq Llama";
         addActivity3(state, {
@@ -40277,6 +40304,452 @@ var init_ambassador_prime = __esm({
   }
 });
 
+// server/services/persona-content-engine.ts
+var persona_content_engine_exports = {};
+__export(persona_content_engine_exports, {
+  runPersonaContentEngine: () => runPersonaContentEngine,
+  startPersonaContentScheduler: () => startPersonaContentScheduler
+});
+import { OpenAI as OpenAI8 } from "openai";
+function isQuotaOrRateLimitError2(e) {
+  const status = e?.status || e?.response?.status;
+  return status === 429 || status === 402 || /quota|rate.?limit/i.test(e?.message || "");
+}
+async function callAI2(systemPrompt, userPrompt, maxTokens = 3e3) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt }
+  ];
+  try {
+    const client2 = new OpenAI8({ apiKey: apiKey || "", maxRetries: 2, timeout: 12e4 });
+    const res = await client2.chat.completions.create({
+      model: "gpt-4o",
+      messages,
+      temperature: 0.8,
+      max_tokens: maxTokens
+    });
+    return res.choices[0]?.message?.content?.trim() ?? "";
+  } catch (e) {
+    if (!isQuotaOrRateLimitError2(e)) throw e;
+    const orKey = process.env.OPENROUTER_API_KEY;
+    if (!orKey) {
+      console.error("[persona-content] OpenAI quota/rate-limit and OPENROUTER_API_KEY not set:", e.message);
+      throw e;
+    }
+    console.warn("[persona-content] OpenAI failed \u2014 failing over to OpenRouter/Claude:", e.message);
+    const orClient = new OpenAI8({
+      apiKey: orKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      maxRetries: 2,
+      timeout: 12e4,
+      defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+    });
+    const res = await orClient.chat.completions.create({
+      model: "anthropic/claude-sonnet-4.6",
+      messages,
+      temperature: 0.8,
+      max_tokens: maxTokens
+    });
+    return res.choices[0]?.message?.content?.trim() ?? "";
+  }
+}
+function parseJson2(raw, fallback) {
+  try {
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error("[persona-content] JSON parse failed:", e.message, "\u2014 raw:", raw.slice(0, 300));
+    return fallback;
+  }
+}
+function escHtml2(s) {
+  return (s ?? "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+async function pickPillarAndArc() {
+  const arcRes = await pool.query("SELECT current_index, loops_completed FROM persona_arc_state WHERE id = 1");
+  const arcIndex = arcRes.rows[0]?.current_index ?? 0;
+  const loopsCompleted = arcRes.rows[0]?.loops_completed ?? 0;
+  const pillarRes = await pool.query(
+    `SELECT pillar, times_used, last_used_date FROM persona_pillar_rotation
+     ORDER BY times_used ASC, (last_used_date IS NOT NULL), last_used_date ASC, id ASC`
+  );
+  const pillar = pillarRes.rows[0]?.pillar || "Building VEDD in public";
+  return { pillar, arcStage: ARC_STAGES[arcIndex], arcIndex, loopsCompleted };
+}
+async function generateSpine(pillar, arcStage, contentDate) {
+  const sys = `${BRAND_DNA}
+
+Today's content pillar: "${pillar}". Today's documentary story-arc stage: "${arcStage}".`;
+  const user = `Generate today's shared cross-platform creative foundation for ${contentDate} as valid JSON (no markdown fences) with exactly these keys:
+daily_theme, goal, core_narrative (Don's message today, first-person, 2-4 sentences), emotional_tone,
+visual_concept, photo_concept, reel_concept, shot_list, b_roll, voiceover_script, on_screen_text,
+ai_image_prompt (detailed, ready for an image generator), thumbnail_concept, editing_style,
+music_style (mood only, never a real song title). Every field is a single string.`;
+  const raw = await callAI2(sys, user);
+  return parseJson2(raw, {
+    daily_theme: pillar,
+    goal: "Build trust through consistency",
+    core_narrative: "",
+    emotional_tone: "hopeful",
+    visual_concept: "",
+    photo_concept: "",
+    reel_concept: "",
+    shot_list: "",
+    b_roll: "",
+    voiceover_script: "",
+    on_screen_text: "",
+    ai_image_prompt: "",
+    thumbnail_concept: "",
+    editing_style: "",
+    music_style: "warm, hopeful"
+  });
+}
+function emptyPackage() {
+  return { hook: "", caption_short: "", caption_long: "", cta: "", hashtags: [], story_sequence: [], poll_idea: "", comment_prompt: "", pinned_comment: "", engagement_strategy: "", best_posting_time: "" };
+}
+async function generatePlatformPackages(spine, pillar, arcStage) {
+  const sys = `${BRAND_DNA}
+
+Today's pillar: "${pillar}". Story-arc stage: "${arcStage}".
+Shared narrative for today: ${spine.core_narrative}
+Goal: ${spine.goal}
+Tone: ${spine.emotional_tone}`;
+  const rulesBlock = PLATFORMS.map((p) => `- ${p}: ${PLATFORM_RULES[p]}`).join("\n");
+  const user = `Adapt the shared narrative above into 8 separate platform-native versions \u2014 never reuse the same wording across platforms. Platforms and their format rules:
+${rulesBlock}
+
+Return valid JSON (no markdown fences) as an object keyed by exactly these platform names: ${PLATFORMS.map((p) => `"${p}"`).join(", ")}.
+Each platform's value must have exactly these keys: hook, caption_short, caption_long, cta, hashtags (array of strings, no leading #), story_sequence (array of strings \u2014 only meaningfully populated for "Instagram Stories", empty array [] for all other platforms), poll_idea, comment_prompt, pinned_comment, engagement_strategy, best_posting_time.`;
+  const raw = await callAI2(sys, user, 4e3);
+  const parsed = parseJson2(raw, {});
+  const result = {};
+  for (const p of PLATFORMS) {
+    result[p] = { ...emptyPackage(), ...parsed[p] || {} };
+  }
+  return result;
+}
+async function humanizePackages(packages) {
+  const sys = `${BRAND_DNA}
+
+You are the editor. Rewrite the drafts below so they read like a real founder wrote them by hand \u2014 not more polished, more HUMAN. Vary sentence length naturally. Strip every banned phrase. Keep the same meaning, platform, and structure.`;
+  const user = `Here are today's 8 draft platform packages as JSON:
+${JSON.stringify(packages)}
+
+Return the corrected JSON in the exact same shape (same keys), no markdown fences, no commentary.`;
+  const raw = await callAI2(sys, user, 4e3);
+  const parsed = parseJson2(raw, {});
+  const result = { ...packages };
+  for (const p of PLATFORMS) {
+    if (parsed[p]) result[p] = { ...result[p], ...parsed[p] };
+  }
+  return validatePackages(result);
+}
+function validatePackages(packages) {
+  const x = packages["X (Twitter)"];
+  if (x) {
+    if (x.caption_short && x.caption_short.length > 280) x.caption_short = x.caption_short.slice(0, 277) + "...";
+    if (x.caption_long) {
+      const lines = x.caption_long.split("\n").filter(Boolean);
+      x.caption_long = lines.map((l) => l.length > 280 ? l.slice(0, 277) + "..." : l).join("\n");
+    }
+  }
+  for (const bad of BANNED_PHRASES) {
+    for (const p of PLATFORMS) {
+      const pkg = packages[p];
+      for (const field of ["hook", "caption_short", "caption_long", "cta"]) {
+        if (pkg[field] && pkg[field].toLowerCase().includes(bad)) {
+          console.warn(`[persona-content] Banned phrase "${bad}" survived humanize pass on ${p}.${field} \u2014 leaving as-is (logged for review).`);
+        }
+      }
+    }
+  }
+  return packages;
+}
+async function generateReplyTemplates(pillar) {
+  const sys = `${BRAND_DNA}
+
+Write short community reply templates Don can paste as comment replies. Educational and risk-aware for anything about AI/investing/trading \u2014 never promise guaranteed profits. Only mention the referral link for people who genuinely ask how to join, and never with pressure.`;
+  const user = `Write 2 short reply-template variations each for these 5 categories, as valid JSON (no markdown fences) with keys about_vedd, skepticism, welcome_back, ai_investing_questions, how_to_start \u2014 each value an array of exactly 2 strings.`;
+  const raw = await callAI2(sys, user, 1200);
+  return parseJson2(raw, {
+    about_vedd: [],
+    skepticism: [],
+    welcome_back: [],
+    ai_investing_questions: [],
+    how_to_start: []
+  });
+}
+function buildEmailHtml(opts) {
+  const { contentDate, pillar, arcStage, arcIndex, loopsCompleted, spine, packages, replies } = opts;
+  const spineRows = [
+    ["Visual concept", spine.visual_concept],
+    ["Photo concept", spine.photo_concept],
+    ["Reel concept", spine.reel_concept],
+    ["Shot list", spine.shot_list],
+    ["B-roll", spine.b_roll],
+    ["Voiceover script", spine.voiceover_script],
+    ["On-screen text", spine.on_screen_text],
+    ["AI image prompt", spine.ai_image_prompt],
+    ["Thumbnail concept", spine.thumbnail_concept],
+    ["Editing style", spine.editing_style],
+    ["Music style (mood only)", spine.music_style]
+  ].map(([label, val]) => `
+    <tr><td style="padding:8px;border-bottom:1px solid #222;color:#888;font-size:12px;vertical-align:top;white-space:nowrap;">${escHtml2(label)}</td>
+        <td style="padding:8px;border-bottom:1px solid #222;font-size:13px;white-space:pre-line;">${escHtml2(val)}</td></tr>`).join("");
+  const platformBlock = (platform) => {
+    const pkg = packages[platform];
+    const rows = [
+      ["Hook", pkg.hook],
+      ["Caption (short)", pkg.caption_short],
+      ["Caption (long)", pkg.caption_long],
+      ["CTA", pkg.cta],
+      ["Hashtags", pkg.hashtags.map((h) => `#${h}`).join(" ")],
+      ["Poll idea", pkg.poll_idea],
+      ["Comment prompt", pkg.comment_prompt],
+      ["Pinned comment", pkg.pinned_comment],
+      ["Best posting time", pkg.best_posting_time],
+      ["First 30-min engagement strategy", pkg.engagement_strategy]
+    ];
+    const storyBlock = pkg.story_sequence.length ? `
+      <div style="margin-top:8px;">
+        <div style="font-size:12px;color:#888;margin-bottom:4px;">Story sequence</div>
+        ${pkg.story_sequence.map((frame, i) => `<div style="font-size:12px;padding:6px 8px;background:#0a0a0a;border-left:2px solid #00d4ff;border-radius:4px;margin-bottom:4px;white-space:pre-line;"><strong style="color:#00d4ff;">Frame ${i + 1}:</strong> ${escHtml2(frame)}</div>`).join("")}
+      </div>` : "";
+    return `
+    <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:10px;">${escHtml2(platform)}</div>
+      <table style="width:100%;border-collapse:collapse;">
+        ${rows.map(([label, val]) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;color:#888;font-size:11px;vertical-align:top;white-space:nowrap;">${escHtml2(label)}</td><td style="padding:6px 8px;border-bottom:1px solid #1a1a1a;font-size:13px;white-space:pre-line;">${escHtml2(val)}</td></tr>`).join("")}
+      </table>
+      ${storyBlock}
+    </div>`;
+  };
+  const replyBlock = (label, arr) => `
+    <div style="margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:600;color:#00d4ff;margin-bottom:4px;">${escHtml2(label)}</div>
+      ${arr.map((v) => `<div style="font-size:12px;color:#ccc;padding:6px 8px;background:#0a0a0a;border-radius:4px;margin-bottom:4px;white-space:pre-line;">${escHtml2(v)}</div>`).join("")}
+    </div>`;
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>VEDD Persona Content Package \u2014 ${contentDate}</title></head>
+<body style="margin:0;padding:0;background:#0a0a0a;font-family:'Segoe UI',Arial,sans-serif;color:#e0e0e0;">
+<div style="max-width:760px;margin:0 auto;padding:24px;">
+  <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #00d4ff33;border-radius:12px;padding:28px;margin-bottom:20px;">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:2px;color:#00d4ff;margin-bottom:8px;">VEDD Persona Content Engine</div>
+    <h1 style="margin:0 0 4px;font-size:24px;font-weight:700;color:#fff;">${escHtml2(spine.daily_theme)}</h1>
+    <div style="font-size:13px;color:#888;">${contentDate} \u2014 Pillar: ${escHtml2(pillar)} \xB7 Arc stage ${arcIndex + 1}/7: ${escHtml2(arcStage)} (loop ${loopsCompleted + 1})</div>
+  </div>
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Goal</div>
+    <div style="font-size:14px;white-space:pre-line;">${escHtml2(spine.goal)}</div>
+    <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;">Core narrative (Don's message today)</div>
+    <div style="font-size:14px;white-space:pre-line;">${escHtml2(spine.core_narrative)}</div>
+  </div>
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:20px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Shared production assets</div>
+    <table style="width:100%;border-collapse:collapse;">${spineRows}</table>
+  </div>
+
+  ${PLATFORMS.map(platformBlock).join("")}
+
+  <div style="background:#111;border:1px solid #222;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:10px;">Community reply templates</div>
+    ${replyBlock("About VEDD", replies.about_vedd)}
+    ${replyBlock("Skepticism / scam pushback", replies.skepticism)}
+    ${replyBlock("Encouragement / welcome-back", replies.welcome_back)}
+    ${replyBlock("AI / investing / trading questions", replies.ai_investing_questions)}
+    ${replyBlock("How to start / join", replies.how_to_start)}
+  </div>
+
+  <div style="text-align:center;padding:20px;color:#444;font-size:11px;">
+    <div>VEDD Persona Content Engine \u2022 ${contentDate}</div>
+    <div style="margin-top:4px;">Referral link: <a href="${REFERRAL_LINK2}" style="color:#00d4ff;">${REFERRAL_LINK2}</a></div>
+    <div style="margin-top:8px;color:#666;">Investing and trading involve risk, including the possible loss of principal. Nothing in this content is financial advice.</div>
+  </div>
+</div>
+</body></html>`;
+}
+async function sendPersonaContentEmail(subject, html) {
+  const sgKey = process.env.SENDGRID_API_KEY;
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  if (!sgKey && !(gmailUser && gmailPass)) {
+    const reason2 = "No email channel configured \u2014 set SENDGRID_API_KEY or GMAIL_USER + GMAIL_APP_PASSWORD.";
+    console.error("[persona-content]", reason2);
+    return { success: false, reason: reason2 };
+  }
+  const sgErrors = [];
+  if (sgKey) {
+    try {
+      const { default: sgMail3 } = await import("@sendgrid/mail");
+      sgMail3.setApiKey(sgKey);
+      await sgMail3.send({ to: REPORT_EMAIL2, from: "noreply@veddbuild.com", subject, html });
+      return { success: true };
+    } catch (e) {
+      const errDetail = e?.response?.body?.errors;
+      const detail = Array.isArray(errDetail) && errDetail.length ? errDetail.map((er) => er.message).join("; ") : e.message;
+      console.error("[persona-content] SendGrid send failed, trying Gmail fallback if configured:", detail);
+      sgErrors.push(`SendGrid: ${detail}`);
+    }
+  }
+  if (gmailUser && gmailPass) {
+    const { sendGmail: sendGmail2 } = await Promise.resolve().then(() => (init_messaging(), messaging_exports));
+    const result = await sendGmail2(REPORT_EMAIL2, subject, "Full content package is in the HTML body of this email.", html);
+    if (result.success) return { success: true };
+    sgErrors.push(`Gmail: ${result.error}`);
+  }
+  const reason = sgErrors.join(" | ") || "No email channel configured";
+  console.error("[persona-content] All email channels failed:", reason);
+  return { success: false, reason };
+}
+async function recordProgress(pick, contentDate, spine, emailSent) {
+  await pool.query(
+    `INSERT INTO persona_content_days (content_date, pillar, theme, arc_stage, arc_index, goal, platforms_count, email_sent)
+     VALUES ($1,$2,$3,$4,$5,$6,8,$7)`,
+    [contentDate, pick.pillar, spine.daily_theme, pick.arcStage, pick.arcIndex, spine.goal, emailSent]
+  );
+  await pool.query(
+    `UPDATE persona_pillar_rotation SET times_used = times_used + 1, last_used_date = $1 WHERE pillar = $2`,
+    [contentDate, pick.pillar]
+  );
+  const nextIndex = (pick.arcIndex + 1) % ARC_STAGES.length;
+  const wrapped = nextIndex === 0;
+  await pool.query(
+    `UPDATE persona_arc_state SET current_index = $1, loops_completed = loops_completed + $2 WHERE id = 1`,
+    [nextIndex, wrapped ? 1 : 0]
+  );
+}
+async function runPersonaContentEngine(trigger = "manual") {
+  const contentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  console.log(`[persona-content] Run started (${trigger}) for ${contentDate}`);
+  try {
+    const pick = await pickPillarAndArc();
+    console.log(`[persona-content] Pillar="${pick.pillar}" arc="${pick.arcStage}" (${pick.arcIndex + 1}/7, loop ${pick.loopsCompleted + 1})`);
+    const spine = await generateSpine(pick.pillar, pick.arcStage, contentDate);
+    const draftPackages = await generatePlatformPackages(spine, pick.pillar, pick.arcStage);
+    const packages = await humanizePackages(draftPackages);
+    const replies = await generateReplyTemplates(pick.pillar);
+    const html = buildEmailHtml({
+      contentDate,
+      pillar: pick.pillar,
+      arcStage: pick.arcStage,
+      arcIndex: pick.arcIndex,
+      loopsCompleted: pick.loopsCompleted,
+      spine,
+      packages,
+      replies
+    });
+    const subject = `VEDD Content Package - ${contentDate} - ${spine.daily_theme} (${pick.pillar})`;
+    const emailResult = await sendPersonaContentEmail(subject, html);
+    await recordProgress(pick, contentDate, spine, emailResult.success);
+    if (!emailResult.success) {
+      console.error("[persona-content] Run completed but email failed:", emailResult.reason);
+      return { success: false, reason: emailResult.reason };
+    }
+    console.log("[persona-content] Run completed and email sent.");
+    return { success: true };
+  } catch (e) {
+    console.error("[persona-content] Run failed:", e.message);
+    return { success: false, reason: e.message };
+  }
+}
+function startPersonaContentScheduler() {
+  function scheduleNext() {
+    const now = /* @__PURE__ */ new Date();
+    const next = /* @__PURE__ */ new Date();
+    next.setUTCHours(10, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    while (!TARGET_UTC_DAYS.includes(next.getUTCDay())) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+    const delay = next.getTime() - now.getTime();
+    console.log(`[persona-content] Next run at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
+    setTimeout(async () => {
+      try {
+        await runPersonaContentEngine("scheduler");
+      } catch (e) {
+        console.error("[persona-content] Scheduler run error:", e.message);
+      }
+      scheduleNext();
+    }, delay);
+  }
+  scheduleNext();
+}
+var REFERRAL_LINK2, REPORT_EMAIL2, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
+var init_persona_content_engine = __esm({
+  "server/services/persona-content-engine.ts"() {
+    "use strict";
+    init_db();
+    REFERRAL_LINK2 = "https://veddbuild.com/auth?ref=DONCHISMKOS@GMAIL.COM511";
+    REPORT_EMAIL2 = "donchismkos@gmail.com";
+    ARC_STAGES = [
+      "Reintroduce Don",
+      "Explain why he disappeared",
+      "Show the mission",
+      "Document the build",
+      "Teach valuable lessons",
+      "Introduce VEDD naturally",
+      "Invite people to explore the platform if it fits their goals"
+    ];
+    PLATFORMS = ["Facebook", "Instagram Feed", "Instagram Stories", "Instagram Reels", "TikTok", "Threads", "X (Twitter)", "LinkedIn"];
+    BANNED_PHRASES = [
+      "it's important to note",
+      "it's worth noting",
+      "in conclusion",
+      "furthermore",
+      "moreover",
+      "additionally",
+      "delve into",
+      "navigate the landscape",
+      "leverage",
+      "robust",
+      "tapestry",
+      "not just x, but y",
+      "in today's fast-paced world"
+    ];
+    BRAND_DNA = `You are writing in the first-person voice of Don Chism, Founder and CEO of VEDD
+(AI, financial education, and innovation company at veddbuild.com).
+
+Who Don is: a builder, visionary, entrepreneur, and teacher \u2014 never a flashy salesperson or guru.
+His story is about building freedom. He built VEDD because people deserve greater access to
+financial education and modern technology, especially in underserved communities.
+
+Brand values: integrity, consistency, leadership, innovation, faith in hard work, education,
+freedom, community, discipline, long-term thinking.
+
+Content philosophy: every piece must answer one question \u2014 "Why should someone trust Don?"
+Trust comes from honesty, consistency, education, and transparency, never from titles, luxury,
+or hype. Every post moves the audience through Awareness \u2192 Curiosity \u2192 Trust \u2192 Community \u2192
+Exploration of VEDD. The audience should feel like they are watching a documentary, not a sales
+campaign.
+
+Writing style: confident, honest, conversational, hopeful. Never arrogant, overly polished, or
+robotic. Avoid buzzwords and clich\xE9s. When discussing AI, investing, or trading: focus on
+education and transparency, acknowledge that investing and trading involve risk, and never
+promise guaranteed profits or "easy money."
+
+VEDD referral link (use only where a CTA naturally warrants it, never with pressure): ${REFERRAL_LINK2}
+
+Never use these banned phrases/patterns: ${BANNED_PHRASES.join(", ")}. Also avoid tricolons for
+emphasis, symmetric opener-closer constructions, and hedge stacking. Vary sentence length
+naturally. Use at most 2 em-dashes per field. Music style must describe mood only, never name
+copyrighted songs. Never fabricate engagement numbers or results.`;
+    PLATFORM_RULES = {
+      "Facebook": "Warm, community storytelling, 2-4 hashtags, invites comments/shares.",
+      "Instagram Feed": "Strong first line before the fold, line-broken caption, 8-12 hashtags.",
+      "Instagram Stories": "Use story_sequence: 4-6 sequential frames as an array of strings, each frame describing on-frame text + an interactive sticker (poll/question/slider).",
+      "Instagram Reels": "Hook in first 1-2 seconds, caption supports the video, 5-8 hashtags, reference voiceover + on-screen text.",
+      "TikTok": "Raw and native, hook in first 2 seconds, short punchy caption, 4-5 hashtags.",
+      "Threads": "Conversational, text-first, optional 2-4 post mini-thread in caption_long, 0-2 hashtags.",
+      "X (Twitter)": "caption_short MUST be <=280 characters. caption_long is a numbered thread (each line a tweet, each <=280 characters). 1-2 hashtags max.",
+      "LinkedIn": "Professional and reflective, up to ~1300 chars, leadership/lesson angle, NO hashtags inside caption_long/caption_short \u2014 list 3-5 hashtags separately in the hashtags array."
+    };
+    TARGET_UTC_DAYS = [1, 3, 5];
+  }
+});
+
 // server/services/ensure-options-tables.ts
 var ensure_options_tables_exports = {};
 __export(ensure_options_tables_exports, {
@@ -40641,6 +41114,70 @@ ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" tex
   }
 });
 
+// server/services/ensure-persona-content-tables.ts
+var ensure_persona_content_tables_exports = {};
+__export(ensure_persona_content_tables_exports, {
+  ensurePersonaContentTables: () => ensurePersonaContentTables
+});
+async function ensurePersonaContentTables() {
+  await pool.query(DDL5);
+  for (const pillar of PILLARS) {
+    await pool.query(
+      `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
+      [pillar]
+    );
+  }
+  await pool.query(
+    `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
+  );
+}
+var PILLARS, DDL5;
+var init_ensure_persona_content_tables = __esm({
+  "server/services/ensure-persona-content-tables.ts"() {
+    "use strict";
+    init_db();
+    PILLARS = [
+      "Building VEDD in public",
+      "Entrepreneurship",
+      "AI/tech education",
+      "Financial education",
+      "Leadership",
+      "Personal development",
+      "Community impact",
+      "Founder journey",
+      "Behind-the-scenes",
+      "Family/life balance/purpose"
+    ];
+    DDL5 = `
+CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "pillar" text NOT NULL UNIQUE,
+  "times_used" integer DEFAULT 0 NOT NULL,
+  "last_used_date" varchar(20)
+);
+
+CREATE TABLE IF NOT EXISTS "persona_arc_state" (
+  "id" integer PRIMARY KEY NOT NULL,
+  "current_index" integer DEFAULT 0 NOT NULL,
+  "loops_completed" integer DEFAULT 0 NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "persona_content_days" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "content_date" varchar(20) NOT NULL,
+  "pillar" text NOT NULL,
+  "theme" text NOT NULL,
+  "arc_stage" text NOT NULL,
+  "arc_index" integer NOT NULL,
+  "goal" text,
+  "platforms_count" integer DEFAULT 8 NOT NULL,
+  "email_sent" boolean DEFAULT false,
+  "created_at" timestamp DEFAULT now()
+);
+`;
+  }
+});
+
 // server/services/ensure-content-image-columns.ts
 var ensure_content_image_columns_exports = {};
 __export(ensure_content_image_columns_exports, {
@@ -40648,18 +41185,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL5);
+    await pool.query(DDL6);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL5;
+var DDL6;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL5 = `
+    DDL6 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -40675,18 +41212,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL6);
+    await pool.query(DDL7);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL6;
+var DDL7;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL6 = `
+    DDL7 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -40699,18 +41236,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL7);
+    await pool.query(DDL8);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL7;
+var DDL8;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL7 = `
+    DDL8 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -40768,18 +41305,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -40887,18 +41424,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -40929,18 +41466,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -41030,18 +41567,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -41060,18 +41597,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -41088,18 +41625,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -41160,7 +41697,7 @@ function startBlogPostScheduler() {
     const next = /* @__PURE__ */ new Date();
     next.setUTCHours(RUN_HOUR_UTC, 0, 0, 0);
     if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-    while (!TARGET_UTC_DAYS.includes(next.getUTCDay())) {
+    while (!TARGET_UTC_DAYS2.includes(next.getUTCDay())) {
       next.setUTCDate(next.getUTCDate() + 1);
     }
     const delay = next.getTime() - now.getTime();
@@ -41172,14 +41709,14 @@ function startBlogPostScheduler() {
   }
   scheduleNext();
 }
-var TARGET_UTC_DAYS, RUN_HOUR_UTC;
+var TARGET_UTC_DAYS2, RUN_HOUR_UTC;
 var init_blog_scheduler = __esm({
   "server/services/blog-scheduler.ts"() {
     "use strict";
     init_openai();
     init_storage();
     init_content_asset_store();
-    TARGET_UTC_DAYS = [3, 5];
+    TARGET_UTC_DAYS2 = [3, 5];
     RUN_HOUR_UTC = 13;
   }
 });
@@ -46302,8 +46839,8 @@ async function runFuturesAIAnalysis(userId, marketAnalysis) {
   let _usingGroq = false;
   if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
     try {
-      const OpenAI8 = (await import("openai")).default;
-      const groq = new OpenAI8({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      const OpenAI9 = (await import("openai")).default;
+      const groq = new OpenAI9({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
       groq.defaultModel = "openai/gpt-oss-120b";
       openai2 = groq;
       _usingGroq = true;
@@ -48250,10 +48787,10 @@ function tlSignalGuard(params) {
   }
   return { allow: true, reason: "Passed all signal quality gates" };
 }
-var PLATFORMS = ["Instagram", "TikTok", "Facebook", "Twitter", "LinkedIn", "Instagram Reel", "Instagram"];
+var PLATFORMS2 = ["Instagram", "TikTok", "Facebook", "Twitter", "LinkedIn", "Instagram Reel", "Instagram"];
 var CONTENT_TYPES = ["post", "reel", "post", "post", "post", "reel", "story"];
 function getPlatform(day) {
-  return PLATFORMS[(day - 1) % 7];
+  return PLATFORMS2[(day - 1) % 7];
 }
 function getContentType(day) {
   return CONTENT_TYPES[(day - 1) % 7];
@@ -65598,8 +66135,8 @@ Format your response as JSON with exactly these keys:
         if (!lesson) {
           return res.status(404).json({ error: "Lesson not found" });
         }
-        const OpenAI8 = (await import("openai")).default;
-        const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
+        const OpenAI9 = (await import("openai")).default;
+        const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
         const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
         for (const platform of platforms) {
           const completion = await openai2.chat.completions.create({
@@ -65708,8 +66245,8 @@ Generate a JSON object with these fields:
       });
     }
     if (weekChallenges.length === 0) {
-      const OpenAI8 = (await import("openai")).default;
-      const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI9 = (await import("openai")).default;
+      const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
       const challengeTypes = [
         { type: "content", title: "Content Creator Challenge" },
         { type: "engagement", title: "Community Engagement Challenge" },
@@ -65972,8 +66509,8 @@ Generate a JSON object with:
       });
     }
     if (weekEvents.length === 0) {
-      const OpenAI8 = (await import("openai")).default;
-      const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
+      const OpenAI9 = (await import("openai")).default;
+      const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
       const eventTypes = [
         { type: "live_session", title: "Weekly Live Trading Session" },
         { type: "ama", title: "Ask Me Anything Session" },
@@ -66552,8 +67089,8 @@ Generate a JSON object with:
           const { ambassadorContentCurriculum: ambassadorContentCurriculum2 } = await Promise.resolve().then(() => (init_ambassador_content_data(), ambassador_content_data_exports));
           const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
           if (lesson) {
-            const OpenAI8 = (await import("openai")).default;
-            const openai2 = new OpenAI8({ apiKey: process.env.OPENAI_API_KEY });
+            const OpenAI9 = (await import("openai")).default;
+            const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
             const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
             for (const platform of platforms) {
               try {
@@ -72890,6 +73427,30 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  app2.post("/api/persona-content/run", async (_req, res) => {
+    try {
+      const { runPersonaContentEngine: runPersonaContentEngine2 } = await Promise.resolve().then(() => (init_persona_content_engine(), persona_content_engine_exports));
+      res.json({ ok: true, message: "Persona content run started \u2014 email will arrive at donchismkos@gmail.com when done." });
+      runPersonaContentEngine2("manual").catch((e) => console.error("[persona-content] Manual run error:", e.message));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/persona-content/status", async (_req, res) => {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const arcRes = await pool2.query("SELECT current_index, loops_completed FROM persona_arc_state WHERE id = 1");
+      const pillarRes = await pool2.query("SELECT pillar, times_used, last_used_date FROM persona_pillar_rotation ORDER BY times_used ASC, last_used_date ASC");
+      const historyRes = await pool2.query("SELECT content_date, pillar, theme, arc_stage, arc_index, email_sent, created_at FROM persona_content_days ORDER BY created_at DESC LIMIT 10");
+      res.json({
+        arcState: arcRes.rows[0] || { current_index: 0, loops_completed: 0 },
+        pillars: pillarRes.rows,
+        recentRuns: historyRes.rows
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/ambassador-prime/today", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
@@ -74190,6 +74751,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
+    const { ensurePersonaContentTables: ensurePersonaContentTables2 } = await Promise.resolve().then(() => (init_ensure_persona_content_tables(), ensure_persona_content_tables_exports));
+    await ensurePersonaContentTables2();
+  } catch (err) {
+    console.error(`[startup] ensurePersonaContentTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
     const { ensureContentImageColumns: ensureContentImageColumns2 } = await Promise.resolve().then(() => (init_ensure_content_image_columns(), ensure_content_image_columns_exports));
     await ensureContentImageColumns2();
   } catch (err) {
@@ -75178,6 +75745,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startLeadHunterScheduler2();
     const { startAmbassadorPrimeScheduler: startAmbassadorPrimeScheduler2 } = await Promise.resolve().then(() => (init_ambassador_prime(), ambassador_prime_exports));
     startAmbassadorPrimeScheduler2();
+    const { startPersonaContentScheduler: startPersonaContentScheduler2 } = await Promise.resolve().then(() => (init_persona_content_engine(), persona_content_engine_exports));
+    startPersonaContentScheduler2();
     const { startBlogPostScheduler: startBlogPostScheduler2 } = await Promise.resolve().then(() => (init_blog_scheduler(), blog_scheduler_exports));
     startBlogPostScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
