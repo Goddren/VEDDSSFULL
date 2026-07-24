@@ -17617,13 +17617,19 @@ var init_tradelocker = __esm({
           }
         } catch {
         }
-        const idx = (candidates) => columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+        const idx = (candidates) => {
+          for (const k of candidates) {
+            const exact = columns.indexOf(k);
+            if (exact >= 0) return exact;
+          }
+          return columns.findIndex((c) => candidates.some((k) => c.includes(k)));
+        };
         const iId = idx(["id"]);
-        const iInst = idx(["tradableinstrument"]);
+        const iInst = idx(["tradableinstrumentid", "tradableinstrument"]);
         const iSide = idx(["side"]);
         const iQty = idx(["qty", "quantity"]);
         const iAvg = idx(["avgprice", "openprice", "price"]);
-        const iPl = idx(["unrealized", "pnl", "pl"]);
+        const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
         const iDate = idx(["opendate", "date"]);
         return raw.map((row) => {
           const instId = iInst >= 0 ? String(row[iInst]) : "";
@@ -25956,7 +25962,7 @@ async function scanMarkets(userId) {
     if (volumeSummary.length > 0) {
       addActivity2(userId, { type: "info", message: `High volume detected: ${volumeSummary.join(", ")}` });
     }
-    const currentOpenPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+    const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
     try {
       await runORBAutonomousScan(userId);
@@ -26105,6 +26111,47 @@ function computeSteppedFixedTrailSL(position, fixedPips, stepPips, trailState) {
     return !currentSL || rawSL <= currentSL - stepSize ? rawSL : currentSL;
   }
 }
+async function getMergedOpenPositions(userId, marketAnalysis) {
+  const mt5Positions = (global.mt5OpenPositions?.[userId]?.positions || []).map((p) => ({ ...p, source: "mt5" }));
+  let tlPositions = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    const activeTL = allTL.filter((c) => c.isActive);
+    const perConn = await Promise.all(activeTL.map(async (tlConn) => {
+      try {
+        const svc = await getOrCreateService(tlConn);
+        const positions = await svc.getPositionsNormalized().catch(() => []);
+        return positions.map((p) => {
+          const symbol = (p.symbol || "").toUpperCase().replace("/", "");
+          const direction = p.side.toUpperCase() === "SELL" ? "SELL" : "BUY";
+          const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? p.avgPrice;
+          return {
+            symbol,
+            direction,
+            openPrice: p.avgPrice,
+            currentPrice,
+            sl: 0,
+            // TL's position list doesn't expose the broker-side SL level; the
+            // actual MODIFY call below still sets a real SL on the account —
+            // this only affects the "was this an improvement" comparison.
+            tp: 0,
+            profit: p.unrealizedPl,
+            volume: p.qty,
+            openTime: p.openDate ? Math.floor(new Date(p.openDate).getTime() / 1e3) : void 0,
+            ticket: `tl_${tlConn.id}_${p.id}`,
+            source: "tl",
+            connectionId: tlConn.id
+          };
+        });
+      } catch {
+        return [];
+      }
+    }));
+    tlPositions = perConn.flat();
+  } catch {
+  }
+  return [...mt5Positions, ...tlPositions];
+}
 async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   const state = engineStates[userId];
   if (!state) return;
@@ -26193,7 +26240,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
     const isBuy = pos.direction === "BUY";
     const improved = isBuy ? newSL > currentSL : currentSL === 0 || newSL < currentSL;
     if (!improved) continue;
-    broadcastMT5Signal(userId, {
+    if (pos.source !== "tl") broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
       symbol: pos.symbol,
@@ -26775,7 +26822,7 @@ async function runAILiveAnalysis(userId, marketAnalysis, brain, newsContext, cro
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const day = dayNames[now.getUTCDay()];
     const session3 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
-    const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+    const openPositions = await getMergedOpenPositions(userId, marketAnalysis);
     const currentOpenCount = openPositions.length;
     state.openPositionCount = currentOpenCount;
     const brainInsights = brain?.learningInsights?.join("\n") || "No prior learning data";
@@ -28682,7 +28729,7 @@ async function processDecision(userId, decision, newsCtx) {
   }
   if (decision.action === "MODIFY_POSITION" || decision.action === "CLOSE_POSITION") {
     if (decision.action === "CLOSE_POSITION") {
-      const openPositions = global.mt5OpenPositions?.[userId]?.positions || [];
+      const openPositions = await getMergedOpenPositions(userId);
       const pos = openPositions.find(
         (p) => String(p.ticket ?? p.id) === String(decision.positionId) || (p.symbol || "").toUpperCase().replace("/", "") === decision.symbol?.toUpperCase().replace("/", "")
       );
