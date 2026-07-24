@@ -753,6 +753,18 @@ const Dashboard: React.FC = () => {
     refetchInterval: 300000, // 5 min — this only needs to catch multi-hour silence, not react instantly
   });
 
+  // Weekly-plan pairs the EA isn't actually reporting data for — the EA is
+  // multi-symbol from one chart attachment, but ONLY for pairs listed in its
+  // SYMBOLS_LIST setting; anything else silently gets no MT5 data and never
+  // gets auto-copied to TradeLocker. Only meaningful while the EA is at
+  // least recently connected — a fully silent EA is already covered by the
+  // banner above and would list every pair as "missing," which is noise.
+  const { data: pairCoverage } = useQuery<{ configuredPairs: string[]; coveredPairs: string[]; missingPairs: string[] }>({
+    queryKey: ['/api/mt5/pair-coverage'],
+    enabled: !!user && !!mt5EaStatus?.recentlyConnected,
+    refetchInterval: 300000,
+  });
+
   // Markov chain probability overview — updated each engine scan cycle
   const { data: markovData } = useQuery<{ overview: any[]; count: number }>({
     queryKey: ['/api/markov/overview'],

@@ -11894,6 +11894,43 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     });
   });
 
+  // ── Pair coverage check ────────────────────────────────────────────────
+  // The MT5 EA is multi-symbol from a single chart attachment, but ONLY for
+  // whatever pairs are listed in its SYMBOLS_LIST setting — anything the
+  // weekly plan trades that isn't in that list silently gets no MT5 data and
+  // never gets auto-copied to TradeLocker. Surface that gap explicitly
+  // instead of leaving it undiscoverable.
+  app.get("/api/mt5/pair-coverage", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    let configuredPairs: string[] = [];
+    try {
+      const strategy = (global as any).mt5WeeklyStrategies?.[userId] || await storage.getActiveWeeklyStrategy(userId);
+      configuredPairs = (strategy?.pairs || []).map((p: string) => p.toUpperCase().replace('/', ''));
+    } catch { /* no active plan — nothing to check coverage against */ }
+
+    const chartCache = (global as any).mt5ChartDataCache || {};
+    const prefix = `mt5_chart_${userId}_`;
+    const RECENT_MS = 24 * 3600 * 1000;
+    const now = Date.now();
+    const coveredPairs = new Set<string>();
+    for (const key of Object.keys(chartCache)) {
+      if (!key.startsWith(prefix)) continue;
+      const entry = chartCache[key];
+      const sym = key.replace(prefix, '').replace(/_[A-Z0-9]+$/, '').toUpperCase();
+      const receivedAt = entry?.receivedAt ? new Date(entry.receivedAt).getTime() : 0;
+      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym);
+    }
+
+    const missingPairs = configuredPairs.filter(p => !coveredPairs.has(p));
+    res.json({
+      configuredPairs,
+      coveredPairs: Array.from(coveredPairs),
+      missingPairs,
+    });
+  });
+
   // ── Daily / Weekly P&L summary (works without a strategy) ──────────────
   app.get("/api/mt5/daily-summary", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
