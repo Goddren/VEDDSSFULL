@@ -1692,7 +1692,7 @@ async function scanMarkets(userId: number): Promise<void> {
       addActivity(userId, { type: 'info', message: `High volume detected: ${volumeSummary.join(', ')}` });
     }
 
-    const currentOpenPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
 
     // NOTE: Composite Autonomous (Markov × Polymarket) trading has been moved to
@@ -1921,6 +1921,57 @@ function computeSteppedFixedTrailSL(
   }
 }
 
+// Cross-broker open-position view — previously both the trailing-stop loop
+// and the AI's own "current open positions" prompt context read ONLY from
+// global.mt5OpenPositions, which is populated exclusively by the MT5 EA's
+// own account data. A user trading purely (or additionally) through
+// TradeLocker had their TL positions invisible to both: the AI never saw
+// them to issue MODIFY/CLOSE decisions, and the trail-computation loop
+// never ran for them at all — "AI manages trail" was a silent no-op for
+// TradeLocker-only positions. This merges each active TL connection's own
+// open positions into the same shape MT5 positions use, so both paths see
+// the complete picture regardless of which broker is actually holding the trade.
+async function getMergedOpenPositions(userId: number, marketAnalysis?: Record<string, any>): Promise<any[]> {
+  const mt5Positions: any[] = ((global as any).mt5OpenPositions?.[userId]?.positions || [])
+    .map((p: any) => ({ ...p, source: 'mt5' }));
+
+  let tlPositions: any[] = [];
+  try {
+    const allTL = await storage.getUserTradelockerConnections(userId);
+    const activeTL = allTL.filter((c: any) => c.isActive);
+    const perConn = await Promise.all(activeTL.map(async (tlConn: any) => {
+      try {
+        const svc = await getTradeLockerService(tlConn);
+        const positions = await svc.getPositionsNormalized().catch(() => []);
+        return positions.map((p: any) => {
+          const symbol = (p.symbol || '').toUpperCase().replace('/', '');
+          const direction = p.side.toUpperCase() === 'SELL' ? 'SELL' : 'BUY';
+          const currentPrice = marketAnalysis?.[symbol]?.currentPrice ?? p.avgPrice;
+          return {
+            symbol,
+            direction,
+            openPrice: p.avgPrice,
+            currentPrice,
+            sl: 0, // TL's position list doesn't expose the broker-side SL level; the
+                   // actual MODIFY call below still sets a real SL on the account —
+                   // this only affects the "was this an improvement" comparison.
+            tp: 0,
+            profit: p.unrealizedPl,
+            volume: p.qty,
+            openTime: p.openDate ? Math.floor(new Date(p.openDate).getTime() / 1000) : undefined,
+            ticket: `tl_${tlConn.id}_${p.id}`,
+            source: 'tl',
+            connectionId: tlConn.id,
+          };
+        });
+      } catch { return []; }
+    }));
+    tlPositions = perConn.flat();
+  } catch { /* no TL connections — MT5 only */ }
+
+  return [...mt5Positions, ...tlPositions];
+}
+
 async function applyServerSideTrails(
   userId: number,
   openPositions: any[],
@@ -2026,7 +2077,11 @@ async function applyServerSideTrails(
     const improved = isBuy ? newSL > currentSL : (currentSL === 0 || newSL < currentSL);
     if (!improved) continue;
 
-    broadcastMT5Signal(userId, {
+    // pos.source === 'tl' means this position only exists on a TradeLocker
+    // account (merged in by getMergedOpenPositions) — there's no matching
+    // MT5 ticket for the EA to act on, so skip the MT5 broadcast entirely
+    // and go straight to the TL modify loop below.
+    if (pos.source !== 'tl') broadcastMT5Signal(userId, {
       id: `trail_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toISOString(),
       symbol: pos.symbol,
@@ -2715,7 +2770,7 @@ async function runAILiveAnalysis(userId: number, marketAnalysis: Record<string, 
     const day = dayNames[now.getUTCDay()];
     const session = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
 
-    const openPositions = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+    const openPositions = await getMergedOpenPositions(userId, marketAnalysis);
     const currentOpenCount = openPositions.length;
     state.openPositionCount = currentOpenCount;
 
@@ -5065,7 +5120,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // currently in a loss (profit < 0) AND it has been open < 45 minutes,
     // override the action to a MODIFY (SL review only) and log the block.
     if (decision.action === 'CLOSE_POSITION') {
-      const openPositions: any[] = (global as any).mt5OpenPositions?.[userId]?.positions || [];
+      const openPositions: any[] = await getMergedOpenPositions(userId);
       const pos = openPositions.find((p: any) =>
         String(p.ticket ?? p.id) === String(decision.positionId) ||
         (p.symbol || '').toUpperCase().replace('/', '') === decision.symbol?.toUpperCase().replace('/', '')

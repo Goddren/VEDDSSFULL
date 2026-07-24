@@ -1373,13 +1373,25 @@ export class TradeLockerService {
       }
     } catch { /* fall through to positional defaults below */ }
 
-    const idx = (candidates: string[]) => columns.findIndex(c => candidates.some(k => c.includes(k)));
+    // Prefer an EXACT column-name match before falling back to substring —
+    // "id"/"pl" are short enough to false-positive-match unrelated columns
+    // (e.g. "tradableInstrumentId" contains "id"; some brokers' schemas have
+    // a "templateId"/"replacedById"-style field containing "pl"), which was
+    // silently mis-mapping unrealizedPl to a position/order ID value instead
+    // of the actual P&L figure.
+    const idx = (candidates: string[]) => {
+      for (const k of candidates) {
+        const exact = columns.indexOf(k);
+        if (exact >= 0) return exact;
+      }
+      return columns.findIndex(c => candidates.some(k => c.includes(k)));
+    };
     const iId = idx(['id']);
-    const iInst = idx(['tradableinstrument']);
+    const iInst = idx(['tradableinstrumentid', 'tradableinstrument']);
     const iSide = idx(['side']);
     const iQty = idx(['qty', 'quantity']);
     const iAvg = idx(['avgprice', 'openprice', 'price']);
-    const iPl = idx(['unrealized', 'pnl', 'pl']);
+    const iPl = idx(['unrealizedpl', 'unrealizedpnl', 'pnl', 'pl']);
     const iDate = idx(['opendate', 'date']);
 
     return raw.map((row: any[]) => {
