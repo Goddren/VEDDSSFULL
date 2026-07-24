@@ -58691,6 +58691,34 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       message: isActive ? `Connected: ${status.symbol !== "\u2014" ? `${status.symbol} ${status.timeframe} from ` : ""}${status.broker}` : isRecentlyConnected ? `Last seen ${humanAgo} ago \u2014 EA may be reconnecting` : `Last seen ${humanAgo} ago`
     });
   });
+  app2.get("/api/mt5/pair-coverage", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    let configuredPairs = [];
+    try {
+      const strategy = global.mt5WeeklyStrategies?.[userId] || await storage.getActiveWeeklyStrategy(userId);
+      configuredPairs = (strategy?.pairs || []).map((p) => p.toUpperCase().replace("/", ""));
+    } catch {
+    }
+    const chartCache = global.mt5ChartDataCache || {};
+    const prefix = `mt5_chart_${userId}_`;
+    const RECENT_MS = 24 * 3600 * 1e3;
+    const now = Date.now();
+    const coveredPairs = /* @__PURE__ */ new Set();
+    for (const key of Object.keys(chartCache)) {
+      if (!key.startsWith(prefix)) continue;
+      const entry = chartCache[key];
+      const sym = key.replace(prefix, "").replace(/_[A-Z0-9]+$/, "").toUpperCase();
+      const receivedAt = entry?.receivedAt ? new Date(entry.receivedAt).getTime() : 0;
+      if (now - receivedAt < RECENT_MS) coveredPairs.add(sym);
+    }
+    const missingPairs = configuredPairs.filter((p) => !coveredPairs.has(p));
+    res.json({
+      configuredPairs,
+      coveredPairs: Array.from(coveredPairs),
+      missingPairs
+    });
+  });
   app2.get("/api/mt5/daily-summary", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
