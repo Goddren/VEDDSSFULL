@@ -740,6 +740,19 @@ const Dashboard: React.FC = () => {
     refetchInterval: 120000,
   });
 
+  // MT5 EA check-in status — surfaces a warning when the EA (running on a
+  // VPS/terminal) has gone silent for hours/days, since nothing else makes
+  // that visible: autoExecute stays "on" and the weekly plan stays "active"
+  // even though no signals are actually reaching the server to be managed.
+  const { data: mt5EaStatus } = useQuery<{
+    connected: boolean; recentlyConnected?: boolean; isLongSilent?: boolean;
+    silentHours?: number; message: string;
+  }>({
+    queryKey: ['/api/mt5/connection-status'],
+    enabled: !!user,
+    refetchInterval: 300000, // 5 min — this only needs to catch multi-hour silence, not react instantly
+  });
+
   // Markov chain probability overview — updated each engine scan cycle
   const { data: markovData } = useQuery<{ overview: any[]; count: number }>({
     queryKey: ['/api/markov/overview'],
@@ -1053,6 +1066,16 @@ const Dashboard: React.FC = () => {
                   </div>
                 </Link>
               </div>
+            </div>
+          )}
+
+          {mt5EaStatus?.isLongSilent && (
+            <div className="mb-3 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-amber-300 text-xs">
+                <strong>MT5 EA hasn't checked in for {(mt5EaStatus.silentHours ?? 0) >= 24 ? `${Math.floor((mt5EaStatus.silentHours ?? 0) / 24)}+ days` : `${mt5EaStatus.silentHours ?? 0}h`}.</strong>{' '}
+                Trades on connected accounts are not currently being managed by VEDD's AI (no confidence checks, no trailing stops). Confirm your MT5 terminal/VPS is running and the EA is attached to a chart.
+              </p>
             </div>
           )}
 

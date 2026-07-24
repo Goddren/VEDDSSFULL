@@ -11856,16 +11856,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
     }
 
-    // Active within last 10 minutes; stale (but known) within last 24 hours
+    // Active within last 10 minutes; stale (but known) within last 24 hours;
+    // "long silent" past 6 hours is the threshold that actually matters — a
+    // VPS restart or a detached EA can leave an account trading (or not
+    // trading) completely outside VEDD's AI for days without anyone noticing
+    // unless something surfaces it prominently.
     const lastSeen = new Date(status.lastSeen);
     const now = new Date();
     const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1000);
     const isActive = secondsAgo < 600; // 10 minutes (increased from 5 to survive brief deploy gaps)
     const isRecentlyConnected = secondsAgo < 86400; // known within last 24 h
+    const LONG_SILENT_THRESHOLD_SEC = 6 * 3600; // 6 hours
+    const isLongSilent = secondsAgo >= LONG_SILENT_THRESHOLD_SEC;
+    const silentHours = Math.floor(secondsAgo / 3600);
+    const silentDays = Math.floor(secondsAgo / 86400);
+
+    const humanAgo = secondsAgo < 3600 ? `${Math.floor(secondsAgo / 60)} min`
+      : silentDays >= 1 ? `${silentDays} day${silentDays === 1 ? '' : 's'}`
+      : `${silentHours}h`;
 
     res.json({
       connected: isActive,
       recentlyConnected: isRecentlyConnected,
+      isLongSilent,
+      silentHours,
       lastSeen: status.lastSeen,
       secondsAgo,
       symbol: status.symbol,
@@ -11875,8 +11889,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       message: isActive
         ? `Connected: ${status.symbol !== '—' ? `${status.symbol} ${status.timeframe} from ` : ''}${status.broker}`
         : isRecentlyConnected
-          ? `Last seen ${secondsAgo < 3600 ? Math.floor(secondsAgo / 60) + ' min' : Math.floor(secondsAgo / 3600) + 'h'} ago — EA may be reconnecting`
-          : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+          ? `Last seen ${humanAgo} ago — EA may be reconnecting`
+          : `Last seen ${humanAgo} ago`
     });
   });
 
