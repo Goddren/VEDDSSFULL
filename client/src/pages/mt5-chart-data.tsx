@@ -2766,7 +2766,10 @@ export default function MT5ChartDataPage() {
                 </a>
               </div>
               <p className="text-xs text-gray-500 mt-2 text-center">
-                Drag onto <strong className="text-gray-300">one chart</strong> — set Server URL, API Key &amp; Account Alias in EA settings. That's it.
+                Drag onto <strong className="text-gray-300">one chart</strong> — set Server URL, API Key &amp; Account Alias in EA settings.
+              </p>
+              <p className="text-xs text-amber-400/90 mt-2 text-center px-2">
+                ⚠️ Important: set <span className="font-mono text-amber-300">SYMBOLS_LIST</span> to a comma-separated list of <strong>every pair you trade</strong> (e.g. <span className="font-mono">EURUSD,GBPJPY,USDJPY,US30</span>). One chart attachment covers all of them — but only pairs in this list get reported to VEDD. Anything left out gets no live data and won't auto-copy to TradeLocker.
               </p>
             </div>
 

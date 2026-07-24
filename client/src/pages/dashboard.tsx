@@ -1091,6 +1091,16 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
+          {!!pairCoverage?.missingPairs?.length && (
+            <div className="mb-3 flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+              <p className="text-amber-300 text-xs">
+                <strong>{pairCoverage.missingPairs.join(', ')}</strong> {pairCoverage.missingPairs.length === 1 ? 'is' : 'are'} in your weekly plan but the MT5 EA isn't reporting data for {pairCoverage.missingPairs.length === 1 ? 'it' : 'them'}.{' '}
+                Add {pairCoverage.missingPairs.length === 1 ? 'it' : 'them'} to the EA's <span className="font-mono">SYMBOLS_LIST</span> setting so TradeLocker auto-copy and index-chart data work for {pairCoverage.missingPairs.length === 1 ? 'that pair' : 'these pairs'}.
+              </p>
+            </div>
+          )}
+
           <DailyToDoCard />
 
           {/* Row 2: Live account balance cards */}
