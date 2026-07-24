@@ -58672,16 +58672,23 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const secondsAgo = Math.floor((now.getTime() - lastSeen.getTime()) / 1e3);
     const isActive = secondsAgo < 600;
     const isRecentlyConnected = secondsAgo < 86400;
+    const LONG_SILENT_THRESHOLD_SEC = 6 * 3600;
+    const isLongSilent = secondsAgo >= LONG_SILENT_THRESHOLD_SEC;
+    const silentHours = Math.floor(secondsAgo / 3600);
+    const silentDays = Math.floor(secondsAgo / 86400);
+    const humanAgo = secondsAgo < 3600 ? `${Math.floor(secondsAgo / 60)} min` : silentDays >= 1 ? `${silentDays} day${silentDays === 1 ? "" : "s"}` : `${silentHours}h`;
     res.json({
       connected: isActive,
       recentlyConnected: isRecentlyConnected,
+      isLongSilent,
+      silentHours,
       lastSeen: status.lastSeen,
       secondsAgo,
       symbol: status.symbol,
       timeframe: status.timeframe,
       broker: status.broker,
       candleCount: status.candleCount,
-      message: isActive ? `Connected: ${status.symbol !== "\u2014" ? `${status.symbol} ${status.timeframe} from ` : ""}${status.broker}` : isRecentlyConnected ? `Last seen ${secondsAgo < 3600 ? Math.floor(secondsAgo / 60) + " min" : Math.floor(secondsAgo / 3600) + "h"} ago \u2014 EA may be reconnecting` : `Last seen ${Math.floor(secondsAgo / 60)} minutes ago`
+      message: isActive ? `Connected: ${status.symbol !== "\u2014" ? `${status.symbol} ${status.timeframe} from ` : ""}${status.broker}` : isRecentlyConnected ? `Last seen ${humanAgo} ago \u2014 EA may be reconnecting` : `Last seen ${humanAgo} ago`
     });
   });
   app2.get("/api/mt5/daily-summary", async (req, res) => {
