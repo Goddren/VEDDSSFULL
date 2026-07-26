@@ -7909,7 +7909,7 @@ function setUserModelPreference(userId, model) {
   userModelPreferences.set(userId, model);
 }
 function getUserModelPreference(userId) {
-  const pref = userModelPreferences.get(userId) || "gpt-4o";
+  const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
   if (DEPRECATED_MODEL_MAP[pref]) {
     const updated = DEPRECATED_MODEL_MAP[pref];
     userModelPreferences.set(userId, updated);
@@ -9591,11 +9591,12 @@ async function getUniversalAIClientForUser(userId) {
     const keyFor = (p) => activeKeys.find((k) => k.provider === p)?.apiKey;
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
+    const hasProviderKey = (p) => !!keyFor(p) || p === "groq" && !!process.env.GROQ_API_KEY || p === "openrouter" && !!process.env.OPENROUTER_API_KEY;
     const order = [];
     if (aiCostMode === "economy") {
-      if (selProvider !== "groq" && keyFor(selProvider)) order.push(selProvider);
+      if (selProvider !== "groq" && hasProviderKey(selProvider)) order.push(selProvider);
       order.push("groq");
-    } else if (keyFor(selProvider)) {
+    } else if (hasProviderKey(selProvider)) {
       order.push(selProvider);
     }
     for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
@@ -9605,6 +9606,11 @@ async function getUniversalAIClientForUser(userId) {
         if (provider === "groq") {
           const c = await buildGroqEconomyClient(keyFor("groq"));
           if (c) clients.push(c);
+          continue;
+        }
+        if (provider === "openrouter") {
+          const apiKey2 = keyFor("openrouter") || process.env.OPENROUTER_API_KEY;
+          if (apiKey2) clients.push(buildOpenAICompatClient("openrouter", apiKey2));
           continue;
         }
         const apiKey = keyFor(provider);
@@ -11249,7 +11255,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, VISION_FALLBACK, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -11302,6 +11308,7 @@ var init_openai = __esm({
       "mixtral-8x7b-32768": "openai/gpt-oss-120b",
       "qwen/qwen3-32b": "qwen/qwen3.6-27b"
     };
+    DEFAULT_AI_MODEL = "deepseek/deepseek-chat-v3-0324:free";
     VISION_FALLBACK = {
       "groq": "gpt-4o-mini",
       "openai": "gpt-4o-mini",
@@ -11391,7 +11398,7 @@ Respond with valid JSON only. No markdown, no explanation.` : "Respond with vali
         };
       }
     };
-    PROVIDER_PRIORITY = ["openai", "groq", "anthropic", "google", "mistral", "openrouter"];
+    PROVIDER_PRIORITY = ["openrouter", "openai", "groq", "anthropic", "google", "mistral"];
     VEDD_IDENTITY_CONTEXT = `
 VEDD AI Trading (VEDDBuild) is a fintech AI trading education platform with the following characteristics:
 - Mission: Democratizing access to institutional-grade AI trading tools and financial education for underserved communities
@@ -18591,11 +18598,11 @@ var init_news_service = __esm({
         const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
         const orKey = process.env.OPENROUTER_API_KEY;
         try {
-          if (oaiKey) {
-            this.openai = new OpenAI2({ apiKey: oaiKey });
-          } else if (orKey) {
+          if (orKey) {
             this.openai = new OpenAI2({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
             this.openai.defaultModel = "deepseek/deepseek-chat-v3-0324:free";
+          } else if (oaiKey) {
+            this.openai = new OpenAI2({ apiKey: oaiKey });
           }
         } catch (e) {
           console.log("Failed to initialize AI client for news sentiment:", e);
@@ -23194,11 +23201,11 @@ async function analyzeToken(token, options = {}) {
     let openaiClient = openaiOverride;
     let fallbackModel = "gpt-4o-mini";
     if (!openaiClient) {
-      if (process.env.OPENAI_API_KEY) {
-        openaiClient = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
-      } else if (process.env.OPENROUTER_API_KEY) {
+      if (process.env.OPENROUTER_API_KEY) {
         openaiClient = new OpenAI3({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
         fallbackModel = "deepseek/deepseek-chat-v3-0324:free";
+      } else if (process.env.OPENAI_API_KEY) {
+        openaiClient = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
       } else {
         openaiClient = new OpenAI3({ apiKey: "" });
       }
@@ -38504,9 +38511,9 @@ function getAI() {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
   const or_ = process.env.OPENROUTER_API_KEY;
+  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "deepseek/deepseek-chat-v3-0324:free" };
   if (groq) return { client: new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" }), model: "openai/gpt-oss-20b" };
   if (oai) return { client: new OpenAI6({ apiKey: oai }), model: "gpt-4o-mini" };
-  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "deepseek/deepseek-chat-v3-0324:free" };
   return null;
 }
 async function aiChat(messages) {
@@ -39403,50 +39410,41 @@ async function scrapeNewsRSS(theme, pairSymbols = []) {
   }
   return headlines.slice(0, 10);
 }
-function isQuotaOrRateLimitError(e) {
-  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
-  if (status === 429 || status >= 500 && status < 600) return true;
-  const msg = (e?.message || "").toLowerCase();
-  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|service unavailable/.test(msg);
-}
 async function callAI(systemPrompt, userPrompt) {
-  const apiKey = process.env.OPENAI_API_KEY;
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt }
   ];
-  try {
-    const client2 = new OpenAI7({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
-    const res = await client2.chat.completions.create({
-      model: "gpt-4o",
-      messages,
-      temperature: 0.7,
-      max_tokens: 2e3
-    });
-    return res.choices[0]?.message?.content?.trim() ?? "";
-  } catch (e) {
-    if (!isQuotaOrRateLimitError(e)) throw e;
-    const orKey = process.env.OPENROUTER_API_KEY;
-    if (!orKey) {
-      console.error("[ambassador-prime] OpenAI quota/rate-limit error and OPENROUTER_API_KEY not set \u2014 cannot fail over:", e.message);
-      throw e;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const orClient = new OpenAI7({
+        apiKey: orKey,
+        baseURL: "https://openrouter.ai/api/v1",
+        maxRetries: 2,
+        timeout: 9e4,
+        defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+      });
+      const res2 = await orClient.chat.completions.create({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        messages,
+        temperature: 0.7,
+        max_tokens: 2e3
+      });
+      return res2.choices[0]?.message?.content?.trim() ?? "";
+    } catch (e) {
+      console.warn("[ambassador-prime] OpenRouter failed \u2014 falling back to OpenAI:", e.message);
     }
-    console.warn("[ambassador-prime] OpenAI failed (quota/rate-limit) \u2014 failing over to OpenRouter/Claude:", e.message);
-    const orClient = new OpenAI7({
-      apiKey: orKey,
-      baseURL: "https://openrouter.ai/api/v1",
-      maxRetries: 2,
-      timeout: 9e4,
-      defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
-    });
-    const res = await orClient.chat.completions.create({
-      model: "anthropic/claude-sonnet-4.6",
-      messages,
-      temperature: 0.7,
-      max_tokens: 2e3
-    });
-    return res.choices[0]?.message?.content?.trim() ?? "";
   }
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client2 = new OpenAI7({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
+  const res = await client2.chat.completions.create({
+    model: "gpt-4o",
+    messages,
+    temperature: 0.7,
+    max_tokens: 2e3
+  });
+  return res.choices[0]?.message?.content?.trim() ?? "";
 }
 async function generateBatch1(theme, redditContext, dayOfWeek) {
   const sys = `You are VEDD's daily growth ambassador. VEDD (veddbuild.com) is an AI-powered trading analysis platform. Your job is to generate high-converting social media content that drives traders to sign up.
@@ -40384,48 +40382,41 @@ __export(persona_content_engine_exports, {
   startPersonaContentScheduler: () => startPersonaContentScheduler
 });
 import { OpenAI as OpenAI8 } from "openai";
-function isQuotaOrRateLimitError2(e) {
-  const status = e?.status || e?.response?.status;
-  return status === 429 || status === 402 || /quota|rate.?limit/i.test(e?.message || "");
-}
 async function callAI2(systemPrompt, userPrompt, maxTokens = 3e3) {
-  const apiKey = process.env.OPENAI_API_KEY;
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt }
   ];
-  try {
-    const client2 = new OpenAI8({ apiKey: apiKey || "", maxRetries: 2, timeout: 12e4 });
-    const res = await client2.chat.completions.create({
-      model: "gpt-4o",
-      messages,
-      temperature: 0.8,
-      max_tokens: maxTokens
-    });
-    return res.choices[0]?.message?.content?.trim() ?? "";
-  } catch (e) {
-    if (!isQuotaOrRateLimitError2(e)) throw e;
-    const orKey = process.env.OPENROUTER_API_KEY;
-    if (!orKey) {
-      console.error("[persona-content] OpenAI quota/rate-limit and OPENROUTER_API_KEY not set:", e.message);
-      throw e;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const orClient = new OpenAI8({
+        apiKey: orKey,
+        baseURL: "https://openrouter.ai/api/v1",
+        maxRetries: 2,
+        timeout: 12e4,
+        defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+      });
+      const res2 = await orClient.chat.completions.create({
+        model: "deepseek/deepseek-chat-v3-0324:free",
+        messages,
+        temperature: 0.8,
+        max_tokens: maxTokens
+      });
+      return res2.choices[0]?.message?.content?.trim() ?? "";
+    } catch (e) {
+      console.warn("[persona-content] OpenRouter failed \u2014 falling back to OpenAI:", e.message);
     }
-    console.warn("[persona-content] OpenAI failed \u2014 failing over to OpenRouter/Claude:", e.message);
-    const orClient = new OpenAI8({
-      apiKey: orKey,
-      baseURL: "https://openrouter.ai/api/v1",
-      maxRetries: 2,
-      timeout: 12e4,
-      defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
-    });
-    const res = await orClient.chat.completions.create({
-      model: "anthropic/claude-sonnet-4.6",
-      messages,
-      temperature: 0.8,
-      max_tokens: maxTokens
-    });
-    return res.choices[0]?.message?.content?.trim() ?? "";
   }
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client2 = new OpenAI8({ apiKey: apiKey || "", maxRetries: 2, timeout: 12e4 });
+  const res = await client2.chat.completions.create({
+    model: "gpt-4o",
+    messages,
+    temperature: 0.8,
+    max_tokens: maxTokens
+  });
+  return res.choices[0]?.message?.content?.trim() ?? "";
 }
 function parseJson2(raw, fallback) {
   try {
