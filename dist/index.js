@@ -17658,7 +17658,10 @@ var init_tradelocker = __esm({
           const columns = await this.resolveColumns("ordersHistoryConfig");
           const idx = (name) => columns.indexOf(name.toLowerCase());
           const iId = idx("id"), iInst = idx("tradableInstrumentId"), iSide = idx("side"), iQty = idx("qty"), iAvg = idx("avgPrice"), iStatus = idx("status"), iCreated = idx("createdDate"), iPosId = idx("positionId");
-          const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory`, {
+          const toMs = Date.now();
+          const fromMs = fromTs ? fromTs * 1e3 : toMs - 90 * 24 * 60 * 60 * 1e3;
+          const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
+          const response = await fetch(histUrl, {
             method: "GET",
             headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
           });

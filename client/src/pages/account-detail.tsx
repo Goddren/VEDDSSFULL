@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { ArrowLeft, Target, Shield, TrendingUp, TrendingDown, History, AlertTriangle, BarChart3 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { fmtMoney as fmtMoneyShared } from '@/lib/utils';
 
 interface AccountDetail {
   type: 'mt5' | 'tradelocker' | 'alpaca' | 'tastytrade';
@@ -28,10 +29,8 @@ interface AccountDetail {
   tradeHistory: { id: number; symbol: string; direction: string; result: string; profitLoss: number; actualPips?: number; closedAt: string }[];
 }
 
-function fmtMoney(n: number): string {
-  const sign = n >= 0 ? '+' : '';
-  return `${sign}$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+// Signed P&L formatter (shared canonical formatter, signed variant)
+const fmtMoney = (n: number): string => fmtMoneyShared(n, { signed: true });
 
 export default function AccountDetailPage() {
   const params = useParams<{ type: string; id: string }>();
@@ -103,8 +102,8 @@ export default function AccountDetailPage() {
           <p className="text-xs text-amber-400 mt-2">{data.error}</p>
         ) : (
           <div className="flex items-baseline gap-3 mt-2">
-            <p className="text-3xl font-black text-white">{data.currency} {data.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-            {data.equity !== data.balance && <p className="text-xs text-gray-500">Equity {data.equity.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>}
+            <p className="text-3xl font-black text-white">{fmtMoneyShared(data.balance, { currency: data.currency })}</p>
+            {data.equity !== data.balance && <p className="text-xs text-gray-500">Equity {fmtMoneyShared(data.equity, { currency: data.currency })}</p>}
           </div>
         )}
       </div>

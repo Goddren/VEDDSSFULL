@@ -1215,7 +1215,14 @@ export class TradeLockerService {
         iQty = idx('qty'), iAvg = idx('avgPrice'), iStatus = idx('status'),
         iCreated = idx('createdDate'), iPosId = idx('positionId');
 
-      const response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory`, {
+      // Pass an explicit from/to window so the broker returns the full range
+      // instead of its (small) default page — without this, closed trades older
+      // than the default window were permanently unreachable. TradeLocker expects
+      // epoch milliseconds. Default to a 90-day lookback when no fromTs is given.
+      const toMs = Date.now();
+      const fromMs = fromTs ? fromTs * 1000 : toMs - 90 * 24 * 60 * 60 * 1000;
+      const histUrl = `${this.baseUrl}/trade/accounts/${this.accountId}/ordersHistory?from=${fromMs}&to=${toMs}`;
+      const response = await fetch(histUrl, {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
       });

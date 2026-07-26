@@ -20,6 +20,32 @@ export function formatCurrency(value: string | number): string {
   }).format(value);
 }
 
+/**
+ * Canonical money formatter used across all account/balance/P&L displays so the
+ * app reads as one product. Balances: `$1,234.56`. P&L (signed=true): `+$1,234.56`
+ * / `-$1,234.56`. Always thousands-separated, 2 decimals. Pass a currency code
+ * to prefix a non-USD currency (e.g. "EUR 1,234.56").
+ */
+export function fmtMoney(
+  value: number | string | null | undefined,
+  opts: { signed?: boolean; currency?: string } = {}
+): string {
+  let n = typeof value === 'string' ? parseFloat(value) : (value ?? 0);
+  if (isNaN(n as number)) n = 0;
+  const abs = Math.abs(n as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sign = opts.signed ? ((n as number) >= 0 ? '+' : '-') : ((n as number) < 0 ? '-' : '');
+  const unit = opts.currency && opts.currency !== 'USD' ? `${opts.currency} ` : '$';
+  // Non-USD codes read cleaner as a prefix without a $; USD uses the $ glyph.
+  return opts.currency && opts.currency !== 'USD'
+    ? `${sign}${unit}${abs}`
+    : `${sign}$${abs}`;
+}
+
+/** Tailwind text-color class for a P&L value — emerald for >=0, red for <0. */
+export function pnlColorClass(value: number): string {
+  return value >= 0 ? 'text-emerald-400' : 'text-red-400';
+}
+
 export function getConfidenceColor(confidence: string, includeBg: boolean = true): string {
   switch (confidence.toLowerCase()) {
     case 'high':

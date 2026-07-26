@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { fmtMoney } from '@/lib/utils';
 
 // Live open TradeLocker positions across all connected accounts — including
 // losing trades — with per-trade unrealized P/L. Polls every 15s.
@@ -49,7 +50,7 @@ export function TlOpenPositions({ compact = false }: { compact?: boolean }) {
           <h3 className="text-sm font-semibold text-gray-200">Open Trades (TradeLocker)</h3>
           {allPositions.length > 0 && (
             <span className={`text-xs font-bold font-mono ${totalPl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {totalPl >= 0 ? '+' : ''}{totalPl.toFixed(2)} USD
+              {fmtMoney(totalPl, { signed: true })}
             </span>
           )}
         </div>
@@ -94,7 +95,7 @@ export function TlOpenPositions({ compact = false }: { compact?: boolean }) {
                   <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{p.qty}</td>
                   <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{p.avgPrice || '—'}</td>
                   <td className={`py-1.5 pr-3 text-right font-mono font-bold ${p.unrealizedPl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {p.unrealizedPl >= 0 ? '+' : ''}{p.unrealizedPl.toFixed(2)}
+                    {fmtMoney(p.unrealizedPl, { signed: true })}
                   </td>
                   {!compact && (
                     <td className="py-1.5 text-gray-500">
@@ -146,7 +147,7 @@ export function TlClosedTrades({ compact = false }: { compact?: boolean }) {
           <h3 className="text-sm font-semibold text-gray-200">Closed Trades (TradeLocker)</h3>
           {closedTrades.length > 0 && (
             <span className={`text-xs font-bold font-mono ${totalPl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {totalPl >= 0 ? '+' : ''}{totalPl.toFixed(2)} USD
+              {fmtMoney(totalPl, { signed: true })}
             </span>
           )}
         </div>
@@ -189,7 +190,7 @@ export function TlClosedTrades({ compact = false }: { compact?: boolean }) {
                   <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{t.entryPrice ?? '—'}</td>
                   <td className="py-1.5 pr-3 text-right font-mono text-gray-300">{t.exitPrice ?? '—'}</td>
                   <td className={`py-1.5 pr-3 text-right font-mono font-bold ${(t.profitLoss ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {(t.profitLoss ?? 0) >= 0 ? '+' : ''}{(t.profitLoss ?? 0).toFixed(2)}
+                    {fmtMoney(t.profitLoss ?? 0, { signed: true })}
                   </td>
                   {!compact && (
                     <td className="py-1.5 text-gray-500">

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TrendingUp, TrendingDown, Activity, RefreshCw, Zap } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { fmtMoney } from "@/lib/utils";
 
 export interface TlAccountPerf {
   connectionId: number;
@@ -61,8 +62,8 @@ export function useTodayReview(enabled = true) {
   });
 }
 
-const usd = (n: number) => `${n >= 0 ? "+" : ""}$${Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const pnlColor = (n: number) => (n > 0 ? "#4ade80" : n < 0 ? "#f87171" : "#9ca3af");
+const usd = (n: number) => fmtMoney(n, { signed: true });
+const pnlColor = (n: number) => (n > 0 ? "#34d399" : n < 0 ? "#f87171" : "#9ca3af"); // emerald-400 / red-400
 const wrColor = (wr: number) => (wr >= 55 ? "#34d399" : wr >= 45 ? "#fbbf24" : "#f87171");
 
 /** Full card — for the dashboard and weekly-strategy page. */
@@ -223,8 +224,8 @@ export function TradePerformanceCard({ className = "" }: { className?: string })
                         <span className="text-[8px] px-1 rounded bg-gray-800/60 text-gray-500 flex-shrink-0">{a.accountType}</span>
                       </div>
                       <span className="text-[10px] font-black text-gray-100 flex-shrink-0">
-                        ${(a.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                        {a.propFirmAccountSize ? <span className="text-[8px] text-gray-500"> / ${(a.propFirmAccountSize).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span> : null}
+                        {fmtMoney(a.balance || 0)}
+                        {a.propFirmAccountSize ? <span className="text-[8px] text-gray-500"> / {fmtMoney(a.propFirmAccountSize)}</span> : null}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -322,7 +323,7 @@ export function TodayReviewPanel({ className = "" }: { className?: string }) {
           Today's Review {bad ? "— rough day" : "— solid day"}
         </h3>
         <span className="text-xs font-black" style={{ color: bad ? "#f87171" : "#4ade80" }}>
-          {s.totalPnl >= 0 ? "+" : ""}${Math.abs(s.totalPnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          {usd(s.totalPnl)}
         </span>
       </div>
       <ul className="space-y-1">
