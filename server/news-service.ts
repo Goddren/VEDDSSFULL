@@ -88,13 +88,12 @@ class NewsService {
     const oaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
     const orKey = process.env.OPENROUTER_API_KEY;
     try {
-      if (oaiKey) {
-        this.openai = new OpenAI({ apiKey: oaiKey });
-      } else if (orKey) {
-        // No platform OpenAI key — fall back to OpenRouter's free tier so
-        // news sentiment analysis still runs instead of silently no-op'ing.
+      if (orKey) {
+        // OpenRouter (free-tier DeepSeek) first — cheapest option, app-wide default.
         this.openai = new OpenAI({ apiKey: orKey, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
         (this.openai as any).defaultModel = 'deepseek/deepseek-chat-v3-0324:free';
+      } else if (oaiKey) {
+        this.openai = new OpenAI({ apiKey: oaiKey });
       }
     } catch (e) {
       console.log('Failed to initialize AI client for news sentiment:', e);

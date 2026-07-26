@@ -53,11 +53,10 @@ function getAI(): { client: OpenAI; model: string } | null {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
   const or_ = process.env.OPENROUTER_API_KEY;
+  // OpenRouter (free-tier DeepSeek) first — cheapest option, app-wide default.
+  if (or_) return { client: new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } }), model: 'deepseek/deepseek-chat-v3-0324:free' };
   if (groq) return { client: new OpenAI({ apiKey: groq, baseURL: 'https://api.groq.com/openai/v1' }), model: 'openai/gpt-oss-20b' };
   if (oai) return { client: new OpenAI({ apiKey: oai }), model: 'gpt-4o-mini' };
-  // No Groq/OpenAI key at all — OpenRouter (free-tier DeepSeek) keeps the lead
-  // scoring/reply-drafting running instead of silently returning empty strings.
-  if (or_) return { client: new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } }), model: 'deepseek/deepseek-chat-v3-0324:free' };
   return null;
 }
 

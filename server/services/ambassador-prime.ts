@@ -247,52 +247,40 @@ async function scrapeNewsRSS(theme: string, pairSymbols: string[] = []): Promise
   return headlines.slice(0, 10);
 }
 
-// ── AI helper (fails over to OpenRouter/Claude on OpenAI quota/rate-limit) ────
-function isQuotaOrRateLimitError(e: any): boolean {
-  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
-  if (status === 429 || (status >= 500 && status < 600)) return true;
-  const msg = (e?.message || '').toLowerCase();
-  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|service unavailable/.test(msg);
-}
-
+// OpenRouter (free DeepSeek tier) is now the app-wide default primary — cheapest
+// option, matching the same default used by every engine's universal AI client
+// in openai.ts. OpenAI is the failover, only used if OpenRouter errors or no
+// OPENROUTER_API_KEY is configured at all.
 async function callAI(systemPrompt: string, userPrompt: string): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ];
-  try {
-    const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 90000 });
-    const res = await client.chat.completions.create({
-      model: 'gpt-4o', messages, temperature: 0.7, max_tokens: 2000,
-    });
-    return res.choices[0]?.message?.content?.trim() ?? '';
-  } catch (e: any) {
-    if (!isQuotaOrRateLimitError(e)) throw e;
-
-    const orKey = process.env.OPENROUTER_API_KEY;
-    if (!orKey) {
-      console.error('[ambassador-prime] OpenAI quota/rate-limit error and OPENROUTER_API_KEY not set — cannot fail over:', e.message);
-      throw e;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const orClient = new OpenAI({
+        apiKey: orKey,
+        baseURL: 'https://openrouter.ai/api/v1',
+        maxRetries: 2,
+        timeout: 90000,
+        defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
+      });
+      const res = await orClient.chat.completions.create({
+        model: 'deepseek/deepseek-chat-v3-0324:free', messages, temperature: 0.7, max_tokens: 2000,
+      });
+      return res.choices[0]?.message?.content?.trim() ?? '';
+    } catch (e: any) {
+      console.warn('[ambassador-prime] OpenRouter failed — falling back to OpenAI:', e.message);
     }
-
-    console.warn('[ambassador-prime] OpenAI failed (quota/rate-limit) — failing over to OpenRouter/Claude:', e.message);
-    const orClient = new OpenAI({
-      apiKey: orKey,
-      baseURL: 'https://openrouter.ai/api/v1',
-      maxRetries: 2,
-      timeout: 90000,
-      defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
-    });
-    // NOTE: verify this OpenRouter model slug against openrouter.ai/models before
-    // relying on it long-term — Anthropic's own model-id naming has drifted
-    // before in this codebase (see PROVIDER_MODELS.anthropic comment in
-    // openai.ts) and OpenRouter's catalog string is not guaranteed to match.
-    const res = await orClient.chat.completions.create({
-      model: 'anthropic/claude-sonnet-4.6', messages, temperature: 0.7, max_tokens: 2000,
-    });
-    return res.choices[0]?.message?.content?.trim() ?? '';
   }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 90000 });
+  const res = await client.chat.completions.create({
+    model: 'gpt-4o', messages, temperature: 0.7, max_tokens: 2000,
+  });
+  return res.choices[0]?.message?.content?.trim() ?? '';
 }
 
 // ── Content generation (Batch 1) ─────────────────────────────────────────────

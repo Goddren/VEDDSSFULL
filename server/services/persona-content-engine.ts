@@ -59,41 +59,34 @@ emphasis, symmetric opener-closer constructions, and hedge stacking. Vary senten
 naturally. Use at most 2 em-dashes per field. Music style must describe mood only, never name
 copyrighted songs. Never fabricate engagement numbers or results.`;
 
-// ── AI call helper (OpenAI primary, OpenRouter/Claude failover) ─────────────
-function isQuotaOrRateLimitError(e: any): boolean {
-  const status = e?.status || e?.response?.status;
-  return status === 429 || status === 402 || /quota|rate.?limit/i.test(e?.message || '');
-}
-
+// ── AI call helper (OpenRouter free-tier primary — cheapest — OpenAI failover) ─
 async function callAI(systemPrompt: string, userPrompt: string, maxTokens = 3000): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ];
-  try {
-    const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 120000 });
-    const res = await client.chat.completions.create({
-      model: 'gpt-4o', messages, temperature: 0.8, max_tokens: maxTokens,
-    });
-    return res.choices[0]?.message?.content?.trim() ?? '';
-  } catch (e: any) {
-    if (!isQuotaOrRateLimitError(e)) throw e;
-    const orKey = process.env.OPENROUTER_API_KEY;
-    if (!orKey) {
-      console.error('[persona-content] OpenAI quota/rate-limit and OPENROUTER_API_KEY not set:', e.message);
-      throw e;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  if (orKey) {
+    try {
+      const orClient = new OpenAI({
+        apiKey: orKey, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 2, timeout: 120000,
+        defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
+      });
+      const res = await orClient.chat.completions.create({
+        model: 'deepseek/deepseek-chat-v3-0324:free', messages, temperature: 0.8, max_tokens: maxTokens,
+      });
+      return res.choices[0]?.message?.content?.trim() ?? '';
+    } catch (e: any) {
+      console.warn('[persona-content] OpenRouter failed — falling back to OpenAI:', e.message);
     }
-    console.warn('[persona-content] OpenAI failed — failing over to OpenRouter/Claude:', e.message);
-    const orClient = new OpenAI({
-      apiKey: orKey, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 2, timeout: 120000,
-      defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
-    });
-    const res = await orClient.chat.completions.create({
-      model: 'anthropic/claude-sonnet-4.6', messages, temperature: 0.8, max_tokens: maxTokens,
-    });
-    return res.choices[0]?.message?.content?.trim() ?? '';
   }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 120000 });
+  const res = await client.chat.completions.create({
+    model: 'gpt-4o', messages, temperature: 0.8, max_tokens: maxTokens,
+  });
+  return res.choices[0]?.message?.content?.trim() ?? '';
 }
 
 function parseJson<T>(raw: string, fallback: T): T {

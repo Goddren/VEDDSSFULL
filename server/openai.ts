@@ -345,8 +345,15 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
   'qwen/qwen3-32b': 'qwen/qwen3.6-27b',
 };
 
+// Default model when a user hasn't explicitly picked one in AI API Keys settings.
+// OpenRouter's free DeepSeek tier — cheapest/free option — so every engine
+// (SS AI, options/futures/crypto/SOL scanners, ABBA, brain, content gen) routes
+// there by default instead of silently defaulting to paid OpenAI/Groq usage.
+// An explicit per-user selection (via userModelPreferences.set) always wins.
+const DEFAULT_AI_MODEL = 'deepseek/deepseek-chat-v3-0324:free';
+
 export function getUserModelPreference(userId: number): string {
-  const pref = userModelPreferences.get(userId) || 'gpt-4o';
+  const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
   if (DEPRECATED_MODEL_MAP[pref]) {
     const updated = DEPRECATED_MODEL_MAP[pref];
     userModelPreferences.set(userId, updated);
@@ -2484,7 +2491,9 @@ function buildOpenAICompatClient(provider: string, apiKey: string): UniversalAIC
 }
 
 // Provider selection priority
-const PROVIDER_PRIORITY = ['openai', 'groq', 'anthropic', 'google', 'mistral', 'openrouter'];
+// OpenRouter first — it's the cheapest/free option, so it's the app-wide
+// default failover order unless a user has explicitly picked another provider.
+const PROVIDER_PRIORITY = ['openrouter', 'openai', 'groq', 'anthropic', 'google', 'mistral'];
 
 // Is an AI error worth failing over to another provider? (429 rate-limit/quota, 5xx, transient)
 function isFailoverError(e: any): boolean {
@@ -2589,14 +2598,24 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
 
+    // "Has a key" needs to account for platform-wide fallback keys (groq and
+    // openrouter both fall back to a platform env var when the user hasn't
+    // saved their own), not just per-user rows — otherwise a user with no
+    // personal OpenRouter key would never get it prioritized even though
+    // it's the default preference and a platform key is configured.
+    const hasProviderKey = (p: string) =>
+      !!keyFor(p) ||
+      (p === 'groq' && !!process.env.GROQ_API_KEY) ||
+      (p === 'openrouter' && !!process.env.OPENROUTER_API_KEY);
+
     // Build an ORDERED provider list: the chosen provider first, then the rest as
     // automatic failover. If the primary 429s / rate-limits / errors, the wrapper
     // transparently retries the next provider so features keep working.
     const order: string[] = [];
     if (aiCostMode === 'economy') {
-      if (selProvider !== 'groq' && keyFor(selProvider)) order.push(selProvider);
+      if (selProvider !== 'groq' && hasProviderKey(selProvider)) order.push(selProvider);
       order.push('groq'); // free tier as the economy default / failover
-    } else if (keyFor(selProvider)) {
+    } else if (hasProviderKey(selProvider)) {
       order.push(selProvider);
     }
     for (const p of PROVIDER_PRIORITY) if (!order.includes(p)) order.push(p);
@@ -2607,6 +2626,11 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
         if (provider === 'groq') {
           const c = await buildGroqEconomyClient(keyFor('groq')); // uses platform key if user has none
           if (c) clients.push(c);
+          continue;
+        }
+        if (provider === 'openrouter') {
+          const apiKey = keyFor('openrouter') || process.env.OPENROUTER_API_KEY;
+          if (apiKey) clients.push(buildOpenAICompatClient('openrouter', apiKey));
           continue;
         }
         const apiKey = keyFor(provider);
