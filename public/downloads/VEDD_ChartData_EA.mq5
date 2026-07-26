@@ -2729,21 +2729,41 @@ string BuildAccountJson()
    if(margin > 0)
       marginLevel = (equity / margin) * 100;
    
-   // Calculate daily P&L (compare with starting balance if we tracked it)
-   static double dayStartBalance = 0;
-   static datetime lastDayChecked = 0;
-   
-   MqlDateTime currentTime;
-   TimeToStruct(TimeCurrent(), currentTime);
-   datetime currentDayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00", currentTime.year, currentTime.mon, currentTime.day));
-   
-   // Reset daily tracking at the start of a new day
-   if(currentDayStart != lastDayChecked)
+   // Calculate daily P&L (compare with the day-start balance snapshot).
+   //
+   // The day-start baseline MUST survive EA/terminal restarts, otherwise a
+   // restart mid-day would recompute the baseline to the current balance and
+   // zero out accumulated intraday loss — which would silently defeat the
+   // server's Gate 0c daily-loss protection. We therefore persist it in a
+   // terminal GlobalVariable keyed by account + UTC day. GlobalVariables
+   // survive terminal restarts (they are flushed to disk).
+   //
+   // Use UTC (TimeGMT) for the day boundary so the reset lines up with the
+   // server's UTC daily counters (server/routes.ts uses UTC date strings for
+   // the daily trade caps). Broker TimeCurrent() would roll over at the
+   // broker's local midnight and drift from the server's day window.
+   MqlDateTime utcTime;
+   TimeToStruct(TimeGMT(), utcTime);
+   string dayKey = StringFormat("VEDD_DayStartBal_%I64d_%04d%02d%02d",
+                                accountNumber, utcTime.year, utcTime.mon, utcTime.day);
+
+   double dayStartBalance;
+   if(GlobalVariableCheck(dayKey))
    {
-      dayStartBalance = balance - profit; // Approximate starting balance
-      lastDayChecked = currentDayStart;
+      // Baseline already recorded for this account+day — reuse it as-is so it
+      // survives restarts and keeps accumulating intraday loss correctly.
+      dayStartBalance = GlobalVariableGet(dayKey);
    }
-   
+   else
+   {
+      // First observation of this UTC day: snapshot the realized balance at
+      // the boundary. Do NOT subtract floating ACCOUNT_PROFIT here — using
+      // (balance - profit) skews the baseline whenever positions are open at
+      // the day boundary. ACCOUNT_BALANCE is the realized-equity snapshot.
+      dayStartBalance = balance;
+      GlobalVariableSet(dayKey, dayStartBalance);
+   }
+
    double dailyPnL = balance - dayStartBalance;
    double dailyPnLPercent = 0;
    if(dayStartBalance > 0)
