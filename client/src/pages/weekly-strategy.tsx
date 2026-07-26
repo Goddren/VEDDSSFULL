@@ -110,10 +110,13 @@ const ORB_PHASE_CFG: Record<ORBPairPhase, { label: string; color: string }> = {
 };
 
 function getORBClockPhase(): ORBPairPhase {
-  const now = new Date();
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const est = new Date(utc + -5 * 3600000);
-  const h = est.getHours(); const m = est.getMinutes();
+  // Use the real America/New_York clock — a hardcoded UTC-5 offset made every
+  // ORB session window run an hour early from March to November (EDT is UTC-4).
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false,
+  }).formatToParts(new Date());
+  const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10) % 24;
+  const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
   if (h < 9 || (h === 9 && m < 30)) return "PRE_MARKET";
   if (h === 9 && m < 45) return "BUILDING";
   if (h < 14) return "RANGE_SET";

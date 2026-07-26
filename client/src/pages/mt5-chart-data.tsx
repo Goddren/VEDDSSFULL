@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Activity,
   AlertCircle,
+  AlertTriangle,
   RefreshCw,
   Copy,
   Download,
@@ -2481,10 +2482,24 @@ export default function MT5ChartDataPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {/* When the EA feed is stale (>10min silent) the numbers below are
+                        the last-known snapshot, NOT live — say so plainly so a frozen
+                        balance can't be misread as current. */}
+                    {!acct.connected && (
+                      <div className="flex items-center gap-2 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                        <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                        <p className="text-xs text-amber-300">
+                          Feed paused — showing last-known values from {acct.secondsAgo !== undefined ? (acct.secondsAgo < 3600 ? `${Math.floor(acct.secondsAgo / 60)}m` : `${Math.floor(acct.secondsAgo / 3600)}h`) : 'a while'} ago. Restart your EA to resume live updates.
+                        </p>
+                      </div>
+                    )}
                     <div className={`grid grid-cols-2 ${allAccounts.length <= 1 ? 'md:grid-cols-4' : ''} gap-3`}>
                       <div className="p-3 bg-gray-900/50 rounded-lg border border-gray-700">
-                        <p className="text-gray-400 text-xs">Balance</p>
-                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold text-white`}>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-gray-400 text-xs">Balance</p>
+                          {!acct.connected && <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1 rounded uppercase tracking-wide">Last known</span>}
+                        </div>
+                        <p className={`${allAccounts.length > 1 ? 'text-lg' : 'text-2xl'} font-bold ${acct.connected ? 'text-white' : 'text-gray-400'}`}>
                           {acct.currency} {acct.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                       </div>

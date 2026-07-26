@@ -518,7 +518,7 @@ export async function analyzeToken(token: SolanaToken, options: AnalyzeTokenOpti
       // OpenRouter (free-tier DeepSeek) first — cheapest option, app-wide default.
       if (process.env.OPENROUTER_API_KEY) {
         openaiClient = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
-        fallbackModel = 'deepseek/deepseek-chat-v3-0324:free';
+        fallbackModel = 'openai/gpt-oss-20b:free';
       } else if (process.env.OPENAI_API_KEY) {
         openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       } else {

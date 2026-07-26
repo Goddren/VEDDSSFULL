@@ -152,6 +152,84 @@ const PAIR_SESSION_WINDOWS: Record<string, Array<[number, number]>> = {
   ETHUSD:  [[7, 22]],
 };
 
+// global.mt5AccountData[userId] is stored KEYED BY BROKER (`accountNumber_broker`
+// → { ...account, lastUpdated, broker }), NOT as a flat { balance, timestamp }
+// object. Several endpoints read it flat and always got 0/OFFLINE. This helper
+// resolves the freshest broker entry (also handling the legacy flat shape) so
+// every reader shows the real balance.
+function getFreshestMt5Account(userId: number): {
+  balance: number; equity: number; dailyPnL: number; profit: number;
+  lastUpdated: Date | null; broker: string; connected: boolean;
+  currency: string; accountNumber: number | null; openPositions: number;
+} | null {
+  const userAccounts = (global as any).mt5AccountData?.[userId];
+  if (!userAccounts) return null;
+  const now = Date.now();
+  const build = (a: any) => {
+    const lastUpdated = a.lastUpdated ? new Date(a.lastUpdated) : null;
+    const secondsAgo = lastUpdated ? Math.floor((now - lastUpdated.getTime()) / 1000) : Infinity;
+    return {
+      balance: a.balance || 0,
+      equity: a.equity || 0,
+      dailyPnL: a.dailyPnL || 0,
+      profit: a.profit || 0,
+      lastUpdated,
+      broker: a.broker || 'Unknown',
+      connected: secondsAgo < 600,
+      currency: a.currency || 'USD',
+      accountNumber: a.accountNumber ?? null,
+      openPositions: a.openPositions || 0,
+    };
+  };
+  // Legacy flat single-account shape
+  if (userAccounts.lastUpdated && typeof userAccounts.lastUpdated === 'string') {
+    return build(userAccounts);
+  }
+  // Broker-keyed shape — pick the freshest entry not older than 2h
+  let best: ReturnType<typeof build> | null = null;
+  for (const acctData of Object.values(userAccounts)) {
+    const a: any = acctData;
+    if (!a?.lastUpdated) continue;
+    const candidate = build(a);
+    if (candidate.lastUpdated && now - candidate.lastUpdated.getTime() > 7200 * 1000) continue;
+    if (!best || (candidate.lastUpdated && best.lastUpdated && candidate.lastUpdated > best.lastUpdated)) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+// Monday-start week boundary (UTC midnight). The inline `- getDay() + 1`
+// pattern returned TOMORROW on Sundays (getDay()===0 → date+1), making weekly
+// P&L exclude the entire current week every Sunday.
+function mondayWeekStartUTC(): Date {
+  const d = new Date();
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = day === 0 ? 6 : day - 1; // days since Monday
+  d.setDate(d.getDate() - diff);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+// Sum of MT5 balances across brokers seen within maxAgeMs (default 15min). Used
+// for AI prompt context — an account that's been silent for hours shouldn't be
+// presented to the AI as a live balance.
+function sumFreshMt5Balances(userId: number, maxAgeMs = 900_000): number {
+  const userAccounts = (global as any).mt5AccountData?.[userId];
+  if (!userAccounts) return 0;
+  const now = Date.now();
+  const entries = (userAccounts.lastUpdated && typeof userAccounts.lastUpdated === 'string')
+    ? [userAccounts]
+    : Object.values(userAccounts);
+  let sum = 0;
+  for (const a of entries as any[]) {
+    if (!a?.lastUpdated) continue;
+    if (now - new Date(a.lastUpdated).getTime() > maxAgeMs) continue;
+    sum += a.balance || 0;
+  }
+  return sum;
+}
+
 function isInTradingSession(symbol: string, hourUTC: number): boolean {
   // Normalize: strip broker suffixes (.raw, .c, .pro, .m, #, .i, etc.) and slashes
   const raw = symbol.toUpperCase().replace('/', '').replace(/[#.]/g, '').replace(/(RAW|PRO|C|M|I|SB|ECN|MT5)$/, '');
@@ -3949,7 +4027,7 @@ Respond ONLY in valid JSON format with these exact keys:
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
 
       // Account balance — MT5 (EA push cache) + TradeLocker (background sync cache)
-      const _mt5Bal: number = accountCache ? (Object.values(accountCache) as any[]).reduce((sum: number, a: any) => sum + (a?.balance || 0), 0) : 0;
+      const _mt5Bal: number = sumFreshMt5Balances(userId);
       const _tlCacheAbba = (global as any).tlAccountData?.[userId] || {};
       const _tlBalAbba: number = Object.values(_tlCacheAbba).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
       const balance = (_mt5Bal + _tlBalAbba) || strategy?.accountBalance || 0;
@@ -4552,7 +4630,7 @@ Keep follow-ups SHORT and conversational. One question max. Make it feel like yo
       const dailyTarget = weekTarget > 0 ? Math.round((weekTarget / 5) * 100) / 100 : 0;
       const targetRemaining = Math.max(0, Math.round((weekTarget - weekProfit) * 100) / 100);
       const pacingNeededPerDay = tradingDaysLeft > 0 ? Math.round((targetRemaining / tradingDaysLeft) * 100) / 100 : 0;
-      const _mt5BalS: number = accountCache ? (Object.values(accountCache) as any[]).reduce((s: number, a: any) => s + (a?.balance || 0), 0) : 0;
+      const _mt5BalS: number = sumFreshMt5Balances(userId);
       const _tlCacheS = (global as any).tlAccountData?.[userId] || {};
       const _tlBalS = Object.values(_tlCacheS).reduce((s: number, a: any) => s + (a?.balance || 0), 0);
       const balance = (_mt5BalS + _tlBalS) || strategy?.accountBalance || 0;
@@ -8239,12 +8317,30 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         };
       }
       
-      // Store open positions for reversal detection and trade sync
+      // Store open positions for reversal detection and trade sync.
+      // Kept per-broker then merged — a userId-only bucket meant two brokers'
+      // EAs overwrote each other wholesale, so Gate 0 exposure / floating P&L
+      // flip-flopped to whichever broker posted last.
       const { openPositions } = req.body;
       if (openPositions && Array.isArray(openPositions)) {
+        const posBrokerKey = (broker || 'Unknown').replace(/[^A-Za-z0-9]/g, '');
+        (global as any).mt5OpenPositionsByBroker = (global as any).mt5OpenPositionsByBroker || {};
+        (global as any).mt5OpenPositionsByBroker[token.userId] = (global as any).mt5OpenPositionsByBroker[token.userId] || {};
+        (global as any).mt5OpenPositionsByBroker[token.userId][posBrokerKey] = {
+          positions: openPositions,
+          lastUpdated: new Date().toISOString(),
+          broker: broker || 'Unknown',
+        };
+        // Rebuild the merged view all existing consumers read (drop brokers silent >10min)
+        const mergedPositions: any[] = [];
+        const nowMs = Date.now();
+        for (const entry of Object.values((global as any).mt5OpenPositionsByBroker[token.userId]) as any[]) {
+          if (nowMs - new Date(entry.lastUpdated).getTime() > 600_000) continue;
+          mergedPositions.push(...entry.positions);
+        }
         (global as any).mt5OpenPositions = (global as any).mt5OpenPositions || {};
         (global as any).mt5OpenPositions[token.userId] = {
-          positions: openPositions,
+          positions: mergedPositions,
           lastUpdated: new Date().toISOString(),
           broker: broker || 'Unknown',
         };
@@ -8290,8 +8386,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         // Merge incoming trades into existing cache by ticket — never overwrite/lose older trades
         const existing: any[] = (global as any).mt5ClosedTrades[token.userId]?.trades || [];
         const existingTickets = new Set(existing.map((t: any) => t.ticket?.toString()).filter(Boolean));
+        // Require a ticket AND uniqueness. A ticketless trade can't be deduplicated
+        // or written to the DB, and the old `!t.ticket` branch re-appended it on
+        // EVERY post — inflating the in-memory learning cache without bound.
         const newTrades = closedTrades.filter((t: any) =>
-          !t.ticket || !existingTickets.has(t.ticket.toString())
+          t.ticket && !existingTickets.has(t.ticket.toString())
         );
         const merged = [...existing, ...newTrades];
         // Keep last 500 trades max to prevent unbounded memory growth
@@ -10423,16 +10522,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                                            (typeof aiConfirmation.adjustedTakeProfit === 'number' && !isNaN(aiConfirmation.adjustedTakeProfit));
               if (hasAiSLTPAdjustment) {
                 try {
-                  const tlConnForModify = await storage.getUserTradelockerConnection(token.userId);
-                  if (tlConnForModify && tlConnForModify.isActive) {
-                    const tlSvc = new TradeLockerService(
-                      tlConnForModify.accountType as 'demo' | 'live',
-                      tlConnForModify.accountId,
-                      tlConnForModify.serverId,
-                      tlConnForModify.accNum?.toString()
-                    );
-                    const openPositions = await tlSvc.getPositions();
-                    const normalizeForMatch = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace('XAUUSD', 'GOLD').replace('GOLD', 'XAUUSD_OR_GOLD');
+                  // Must use getOrCreateService (authenticated, token-cached) — a raw
+                  // `new TradeLockerService(...)` has no tokens and every call throws.
+                  // Iterate ALL active connections so multi-account users get their
+                  // position modified on whichever account actually holds it.
+                  const tlConnsForModify = (await storage.getUserTradelockerConnections(token.userId)).filter(c => c.isActive);
+                  for (const tlConnForModify of tlConnsForModify) {
+                    const tlSvc = await tlGetOrCreateService(tlConnForModify);
+                    // getPositionsNormalized handles TradeLocker's column-array response
+                    // shape — raw getPositions() rows have no .symbol/.id fields.
+                    const openPositions = await tlSvc.getPositionsNormalized();
                     const matchPos = openPositions.find((p: any) => {
                       const ps = (p.symbol || p.instrument || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
                       const ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -10441,7 +10540,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                         ((ts === 'GOLD' || ts.includes('GOLD')) && ps === 'XAUUSD');
                     });
                     if (matchPos) {
-                      const posId = matchPos.id || matchPos.positionId || matchPos.position_id;
+                      const posId = (matchPos as any).id || (matchPos as any).positionId || (matchPos as any).position_id;
                       const modResult = await tlSvc.modifyPosition(
                         posId?.toString(),
                         typeof aiConfirmation.adjustedStopLoss === 'number' ? aiConfirmation.adjustedStopLoss : undefined,
@@ -10450,7 +10549,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                       if (modResult.success) {
                         ictAutoModified = true;
                         analysis.alerts.push(`AI AUTO-MODIFIED position on ${sanitizedSymbol}: SL→${aiConfirmation.adjustedStopLoss ?? 'unchanged'} TP→${aiConfirmation.adjustedTakeProfit ?? 'unchanged'}`);
-                        console.log(`[AI Auto-Modify] SUCCESS: ${sanitizedSymbol} position ${posId} SL/TP updated by AI confirmation`);
+                        console.log(`[AI Auto-Modify] SUCCESS: ${sanitizedSymbol} position ${posId} SL/TP updated by AI confirmation (conn ${tlConnForModify.id})`);
                         await storage.createTradelockerTradeLog({
                           connectionId: tlConnForModify.id,
                           userId: token.userId,
@@ -10470,9 +10569,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                         console.log(`[AI Auto-Modify] FAILED for ${sanitizedSymbol}: ${modResult.error}`);
                         analysis.alerts.push(`AI Auto-Modify failed: ${modResult.error}`);
                       }
-                    } else {
-                      console.log(`[AI Auto-Modify] No open TradeLocker position found for ${sanitizedSymbol} — skipping modify`);
+                      break; // position found and handled — stop scanning other accounts
                     }
+                  }
+                  if (!ictAutoModified) {
+                    console.log(`[AI Auto-Modify] No open TradeLocker position found for ${sanitizedSymbol} across ${tlConnsForModify.length} account(s) — skipping modify`);
                   }
                 } catch (modifyErr) {
                   console.error('[AI Auto-Modify] Error:', modifyErr);
@@ -12272,8 +12373,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       .sort((a: any, b: any) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
 
     // Get current MT5 account balance as the anchor point
-    const mt5Data = (global as any).mt5AccountData?.[userId] || (global as any).mt5OpenPositions?.[userId];
-    const currentBalance: number = mt5Data?.balance || mt5Data?.accountBalance || 0;
+    const currentBalance: number = getFreshestMt5Account(userId)?.balance || 0;
 
     // Build the history points — work forward from (currentBalance - totalPnL) as start
     const allPoints = [
@@ -13263,7 +13363,7 @@ Respond with ONLY valid JSON:
       if (!dbStrat) {
         // No active strategy — still compute live profit so dashboard isn't dead
         const dbTradesFallback = await storage.getAiTradeResults(userId, 500);
-        const weekStartFallback = new Date(); weekStartFallback.setDate(weekStartFallback.getDate() - weekStartFallback.getDay() + 1); weekStartFallback.setUTCHours(0,0,0,0);
+        const weekStartFallback = mondayWeekStartUTC();
         const todayStartFallback = new Date(); todayStartFallback.setUTCHours(0,0,0,0);
         const weekTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= weekStartFallback && t.result !== 'PENDING'; });
         const todayTradesFallback = dbTradesFallback.filter((t: any) => { const d = new Date(t.closedAt || t.createdAt); return d >= todayStartFallback && t.result !== 'PENDING'; });
@@ -13652,7 +13752,7 @@ Respond with ONLY valid JSON:
     }
 
     // ── Gather week trades ─────────────────────────────────────────────
-    const weekStart = new Date(strategy.weekStart || (() => { const d = new Date(); d.setDate(d.getDate() - d.getDay() + 1); d.setUTCHours(0,0,0,0); return d; })());
+    const weekStart = new Date(strategy.weekStart || mondayWeekStartUTC());
     const dbTrades = await storage.getAiTradeResults(userId, 500);
     const dbWeekTrades = dbTrades.filter((t: any) => {
       const d = new Date(t.closedAt || t.createdAt);
@@ -17646,9 +17746,7 @@ Respond with ONLY valid JSON:
       const aiPathControl = (global as any).veddAiPathControl?.[userId];
 
       // Gather week trades
-      const weekStart = new Date();
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
-      weekStart.setUTCHours(0, 0, 0, 0);
+      const weekStart = mondayWeekStartUTC();
 
       const dbTrades = await storage.getAiTradeResults(userId, 500);
       const weekDbTrades = dbTrades.filter((t: any) => {
@@ -19456,10 +19554,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     // ── MT5 ──────────────────────────────────────────────────────────────────
     let mt5: any = null;
     try {
-      const cached = (global as any).mt5AccountData?.[userId];
-      const isOnline = cached && (Date.now() - new Date(cached.timestamp || 0).getTime()) < 600_000;
-      const bal = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
-      const eq  = cached?.equity  ?? cached?.accounts?.[0]?.equity  ?? bal;
+      const mt5Acct = getFreshestMt5Account(userId);
+      const isOnline = !!mt5Acct?.connected;
+      const bal = mt5Acct?.balance ?? 0;
+      const eq  = mt5Acct?.equity  ?? bal;
 
       // daily + weekly P&L from ai_trade_results (MT5/manual sources)
       const mt5Results = _allClosed.filter((t: any) => !_tlSources.has(t.source || 'manual'));
@@ -19617,9 +19715,12 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           svc.getAccountInfo().catch((e: any) => ({ error: e.message })),
           svc.getPositions().catch(() => []),
         ]);
-        const balance = (balData as any)?.balance ?? 0;
-        const equity = (balData as any)?.equity ?? balance;
         const accountError = (balData as any)?.error ?? null;
+        // On a transient fetch/auth failure fall back to the persisted last-known
+        // balance (schema stores lastBalance/lastEquity for exactly this) instead
+        // of rendering $0 with an error.
+        const balance = (balData as any)?.balance ?? (accountError ? ((conn as any).lastBalance ?? 0) : 0);
+        const equity = (balData as any)?.equity ?? (accountError ? ((conn as any).lastEquity ?? balance) : balance);
 
         const closed = await storage.getAiTradeResults(userId, 500, connId).then((rows: any[]) =>
           rows.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt)
@@ -19657,10 +19758,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       }
 
       if (type === 'mt5') {
-        const cached = (global as any).mt5AccountData?.[userId];
-        const isOnline = cached && (Date.now() - new Date(cached.timestamp || 0).getTime()) < 600_000;
-        const balance = cached?.balance ?? cached?.accounts?.[0]?.balance ?? 0;
-        const equity = cached?.equity ?? cached?.accounts?.[0]?.equity ?? balance;
+        const mt5Acct = getFreshestMt5Account(userId);
+        const isOnline = !!mt5Acct?.connected;
+        const balance = mt5Acct?.balance ?? 0;
+        const equity = mt5Acct?.equity ?? balance;
 
         const closed = await storage.getAiTradeResults(userId, 500).then((rows: any[]) =>
           rows.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt && !['tradelocker', 'kalshi', 'polymarket', 'solana'].includes(t.source || 'manual'))
@@ -19676,8 +19777,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
 
         return res.json({
           type: 'mt5', id: 'mt5',
-          name: cached?.broker || 'MT5', accountType: 'live', accountId: cached?.accountNumber ?? null,
-          connected: !!isOnline, balance, equity, currency: cached?.currency ?? 'USD',
+          name: mt5Acct?.broker || 'MT5', accountType: 'live', accountId: mt5Acct?.accountNumber ?? null,
+          connected: !!isOnline, balance, equity, currency: mt5Acct?.currency ?? 'USD',
+          // Surface an explicit error when no live data — otherwise the client
+          // renders "$0.00" as if it were a real balance with no reconnect prompt.
+          error: mt5Acct ? null : 'No MT5 account data — make sure the VEDD Chart Data EA is running',
           goal: {
             target: strategy?.profitTarget ?? 0,
             progress: strategy?.profitTarget ? Math.min(100, Math.round((weeklyPnl / strategy.profitTarget) * 100)) : 0,
@@ -19687,7 +19791,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           pnl: { daily: dailyPnl, weekly: weeklyPnl, allTime: allTimePnl, winRate, totalTrades: closed.length },
           dailyBreakdown: { wins: dailyWins, losses: dailyLosses, winAmount: dailyWinAmount, lossAmount: dailyLossAmount },
           equityCurve,
-          openTrades: cached?.openPositions?.length ?? 0,
+          openTrades: mt5Acct?.openPositions ?? 0,
           tradeHistory: closed.slice(0, 50).map((t: any) => ({
             id: t.id, symbol: t.symbol, direction: t.direction, result: t.result,
             profitLoss: t.profitLoss, actualPips: t.actualPips, closedAt: t.closedAt,

@@ -62,7 +62,10 @@ const instrumentCache = new Map<string, { tradableInstrumentId: number; routeId:
 // per symbol and trip the broker's rate limit (429).
 const instrumentsListCache = new Map<string, { instruments: any[]; cachedAt: number }>();
 
-const serviceCache = new Map<number, { service: TradeLockerService; createdAt: number }>();
+// Keyed by connection id, or a composite account key for connections that
+// don't have a DB row yet — `id || 0` collided all pending connections onto
+// one cache slot, handing account B the authenticated service for account A.
+const serviceCache = new Map<number | string, { service: TradeLockerService; createdAt: number }>();
 const SERVICE_CACHE_TTL = 50 * 60 * 1000;
 
 const RETRY_DELAYS = [1000, 2000];
@@ -1160,7 +1163,13 @@ export class TradeLockerService {
         throw new Error(`Position close failed: ${response.status} - ${errorText}`);
       }
 
+      // TradeLocker returns HTTP 200 with { s: 'error', errmsg } for logical
+      // rejections — same as placeOrder, a body check is required or a
+      // broker-rejected close gets reported back as a successful close.
       const data = await response.json();
+      if (data.s && data.s !== 'ok') {
+        throw new Error(`Position close rejected by broker: ${data.errmsg || JSON.stringify(data)}`);
+      }
       return {
         orderId: data.orderId || positionId,
         status: 'closed',
@@ -1236,7 +1245,8 @@ export class TradeLockerService {
             positionId: iPosId >= 0 ? String(row[iPosId]) : '',
           };
         })
-        .filter((o: any) => o.status === 'Filled')
+        // Case-insensitive: white-label brokers report 'filled'/'FILLED'/'Executed'
+        .filter((o: any) => /^(filled|executed)$/i.test(o.status))
         .filter((o: any) => {
           if (!fromTs || !o.closeTime) return true;
           return new Date(o.closeTime).getTime() >= fromTs * 1000;
@@ -1487,7 +1497,8 @@ type TLConnection = {
 };
 
 export async function getOrCreateService(connection: TLConnection): Promise<TradeLockerService> {
-  const connId = connection.id || 0;
+  const connId: number | string = connection.id
+    || `pending_${connection.accountType}_${connection.accountId}_${connection.accNum || ''}`;
   const cached = serviceCache.get(connId);
   if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log('[TradeLocker] Reusing cached service for connection', connId);
@@ -1501,7 +1512,7 @@ export async function getOrCreateService(connection: TLConnection): Promise<Trad
     connection.accNum || undefined
   );
 
-  if (connId) {
+  if (typeof connId === 'number') {
     service.onAccountIdCorrected = (accountId) => {
       persistAccountIdCorrection(connId, accountId).catch(() => {});
     };

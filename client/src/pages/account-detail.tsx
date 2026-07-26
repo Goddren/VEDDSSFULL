@@ -199,34 +199,52 @@ export default function AccountDetailPage() {
         </div>
       </div>
 
-      {/* Cumulative P&L line chart */}
-      <div className="rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5">
-        <p className="text-sm font-bold text-white flex items-center gap-2 mb-3"><BarChart3 className="w-4 h-4 text-indigo-400" /> P&amp;L Over Time</p>
-        {data.equityCurve.length < 2 ? (
-          <p className="text-xs text-gray-500 text-center py-10">Not enough closed trades yet to chart a trend.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={data.equityCurve} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="pnlCurveGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="date" tickFormatter={d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} tick={{ fill: '#6b7280', fontSize: 10 }} />
-              <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `$${v}`} width={50} />
-              <Tooltip
-                contentStyle={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ color: '#9ca3af' }}
-                labelFormatter={d => new Date(d).toLocaleString()}
-                formatter={(val: number) => [fmtMoney(val), 'Cumulative P&L']}
-              />
-              <Area type="monotone" dataKey="cumulativePnl" stroke="#6366f1" strokeWidth={2} fill="url(#pnlCurveGrad)" dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+      {/* Balance/P&L chart — anchored to the real account balance when known,
+          so the curve reads as the account's actual balance over time instead
+          of a cumulative-P&L line starting at $0. */}
+      {(() => {
+        const hasBalance = !data.error && data.balance > 0;
+        const chartData = hasBalance
+          ? data.equityCurve.map(pt => ({
+              ...pt,
+              // balance at that point = current balance minus P&L still to come after it
+              balanceAt: Math.round((data.balance - (data.pnl.allTime - pt.cumulativePnl)) * 100) / 100,
+            }))
+          : data.equityCurve;
+        const dataKey = hasBalance ? 'balanceAt' : 'cumulativePnl';
+        const label = hasBalance ? 'Balance' : 'Cumulative P&L';
+        return (
+          <div className="rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5">
+            <p className="text-sm font-bold text-white flex items-center gap-2 mb-3">
+              <BarChart3 className="w-4 h-4 text-indigo-400" /> {hasBalance ? 'Balance Over Time' : 'P&L Over Time'}
+            </p>
+            {data.equityCurve.length < 2 ? (
+              <p className="text-xs text-gray-500 text-center py-10">Not enough closed trades yet to chart a trend.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="pnlCurveGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="date" tickFormatter={d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} tick={{ fill: '#6b7280', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={v => `$${v.toLocaleString('en-US')}`} width={60} domain={hasBalance ? ['auto', 'auto'] : undefined} />
+                  <Tooltip
+                    contentStyle={{ background: '#111827', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: '#9ca3af' }}
+                    labelFormatter={d => new Date(d).toLocaleString()}
+                    formatter={(val: number) => [hasBalance ? `$${val.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : fmtMoney(val), label]}
+                  />
+                  <Area type="monotone" dataKey={dataKey} stroke="#6366f1" strokeWidth={2} fill="url(#pnlCurveGrad)" dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Trade history */}
       <div className="rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5">

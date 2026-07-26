@@ -422,11 +422,15 @@ const Dashboard: React.FC = () => {
   
   const [quickStatsUpdatedAt, setQuickStatsUpdatedAt] = useState<Date>(new Date());
 
-  const { data: analyses = [], isLoading, isError } = useQuery<Analysis[]>({
+  const { data: analyses = [], isLoading, isError, dataUpdatedAt: analysesUpdatedAt } = useQuery<Analysis[]>({
     queryKey: ['/api/analyses'],
     refetchInterval: 90000,   // refresh quick stats every 90s
-    onSuccess: () => setQuickStatsUpdatedAt(new Date()),
   });
+  // React Query v5 removed useQuery onSuccess — the old callback never fired,
+  // freezing the "Updated HH:MM" label at page-load time. dataUpdatedAt works.
+  useEffect(() => {
+    if (analysesUpdatedAt) setQuickStatsUpdatedAt(new Date(analysesUpdatedAt));
+  }, [analysesUpdatedAt]);
 
   // All-time record (best daily PnL) — only updates when new value exceeds stored
   const { data: allTimeRecord } = useQuery<{ value: number | null; achievedAt: string | null }>({
@@ -804,15 +808,6 @@ const Dashboard: React.FC = () => {
     staleTime: 0,
   });
 
-  // TradeLocker recent trade results
-  const { data: tlTrades } = useQuery<any[]>({
-    queryKey: ['/api/tradelocker/trades'],
-    enabled: !!user,
-    refetchInterval: 15000,
-    staleTime: 0,
-    select: (data) => (Array.isArray(data) ? data.slice(0, 20) : []),
-  });
-
   // Platform Monitors — per-platform balance + daily + weekly P&L
   const { data: platformMonitors } = useQuery<{
     mt5: { balance: number; equity: number; dailyPnl: number; weeklyPnl: number; isOnline: boolean } | null;
@@ -969,13 +964,14 @@ const Dashboard: React.FC = () => {
   const mt5LiveAcct   = mt5AccountData?.accounts?.[0];
   const mt5Balance    = mt5LiveAcct?.connected ? (mt5LiveAcct.balance ?? 0) : (platformMonitors?.mt5?.balance ?? 0);
   const tlLiveAccts   = platformMonitors?.tradelocker ?? [];
-  // Combined balance across ALL connected brokers — previously this was
-  // MT5-only, so a TradeLocker-only trader saw $0 on the main balance tile.
-  const tlBalanceSum  = Array.isArray(tlLiveAccts)
-    ? tlLiveAccts.reduce((s: number, a: any) => s + (a?.balance ?? 0), 0)
+  // Daily P&L must combine ALL connected brokers — using only the MT5 figure
+  // when MT5 is connected silently dropped TradeLocker's daily P&L.
+  const tlDailyPnlSum = Array.isArray(tlLiveAccts)
+    ? tlLiveAccts.reduce((s: number, a: any) => s + (a?.dailyPnl ?? 0), 0)
     : 0;
-  const liveBalance   = mt5Balance + tlBalanceSum;
-  const liveDailyPnl  = mt5LiveAcct?.connected ? (mt5LiveAcct.dailyPnL ?? mt5LiveAcct.profit ?? 0) : (todayClosedProfit + unrealizedPnL);
+  const liveDailyPnl  = mt5LiveAcct?.connected
+    ? (mt5LiveAcct.dailyPnL ?? mt5LiveAcct.profit ?? 0) + tlDailyPnlSum
+    : (todayClosedProfit + unrealizedPnL);
   const liveWeeklyPnl = platformMonitors?.mt5?.weeklyPnl ?? weekClosedProfit;
   const weekGoalPct   = Math.min(100, weekProgressPct);
   const dayGoalPct    = Math.min(100, dayProgressPct);
@@ -1111,7 +1107,7 @@ const Dashboard: React.FC = () => {
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-[9px] font-bold text-indigo-300 uppercase tracking-wider">MT5 Live</span>
                 </div>
-                <p className="text-base font-black text-white leading-none">{mt5LiveAcct.currency ?? 'USD'} {liveBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-base font-black text-white leading-none">{mt5LiveAcct.currency ?? 'USD'} {mt5Balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 {mt5LiveAcct.equity !== mt5LiveAcct.balance && <p className="text-[10px] text-gray-500 mt-0.5">Equity {(mt5LiveAcct.equity ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>}
               </Link>
             )}
@@ -1232,7 +1228,7 @@ const Dashboard: React.FC = () => {
                   strokeWidth="5" strokeLinecap="round"
                   strokeDasharray={`${Math.min(100, Math.abs(dayGoalPct)) / 100 * 144.5} 144.5`}
                   transform="rotate(-90 28 28)" />
-                <text x="28" y="32" textAnchor="middle" fill={liveDailyPnl >= 0 ? '#10b981' : '#ef4444'} fontSize="9" fontWeight="700">{liveDailyPnl >= 0 ? '+' : ''}{liveDailyPnl.toFixed(1)}</text>
+                <text x="28" y="32" textAnchor="middle" fill={liveDailyPnl >= 0 ? '#10b981' : '#ef4444'} fontSize="9" fontWeight="700">{liveDailyPnl >= 0 ? '+' : ''}{liveDailyPnl.toFixed(2)}</text>
               </svg>
               <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Daily P&L</p>
               <p className="text-[10px] font-semibold" style={{ color: liveDailyPnl >= 0 ? '#10b981' : '#ef4444' }}>
@@ -1720,47 +1716,8 @@ const Dashboard: React.FC = () => {
                   </Link>
                 ))}
 
-                {/* TradeLocker recent trades — shown when TL is connected */}
-                {tlConnectionsAll.length > 0 && (
-                  <div className="smart-card px-3 py-2.5">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-semibold text-purple-300 uppercase tracking-wide">TL Recent Trades</span>
-                      <span className="text-[9px] text-gray-500">{tlTrades?.length ?? 0} records</span>
-                    </div>
-                    {!tlTrades || tlTrades.length === 0 ? (
-                      <p className="text-[10px] text-gray-600 text-center py-1">No trades synced yet — trades appear within 30s of closing</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {tlTrades.slice(0, 8).map((t: any, i: number) => {
-                          const pnl = typeof t.profitLoss === 'number' ? t.profitLoss : parseFloat(t.profitLoss ?? '0');
-                          const dir = (t.action || t.direction || '').toUpperCase();
-                          const isBuy = dir.includes('BUY') || dir.includes('LONG') || dir.includes('buy');
-                          const result = t.result || t.status || '';
-                          const isWin = result === 'WIN' || pnl > 0;
-                          const isLoss = result === 'LOSS' || (pnl < 0 && result !== 'PENDING' && result !== 'open');
-                          const isPending = result === 'PENDING' || result === 'open' || result === 'executed';
-                          return (
-                            <div key={t.id || i} className="flex items-center justify-between text-[10px]">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className={`text-[9px] font-bold px-1 rounded flex-shrink-0 ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{isBuy ? 'B' : 'S'}</span>
-                                <span className="text-gray-300 font-medium truncate">{(t.symbol || 'UNKNOWN').toUpperCase()}</span>
-                                {isPending && <span className="text-[9px] text-amber-400">open</span>}
-                              </div>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                {!isPending && (
-                                  <span className={`font-semibold ${isWin ? 'text-emerald-400' : isLoss ? 'text-red-400' : 'text-gray-400'}`}>
-                                    {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-                                  </span>
-                                )}
-                                <span className="text-gray-600 text-[9px]">{t.closedAt || t.createdAt ? new Date(t.closedAt || t.createdAt).toLocaleDateString('en-US', {month:'numeric',day:'numeric'}) : ''}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
+                {/* TL recent trades rendered once by <TlClosedTrades> lower on the
+                    page — the inline duplicate list that lived here was removed. */}
 
                 {/* Solana */}
                 {platformMonitors.solana && (

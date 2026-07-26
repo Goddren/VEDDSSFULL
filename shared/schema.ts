@@ -16,7 +16,28 @@ export const subscriptionPlans = pgTable("subscription_plans", {
   lsVariantId: text("ls_variant_id"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Monthly cap (in cents) on platform-key AI spend for users on this plan who
+  // haven't added their own AI provider key — once hit, platform-key AI calls
+  // are blocked for the rest of the billing cycle until they add a personal key.
+  aiMonthlyCostCapCents: integer("ai_monthly_cost_cap_cents").notNull().default(50),
 });
+
+// Per-call AI usage ledger — every AI request (any provider/model) logs a row here
+// so platform-key spend can be tracked and capped per user/membership tier.
+export const aiUsageLog = pgTable("ai_usage_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  promptTokens: integer("prompt_tokens").notNull().default(0),
+  completionTokens: integer("completion_tokens").notNull().default(0),
+  costCents: real("cost_cents").notNull().default(0),
+  usedPlatformKey: boolean("used_platform_key").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AiUsageLog = typeof aiUsageLog.$inferSelect;
+export type InsertAiUsageLog = typeof aiUsageLog.$inferInsert;
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),

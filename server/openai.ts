@@ -4,6 +4,7 @@ import fs from "fs";
 import { getStrategyContext, formatStrategyContextForPrompt } from "./services/github-strategy-context";
 type PerformanceStats = Record<string, unknown>;
 import { getLearnedInsights, getWinningStrategyPatterns } from "./services/confirmation-learning";
+import { recordAiUsage, isUnderPlatformKeyCostCap } from "./ai-usage";
 
 // Top-8 industry-proven profitable strategies — injected into 2nd confirmation
 const TOP_PROFITABLE_STRATEGIES = [
@@ -319,10 +320,12 @@ export const AVAILABLE_VISION_MODELS = [
   { id: 'mistral-large-latest', name: 'Mistral Large', description: 'Top-tier reasoning', tier: 'premium', provider: 'mistral' },
   { id: 'mistral-small-latest', name: 'Mistral Small', description: 'Efficient and affordable', tier: 'budget', provider: 'mistral' },
   // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
-  { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3 (FREE)', description: 'Open-source flagship — GPT-4-class reasoning, completely free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
-  { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (FREE)', description: 'Open-source reasoning model — deep chain-of-thought, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
-  { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (FREE)', description: 'Meta open-source 70B — strong all-round, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
-  { id: 'qwen/qwen3-235b-a22b:free', name: 'Qwen3 235B (FREE)', description: 'Alibaba open-source MoE — full-power option, free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  // NOTE: OpenRouter rotates which models are free — verify against
+  // https://openrouter.ai/api/v1/models before adding new entries here.
+  { id: 'openai/gpt-oss-20b:free', name: 'GPT-OSS 20B (FREE)', description: 'OpenAI open-weight model — fast & reliable, completely free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super 120B (FREE)', description: 'NVIDIA large reasoning model — free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B (FREE)', description: 'Google efficient MoE model — free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B Vision (FREE)', description: 'Multimodal vision — reads chart images, completely free via OpenRouter', tier: 'budget', provider: 'openrouter' },
 ];
 
 export type VisionModelId = string;
@@ -343,6 +346,11 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
   'meta-llama/llama-4-scout-17b-16e-instruct': 'qwen/qwen3-vl-32b-instruct',
   'mixtral-8x7b-32768': 'openai/gpt-oss-120b',
   'qwen/qwen3-32b': 'qwen/qwen3.6-27b',
+  // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live free model
+  'deepseek/deepseek-chat-v3-0324:free': 'openai/gpt-oss-20b:free',
+  'deepseek/deepseek-r1:free': 'openai/gpt-oss-20b:free',
+  'meta-llama/llama-3.3-70b-instruct:free': 'openai/gpt-oss-20b:free',
+  'qwen/qwen3-235b-a22b:free': 'openai/gpt-oss-20b:free',
 };
 
 // Default model when a user hasn't explicitly picked one in AI API Keys settings.
@@ -350,7 +358,7 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
 // (SS AI, options/futures/crypto/SOL scanners, ABBA, brain, content gen) routes
 // there by default instead of silently defaulting to paid OpenAI/Groq usage.
 // An explicit per-user selection (via userModelPreferences.set) always wins.
-const DEFAULT_AI_MODEL = 'deepseek/deepseek-chat-v3-0324:free';
+const DEFAULT_AI_MODEL = 'openai/gpt-oss-20b:free';
 
 export function getUserModelPreference(userId: number): string {
   const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
@@ -383,12 +391,14 @@ export function inferModelProvider(modelId: string): string {
   return getModelProvider(modelId);
 }
 
-// Text-only models cannot process chart images — auto-swap to a vision-capable model
-// Groq has no reliable vision model available; fall back to gpt-4o-mini via OpenAI platform key.
+// Text-only models cannot process chart images — auto-swap to a vision-capable model.
+// OpenRouter's free Gemma 4 vision model handles chart images at no cost; other
+// providers have no reliable free vision option, so they fall back to gpt-4o-mini.
 const VISION_FALLBACK: Record<string, string> = {
   'groq': 'gpt-4o-mini',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
+  'openrouter': 'google/gemma-4-31b-it:free',
 };
 
 function resolveVisionModel(modelId: string): string {
@@ -2397,7 +2407,7 @@ const PROVIDER_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
   google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
-  openrouter: 'deepseek/deepseek-chat-v3-0324:free', // 100% free open-source flagship
+  openrouter: 'openai/gpt-oss-20b:free', // 100% free, confirmed live on OpenRouter (2026-07-26)
 };
 
 // Thin wrapper that makes Anthropic SDK look like OpenAI SDK
@@ -2534,6 +2544,16 @@ function makeFailoverClient(clients: UniversalAIClient[], userId?: number): Univ
             try {
               const result = await c.chat.completions.create(p);
               recordAiHealth(userId, { ok: true, provider: c.provider, model: p.model, failedOver: i > 0, attempts, lastError: i > 0 ? (lastErr?.message || null) : null });
+              if (userId && result?.usage) {
+                recordAiUsage({
+                  userId,
+                  provider: c.provider,
+                  model: p.model,
+                  promptTokens: result.usage.prompt_tokens || 0,
+                  completionTokens: result.usage.completion_tokens || 0,
+                  usedPlatformKey: !!c.usedPlatformKey,
+                }).catch(() => {});
+              }
               return result;
             } catch (e: any) {
               lastErr = e;
@@ -2598,6 +2618,15 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
 
+    // Once a user's monthly platform-key spend hits their membership tier's cap,
+    // platform-key fallback stops entirely for them — only their own saved keys
+    // work — until the next billing cycle or they add a personal key. Personal
+    // keys are never gated by this check.
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    if (!canUsePlatformKey) {
+      console.warn(`[AI] user ${userId} has exceeded their platform-key AI cost cap this month — platform-key fallback disabled`);
+    }
+
     // "Has a key" needs to account for platform-wide fallback keys (groq and
     // openrouter both fall back to a platform env var when the user hasn't
     // saved their own), not just per-user rows — otherwise a user with no
@@ -2605,8 +2634,8 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     // it's the default preference and a platform key is configured.
     const hasProviderKey = (p: string) =>
       !!keyFor(p) ||
-      (p === 'groq' && !!process.env.GROQ_API_KEY) ||
-      (p === 'openrouter' && !!process.env.OPENROUTER_API_KEY);
+      (p === 'groq' && !!process.env.GROQ_API_KEY && canUsePlatformKey) ||
+      (p === 'openrouter' && !!process.env.OPENROUTER_API_KEY && canUsePlatformKey);
 
     // Build an ORDERED provider list: the chosen provider first, then the rest as
     // automatic failover. If the primary 429s / rate-limits / errors, the wrapper
@@ -2624,13 +2653,20 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     for (const provider of order) {
       try {
         if (provider === 'groq') {
-          const c = await buildGroqEconomyClient(keyFor('groq')); // uses platform key if user has none
-          if (c) clients.push(c);
+          const personalGroqKey = keyFor('groq');
+          if (!personalGroqKey && !canUsePlatformKey) continue;
+          const c = await buildGroqEconomyClient(personalGroqKey) as any; // uses platform key if user has none
+          if (c) { c.usedPlatformKey = !personalGroqKey; clients.push(c); }
           continue;
         }
         if (provider === 'openrouter') {
-          const apiKey = keyFor('openrouter') || process.env.OPENROUTER_API_KEY;
-          if (apiKey) clients.push(buildOpenAICompatClient('openrouter', apiKey));
+          const personalKey = keyFor('openrouter');
+          const apiKey = personalKey || (canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined);
+          if (apiKey) {
+            const c = buildOpenAICompatClient('openrouter', apiKey) as any;
+            c.usedPlatformKey = !personalKey;
+            clients.push(c);
+          }
           continue;
         }
         const apiKey = keyFor(provider);
@@ -2639,11 +2675,16 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
           const c = new OpenAI({ apiKey, maxRetries: 4, timeout: 90000 }) as any;
           c.defaultModel = inferModelProvider(selModel) === 'openai' ? selModel : PROVIDER_MODELS.openai;
           c.provider = 'openai';
+          c.usedPlatformKey = false;
           clients.push(c as UniversalAIClient);
         } else if (provider === 'anthropic') {
-          clients.push(new AnthropicAsOpenAI(apiKey));
+          const c = new AnthropicAsOpenAI(apiKey) as any;
+          c.usedPlatformKey = false;
+          clients.push(c);
         } else {
-          clients.push(buildOpenAICompatClient(provider, apiKey));
+          const c = buildOpenAICompatClient(provider, apiKey) as any;
+          c.usedPlatformKey = false;
+          clients.push(c);
         }
       } catch (e) {
         console.error(`[AI] Failed to build ${provider} client, skipping:`, e);
@@ -2651,11 +2692,12 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     }
 
     // Final backstop: append the platform's own OpenAI key as the last failover link
-    // so even if every user key errors, the request still gets served.
+    // so even if every user key errors, the request still gets served — unless
+    // they've already exceeded their platform-key cost cap this month.
     try {
-      if (process.env.OPENAI_API_KEY) {
+      if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
         const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 }) as any;
-        plat.defaultModel = 'gpt-4o'; plat.provider = 'openai-platform';
+        plat.defaultModel = 'gpt-4o'; plat.provider = 'openai-platform'; plat.usedPlatformKey = true;
         clients.push(plat as UniversalAIClient);
       }
     } catch { /* ignore */ }
@@ -2665,13 +2707,18 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
       console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')}`);
       return makeFailoverClient(clients, userId);
     }
-  } catch (e) {
+    if (!canUsePlatformKey) {
+      throw new Error('AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.');
+    }
+  } catch (e: any) {
+    if (typeof e?.message === 'string' && e.message.startsWith('AI_COST_CAP_EXCEEDED')) throw e;
     console.error('Error fetching user API keys, falling back to platform key:', e);
   }
   // Fallback: platform OpenAI key
   const platformClient = openai as any;
   platformClient.defaultModel = 'gpt-4o';
   platformClient.provider = 'openai';
+  platformClient.usedPlatformKey = true;
   return platformClient as UniversalAIClient;
 }
 
@@ -2684,6 +2731,20 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     const aiCostMode = user?.aiCostMode || 'full';
     const allKeys = await storage.getUserApiKeys(userId);
     const activeKeys = allKeys.filter(k => k.isActive && k.isValid !== false);
+    const keyFor = (p: string) => activeKeys.find(k => k.provider === p)?.apiKey;
+    // Once a user's monthly platform-key spend hits their membership tier's cap,
+    // platform-key fallback stops for vision calls too — same rule as the text
+    // client — until the next billing cycle or they add a personal key.
+    const canUsePlatformKey = await isUnderPlatformKeyCostCap(userId);
+    if (!canUsePlatformKey) {
+      console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month — platform-key fallback disabled`);
+    }
+    // Same platform-key fallback pattern as getUniversalAIClientForUser — a saved
+    // personal key isn't required when a platform-wide OpenRouter key is configured,
+    // so vision analysis actually reaches OpenRouter's free tier instead of always
+    // skipping straight to paid gpt-4o-mini.
+    const platformKeyFor = (p: string): string | undefined =>
+      keyFor(p) || (p === 'openrouter' && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined);
 
     const clients: UniversalAIClient[] = [];
 
@@ -2709,6 +2770,15 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
           c.provider = 'openai';
           return c as UniversalAIClient;
         }
+        if (provider === 'openrouter') {
+          // Always pin to the known vision-capable free model — the user's text
+          // model preference (e.g. gpt-oss-20b:free) is text-only and would
+          // otherwise get used as-is; resolveVisionModel() also catches this
+          // downstream, but setting it here keeps the client chain's log accurate.
+          const c = buildOpenAICompatClient('openrouter', apiKey) as any;
+          c.defaultModel = VISION_FALLBACK.openrouter;
+          return c as UniversalAIClient;
+        }
         if (provider === 'groq') {
           // Groq has no reliable vision model — skip for vision tasks; fallthrough to OpenAI backstop.
           return null;
@@ -2721,29 +2791,32 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     }
 
     // 1. Preferred provider first (the one the user actually selected)
-    const preferredKey = activeKeys.find(k => k.provider === selProvider);
-    if (preferredKey?.apiKey) {
+    const preferredPersonalKey = keyFor(selProvider);
+    const preferredApiKey = preferredPersonalKey || platformKeyFor(selProvider);
+    if (preferredApiKey) {
       await storage.updateUserApiKeyUsage(userId, selProvider).catch(() => {});
-      const c = buildProviderClient(selProvider, preferredKey.apiKey, selModel);
-      if (c) clients.push(c);
+      const c = buildProviderClient(selProvider, preferredApiKey, selModel) as any;
+      if (c) { c.usedPlatformKey = !preferredPersonalKey; clients.push(c); }
     }
 
     // 2. Remaining vision-capable providers as failover (skip the one already added)
     // Groq excluded — no reliable vision model available; Groq users fall through to OpenAI backstop.
-    const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral'];
+    const VISION_PROVIDERS = ['openrouter', 'anthropic', 'openai', 'google', 'mistral'];
     for (const provider of VISION_PROVIDERS) {
       if (provider === selProvider) continue; // already added above
-      const key = activeKeys.find(k => k.provider === provider);
-      if (!key?.apiKey) continue;
-      const c = buildProviderClient(provider, key.apiKey);
-      if (c) clients.push(c);
+      const personalKey = keyFor(provider);
+      const key = personalKey || platformKeyFor(provider);
+      if (!key) continue;
+      const c = buildProviderClient(provider, key) as any;
+      if (c) { c.usedPlatformKey = !personalKey; clients.push(c); }
     }
 
     // Platform backstop — OpenAI gpt-4o-mini (vision-capable, high rate limits)
-    if (process.env.OPENAI_API_KEY) {
+    if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
       const plat = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 1, timeout: 90000 }) as any;
       plat.defaultModel = 'gpt-4o-mini';
       plat.provider = 'openai-platform';
+      plat.usedPlatformKey = true;
       clients.push(plat as UniversalAIClient);
     }
 
@@ -2752,13 +2825,18 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
       console.log(`[AI Vision] user ${userId} client chain: ${clients.map((c: any) => c.provider).join(' → ')}`);
       return makeFailoverClient(clients, userId);
     }
-  } catch (e) {
+    if (!canUsePlatformKey) {
+      throw new Error('AI_COST_CAP_EXCEEDED: Monthly AI usage cap reached for your membership tier. Add your own AI provider key in AI API Keys settings to continue.');
+    }
+  } catch (e: any) {
+    if (typeof e?.message === 'string' && e.message.startsWith('AI_COST_CAP_EXCEEDED')) throw e;
     console.error('Error building vision client, falling back to platform key:', e);
   }
   // Last resort: platform OpenAI key with gpt-4o-mini
   const platformClient = getDefaultOpenAIClient() as any;
   platformClient.defaultModel = 'gpt-4o-mini';
   platformClient.provider = 'openai';
+  platformClient.usedPlatformKey = true;
   return platformClient as UniversalAIClient;
 }
 

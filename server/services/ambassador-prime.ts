@@ -267,7 +267,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<string>
         defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
       });
       const res = await orClient.chat.completions.create({
-        model: 'deepseek/deepseek-chat-v3-0324:free', messages, temperature: 0.7, max_tokens: 2000,
+        model: 'openai/gpt-oss-20b:free', messages, temperature: 0.7, max_tokens: 2000,
       });
       return res.choices[0]?.message?.content?.trim() ?? '';
     } catch (e: any) {
