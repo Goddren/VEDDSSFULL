@@ -18081,6 +18081,11 @@ async function syncUserTradeLocker(userId, force = false) {
         );
       } catch (err) {
         const prev = store[userId][conn2.accountId];
+        const msg = err?.message || "fetch failed";
+        const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
+        if (isRateLimit && prev && !prev.error) {
+          continue;
+        }
         store[userId][conn2.accountId] = {
           accountId: conn2.accountId,
           connectionId: conn2.id,
@@ -18093,7 +18098,9 @@ async function syncUserTradeLocker(userId, force = false) {
           freeMargin: prev?.freeMargin || 0,
           currency: prev?.currency || "USD",
           lastUpdated: prev?.lastUpdated || (/* @__PURE__ */ new Date(0)).toISOString(),
-          error: err?.message || "fetch failed"
+          // Don't show a scary 429 to the user — if we have any last-known
+          // balance, present a soft "refreshing" note instead of a hard error.
+          error: isRateLimit ? prev?.balance ? void 0 : "Reconnecting to TradeLocker\u2026" : msg
         };
       }
     }
@@ -18128,7 +18135,7 @@ function startTradeLockerSync() {
   started = true;
   setInterval(async () => {
     const now = Date.now();
-    for (const [userId, seenAt] of activeUsers.entries()) {
+    for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
         activeUsers.delete(userId);
         continue;

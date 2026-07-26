@@ -269,6 +269,19 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
         );
       } catch (err: any) {
         const prev = store[userId][conn.accountId];
+        const msg: string = err?.message || 'fetch failed';
+        // A 429 / login-rate-limit / cooldown is TRANSIENT — the broker is just
+        // throttling us for a few seconds. Surfacing it as a hard `error` flips
+        // the account to "disconnected" and shows "429 Too Many Requests" on the
+        // webhooks page even though we hold a perfectly good last-known balance.
+        // So for rate-limit errors, keep the last successful entry untouched
+        // (balance stays visible, freshness reflects real age) and just skip
+        // this cycle. Only genuine failures (bad creds, etc.) set `error`.
+        const isRateLimit = err?.status === 429 || /429|rate.?limit|too many requests|cooling down/i.test(msg);
+        if (isRateLimit && prev && !prev.error) {
+          // leave prev entry as-is; the background loop retries after cooldown
+          continue;
+        }
         store[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
@@ -281,7 +294,11 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
           freeMargin: prev?.freeMargin || 0,
           currency: prev?.currency || 'USD',
           lastUpdated: prev?.lastUpdated || new Date(0).toISOString(),
-          error: err?.message || 'fetch failed',
+          // Don't show a scary 429 to the user — if we have any last-known
+          // balance, present a soft "refreshing" note instead of a hard error.
+          error: isRateLimit
+            ? (prev?.balance ? undefined : 'Reconnecting to TradeLocker…')
+            : msg,
         };
       }
     }
@@ -330,7 +347,7 @@ export function startTradeLockerSync(): void {
   started = true;
   setInterval(async () => {
     const now = Date.now();
-    for (const [userId, seenAt] of activeUsers.entries()) {
+    for (const [userId, seenAt] of Array.from(activeUsers.entries())) {
       if (now - seenAt > ACTIVE_WINDOW_MS) {
         activeUsers.delete(userId);
         continue;
