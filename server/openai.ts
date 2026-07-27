@@ -287,14 +287,78 @@ function getAssetSpecificPrompt(symbol: string): string {
   return ''; // Standard forex - no additional prompt needed
 }
 
+// Remap a bare OpenAI model name to a free OpenRouter model. OpenRouter rejects
+// bare names like "gpt-4o-mini" (it needs "openai/…" or a ":free" slug), so any
+// caller that hardcoded an OpenAI model must be normalized before it's sent to
+// OpenRouter. Vision requests (messages containing an image) need a multimodal
+// model; everything else uses the free text model.
+function remapBareModelForOpenRouter(model: string | undefined, hasImage: boolean): string {
+  const m = (model || '').toString();
+  if (m.includes('/') || m.endsWith(':free')) return m; // already an OpenRouter slug
+  return hasImage ? (VISION_FALLBACK.openrouter || 'google/gemma-4-31b-it:free') : 'openai/gpt-oss-20b:free';
+}
+function messagesHaveImage(messages: any): boolean {
+  return Array.isArray(messages) && messages.some((msg: any) =>
+    Array.isArray(msg?.content) && msg.content.some((part: any) => part?.type === 'image_url'));
+}
+
+// Build the platform chat client. This is the SINGLE most important routing fix:
+// dozens of code paths used `new OpenAI({ apiKey: process.env.OPENAI_API_KEY })`
+// which talks straight to api.openai.com and 429s when OpenAI is throttled —
+// completely bypassing OpenRouter no matter how it's configured. When an
+// OpenRouter key exists we route chat.completions to OpenRouter's free tier
+// (remapping hardcoded OpenAI model names), and only fall back to real OpenAI if
+// OpenRouter itself errors. images.generate (DALL-E) and everything else pass
+// straight through to a real OpenAI client (OpenRouter has no DALL-E).
+export function getPlatformOpenAIClient(): OpenAI {
+  const oaiKey = process.env.OPENAI_API_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  const realOpenAI = new OpenAI({ apiKey: oaiKey || 'not-configured', maxRetries: 4, timeout: 90000 });
+  if (!orKey) return realOpenAI;
+
+  const orClient = new OpenAI({
+    apiKey: orKey,
+    baseURL: 'https://openrouter.ai/api/v1',
+    maxRetries: 4,
+    timeout: 90000,
+    defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
+  });
+
+  const wrappedChat = {
+    completions: {
+      create: async (params: any) => {
+        const p = { ...params };
+        p.model = remapBareModelForOpenRouter(params.model, messagesHaveImage(params.messages));
+        try {
+          return await orClient.chat.completions.create(p);
+        } catch (e) {
+          // OpenRouter failed (free-tier 429 etc.) — only then touch paid OpenAI,
+          // with the caller's ORIGINAL model so OpenAI accepts it.
+          if (oaiKey) {
+            console.warn(`[AI] OpenRouter failed (${(e as any)?.status ?? (e as any)?.message}); falling back to OpenAI`);
+            return await realOpenAI.chat.completions.create(params);
+          }
+          throw e;
+        }
+      },
+    },
+  };
+
+  // Proxy: chat → OpenRouter-first wrapper; everything else (images, models…) → real OpenAI.
+  return new Proxy(realOpenAI, {
+    get(target, prop) {
+      if (prop === 'chat') return wrappedChat;
+      return (target as any)[prop];
+    },
+  }) as unknown as OpenAI;
+}
+
 // Lazy singleton — only instantiated on first use, so a missing API key at startup
 // does NOT crash the process before the HTTP server can bind its port.
 let _openaiInstance: OpenAI | null = null;
 export function getDefaultOpenAIClient(): OpenAI {
   if (!_openaiInstance) {
-    const apiKey = process.env.OPENAI_API_KEY || 'not-configured';
-    const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey, maxRetries: 4, timeout: 90000 };
-    _openaiInstance = new OpenAI(opts);
+    _openaiInstance = getPlatformOpenAIClient();
   }
   return _openaiInstance;
 }
@@ -4025,7 +4089,7 @@ export async function generateSocialOutreachKit(
   if (!resolvedApiKey) {
     throw new Error('No OpenAI API key available. Please add your OpenAI key in Settings → API Keys.');
   }
-  const openai = new OpenAI({ apiKey: resolvedApiKey, maxRetries: 4, timeout: 90000 });
+  const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
 
   const encodedKeywords = encodeURIComponent(keywords);
   const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace('#', '') || 'trading';
@@ -4090,7 +4154,7 @@ export async function enrichLeadWithAI(lead: {
   suggestedOpener: string;
   summary: string;
 }> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
+  const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
 
   const answersText = lead.answers && lead.answers.length > 0
     ? `Quiz answers: ${lead.answers.map(a => `Q${a.questionId}: ${a.answer}`).join(', ')}`
@@ -4621,7 +4685,7 @@ Return a JSON object with exactly this structure:
 Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
 
   try {
-    const aiClient = client || new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
+    const aiClient = client || getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
     const response = await (aiClient as any).chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -4769,7 +4833,7 @@ Respond with this exact JSON structure:
 }`;
 
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 90000 });
+    const client = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
     const completion = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [

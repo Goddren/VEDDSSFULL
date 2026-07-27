@@ -7738,6 +7738,7 @@ __export(openai_exports, {
   getBreakoutConfirmation: () => getBreakoutConfirmation,
   getDefaultOpenAIClient: () => getDefaultOpenAIClient,
   getOpenAIInstanceForUser: () => getOpenAIInstanceForUser,
+  getPlatformOpenAIClient: () => getPlatformOpenAIClient,
   getPropFirmContext: () => getPropFirmContext,
   getUniversalAIClientForUser: () => getUniversalAIClientForUser,
   getUniversalVisionClientForUser: () => getUniversalVisionClientForUser,
@@ -8011,11 +8012,53 @@ function getAssetSpecificPrompt(symbol) {
   }
   return "";
 }
+function remapBareModelForOpenRouter(model, hasImage) {
+  const m = (model || "").toString();
+  if (m.includes("/") || m.endsWith(":free")) return m;
+  return hasImage ? VISION_FALLBACK.openrouter || "google/gemma-4-31b-it:free" : "openai/gpt-oss-20b:free";
+}
+function messagesHaveImage(messages) {
+  return Array.isArray(messages) && messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => part?.type === "image_url"));
+}
+function getPlatformOpenAIClient() {
+  const oaiKey = process.env.OPENAI_API_KEY;
+  const orKey = process.env.OPENROUTER_API_KEY;
+  const realOpenAI = new OpenAI({ apiKey: oaiKey || "not-configured", maxRetries: 4, timeout: 9e4 });
+  if (!orKey) return realOpenAI;
+  const orClient = new OpenAI({
+    apiKey: orKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    maxRetries: 4,
+    timeout: 9e4,
+    defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
+  });
+  const wrappedChat = {
+    completions: {
+      create: async (params) => {
+        const p = { ...params };
+        p.model = remapBareModelForOpenRouter(params.model, messagesHaveImage(params.messages));
+        try {
+          return await orClient.chat.completions.create(p);
+        } catch (e) {
+          if (oaiKey) {
+            console.warn(`[AI] OpenRouter failed (${e?.status ?? e?.message}); falling back to OpenAI`);
+            return await realOpenAI.chat.completions.create(params);
+          }
+          throw e;
+        }
+      }
+    }
+  };
+  return new Proxy(realOpenAI, {
+    get(target, prop) {
+      if (prop === "chat") return wrappedChat;
+      return target[prop];
+    }
+  });
+}
 function getDefaultOpenAIClient() {
   if (!_openaiInstance) {
-    const apiKey = process.env.OPENAI_API_KEY || "not-configured";
-    const opts = { apiKey, maxRetries: 4, timeout: 9e4 };
-    _openaiInstance = new OpenAI(opts);
+    _openaiInstance = getPlatformOpenAIClient();
   }
   return _openaiInstance;
 }
@@ -10819,7 +10862,7 @@ async function generateSocialOutreachKit(platform, keywords, ambassadorName, use
   if (!resolvedApiKey) {
     throw new Error("No OpenAI API key available. Please add your OpenAI key in Settings \u2192 API Keys.");
   }
-  const openai2 = new OpenAI({ apiKey: resolvedApiKey, maxRetries: 4, timeout: 9e4 });
+  const openai2 = getPlatformOpenAIClient();
   const encodedKeywords = encodeURIComponent(keywords);
   const firstHashtag = keywords.split(/[\s,]+/)[0]?.replace("#", "") || "trading";
   const systemPrompt = `You are a social media lead generation expert for VEDD Trading AI \u2014 a fintech/forex/crypto trading education platform with AI signal tools, an ambassador program, and Solana token investments. You help ambassadors find and convert prospects into VEDD subscribers.`;
@@ -10867,7 +10910,7 @@ Pre-generate the URLs using encoded versions of: "${encodedKeywords}" and hashta
   }
 }
 async function enrichLeadWithAI(lead) {
-  const openai2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+  const openai2 = getPlatformOpenAIClient();
   const answersText = lead.answers && lead.answers.length > 0 ? `Quiz answers: ${lead.answers.map((a) => `Q${a.questionId}: ${a.answer}`).join(", ")}` : "No quiz answers provided.";
   const bioText = lead.bioSnippet ? `Bio/Profile snippet: "${lead.bioSnippet}"` : "No bio provided.";
   const platformText = lead.platform ? `Found on: ${lead.platform}` : "";
@@ -11277,7 +11320,7 @@ Return a JSON object with exactly this structure:
 
 Create 4-6 modules and 5 assessment questions. Make objectives measurable (Bloom's taxonomy verbs). Ensure content is practical and immediately applicable.`;
   try {
-    const aiClient = client2 || new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+    const aiClient = client2 || getPlatformOpenAIClient();
     const response = await aiClient.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -11393,7 +11436,7 @@ Respond with this exact JSON structure:
   "note": "<2-3 sentence SS AI Bot summary \u2014 specific to this exact setup, mention the symbol, key level, and what to watch for on the retest>"
 }`;
   try {
-    const client2 = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 4, timeout: 9e4 });
+    const client2 = getPlatformOpenAIClient();
     const completion = await client2.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -66494,7 +66537,7 @@ Format your response as JSON with exactly these keys:
           return res.status(404).json({ error: "Lesson not found" });
         }
         const OpenAI9 = (await import("openai")).default;
-        const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
+        const openai2 = getPlatformOpenAIClient();
         const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
         for (const platform of platforms) {
           const completion = await openai2.chat.completions.create({
@@ -66604,7 +66647,7 @@ Generate a JSON object with these fields:
     }
     if (weekChallenges.length === 0) {
       const OpenAI9 = (await import("openai")).default;
-      const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
+      const openai2 = getPlatformOpenAIClient();
       const challengeTypes = [
         { type: "content", title: "Content Creator Challenge" },
         { type: "engagement", title: "Community Engagement Challenge" },
@@ -66868,7 +66911,7 @@ Generate a JSON object with:
     }
     if (weekEvents.length === 0) {
       const OpenAI9 = (await import("openai")).default;
-      const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
+      const openai2 = getPlatformOpenAIClient();
       const eventTypes = [
         { type: "live_session", title: "Weekly Live Trading Session" },
         { type: "ama", title: "Ask Me Anything Session" },
@@ -67448,7 +67491,7 @@ Generate a JSON object with:
           const lesson = ambassadorContentCurriculum2.find((l) => l.dayNumber === dayNumber);
           if (lesson) {
             const OpenAI9 = (await import("openai")).default;
-            const openai2 = new OpenAI9({ apiKey: process.env.OPENAI_API_KEY });
+            const openai2 = getPlatformOpenAIClient();
             const platforms = ["twitter", "instagram", "tiktok", "linkedin"];
             for (const platform of platforms) {
               try {

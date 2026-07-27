@@ -18,7 +18,7 @@ async function hashPasswordForWallet(password: string) {
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
-import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional, generateWorkforceCurriculum, analyzeORBSignal } from "./openai";
+import { analyzeChartImage, testOpenAIApiKey, generateTradingTip, generateMarketTrendPredictions, generatePresentationOutline, scanGrantsWithAI, generateGrantProposal, generateSocialOutreachKit, enrichLeadWithAI, generateVeddBlogPost, generateDailyDevotional, generateWorkforceCurriculum, analyzeORBSignal, getPlatformOpenAIClient } from "./openai";
 import { setupTwilio, sendTradingSignal, sendSmsRaw } from "./twilio";
 import { checkUserAchievements } from "./achievement-tracker";
 import { generateMT5EACode, generateTradingViewCode, generateTradeLockerCode } from './ea-generators';
@@ -20653,7 +20653,7 @@ Format your response as JSON with exactly these keys:
         }
 
         const OpenAI = (await import("openai")).default;
-        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
 
         const platforms = ['twitter', 'instagram', 'tiktok', 'linkedin'];
         
@@ -20785,7 +20785,7 @@ Generate a JSON object with these fields:
     // Fallback to AI generation if no strategic challenges for this week
     if (weekChallenges.length === 0) {
       const OpenAI = (await import("openai")).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
       
       const challengeTypes = [
         { type: 'content', title: 'Content Creator Challenge' },
@@ -21104,7 +21104,7 @@ Generate a JSON object with:
     // Fallback to AI generation if no strategic events for this week
     if (weekEvents.length === 0) {
       const OpenAI = (await import("openai")).default;
-      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
       
       const eventTypes = [
         { type: 'live_session', title: 'Weekly Live Trading Session' },
@@ -21859,7 +21859,7 @@ Generate a JSON object with:
           
           if (lesson) {
             const OpenAI = (await import("openai")).default;
-            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const openai = getPlatformOpenAIClient(); // OpenRouter-first (was raw OpenAI → 429s)
             const platforms = ['twitter', 'instagram', 'tiktok', 'linkedin'];
             
             for (const platform of platforms) {
