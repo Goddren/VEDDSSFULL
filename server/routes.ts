@@ -18937,16 +18937,17 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const OpenAISDK = (await import('openai')).default;
     const results: any[] = [];
 
-    const ping = async (label: string, apiKey: string | undefined, baseURL: string | undefined, model: string) => {
+    const ping = async (label: string, apiKey: string | undefined, baseURL: string | undefined, model: string, defaultHeaders?: Record<string, string>) => {
       if (!apiKey) { results.push({ test: label, model, ok: false, status: 'no-key', error: 'No API key' }); return; }
       try {
-        const c = new OpenAISDK({ apiKey, ...(baseURL ? { baseURL } : {}), maxRetries: 0, timeout: 30000 });
+        const c = new OpenAISDK({ apiKey, ...(baseURL ? { baseURL } : {}), ...(defaultHeaders ? { defaultHeaders } : {}), maxRetries: 0, timeout: 30000 });
         const r = await c.chat.completions.create({ model, messages: [{ role: 'user', content: 'reply with the single word: OK' }], max_tokens: 5 });
         results.push({ test: label, model, ok: true, reply: r.choices?.[0]?.message?.content?.slice(0, 20) || '' });
       } catch (e: any) {
         results.push({ test: label, model, ok: false, status: e?.status ?? e?.statusCode ?? 'err', error: (e?.message || String(e)).slice(0, 200) });
       }
     };
+    const OR_HEADERS = { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' };
 
     try {
       const keys = await storage.getUserApiKeys(userId);
@@ -18959,6 +18960,13 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       await ping('user Mistral', userKey('mistral'), 'https://api.mistral.ai/v1', 'mistral-large-latest');
       await ping('platform Groq (gpt-oss-20b)', process.env.GROQ_API_KEY, 'https://api.groq.com/openai/v1', 'openai/gpt-oss-20b');
       await ping('platform OpenAI', process.env.OPENAI_API_KEY, undefined, 'gpt-4o-mini');
+      // OpenRouter is the app-wide DEFAULT primary — probe both the user's key
+      // and the platform (Render) env key so "is OpenRouter actually live in
+      // production?" is answerable. If 'platform OpenRouter' shows no-key here,
+      // OPENROUTER_API_KEY is NOT set on Render and everything falls back to
+      // OpenAI/Groq (which is what 429s).
+      await ping('user OpenRouter (gpt-oss-20b:free)', userKey('openrouter'), 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b:free', OR_HEADERS);
+      await ping('platform OpenRouter (gpt-oss-20b:free)', process.env.OPENROUTER_API_KEY, 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b:free', OR_HEADERS);
 
       // Anthropic (separate SDK shape) — test via the app's wrapper
       const anthKey = userKey('anthropic');
