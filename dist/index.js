@@ -74966,6 +74966,37 @@ init_market_data();
 init_db();
 import { execSync } from "child_process";
 import { sql as sql12 } from "drizzle-orm";
+(() => {
+  const ALIASES = [
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_KEY",
+    "OPEN_ROUTER_API_KEY",
+    "OPEN_ROUTER_KEY",
+    "OPENROUTER_API",
+    "OPENROUTERAPIKEY",
+    "OR_API_KEY",
+    "OPENROUTER_TOKEN",
+    "OPENROUTER"
+  ];
+  const clean = (v) => (v || "").trim().replace(/^["']|["']$/g, "");
+  let found = clean(process.env.OPENROUTER_API_KEY);
+  if (!found) {
+    for (const name of ALIASES) {
+      const v = clean(process.env[name]);
+      if (v) {
+        found = v;
+        console.log(`[env] OPENROUTER_API_KEY not set \u2014 using alternate env var "${name}"`);
+        break;
+      }
+    }
+  }
+  if (found) {
+    process.env.OPENROUTER_API_KEY = found;
+    console.log(`[env] OpenRouter key detected (len ${found.length}, starts "${found.slice(0, 8)}\u2026")`);
+  } else {
+    console.warn("[env] No OpenRouter key found under any known env var name \u2014 AI will fall back to OpenAI/Groq.");
+  }
+})();
 process.on("unhandledRejection", (reason) => {
   console.error("[process] Unhandled rejection (non-fatal):", reason?.message ?? reason);
 });

@@ -15,6 +15,33 @@ import { execSync } from "child_process";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
+// ── OpenRouter key normalization ─────────────────────────────────────────────
+// All 13 code sites read process.env.OPENROUTER_API_KEY exactly. If the key was
+// set on Render under a slightly different name (a very common cause of "I added
+// it but AI still 429s on OpenAI"), copy the first matching alternate into the
+// canonical name so every OpenRouter path finds it. Also trims accidental quotes
+// or whitespace pasted around the value.
+(() => {
+  const ALIASES = [
+    'OPENROUTER_API_KEY', 'OPENROUTER_KEY', 'OPEN_ROUTER_API_KEY', 'OPEN_ROUTER_KEY',
+    'OPENROUTER_API', 'OPENROUTERAPIKEY', 'OR_API_KEY', 'OPENROUTER_TOKEN', 'OPENROUTER',
+  ];
+  const clean = (v?: string) => (v || '').trim().replace(/^["']|["']$/g, '');
+  let found = clean(process.env.OPENROUTER_API_KEY);
+  if (!found) {
+    for (const name of ALIASES) {
+      const v = clean(process.env[name]);
+      if (v) { found = v; console.log(`[env] OPENROUTER_API_KEY not set — using alternate env var "${name}"`); break; }
+    }
+  }
+  if (found) {
+    process.env.OPENROUTER_API_KEY = found;
+    console.log(`[env] OpenRouter key detected (len ${found.length}, starts "${found.slice(0, 8)}…")`);
+  } else {
+    console.warn('[env] No OpenRouter key found under any known env var name — AI will fall back to OpenAI/Groq.');
+  }
+})();
+
 // Prevent DB connection errors from crashing the server
 process.on('unhandledRejection', (reason: any) => {
   console.error('[process] Unhandled rejection (non-fatal):', reason?.message ?? reason);
