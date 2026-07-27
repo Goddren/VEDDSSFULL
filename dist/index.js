@@ -8015,7 +8015,7 @@ function getAssetSpecificPrompt(symbol) {
 function remapBareModelForOpenRouter(model, hasImage) {
   const m = (model || "").toString();
   if (m.includes("/") || m.endsWith(":free")) return m;
-  return hasImage ? VISION_FALLBACK.openrouter || "openai/gpt-4o-mini" : "openai/gpt-oss-20b";
+  return hasImage ? VISION_FALLBACK.openrouter || "google/gemma-3-4b-it" : "openai/gpt-oss-20b";
 }
 function messagesHaveImage(messages) {
   return Array.isArray(messages) && messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => part?.type === "image_url"));
@@ -11540,11 +11540,11 @@ var init_openai = __esm({
       "groq": "gpt-4o-mini",
       "openai": "gpt-4o-mini",
       "anthropic": "claude-sonnet-4-6",
-      // gpt-4o-mini via OpenRouter — cheap paid vision (~$0.000002/call), NO free-tier
-      // daily cap. The free Gemma vision model was rate-limited (429), which cascaded
-      // to direct OpenAI. Routing vision through OpenRouter's paid gpt-4o-mini keeps
-      // it on OpenRouter (cheap) and off the capped free tier.
-      "openrouter": "openai/gpt-4o-mini"
+      // gemma-3-4b-it via OpenRouter — cheapest paid vision (~$0.00000085/call), NO
+      // free-tier daily cap. Reads chart images fine; gpt-4o-mini remains downstream
+      // in the vision failover chain if it ever errors. (The free Gemma vision model
+      // was rate-limited 429 → cascaded to direct OpenAI, which is what we're avoiding.)
+      "openrouter": "google/gemma-3-4b-it"
     };
     aiVisionConfirmationEnabled = /* @__PURE__ */ new Map();
     aiMinConfidenceThreshold = /* @__PURE__ */ new Map();
@@ -65114,7 +65114,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       openrouterKeyLen: orKey.length,
       openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
       defaultTextModel: "openai/gpt-oss-20b",
-      defaultVisionModel: "openai/gpt-4o-mini",
+      defaultVisionModel: "google/gemma-3-4b-it",
       openaiKeyPresent: !!process.env.OPENAI_API_KEY,
       groqKeyPresent: !!process.env.GROQ_API_KEY,
       nodeVersion: process.version

@@ -295,7 +295,7 @@ function getAssetSpecificPrompt(symbol: string): string {
 function remapBareModelForOpenRouter(model: string | undefined, hasImage: boolean): string {
   const m = (model || '').toString();
   if (m.includes('/') || m.endsWith(':free')) return m; // already an OpenRouter slug
-  return hasImage ? (VISION_FALLBACK.openrouter || 'openai/gpt-4o-mini') : 'openai/gpt-oss-20b';
+  return hasImage ? (VISION_FALLBACK.openrouter || 'google/gemma-3-4b-it') : 'openai/gpt-oss-20b';
 }
 function messagesHaveImage(messages: any): boolean {
   return Array.isArray(messages) && messages.some((msg: any) =>
@@ -469,11 +469,11 @@ const VISION_FALLBACK: Record<string, string> = {
   'groq': 'gpt-4o-mini',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
-  // gpt-4o-mini via OpenRouter — cheap paid vision (~$0.000002/call), NO free-tier
-  // daily cap. The free Gemma vision model was rate-limited (429), which cascaded
-  // to direct OpenAI. Routing vision through OpenRouter's paid gpt-4o-mini keeps
-  // it on OpenRouter (cheap) and off the capped free tier.
-  'openrouter': 'openai/gpt-4o-mini',
+  // gemma-3-4b-it via OpenRouter — cheapest paid vision (~$0.00000085/call), NO
+  // free-tier daily cap. Reads chart images fine; gpt-4o-mini remains downstream
+  // in the vision failover chain if it ever errors. (The free Gemma vision model
+  // was rate-limited 429 → cascaded to direct OpenAI, which is what we're avoiding.)
+  'openrouter': 'google/gemma-3-4b-it',
 };
 
 function resolveVisionModel(modelId: string): string {

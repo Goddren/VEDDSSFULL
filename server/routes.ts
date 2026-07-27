@@ -18941,7 +18941,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       openrouterKeyLen: orKey.length,
       openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
       defaultTextModel: 'openai/gpt-oss-20b',
-      defaultVisionModel: 'openai/gpt-4o-mini',
+      defaultVisionModel: 'google/gemma-3-4b-it',
       openaiKeyPresent: !!process.env.OPENAI_API_KEY,
       groqKeyPresent: !!process.env.GROQ_API_KEY,
       nodeVersion: process.version,
