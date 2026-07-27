@@ -54,7 +54,7 @@ function getAI(): { client: OpenAI; model: string } | null {
   const oai = process.env.OPENAI_API_KEY;
   const or_ = process.env.OPENROUTER_API_KEY;
   // OpenRouter (free-tier DeepSeek) first — cheapest option, app-wide default.
-  if (or_) return { client: new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } }), model: 'openai/gpt-oss-20b:free' };
+  if (or_) return { client: new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } }), model: 'openai/gpt-oss-20b' };
   if (groq) return { client: new OpenAI({ apiKey: groq, baseURL: 'https://api.groq.com/openai/v1' }), model: 'openai/gpt-oss-20b' };
   if (oai) return { client: new OpenAI({ apiKey: oai }), model: 'gpt-4o-mini' };
   return null;
@@ -75,10 +75,10 @@ async function aiChat(messages: { role: 'system' | 'user'; content: string }[]):
     // Primary provider failed (rate-limit/quota/outage) — retry once via
     // OpenRouter's free tier if it's configured and wasn't already tried.
     const or_ = process.env.OPENROUTER_API_KEY;
-    if (or_ && ai.model !== 'openai/gpt-oss-20b:free') {
+    if (or_ && ai.model !== 'openai/gpt-oss-20b') {
       try {
         const orClient = new OpenAI({ apiKey: or_, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
-        const res = await orClient.chat.completions.create({ model: 'openai/gpt-oss-20b:free', messages, max_tokens: 1000, temperature: 0.3 });
+        const res = await orClient.chat.completions.create({ model: 'openai/gpt-oss-20b', messages, max_tokens: 1000, temperature: 0.3 });
         return res.choices[0]?.message?.content?.trim() || '';
       } catch { /* give up */ }
     }

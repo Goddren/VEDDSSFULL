@@ -91,7 +91,7 @@ class NewsService {
       if (orKey) {
         // OpenRouter (free-tier DeepSeek) first — cheapest option, app-wide default.
         this.openai = new OpenAI({ apiKey: orKey, baseURL: 'https://openrouter.ai/api/v1', defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } });
-        (this.openai as any).defaultModel = 'openai/gpt-oss-20b:free';
+        (this.openai as any).defaultModel = 'openai/gpt-oss-20b';
       } else if (oaiKey) {
         this.openai = new OpenAI({ apiKey: oaiKey });
       }

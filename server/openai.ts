@@ -295,7 +295,7 @@ function getAssetSpecificPrompt(symbol: string): string {
 function remapBareModelForOpenRouter(model: string | undefined, hasImage: boolean): string {
   const m = (model || '').toString();
   if (m.includes('/') || m.endsWith(':free')) return m; // already an OpenRouter slug
-  return hasImage ? (VISION_FALLBACK.openrouter || 'google/gemma-4-31b-it:free') : 'openai/gpt-oss-20b:free';
+  return hasImage ? (VISION_FALLBACK.openrouter || 'openai/gpt-4o-mini') : 'openai/gpt-oss-20b';
 }
 function messagesHaveImage(messages: any): boolean {
   return Array.isArray(messages) && messages.some((msg: any) =>
@@ -386,7 +386,7 @@ export const AVAILABLE_VISION_MODELS = [
   // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
   // NOTE: OpenRouter rotates which models are free — verify against
   // https://openrouter.ai/api/v1/models before adding new entries here.
-  { id: 'openai/gpt-oss-20b:free', name: 'GPT-OSS 20B (FREE)', description: 'OpenAI open-weight model — fast & reliable, completely free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
+  { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (OpenRouter)', description: 'OpenAI open-weight model via OpenRouter — ultra-cheap (~$4/1M calls), no daily cap', tier: 'budget', provider: 'openrouter', textOnly: true },
   { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super 120B (FREE)', description: 'NVIDIA large reasoning model — free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
   { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B (FREE)', description: 'Google efficient MoE model — free via OpenRouter', tier: 'budget', provider: 'openrouter', textOnly: true },
   { id: 'google/gemma-4-31b-it:free', name: 'Gemma 4 31B Vision (FREE)', description: 'Multimodal vision — reads chart images, completely free via OpenRouter', tier: 'budget', provider: 'openrouter' },
@@ -411,10 +411,10 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
   'mixtral-8x7b-32768': 'openai/gpt-oss-120b',
   'qwen/qwen3-32b': 'qwen/qwen3.6-27b',
   // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live free model
-  'deepseek/deepseek-chat-v3-0324:free': 'openai/gpt-oss-20b:free',
-  'deepseek/deepseek-r1:free': 'openai/gpt-oss-20b:free',
-  'meta-llama/llama-3.3-70b-instruct:free': 'openai/gpt-oss-20b:free',
-  'qwen/qwen3-235b-a22b:free': 'openai/gpt-oss-20b:free',
+  'deepseek/deepseek-chat-v3-0324:free': 'openai/gpt-oss-20b',
+  'deepseek/deepseek-r1:free': 'openai/gpt-oss-20b',
+  'meta-llama/llama-3.3-70b-instruct:free': 'openai/gpt-oss-20b',
+  'qwen/qwen3-235b-a22b:free': 'openai/gpt-oss-20b',
 };
 
 // Default model when a user hasn't explicitly picked one in AI API Keys settings.
@@ -422,7 +422,7 @@ const DEPRECATED_MODEL_MAP: Record<string, string> = {
 // (SS AI, options/futures/crypto/SOL scanners, ABBA, brain, content gen) routes
 // there by default instead of silently defaulting to paid OpenAI/Groq usage.
 // An explicit per-user selection (via userModelPreferences.set) always wins.
-const DEFAULT_AI_MODEL = 'openai/gpt-oss-20b:free';
+const DEFAULT_AI_MODEL = 'openai/gpt-oss-20b';
 
 export function getUserModelPreference(userId: number): string {
   const pref = userModelPreferences.get(userId) || DEFAULT_AI_MODEL;
@@ -447,6 +447,13 @@ export function inferModelProvider(modelId: string): string {
   // OpenRouter free models use the ":free" suffix — check before the groq
   // keyword match (llama/qwen/deepseek would otherwise route to groq)
   if (m.endsWith(':free') || m.startsWith('openrouter/')) return 'openrouter';
+  // Any "vendor/model" slug (contains "/") is an OpenRouter model id in this
+  // app's config — the paid default (openai/gpt-oss-20b) and vision
+  // (openai/gpt-4o-mini) both route through OpenRouter. Without this, the
+  // gpt-oss/llama/qwen keyword rules below would misroute the paid default to
+  // Groq. Groq is only used via economy mode, which forces the groq provider
+  // independently of this inference.
+  if (m.includes('/')) return 'openrouter';
   if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4') || m.startsWith('chatgpt')) return 'openai';
   if (m.startsWith('claude')) return 'anthropic';
   if (m.startsWith('gemini')) return 'google';
@@ -462,7 +469,11 @@ const VISION_FALLBACK: Record<string, string> = {
   'groq': 'gpt-4o-mini',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
-  'openrouter': 'google/gemma-4-31b-it:free',
+  // gpt-4o-mini via OpenRouter — cheap paid vision (~$0.000002/call), NO free-tier
+  // daily cap. The free Gemma vision model was rate-limited (429), which cascaded
+  // to direct OpenAI. Routing vision through OpenRouter's paid gpt-4o-mini keeps
+  // it on OpenRouter (cheap) and off the capped free tier.
+  'openrouter': 'openai/gpt-4o-mini',
 };
 
 function resolveVisionModel(modelId: string): string {
@@ -2471,7 +2482,7 @@ const PROVIDER_MODELS: Record<string, string> = {
   anthropic: 'claude-sonnet-4-6',      // was claude-3-5-sonnet-20241022 (retired → 404'd every Anthropic-routed confirmation)
   google: 'gemini-2.0-flash',          // was gemini-1.5-pro (deprecated id)
   mistral: 'mistral-large-latest',
-  openrouter: 'openai/gpt-oss-20b:free', // 100% free, confirmed live on OpenRouter (2026-07-26)
+  openrouter: 'openai/gpt-oss-20b', // cheap paid (~$4/1M calls), NO free-tier daily cap — confirmed live
 };
 
 // Thin wrapper that makes Anthropic SDK look like OpenAI SDK

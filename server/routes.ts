@@ -18965,8 +18965,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       // production?" is answerable. If 'platform OpenRouter' shows no-key here,
       // OPENROUTER_API_KEY is NOT set on Render and everything falls back to
       // OpenAI/Groq (which is what 429s).
-      await ping('user OpenRouter (gpt-oss-20b:free)', userKey('openrouter'), 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b:free', OR_HEADERS);
-      await ping('platform OpenRouter (gpt-oss-20b:free)', process.env.OPENROUTER_API_KEY, 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b:free', OR_HEADERS);
+      await ping('user OpenRouter (gpt-oss-20b)', userKey('openrouter'), 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b', OR_HEADERS);
+      await ping('platform OpenRouter (gpt-oss-20b)', process.env.OPENROUTER_API_KEY, 'https://openrouter.ai/api/v1', 'openai/gpt-oss-20b', OR_HEADERS);
 
       // Anthropic (separate SDK shape) — test via the app's wrapper
       const anthKey = userKey('anthropic');

@@ -8015,7 +8015,7 @@ function getAssetSpecificPrompt(symbol) {
 function remapBareModelForOpenRouter(model, hasImage) {
   const m = (model || "").toString();
   if (m.includes("/") || m.endsWith(":free")) return m;
-  return hasImage ? VISION_FALLBACK.openrouter || "google/gemma-4-31b-it:free" : "openai/gpt-oss-20b:free";
+  return hasImage ? VISION_FALLBACK.openrouter || "openai/gpt-4o-mini" : "openai/gpt-oss-20b";
 }
 function messagesHaveImage(messages) {
   return Array.isArray(messages) && messages.some((msg) => Array.isArray(msg?.content) && msg.content.some((part) => part?.type === "image_url"));
@@ -8082,6 +8082,7 @@ function getModelProvider(modelId) {
 function inferModelProvider(modelId) {
   const m = (modelId || "").toLowerCase();
   if (m.endsWith(":free") || m.startsWith("openrouter/")) return "openrouter";
+  if (m.includes("/")) return "openrouter";
   if (m.startsWith("gpt") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("chatgpt")) return "openai";
   if (m.startsWith("claude")) return "anthropic";
   if (m.startsWith("gemini")) return "google";
@@ -11512,7 +11513,7 @@ var init_openai = __esm({
       // OpenRouter — 100% FREE open-source models (get a free key at openrouter.ai)
       // NOTE: OpenRouter rotates which models are free — verify against
       // https://openrouter.ai/api/v1/models before adding new entries here.
-      { id: "openai/gpt-oss-20b:free", name: "GPT-OSS 20B (FREE)", description: "OpenAI open-weight model \u2014 fast & reliable, completely free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
+      { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (OpenRouter)", description: "OpenAI open-weight model via OpenRouter \u2014 ultra-cheap (~$4/1M calls), no daily cap", tier: "budget", provider: "openrouter", textOnly: true },
       { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B (FREE)", description: "NVIDIA large reasoning model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
       { id: "google/gemma-4-26b-a4b-it:free", name: "Gemma 4 26B (FREE)", description: "Google efficient MoE model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
       { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B Vision (FREE)", description: "Multimodal vision \u2014 reads chart images, completely free via OpenRouter", tier: "budget", provider: "openrouter" }
@@ -11529,17 +11530,21 @@ var init_openai = __esm({
       "mixtral-8x7b-32768": "openai/gpt-oss-120b",
       "qwen/qwen3-32b": "qwen/qwen3.6-27b",
       // OpenRouter retired these free slugs (confirmed 404 on live test 2026-07-26) → migrate to a live free model
-      "deepseek/deepseek-chat-v3-0324:free": "openai/gpt-oss-20b:free",
-      "deepseek/deepseek-r1:free": "openai/gpt-oss-20b:free",
-      "meta-llama/llama-3.3-70b-instruct:free": "openai/gpt-oss-20b:free",
-      "qwen/qwen3-235b-a22b:free": "openai/gpt-oss-20b:free"
+      "deepseek/deepseek-chat-v3-0324:free": "openai/gpt-oss-20b",
+      "deepseek/deepseek-r1:free": "openai/gpt-oss-20b",
+      "meta-llama/llama-3.3-70b-instruct:free": "openai/gpt-oss-20b",
+      "qwen/qwen3-235b-a22b:free": "openai/gpt-oss-20b"
     };
-    DEFAULT_AI_MODEL = "openai/gpt-oss-20b:free";
+    DEFAULT_AI_MODEL = "openai/gpt-oss-20b";
     VISION_FALLBACK = {
       "groq": "gpt-4o-mini",
       "openai": "gpt-4o-mini",
       "anthropic": "claude-sonnet-4-6",
-      "openrouter": "google/gemma-4-31b-it:free"
+      // gpt-4o-mini via OpenRouter — cheap paid vision (~$0.000002/call), NO free-tier
+      // daily cap. The free Gemma vision model was rate-limited (429), which cascaded
+      // to direct OpenAI. Routing vision through OpenRouter's paid gpt-4o-mini keeps
+      // it on OpenRouter (cheap) and off the capped free tier.
+      "openrouter": "openai/gpt-4o-mini"
     };
     aiVisionConfirmationEnabled = /* @__PURE__ */ new Map();
     aiMinConfidenceThreshold = /* @__PURE__ */ new Map();
@@ -11567,8 +11572,8 @@ var init_openai = __esm({
       google: "gemini-2.0-flash",
       // was gemini-1.5-pro (deprecated id)
       mistral: "mistral-large-latest",
-      openrouter: "openai/gpt-oss-20b:free"
-      // 100% free, confirmed live on OpenRouter (2026-07-26)
+      openrouter: "openai/gpt-oss-20b"
+      // cheap paid (~$4/1M calls), NO free-tier daily cap — confirmed live
     };
     AnthropicAsOpenAI = class {
       defaultModel;
@@ -18840,7 +18845,7 @@ var init_news_service = __esm({
         try {
           if (orKey) {
             this.openai = new OpenAI2({ apiKey: orKey, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
-            this.openai.defaultModel = "openai/gpt-oss-20b:free";
+            this.openai.defaultModel = "openai/gpt-oss-20b";
           } else if (oaiKey) {
             this.openai = new OpenAI2({ apiKey: oaiKey });
           }
@@ -23443,7 +23448,7 @@ async function analyzeToken(token, options = {}) {
     if (!openaiClient) {
       if (process.env.OPENROUTER_API_KEY) {
         openaiClient = new OpenAI3({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
-        fallbackModel = "openai/gpt-oss-20b:free";
+        fallbackModel = "openai/gpt-oss-20b";
       } else if (process.env.OPENAI_API_KEY) {
         openaiClient = new OpenAI3({ apiKey: process.env.OPENAI_API_KEY });
       } else {
@@ -38751,7 +38756,7 @@ function getAI() {
   const groq = process.env.GROQ_API_KEY;
   const oai = process.env.OPENAI_API_KEY;
   const or_ = process.env.OPENROUTER_API_KEY;
-  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "openai/gpt-oss-20b:free" };
+  if (or_) return { client: new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } }), model: "openai/gpt-oss-20b" };
   if (groq) return { client: new OpenAI6({ apiKey: groq, baseURL: "https://api.groq.com/openai/v1" }), model: "openai/gpt-oss-20b" };
   if (oai) return { client: new OpenAI6({ apiKey: oai }), model: "gpt-4o-mini" };
   return null;
@@ -38769,10 +38774,10 @@ async function aiChat(messages) {
     return res.choices[0]?.message?.content?.trim() || "";
   } catch (e) {
     const or_ = process.env.OPENROUTER_API_KEY;
-    if (or_ && ai.model !== "openai/gpt-oss-20b:free") {
+    if (or_ && ai.model !== "openai/gpt-oss-20b") {
       try {
         const orClient = new OpenAI6({ apiKey: or_, baseURL: "https://openrouter.ai/api/v1", defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } });
-        const res = await orClient.chat.completions.create({ model: "openai/gpt-oss-20b:free", messages, max_tokens: 1e3, temperature: 0.3 });
+        const res = await orClient.chat.completions.create({ model: "openai/gpt-oss-20b", messages, max_tokens: 1e3, temperature: 0.3 });
         return res.choices[0]?.message?.content?.trim() || "";
       } catch {
       }
@@ -39666,7 +39671,7 @@ async function callAI(systemPrompt, userPrompt) {
         defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
       });
       const res2 = await orClient.chat.completions.create({
-        model: "openai/gpt-oss-20b:free",
+        model: "openai/gpt-oss-20b",
         messages,
         temperature: 0.7,
         max_tokens: 2e3
@@ -40638,7 +40643,7 @@ async function callAI2(systemPrompt, userPrompt, maxTokens = 3e3) {
         defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
       });
       const res2 = await orClient.chat.completions.create({
-        model: "openai/gpt-oss-20b:free",
+        model: "openai/gpt-oss-20b",
         messages,
         temperature: 0.8,
         max_tokens: maxTokens
@@ -65130,8 +65135,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       await ping("user Mistral", userKey("mistral"), "https://api.mistral.ai/v1", "mistral-large-latest");
       await ping("platform Groq (gpt-oss-20b)", process.env.GROQ_API_KEY, "https://api.groq.com/openai/v1", "openai/gpt-oss-20b");
       await ping("platform OpenAI", process.env.OPENAI_API_KEY, void 0, "gpt-4o-mini");
-      await ping("user OpenRouter (gpt-oss-20b:free)", userKey("openrouter"), "https://openrouter.ai/api/v1", "openai/gpt-oss-20b:free", OR_HEADERS);
-      await ping("platform OpenRouter (gpt-oss-20b:free)", process.env.OPENROUTER_API_KEY, "https://openrouter.ai/api/v1", "openai/gpt-oss-20b:free", OR_HEADERS);
+      await ping("user OpenRouter (gpt-oss-20b)", userKey("openrouter"), "https://openrouter.ai/api/v1", "openai/gpt-oss-20b", OR_HEADERS);
+      await ping("platform OpenRouter (gpt-oss-20b)", process.env.OPENROUTER_API_KEY, "https://openrouter.ai/api/v1", "openai/gpt-oss-20b", OR_HEADERS);
       const anthKey = userKey("anthropic");
       if (anthKey) {
         try {
