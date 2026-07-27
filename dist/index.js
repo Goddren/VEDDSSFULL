@@ -65106,6 +65106,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       res.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/ai-status", (_req, res) => {
+    const orKey = process.env.OPENROUTER_API_KEY || "";
+    res.json({
+      buildTag: "openrouter-paid-2026-07-27",
+      openrouterConfigured: !!orKey,
+      openrouterKeyLen: orKey.length,
+      openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
+      defaultTextModel: "openai/gpt-oss-20b",
+      defaultVisionModel: "openai/gpt-4o-mini",
+      openaiKeyPresent: !!process.env.OPENAI_API_KEY,
+      groqKeyPresent: !!process.env.GROQ_API_KEY,
+      nodeVersion: process.version
+    });
+  });
   app2.get("/api/ai-diagnostic", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

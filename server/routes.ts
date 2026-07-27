@@ -18928,6 +18928,26 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     }
   });
 
+  // GET /api/ai-status — PUBLIC, no secrets. Lets us confirm exactly what code +
+  // config production is running without logging in or touching Render: whether
+  // an OpenRouter key is present (+ its length, not the value), the active default
+  // models, and a build tag. If buildTag is missing/old or openrouterConfigured is
+  // false, the deploy hasn't picked up the fix / key.
+  app.get("/api/ai-status", (_req: Request, res: Response) => {
+    const orKey = process.env.OPENROUTER_API_KEY || '';
+    res.json({
+      buildTag: 'openrouter-paid-2026-07-27',
+      openrouterConfigured: !!orKey,
+      openrouterKeyLen: orKey.length,
+      openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
+      defaultTextModel: 'openai/gpt-oss-20b',
+      defaultVisionModel: 'openai/gpt-4o-mini',
+      openaiKeyPresent: !!process.env.OPENAI_API_KEY,
+      groqKeyPresent: !!process.env.GROQ_API_KEY,
+      nodeVersion: process.version,
+    });
+  });
+
   // GET /api/ai-diagnostic — actively PINGS each configured provider/key + platform
   // keys and reports the exact result (ok / 401 / 429 / model error). Ground truth
   // for "AI not working" instead of guessing.
