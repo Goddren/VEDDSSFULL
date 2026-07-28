@@ -57852,6 +57852,39 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 providerUsed: aiConfirmation.providerUsed || modelInfo?.provider || void 0,
                 ...logExtraContext
               });
+              try {
+                const _now = /* @__PURE__ */ new Date();
+                const _utcH = _now.getUTCHours();
+                const _sess = _utcH < 7 ? "Asian" : _utcH < 13 ? "London" : "NY";
+                const _ind = analysis.indicators || {};
+                const _macdHist = _ind.macd?.histogram ?? _ind.macdHistogram ?? null;
+                await storage.createConfirmationOutcome({
+                  userId: token.userId,
+                  symbol: sanitizedSymbol,
+                  timeframe: sanitizedTimeframe,
+                  direction: preConfirmSignal,
+                  session: _sess,
+                  aiDecision: "REJECTED",
+                  aiConfidence: aiConfirmation.aiConfidence,
+                  proposedConfidence: preConfirmConfidence,
+                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  confluenceGrade: aiConfirmation.confluenceGrade ?? null,
+                  rsiValue: _ind.rsi ?? _ind.rsi14 ?? null,
+                  adxValue: _ind.adx ?? null,
+                  macdDirection: _macdHist === null ? "NEUTRAL" : _macdHist > 0 ? "BULLISH" : "BEARISH",
+                  ictMacroValid: aiConfirmation.ictMacroValid ?? null,
+                  smcVerdict: aiConfirmation.smcVerdict ?? null,
+                  newsConflict: logExtraContext?.newsConflict ?? null,
+                  tradeOutcome: "REJECTED",
+                  modelUsed: aiConfirmation.modelUsed || modelInfo?.name || void 0,
+                  providerUsed: aiConfirmation.providerUsed || void 0,
+                  reasoningText: aiConfirmation.thinkingTrace || aiConfirmation.reasoning || void 0,
+                  bullCase: aiConfirmation.bullCase || void 0,
+                  bearCase: aiConfirmation.bearCase || void 0,
+                  deepReasoningUsed: !!aiConfirmation.deepReasoningUsed
+                });
+              } catch (_rejDbErr) {
+              }
             } else {
               const isAiOverride = aiPasses && !eaPasses;
               const approvalLabel = consensusLabel === "STRONG_CONFIRM" ? "STRONG CONFIRM" : isAiOverride ? "AI OVERRIDE" : "APPROVED";

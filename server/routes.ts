@@ -10514,6 +10514,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 providerUsed: (aiConfirmation as any).providerUsed || modelInfo?.provider || undefined,
                 ...logExtraContext,
               });
+
+              // Persist the REJECTED decision to the DB learning loop too. Previously
+              // only APPROVED confirmations were written, so the AI's "no" verdicts
+              // (which are the majority) vanished — ai_confirmation_outcomes stayed
+              // empty and the second opinion was unauditable. Record rejections with
+              // outcome 'REJECTED' (no trade opens, so not PENDING — it never resolves).
+              try {
+                const _now = new Date();
+                const _utcH = _now.getUTCHours();
+                const _sess = _utcH < 7 ? 'Asian' : _utcH < 13 ? 'London' : 'NY';
+                const _ind = analysis.indicators || {};
+                const _macdHist = _ind.macd?.histogram ?? _ind.macdHistogram ?? null;
+                await storage.createConfirmationOutcome({
+                  userId: token.userId,
+                  symbol: sanitizedSymbol,
+                  timeframe: sanitizedTimeframe,
+                  direction: preConfirmSignal,
+                  session: _sess,
+                  aiDecision: 'REJECTED',
+                  aiConfidence: aiConfirmation.aiConfidence,
+                  proposedConfidence: preConfirmConfidence,
+                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  confluenceGrade: aiConfirmation.confluenceGrade ?? null,
+                  rsiValue: _ind.rsi ?? _ind.rsi14 ?? null,
+                  adxValue: _ind.adx ?? null,
+                  macdDirection: _macdHist === null ? 'NEUTRAL' : _macdHist > 0 ? 'BULLISH' : 'BEARISH',
+                  ictMacroValid: aiConfirmation.ictMacroValid ?? null,
+                  smcVerdict: aiConfirmation.smcVerdict ?? null,
+                  newsConflict: logExtraContext?.newsConflict ?? null,
+                  tradeOutcome: 'REJECTED',
+                  modelUsed: (aiConfirmation as any).modelUsed || (modelInfo?.name) || undefined,
+                  providerUsed: (aiConfirmation as any).providerUsed || undefined,
+                  reasoningText: (aiConfirmation as any).thinkingTrace || aiConfirmation.reasoning || undefined,
+                  bullCase: (aiConfirmation as any).bullCase || undefined,
+                  bearCase: (aiConfirmation as any).bearCase || undefined,
+                  deepReasoningUsed: !!(aiConfirmation as any).deepReasoningUsed,
+                } as any);
+              } catch (_rejDbErr) { /* non-critical — never block */ }
             } else {
               const isAiOverride = aiPasses && !eaPasses;
               const approvalLabel = consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
