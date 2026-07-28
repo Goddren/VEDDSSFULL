@@ -60201,6 +60201,43 @@ Respond with ONLY valid JSON:
         console.error("[Weekly Strategy] AI response missing weeklyPlan:", JSON.stringify(plan).substring(0, 200));
         return res.status(500).json({ error: "AI response was incomplete. Please try again." });
       }
+      try {
+        const allPairs = (Array.isArray(pairs) ? pairs : []).map(
+          (p) => String(typeof p === "string" ? p : p?.symbol || "").toUpperCase().replace("/", "")
+        ).filter(Boolean);
+        const defaultLot = typeof lotSize === "number" && lotSize > 0 ? lotSize : 0.01;
+        plan.weeklyPlan = plan.weeklyPlan || {};
+        for (const day of activeTradingDays) {
+          const existingDay = plan.weeklyPlan[day] || {};
+          const existingBySymbol = {};
+          for (const p of existingDay.pairs || []) {
+            const sym = String(p?.symbol || "").toUpperCase().replace("/", "");
+            if (sym) existingBySymbol[sym] = p;
+          }
+          plan.weeklyPlan[day] = {
+            ...existingDay,
+            skip: false,
+            pairs: allPairs.map((sym) => {
+              const prior = existingBySymbol[sym] || {};
+              return {
+                symbol: sym,
+                direction: "BOTH",
+                // vote engine + AI second opinion pick direction
+                confidence: prior.confidence ?? 70,
+                session: prior.session || "Any",
+                reason: prior.reason || "Full-coverage plan \u2014 direction decided live by vote consensus + AI second opinion",
+                estimatedPips: prior.estimatedPips ?? 20,
+                lotSize: prior.lotSize ?? defaultLot,
+                maxTrades: prior.maxTrades ?? 5,
+                entryCondition: prior.entryCondition || "Vote consensus (>=3) + AI confirmation"
+              };
+            })
+          };
+        }
+        console.log(`[Weekly Strategy] Normalized plan to full coverage: ${allPairs.length} pairs x ${activeTradingDays.length} days, direction=BOTH`);
+      } catch (normErr) {
+        console.error("[Weekly Strategy] Full-coverage normalization failed (using AI plan as-is):", normErr);
+      }
       const strategy = {
         profitTarget,
         pairs,

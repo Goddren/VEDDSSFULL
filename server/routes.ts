@@ -13345,6 +13345,52 @@ Respond with ONLY valid JSON:
         return res.status(500).json({ error: 'AI response was incomplete. Please try again.' });
       }
 
+      // ── Full-coverage normalization ─────────────────────────────────────────
+      // The generator historically emitted a single pair per day with a fixed
+      // BUY/SELL direction. In the live chart-data gate that meant 6/7 symbols
+      // were blocked as "not scheduled" and the 1 scheduled pair was blocked
+      // whenever the market wanted the opposite direction — so the account
+      // almost never traded and the AI second opinion never fired. Enforce
+      // full coverage deterministically: every active day includes ALL selected
+      // pairs with direction 'BOTH', letting the vote engine + AI confirmation
+      // decide direction per setup. Preserve any per-pair metadata the AI gave.
+      try {
+        const allPairs: string[] = (Array.isArray(pairs) ? pairs : []).map((p: any) =>
+          String(typeof p === 'string' ? p : p?.symbol || '').toUpperCase().replace('/', '')
+        ).filter(Boolean);
+        const defaultLot = (typeof lotSize === 'number' && lotSize > 0) ? lotSize : 0.01;
+        plan.weeklyPlan = plan.weeklyPlan || {};
+        for (const day of activeTradingDays) {
+          const existingDay = plan.weeklyPlan[day] || {};
+          const existingBySymbol: Record<string, any> = {};
+          for (const p of (existingDay.pairs || [])) {
+            const sym = String(p?.symbol || '').toUpperCase().replace('/', '');
+            if (sym) existingBySymbol[sym] = p;
+          }
+          plan.weeklyPlan[day] = {
+            ...existingDay,
+            skip: false,
+            pairs: allPairs.map((sym: string) => {
+              const prior = existingBySymbol[sym] || {};
+              return {
+                symbol: sym,
+                direction: 'BOTH', // vote engine + AI second opinion pick direction
+                confidence: prior.confidence ?? 70,
+                session: prior.session || 'Any',
+                reason: prior.reason || 'Full-coverage plan — direction decided live by vote consensus + AI second opinion',
+                estimatedPips: prior.estimatedPips ?? 20,
+                lotSize: prior.lotSize ?? defaultLot,
+                maxTrades: prior.maxTrades ?? 5,
+                entryCondition: prior.entryCondition || 'Vote consensus (>=3) + AI confirmation',
+              };
+            }),
+          };
+        }
+        console.log(`[Weekly Strategy] Normalized plan to full coverage: ${allPairs.length} pairs x ${activeTradingDays.length} days, direction=BOTH`);
+      } catch (normErr) {
+        console.error('[Weekly Strategy] Full-coverage normalization failed (using AI plan as-is):', normErr);
+      }
+
       const strategy = {
         profitTarget,
         pairs,
