@@ -13322,6 +13322,14 @@ Respond with ONLY valid JSON:
         const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 }) as any;
         candidates.push({ client: gc, model: 'openai/gpt-oss-20b', provider: 'groq' });
       }
+      // OpenRouter (user key OR platform key) — cheap, no per-provider daily cap.
+      // Added as a candidate so a stale Groq/OpenAI key no longer blocks generation.
+      const _orKey = _activeKeys.find((k: any) => k.provider === 'openrouter')?.apiKey || process.env.OPENROUTER_API_KEY;
+      if (_orKey) {
+        const OpenAISDK = (await import('openai')).default;
+        const orc = new OpenAISDK({ apiKey: _orKey, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 3, timeout: 90000 }) as any;
+        candidates.push({ client: orc, model: 'openai/gpt-oss-20b', provider: 'openrouter' });
+      }
       const _openaiKey = _activeKeys.find((k: any) => k.provider === 'openai');
       if (_openaiKey?.apiKey) {
         const OpenAISDK = (await import('openai')).default;
@@ -13364,8 +13372,11 @@ Respond with ONLY valid JSON:
           const errStatus = aiError.status || aiError.statusCode || 0;
           const errMsg = aiError.message || '';
           console.error(`[Weekly Strategy] ${candidate.provider}/${candidate.model} failed — status=${errStatus} type=${aiError.error?.type || aiError.type} msg=${errMsg.substring(0, 150)}`);
-          // Only move to next candidate on 429, auth errors stop immediately
-          if (errStatus === 401 || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) break;
+          // Try the NEXT provider on any failure — including auth errors. A stale
+          // key on one provider (e.g. an expired Groq key) must NOT abort the whole
+          // loop and 401 the user when another provider's key is valid. We only
+          // surface an error if EVERY candidate fails (checked after the loop).
+          continue;
         }
       }
       if (lastAiError) {

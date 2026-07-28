@@ -60166,6 +60166,12 @@ Respond with ONLY valid JSON:
         const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         candidates.push({ client: gc, model: "openai/gpt-oss-20b", provider: "groq" });
       }
+      const _orKey = _activeKeys.find((k) => k.provider === "openrouter")?.apiKey || process.env.OPENROUTER_API_KEY;
+      if (_orKey) {
+        const OpenAISDK = (await import("openai")).default;
+        const orc = new OpenAISDK({ apiKey: _orKey, baseURL: "https://openrouter.ai/api/v1", maxRetries: 3, timeout: 9e4 });
+        candidates.push({ client: orc, model: "openai/gpt-oss-20b", provider: "openrouter" });
+      }
       const _openaiKey = _activeKeys.find((k) => k.provider === "openai");
       if (_openaiKey?.apiKey) {
         const OpenAISDK = (await import("openai")).default;
@@ -60205,7 +60211,7 @@ Respond with ONLY valid JSON:
           const errStatus = aiError.status || aiError.statusCode || 0;
           const errMsg = aiError.message || "";
           console.error(`[Weekly Strategy] ${candidate.provider}/${candidate.model} failed \u2014 status=${errStatus} type=${aiError.error?.type || aiError.type} msg=${errMsg.substring(0, 150)}`);
-          if (errStatus === 401 || errMsg.includes("invalid_api_key") || errMsg.includes("authentication_error")) break;
+          continue;
         }
       }
       if (lastAiError) {
