@@ -55806,7 +55806,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   });
   app2.post("/api/mt5/chart-data", async (req, res) => {
     try {
-      const apiKey = req.headers["authorization"]?.replace("Bearer ", "") || req.headers["x-api-key"] || req.headers["x-vedd-api-key"];
+      const apiKey = (req.headers["authorization"]?.replace("Bearer ", "") || req.headers["x-api-key"] || req.headers["x-vedd-api-key"] || "").trim();
       if (!apiKey) {
         return res.status(401).json({ error: "API key required. Set Authorization: Bearer YOUR_TOKEN header in your EA settings." });
       }

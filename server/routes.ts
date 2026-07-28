@@ -8181,8 +8181,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
   // MT5 Chart Data Receiver - receives live chart data from MT5 EA for AI refresh
   app.post("/api/mt5/chart-data", async (req: Request, res: Response) => {
     try {
-      // Accept API key from multiple header formats for compatibility
-      const apiKey = (req.headers['authorization']?.replace('Bearer ', '') || req.headers['x-api-key'] || req.headers['x-vedd-api-key']) as string;
+      // Accept API key from multiple header formats for compatibility.
+      // .trim() is critical: a token pasted into an EA input with a trailing
+      // space/newline would otherwise never match and 401 forever.
+      const apiKey = (((req.headers['authorization']?.replace('Bearer ', '') || req.headers['x-api-key'] || req.headers['x-vedd-api-key']) as string) || '').trim();
       if (!apiKey) {
         return res.status(401).json({ error: "API key required. Set Authorization: Bearer YOUR_TOKEN header in your EA settings." });
       }
