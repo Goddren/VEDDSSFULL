@@ -2068,7 +2068,7 @@ export async function getAiVisionConfirmation(
     // cannot process chart images and return unreliable low-confidence scores that block trades
     const rawModel = userId ? getUserModelPreference(userId) : 'gpt-4o';
     const selectedModel = resolveVisionModel(rawModel);
-    const provider = getModelProvider(selectedModel);
+    const provider = inferModelProvider(selectedModel); // was getModelProvider — that defaulted unknown vendor/model slugs (e.g. google/gemma-3-4b-it, openai/gpt-oss-20b) to 'openai', misrouting AI confirmation to paid OpenAI instead of OpenRouter
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} → ${selectedModel} (${provider}) for userId=${userId}`);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
 
@@ -2284,7 +2284,7 @@ export async function getBreakoutConfirmation(
     }
 
     const selectedModel = userId ? getUserModelPreference(userId) : 'gpt-4o-mini';
-    const provider = getModelProvider(selectedModel);
+    const provider = inferModelProvider(selectedModel); // was getModelProvider — that defaulted unknown vendor/model slugs (e.g. google/gemma-3-4b-it, openai/gpt-oss-20b) to 'openai', misrouting AI confirmation to paid OpenAI instead of OpenRouter
 
     const recentCandles = candleData.slice(0, 30);
     const candleSummary = recentCandles.map((c: any, i: number) =>

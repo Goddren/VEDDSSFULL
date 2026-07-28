@@ -9340,7 +9340,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
   try {
     const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
     const selectedModel = resolveVisionModel(rawModel);
-    const provider = getModelProvider(selectedModel);
+    const provider = inferModelProvider(selectedModel);
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} \u2192 ${selectedModel} (${provider}) for userId=${userId}`);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
     if (propFirmContext?.enabled && userId && isPropFirmModeEnabled(userId)) {
@@ -9523,7 +9523,7 @@ ${breakoutResult.summary}`,
       };
     }
     const selectedModel = userId ? getUserModelPreference(userId) : "gpt-4o-mini";
-    const provider = getModelProvider(selectedModel);
+    const provider = inferModelProvider(selectedModel);
     const recentCandles = candleData.slice(0, 30);
     const candleSummary = recentCandles.map(
       (c, i) => `[${i}] O:${c.o} H:${c.h} L:${c.l} C:${c.c} V:${c.v || 0}`
