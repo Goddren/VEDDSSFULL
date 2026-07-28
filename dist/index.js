@@ -57657,6 +57657,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   console.warn("[Breakout Master] Failed to fetch supplemental TF candles:", btfErr);
                 }
               }
+              _cdiag.stage = "breakout_called";
               aiConfirmation = await getBreakoutConfirmation2(
                 candles,
                 analysis.indicators,
@@ -57669,6 +57670,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 multiTFCandles,
                 propFirmCtx
               );
+              _cdiag.stage = "breakout_returned";
+              _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
+              _cdiag.model = aiConfirmation?.modelUsed || aiConfirmation?.breakoutGrade || "breakout-engine";
               if (analysis.tradePlan) {
                 delete analysis.tradePlan.trailingStopDistance;
                 delete analysis.tradePlan.trailingStopStep;

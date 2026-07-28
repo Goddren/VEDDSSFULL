@@ -10299,11 +10299,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   console.warn('[Breakout Master] Failed to fetch supplemental TF candles:', btfErr);
                 }
               }
+              _cdiag.stage = 'breakout_called';
               aiConfirmation = await getBreakoutConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
                 token.userId, multiTFCandles, propFirmCtx
               );
+              _cdiag.stage = 'breakout_returned';
+              _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
+              _cdiag.model = (aiConfirmation as any)?.modelUsed || (aiConfirmation as any)?.breakoutGrade || 'breakout-engine';
               // Enforce fixed TP targets in breakout mode — remove trailing stop fields entirely
               if (analysis.tradePlan) {
                 delete analysis.tradePlan.trailingStopDistance;
