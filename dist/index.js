@@ -65106,10 +65106,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       res.status(500).json({ error: err.message });
     }
   });
-  app2.get("/api/ai-status", (_req, res) => {
+  app2.get("/api/ai-status", async (_req, res) => {
     const orKey = process.env.OPENROUTER_API_KEY || "";
+    let dbInfo = {};
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const host = process.env.PGHOST || (process.env.DATABASE_URL || "").match(/@([^\/:]+)/)?.[1] || "unknown";
+      const maskedHost = host.length > 12 ? host.slice(0, 6) + "\u2026" + host.slice(-8) : host;
+      const r = await pool2.query("SELECT COUNT(*)::int AS n, MAX(id)::int AS maxid FROM mt5_api_tokens");
+      dbInfo = { dbHost: maskedHost, usesPGHOST: !!process.env.PGHOST, mt5TokenCount: r.rows[0].n, mt5TokenMaxId: r.rows[0].maxid };
+    } catch (e) {
+      dbInfo = { dbError: (e?.message || String(e)).slice(0, 120) };
+    }
     res.json({
-      buildTag: "openrouter-paid-2026-07-27",
+      buildTag: "db-identity-probe-2026-07-28",
       openrouterConfigured: !!orKey,
       openrouterKeyLen: orKey.length,
       openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
@@ -65117,7 +65127,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       defaultVisionModel: "google/gemma-3-4b-it",
       openaiKeyPresent: !!process.env.OPENAI_API_KEY,
       groqKeyPresent: !!process.env.GROQ_API_KEY,
-      nodeVersion: process.version
+      nodeVersion: process.version,
+      ...dbInfo
     });
   });
   app2.get("/api/ai-diagnostic", async (req, res) => {

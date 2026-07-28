@@ -18935,10 +18935,24 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
   // an OpenRouter key is present (+ its length, not the value), the active default
   // models, and a build tag. If buildTag is missing/old or openrouterConfigured is
   // false, the deploy hasn't picked up the fix / key.
-  app.get("/api/ai-status", (_req: Request, res: Response) => {
+  app.get("/api/ai-status", async (_req: Request, res: Response) => {
     const orKey = process.env.OPENROUTER_API_KEY || '';
+    // DB identity probe — critical for diagnosing "token created but 401": if the
+    // DB production reads differs from where tokens are written, auth always fails.
+    // Reports a MASKED host + row counts only (no credentials).
+    let dbInfo: any = {};
+    try {
+      const { pool } = await import('./db');
+      const host = (process.env.PGHOST) ||
+        ((process.env.DATABASE_URL || '').match(/@([^\/:]+)/)?.[1]) || 'unknown';
+      const maskedHost = host.length > 12 ? host.slice(0, 6) + '…' + host.slice(-8) : host;
+      const r = await pool.query('SELECT COUNT(*)::int AS n, MAX(id)::int AS maxid FROM mt5_api_tokens');
+      dbInfo = { dbHost: maskedHost, usesPGHOST: !!process.env.PGHOST, mt5TokenCount: r.rows[0].n, mt5TokenMaxId: r.rows[0].maxid };
+    } catch (e: any) {
+      dbInfo = { dbError: (e?.message || String(e)).slice(0, 120) };
+    }
     res.json({
-      buildTag: 'openrouter-paid-2026-07-27',
+      buildTag: 'db-identity-probe-2026-07-28',
       openrouterConfigured: !!orKey,
       openrouterKeyLen: orKey.length,
       openrouterKeyPrefix: orKey ? orKey.slice(0, 10) : null,
@@ -18947,6 +18961,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       openaiKeyPresent: !!process.env.OPENAI_API_KEY,
       groqKeyPresent: !!process.env.GROQ_API_KEY,
       nodeVersion: process.version,
+      ...dbInfo,
     });
   });
 
