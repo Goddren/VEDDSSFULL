@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI Powered Trading Vault"
 #property link      "https://aipoweredtradingvault.com"
-#property version   "3.95"
+#property version   "3.96"
 #property description "Sends chart data to AI Trading Vault with news-aware analysis, smart auto-trading, prop firm compliance, and active trade management"
 #property strict
 
@@ -60,7 +60,7 @@ double SafeDouble(double val)
 //|                    *** CONNECTION SETTINGS ***                   |
 //+------------------------------------------------------------------+
 input string   _conn_header = "========== API CONNECTION =========="; // *** CONNECTION ***
-input string   API_URL = "https://your-app-url.replit.app/api/mt5/chart-data";  // API URL (CHANGE THIS!)
+input string   API_URL = "https://veddbuild.com/api/mt5/chart-data";  // API URL (production default)
 input string   API_TOKEN = "";                    // API Token from AI Trading Vault
 input int      CANDLES_TO_SEND = 50;              // Candles to Send
 input int      SEND_INTERVAL_SECONDS = 300;       // Send Interval (seconds) - 5 min recommended
@@ -665,7 +665,7 @@ bool SendChartData()
    );
    
    string jsonPayload = StringFormat(
-      "{\"eaVersion\":\"3.94\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
+      "{\"eaVersion\":\"3.96\",\"symbol\":\"%s\",\"timeframe\":\"%s\",\"broker\":\"%s\",\"timestamp\":%d,\"candles\":%s%s%s,\"multiTimeframe\":%s,\"account\":%s,\"openPositions\":%s,\"closedTrades\":%s,\"eaSettings\":%s}",
       symbolName,
       GetTimeframeString(),
       brokerName,
@@ -742,6 +742,14 @@ bool SendChartData()
          else if(CountOpenTrades() >= MAX_OPEN_TRADES)
          {
             Print("[SERVER-TRADE] Max positions reached (", MAX_OPEN_TRADES, "). Skipping server trade.");
+         }
+         // Local balance backstop: never execute if the terminal reports a
+         // zero/unknown balance. The server owns Gate 0 risk sizing, but this is
+         // a last-line client guard so a server-side phantom-balance sizing bug
+         // can never open a trade with no local sanity check.
+         else if(AccountInfoDouble(ACCOUNT_BALANCE) <= 0)
+         {
+            Print("[SERVER-TRADE] Account balance is 0/unknown — refusing to execute (local safety backstop).");
          }
          else
          {
