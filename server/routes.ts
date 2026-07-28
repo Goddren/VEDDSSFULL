@@ -10530,6 +10530,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _sess = _utcH < 7 ? 'Asian' : _utcH < 13 ? 'London' : 'NY';
                 const _ind = analysis.indicators || {};
                 const _macdHist = _ind.macd?.histogram ?? _ind.macdHistogram ?? null;
+                // Coerce to a plain number for `real` columns. Indicators are often
+                // stored as objects ({ value, signal, ... }) which Postgres rejects
+                // ("invalid input syntax for type real: [object Object]") — this was
+                // silently killing every reject-record insert in breakout mode.
+                const _num = (v: any): number | null => {
+                  if (typeof v === 'number' && isFinite(v)) return v;
+                  if (v && typeof v === 'object') {
+                    const inner = v.value ?? v.current ?? v.val ?? v.close;
+                    return typeof inner === 'number' && isFinite(inner) ? inner : null;
+                  }
+                  const n = Number(v);
+                  return isFinite(n) ? n : null;
+                };
                 await storage.createConfirmationOutcome({
                   userId: token.userId,
                   symbol: sanitizedSymbol,
@@ -10537,12 +10550,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   direction: preConfirmSignal,
                   session: _sess,
                   aiDecision: 'REJECTED',
-                  aiConfidence: aiConfirmation.aiConfidence,
-                  proposedConfidence: preConfirmConfidence,
-                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  aiConfidence: _num(aiConfirmation.aiConfidence),
+                  proposedConfidence: _num(preConfirmConfidence),
+                  confluenceScore: _num(aiConfirmation.confluenceScore),
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
-                  rsiValue: _ind.rsi ?? _ind.rsi14 ?? null,
-                  adxValue: _ind.adx ?? null,
+                  rsiValue: _num(_ind.rsi ?? _ind.rsi14),
+                  adxValue: _num(_ind.adx),
                   macdDirection: _macdHist === null ? 'NEUTRAL' : _macdHist > 0 ? 'BULLISH' : 'BEARISH',
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,
@@ -10720,6 +10733,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const ind = analysis.indicators || {};
                 const macdHist = ind.macd?.histogram ?? ind.macdHistogram ?? null;
                 const macdDir = macdHist === null ? 'NEUTRAL' : macdHist > 0 ? 'BULLISH' : 'BEARISH';
+                // Coerce numeric fields — indicators may be objects, which Postgres
+                // rejects for `real` columns (see reject-path note above).
+                const _n = (v: any): number | null => {
+                  if (typeof v === 'number' && isFinite(v)) return v;
+                  if (v && typeof v === 'object') { const i = v.value ?? v.current ?? v.val ?? v.close; return typeof i === 'number' && isFinite(i) ? i : null; }
+                  const n = Number(v); return isFinite(n) ? n : null;
+                };
                 const htfAlignedFlag = htfLevels.length > 0
                   ? htfLevels.every((tf: any) => {
                       if (!tf.candles || tf.candles.length < 2) return true;
@@ -10737,12 +10757,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   direction: analysis.signal,
                   session: confirmSession,
                   aiDecision: isAiOverride ? 'AI_OVERRIDE' : (hasAdjustments ? 'ADJUSTED' : 'APPROVED'),
-                  aiConfidence: aiConfirmation.aiConfidence,
-                  proposedConfidence: preConfirmConfidence,
-                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  aiConfidence: _n(aiConfirmation.aiConfidence),
+                  proposedConfidence: _n(preConfirmConfidence),
+                  confluenceScore: _n(aiConfirmation.confluenceScore),
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
-                  rsiValue: ind.rsi ?? ind.rsi14 ?? null,
-                  adxValue: ind.adx ?? null,
+                  rsiValue: _n(ind.rsi ?? ind.rsi14),
+                  adxValue: _n(ind.adx),
                   macdDirection: macdDir,
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,

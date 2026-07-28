@@ -57862,6 +57862,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const _sess = _utcH < 7 ? "Asian" : _utcH < 13 ? "London" : "NY";
                 const _ind = analysis.indicators || {};
                 const _macdHist = _ind.macd?.histogram ?? _ind.macdHistogram ?? null;
+                const _num = (v) => {
+                  if (typeof v === "number" && isFinite(v)) return v;
+                  if (v && typeof v === "object") {
+                    const inner = v.value ?? v.current ?? v.val ?? v.close;
+                    return typeof inner === "number" && isFinite(inner) ? inner : null;
+                  }
+                  const n = Number(v);
+                  return isFinite(n) ? n : null;
+                };
                 await storage.createConfirmationOutcome({
                   userId: token.userId,
                   symbol: sanitizedSymbol,
@@ -57869,12 +57878,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   direction: preConfirmSignal,
                   session: _sess,
                   aiDecision: "REJECTED",
-                  aiConfidence: aiConfirmation.aiConfidence,
-                  proposedConfidence: preConfirmConfidence,
-                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  aiConfidence: _num(aiConfirmation.aiConfidence),
+                  proposedConfidence: _num(preConfirmConfidence),
+                  confluenceScore: _num(aiConfirmation.confluenceScore),
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
-                  rsiValue: _ind.rsi ?? _ind.rsi14 ?? null,
-                  adxValue: _ind.adx ?? null,
+                  rsiValue: _num(_ind.rsi ?? _ind.rsi14),
+                  adxValue: _num(_ind.adx),
                   macdDirection: _macdHist === null ? "NEUTRAL" : _macdHist > 0 ? "BULLISH" : "BEARISH",
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,
@@ -58034,6 +58043,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const ind = analysis.indicators || {};
                 const macdHist2 = ind.macd?.histogram ?? ind.macdHistogram ?? null;
                 const macdDir = macdHist2 === null ? "NEUTRAL" : macdHist2 > 0 ? "BULLISH" : "BEARISH";
+                const _n = (v) => {
+                  if (typeof v === "number" && isFinite(v)) return v;
+                  if (v && typeof v === "object") {
+                    const i = v.value ?? v.current ?? v.val ?? v.close;
+                    return typeof i === "number" && isFinite(i) ? i : null;
+                  }
+                  const n = Number(v);
+                  return isFinite(n) ? n : null;
+                };
                 const htfAlignedFlag = htfLevels.length > 0 ? htfLevels.every((tf) => {
                   if (!tf.candles || tf.candles.length < 2) return true;
                   const last = tf.candles[0].c;
@@ -58048,12 +58066,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   direction: analysis.signal,
                   session: confirmSession,
                   aiDecision: isAiOverride ? "AI_OVERRIDE" : hasAdjustments ? "ADJUSTED" : "APPROVED",
-                  aiConfidence: aiConfirmation.aiConfidence,
-                  proposedConfidence: preConfirmConfidence,
-                  confluenceScore: aiConfirmation.confluenceScore ?? null,
+                  aiConfidence: _n(aiConfirmation.aiConfidence),
+                  proposedConfidence: _n(preConfirmConfidence),
+                  confluenceScore: _n(aiConfirmation.confluenceScore),
                   confluenceGrade: aiConfirmation.confluenceGrade ?? null,
-                  rsiValue: ind.rsi ?? ind.rsi14 ?? null,
-                  adxValue: ind.adx ?? null,
+                  rsiValue: _n(ind.rsi ?? ind.rsi14),
+                  adxValue: _n(ind.adx),
                   macdDirection: macdDir,
                   ictMacroValid: aiConfirmation.ictMacroValid ?? null,
                   smcVerdict: aiConfirmation.smcVerdict ?? null,
