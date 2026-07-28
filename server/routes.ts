@@ -13320,25 +13320,37 @@ Respond with ONLY valid JSON:
       type StratClient = { client: any; model: string; provider: string };
       const candidates: StratClient[] = [];
 
+      const OpenAISDK = (await import('openai')).default;
+      // User keys FIRST, then PLATFORM env keys as fallback. User keys can be
+      // undecryptable (the at-rest encryption key is derived from DATABASE_URL
+      // when API_KEY_ENCRYPTION_SECRET is unset — a DB password rotation changes
+      // it and every stored key then decrypts to ciphertext → 401). With the
+      // continue-on-failure loop below, a broken user key falls through to the
+      // platform key so generation still works. Order: groq → OpenRouter(user) →
+      // OpenAI(user) → OpenRouter(platform) → OpenAI(platform) → getAiInstance.
       const _groqKey = _activeKeys.find((k: any) => k.provider === 'groq');
       if (_groqKey?.apiKey) {
-        const OpenAISDK = (await import('openai')).default;
         const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 }) as any;
         candidates.push({ client: gc, model: 'openai/gpt-oss-20b', provider: 'groq' });
       }
-      // OpenRouter (user key OR platform key) — cheap, no per-provider daily cap.
-      // Added as a candidate so a stale Groq/OpenAI key no longer blocks generation.
-      const _orKey = _activeKeys.find((k: any) => k.provider === 'openrouter')?.apiKey || process.env.OPENROUTER_API_KEY;
-      if (_orKey) {
-        const OpenAISDK = (await import('openai')).default;
-        const orc = new OpenAISDK({ apiKey: _orKey, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 3, timeout: 90000 }) as any;
+      const _orUserKey = _activeKeys.find((k: any) => k.provider === 'openrouter')?.apiKey;
+      if (_orUserKey) {
+        const orc = new OpenAISDK({ apiKey: _orUserKey, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 3, timeout: 90000 }) as any;
         candidates.push({ client: orc, model: 'openai/gpt-oss-20b', provider: 'openrouter' });
       }
-      const _openaiKey = _activeKeys.find((k: any) => k.provider === 'openai');
-      if (_openaiKey?.apiKey) {
-        const OpenAISDK = (await import('openai')).default;
-        const oc = new OpenAISDK({ apiKey: _openaiKey.apiKey }) as any;
+      const _openaiUserKey = _activeKeys.find((k: any) => k.provider === 'openai')?.apiKey;
+      if (_openaiUserKey) {
+        const oc = new OpenAISDK({ apiKey: _openaiUserKey }) as any;
         candidates.push({ client: oc, model: 'gpt-4o-mini', provider: 'openai' });
+      }
+      // Platform fallbacks (env) — resilient to broken/undecryptable user keys.
+      if (process.env.OPENROUTER_API_KEY) {
+        const orp = new OpenAISDK({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 3, timeout: 90000 }) as any;
+        candidates.push({ client: orp, model: 'openai/gpt-oss-20b', provider: 'openrouter-platform' });
+      }
+      if (process.env.OPENAI_API_KEY) {
+        const oap = new OpenAISDK({ apiKey: process.env.OPENAI_API_KEY }) as any;
+        candidates.push({ client: oap, model: 'gpt-4o-mini', provider: 'openai-platform' });
       }
       if (candidates.length === 0) {
         // fallback to whatever getAiInstance returns

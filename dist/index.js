@@ -60164,23 +60164,29 @@ Respond with ONLY valid JSON:
       const _allKeys = await _stratStorage.getUserApiKeys(userId);
       const _activeKeys = _allKeys.filter((k) => k.isActive && k.isValid !== false);
       const candidates = [];
+      const OpenAISDK = (await import("openai")).default;
       const _groqKey = _activeKeys.find((k) => k.provider === "groq");
       if (_groqKey?.apiKey) {
-        const OpenAISDK = (await import("openai")).default;
         const gc = new OpenAISDK({ apiKey: _groqKey.apiKey, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
         candidates.push({ client: gc, model: "openai/gpt-oss-20b", provider: "groq" });
       }
-      const _orKey = _activeKeys.find((k) => k.provider === "openrouter")?.apiKey || process.env.OPENROUTER_API_KEY;
-      if (_orKey) {
-        const OpenAISDK = (await import("openai")).default;
-        const orc = new OpenAISDK({ apiKey: _orKey, baseURL: "https://openrouter.ai/api/v1", maxRetries: 3, timeout: 9e4 });
+      const _orUserKey = _activeKeys.find((k) => k.provider === "openrouter")?.apiKey;
+      if (_orUserKey) {
+        const orc = new OpenAISDK({ apiKey: _orUserKey, baseURL: "https://openrouter.ai/api/v1", maxRetries: 3, timeout: 9e4 });
         candidates.push({ client: orc, model: "openai/gpt-oss-20b", provider: "openrouter" });
       }
-      const _openaiKey = _activeKeys.find((k) => k.provider === "openai");
-      if (_openaiKey?.apiKey) {
-        const OpenAISDK = (await import("openai")).default;
-        const oc = new OpenAISDK({ apiKey: _openaiKey.apiKey });
+      const _openaiUserKey = _activeKeys.find((k) => k.provider === "openai")?.apiKey;
+      if (_openaiUserKey) {
+        const oc = new OpenAISDK({ apiKey: _openaiUserKey });
         candidates.push({ client: oc, model: "gpt-4o-mini", provider: "openai" });
+      }
+      if (process.env.OPENROUTER_API_KEY) {
+        const orp = new OpenAISDK({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", maxRetries: 3, timeout: 9e4 });
+        candidates.push({ client: orp, model: "openai/gpt-oss-20b", provider: "openrouter-platform" });
+      }
+      if (process.env.OPENAI_API_KEY) {
+        const oap = new OpenAISDK({ apiKey: process.env.OPENAI_API_KEY });
+        candidates.push({ client: oap, model: "gpt-4o-mini", provider: "openai-platform" });
       }
       if (candidates.length === 0) {
         try {
