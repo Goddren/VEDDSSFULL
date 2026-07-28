@@ -41963,6 +41963,26 @@ CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
   "updated_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("connection_id", "connection_type")
 );
+
+-- TEMP read-only diagnostic: one row per MT5 chart-data POST that reaches the
+-- second-opinion region, capturing exactly where the flow stops (signal gate /
+-- vision-enabled / AI call fired / returned / errored). No trades triggered.
+-- Remove after diagnosing why ai_confirmation_outcomes records nothing.
+CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer,
+  "symbol" text,
+  "timeframe" text,
+  "signal" text,
+  "confidence" real,
+  "gate_passed" boolean,
+  "vision_enabled" boolean,
+  "stage" text,
+  "decision" text,
+  "model" text,
+  "err" text,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
 `;
   }
 });
@@ -57410,7 +57430,44 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         breakoutStrength: advanced.breakoutDetection?.breakoutStrength || void 0
       };
       let _htfMacroTrend = "NEUTRAL";
+      const _cdiag = {
+        userId: token.userId,
+        symbol: sanitizedSymbol,
+        timeframe: sanitizedTimeframe,
+        signal: analysis.signal,
+        confidence: analysis.confidence,
+        gatePassed: false,
+        visionEnabled: null,
+        stage: "pre_gate",
+        decision: null,
+        model: null,
+        err: null
+      };
+      const _writeCdiag = async () => {
+        try {
+          const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
+          await _p.query(
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [
+              _cdiag.userId,
+              _cdiag.symbol,
+              _cdiag.timeframe,
+              _cdiag.signal,
+              _cdiag.confidence,
+              _cdiag.gatePassed,
+              _cdiag.visionEnabled,
+              _cdiag.stage,
+              _cdiag.decision,
+              _cdiag.model,
+              _cdiag.err ? String(_cdiag.err).slice(0, 300) : null
+            ]
+          );
+        } catch {
+        }
+      };
       if (analysis.signal !== "NEUTRAL" && analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
+        _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled: isAiVisionConfirmationEnabled2, getAiVisionConfirmation: getAiVisionConfirmation2, getBreakoutConfirmation: getBreakoutConfirmation2, addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2, isICTStrategyEnabled: isICTStrategyEnabled2, isSMCStrategyEnabled: isSMCStrategyEnabled2, isPropFirmModeEnabled: isPropFirmModeEnabled2, getPropFirmContext: getPropFirmContext2, isBreakoutModeEnabled: isBreakoutModeEnabled2, isTrailingStopEnabled: isTrailingStopEnabled2, setTrailingStopEnabled: setTrailingStopEnabled2, hydrateBreakoutModeMap: hydrateBreakoutModeMap2, hydrateAiVisionMap: hydrateAiVisionMap2, getAiMinConfidence: _getAiMinConf } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           try {
@@ -57425,6 +57482,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           } catch (_hydrateErr) {
           }
+          _cdiag.visionEnabled = isAiVisionConfirmationEnabled2(token.userId);
+          _cdiag.stage = "gate_passed";
           if (isAiVisionConfirmationEnabled2(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference2(token.userId);
@@ -57673,6 +57732,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const _weeklyStrat = global.mt5WeeklyStrategies?.[token.userId];
               const resolvedStrategyMode = _stratEngineState?.config?.strategyMode || _weeklyStrat?.strategyMode || _weeklyStrat?.plan?.strategyType || "aggressive";
               console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
+              _cdiag.stage = "ai_called";
               aiConfirmation = await getAiVisionConfirmation2(
                 candles,
                 analysis.indicators,
@@ -57692,6 +57752,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 resolvedStrategyMode,
                 !!_stratEngineState?.config?.deepReasoningMode
               );
+              _cdiag.stage = "ai_returned";
+              _cdiag.decision = aiConfirmation ? aiConfirmation.confirmed ? "CONFIRMED" : "REJECTED" : "NULL";
+              _cdiag.model = aiConfirmation?.modelUsed || getUserModelPreference2(token.userId);
             }
             {
               const dbUser = await storage.getUser(token.userId);
@@ -57990,6 +58053,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           }
         } catch (confirmError) {
           console.error("[AI Vision Confirmation] Error:", confirmError);
+          _cdiag.stage = "ai_error";
+          _cdiag.err = confirmError instanceof Error ? confirmError.message : String(confirmError);
           analysis.alerts.push("AI Second Opinion unavailable - proceeding with EA analysis only");
           const { addAiConfirmationLog: addAiConfirmationLog2, getUserModelPreference: getUserModelPreference2, AVAILABLE_VISION_MODELS: AVAILABLE_VISION_MODELS2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
           const errModelId = getUserModelPreference2(token.userId);
@@ -58017,6 +58082,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             reasoning: "AI unavailable - using EA analysis only"
           };
         }
+        void _writeCdiag();
+      } else {
+        _cdiag.stage = "gate_failed";
+        void _writeCdiag();
       }
       const useRiskPercent = matchingEA?.useRiskPercent ?? true;
       const { getLiveEngineState: _getLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));

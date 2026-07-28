@@ -23,6 +23,26 @@ CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
   "updated_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("connection_id", "connection_type")
 );
+
+-- TEMP read-only diagnostic: one row per MT5 chart-data POST that reaches the
+-- second-opinion region, capturing exactly where the flow stops (signal gate /
+-- vision-enabled / AI call fired / returned / errored). No trades triggered.
+-- Remove after diagnosing why ai_confirmation_outcomes records nothing.
+CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer,
+  "symbol" text,
+  "timeframe" text,
+  "signal" text,
+  "confidence" real,
+  "gate_passed" boolean,
+  "vision_enabled" boolean,
+  "stage" text,
+  "decision" text,
+  "model" text,
+  "err" text,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
 `;
 
 export async function ensureReasoningPropFirmTables(): Promise<void> {

@@ -10089,10 +10089,31 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       // Macro higher-timeframe trend, captured during HTF fetch below and enforced
       // as a hard counter-trend gate (Gate 6) before execution.
       let _htfMacroTrend: 'BULL' | 'BEAR' | 'NEUTRAL' = 'NEUTRAL';
+      // TEMP read-only diagnostic — capture exactly where the second-opinion flow
+      // stops on every chart-data POST. Fire-and-forget; never blocks the trade.
+      const _cdiag: any = {
+        userId: token.userId, symbol: sanitizedSymbol, timeframe: sanitizedTimeframe,
+        signal: analysis.signal, confidence: analysis.confidence,
+        gatePassed: false, visionEnabled: null, stage: 'pre_gate',
+        decision: null, model: null, err: null,
+      };
+      const _writeCdiag = async () => {
+        try {
+          const { pool: _p } = await import('./db');
+          await _p.query(
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [_cdiag.userId, _cdiag.symbol, _cdiag.timeframe, _cdiag.signal, _cdiag.confidence,
+             _cdiag.gatePassed, _cdiag.visionEnabled, _cdiag.stage, _cdiag.decision, _cdiag.model,
+             _cdiag.err ? String(_cdiag.err).slice(0, 300) : null]
+          );
+        } catch { /* diag only — never disrupt trade flow */ }
+      };
       // Second Opinion fires on any non-NEUTRAL signal ≥ 60% — tradePlan NOT required.
       // Auto-execution (TradeLocker) still needs MIN_CONFIDENCE + tradePlan — checked later.
       if (analysis.signal !== 'NEUTRAL' &&
           analysis.confidence >= Math.min(60, MIN_CONFIDENCE_FOR_AUTO_TRADE)) {
+        _cdiag.gatePassed = true;
         try {
           const { isAiVisionConfirmationEnabled, getAiVisionConfirmation, getBreakoutConfirmation, addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS, isICTStrategyEnabled, isSMCStrategyEnabled, isPropFirmModeEnabled, getPropFirmContext, isBreakoutModeEnabled, isTrailingStopEnabled, setTrailingStopEnabled, hydrateBreakoutModeMap, hydrateAiVisionMap, getAiMinConfidence: _getAiMinConf } = await import('./openai');
 
@@ -10110,6 +10131,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             }
           } catch (_hydrateErr) { /* non-fatal — keep in-memory default */ }
 
+          _cdiag.visionEnabled = isAiVisionConfirmationEnabled(token.userId);
+          _cdiag.stage = 'gate_passed';
           if (isAiVisionConfirmationEnabled(token.userId)) {
             console.log(`[AI Vision Confirmation] Enabled for user ${token.userId} - requesting AI second opinion on ${sanitizedSymbol}`);
             const selectedModelId = getUserModelPreference(token.userId);
@@ -10350,6 +10373,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 'aggressive';
               console.log(`[AI Confirmation] Strategy mode for ${sanitizedSymbol}: ${resolvedStrategyMode}`);
 
+              _cdiag.stage = 'ai_called';
               aiConfirmation = await getAiVisionConfirmation(
                 candles, analysis.indicators, analysis.signal, analysis.confidence,
                 analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
@@ -10358,6 +10382,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 symbolPerfStats, learnedInsights, resolvedStrategyMode,
                 !!_stratEngineState?.config?.deepReasoningMode
               );
+              _cdiag.stage = 'ai_returned';
+              _cdiag.decision = aiConfirmation ? (aiConfirmation.confirmed ? 'CONFIRMED' : 'REJECTED') : 'NULL';
+              _cdiag.model = (aiConfirmation as any)?.modelUsed || getUserModelPreference(token.userId);
             }
 
             // Trailing stop: hydrate from DB first so server restarts don't reset to default-on
@@ -10703,6 +10730,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
         } catch (confirmError) {
           console.error('[AI Vision Confirmation] Error:', confirmError);
+          _cdiag.stage = 'ai_error';
+          _cdiag.err = confirmError instanceof Error ? confirmError.message : String(confirmError);
           analysis.alerts.push('AI Second Opinion unavailable - proceeding with EA analysis only');
           const { addAiConfirmationLog, getUserModelPreference, AVAILABLE_VISION_MODELS } = await import('./openai');
           const errModelId = getUserModelPreference(token.userId);
@@ -10724,6 +10753,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             reasoning: 'AI unavailable - using EA analysis only',
           };
         }
+        void _writeCdiag();
+      } else {
+        _cdiag.stage = 'gate_failed';
+        void _writeCdiag();
       }
 
       // Calculate position sizing — priority: EA override → live engine riskPerTrade → 1% default
