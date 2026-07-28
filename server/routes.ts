@@ -13370,6 +13370,12 @@ Respond with ONLY valid JSON:
         candidates.push({ client: oc, model: 'gpt-4o-mini', provider: 'openai' });
       }
       // Platform fallbacks (env) — resilient to broken/undecryptable user keys.
+      // Groq platform first: it's what the live MT5 confirmations already use
+      // successfully (GPT-OSS 20B), so it's the most reliable path here.
+      if (process.env.GROQ_API_KEY) {
+        const gp = new OpenAISDK({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', maxRetries: 4, timeout: 90000 }) as any;
+        candidates.push({ client: gp, model: 'openai/gpt-oss-20b', provider: 'groq-platform' });
+      }
       if (process.env.OPENROUTER_API_KEY) {
         const orp = new OpenAISDK({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', maxRetries: 3, timeout: 90000 }) as any;
         candidates.push({ client: orp, model: 'openai/gpt-oss-20b', provider: 'openrouter-platform' });
