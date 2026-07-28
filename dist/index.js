@@ -57888,6 +57888,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   deepReasoningUsed: !!aiConfirmation.deepReasoningUsed
                 });
               } catch (_rejDbErr) {
+                _cdiag.err = "rejrec: " + (_rejDbErr?.message || String(_rejDbErr));
+                console.error("[AI Confirmation] REJECTED record insert failed:", _rejDbErr?.message || _rejDbErr);
               }
             } else {
               const isAiOverride = aiPasses && !eaPasses;

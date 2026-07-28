@@ -10555,7 +10555,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   bearCase: (aiConfirmation as any).bearCase || undefined,
                   deepReasoningUsed: !!(aiConfirmation as any).deepReasoningUsed,
                 } as any);
-              } catch (_rejDbErr) { /* non-critical — never block */ }
+              } catch (_rejDbErr: any) {
+                // Surface the failure into the diag probe so we can see WHY the
+                // reject record isn't persisting (breakout confirmations record 0
+                // rows despite REJECTED verdicts). Non-blocking.
+                _cdiag.err = 'rejrec: ' + (_rejDbErr?.message || String(_rejDbErr));
+                console.error('[AI Confirmation] REJECTED record insert failed:', _rejDbErr?.message || _rejDbErr);
+              }
             } else {
               const isAiOverride = aiPasses && !eaPasses;
               const approvalLabel = consensusLabel === 'STRONG_CONFIRM' ? 'STRONG CONFIRM' : isAiOverride ? 'AI OVERRIDE' : 'APPROVED';
