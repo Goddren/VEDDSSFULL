@@ -2680,6 +2680,15 @@ export default function MT5ChartDataPage() {
               {mt5Tokens.length > 0 && !newlyCreatedToken && (
                 <div className="space-y-2">
                   <Label className="text-gray-400 text-sm">Your existing tokens:</Label>
+                  {/* Hard-won footgun fix: users kept copying the masked preview
+                      below and pasting it into the EA → permanent 401. Make it
+                      unmistakable that these are masked and NOT the real key. */}
+                  <div className="flex items-start gap-2 p-2.5 rounded border border-amber-500/40 bg-amber-500/10">
+                    <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-300 leading-snug">
+                      These are <span className="font-bold">masked previews</span> — <span className="font-bold">not</span> your real key. The full token is shown <span className="font-bold">only once, when you create it</span>. To connect your EA, <span className="font-bold">create a new token above</span> and copy the green box. Copying the masked value below will always fail with a 401.
+                    </p>
+                  </div>
                   {mt5Tokens.map(token => (
                     <div key={token.id} className="flex items-center justify-between p-3 bg-gray-900/50 rounded border border-gray-700">
                       <div className="flex items-center gap-3">
@@ -2687,8 +2696,9 @@ export default function MT5ChartDataPage() {
                         <Badge className={token.isActive ? "bg-green-500/20 text-green-400" : "bg-gray-500/20 text-gray-400"}>
                           {token.isActive ? 'Active' : 'Inactive'}
                         </Badge>
-                        <div className="flex items-center gap-1">
-                          <code className="text-gray-500 text-xs font-mono" title="Full token is only shown once, at creation, for security. Delete and create a new token if you need to re-paste it into your EA.">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] uppercase font-bold text-gray-600 bg-gray-800 px-1 rounded">masked</span>
+                          <code className="text-gray-500 text-xs font-mono select-none" title="Masked preview only. The full token is shown once at creation. Create a new token to get a usable key for your EA.">
                             {token.token}
                           </code>
                         </div>
