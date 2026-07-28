@@ -8670,7 +8670,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         tradePlan: null as any,
         alerts: [] as string[],
       };
-      
+      // TEMP diag capture — vote outcome + which gate (if any) forced NEUTRAL.
+      const _diagCap: { buyVotes: number | null; sellVotes: number | null; neutralReason: string | null } =
+        { buyVotes: null, sellVotes: null, neutralReason: null };
+
       let advanced: any = {};
       
       if (indicators && typeof indicators === 'object') {
@@ -9195,6 +9198,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           baseVotes += 1.5; // confluence bonus slot
           if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
+          _diagCap.buyVotes = buyVotes; _diagCap.sellVotes = sellVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
             analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100 * adxPenalty));
@@ -9204,6 +9208,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } else {
             analysis.signal = 'NEUTRAL';
             analysis.confidence = 50;
+            _diagCap.neutralReason = `votes_below_3 (buy=${buyVotes},sell=${sellVotes})`;
           }
           
           // Session quality multiplier — peak liquidity sessions produce higher-quality signals
@@ -9811,6 +9816,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           // If today is a skipped day (no plan entry or explicitly skipped), block all trades
           if (!todayPlan || todayPlan.skip === true) {
             console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} — ${todayName} is a skipped trading day.`);
+            _diagCap.neutralReason = `plan_skipped_day (${todayName})`;
             analysis.signal = 'NEUTRAL';
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`VEDD SS AI: ${todayName} is a non-trading day in your weekly plan. All trades blocked.`);
@@ -9830,6 +9836,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (todayCount >= matchingPairPlan.maxTrades) {
                   console.log(`[SS Engine] Trade cap BLOCKED ${normalizedSymbol} — ${todayCount}/${matchingPairPlan.maxTrades} daily trades reached`);
                   // Don't execute trade, skip to NEUTRAL
+                  _diagCap.neutralReason = `plan_daily_cap (${todayCount}/${matchingPairPlan.maxTrades})`;
                   analysis.signal = 'NEUTRAL';
                   analysis.alerts = analysis.alerts || [];
                   analysis.alerts.push(`Daily trade cap reached for ${normalizedSymbol} (${todayCount}/${matchingPairPlan.maxTrades}). Waiting for tomorrow.`);
@@ -9852,6 +9859,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 // This was previously a warning-only — which caused both directions to fire.
                 // Now we set signal to NEUTRAL to prevent the opposite-direction trade entirely.
                 console.log(`[VEDD SS AI] Direction BLOCK on ${sanitizedSymbol}: Plan=${planDirection}, EA=${analysis.signal} — opposite direction rejected`);
+                _diagCap.neutralReason = `plan_direction_block (plan=${planDirection},ea=${analysis.signal})`;
                 analysis.signal = 'NEUTRAL';
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`VEDD SS AI: ${analysis.signal !== 'NEUTRAL' ? analysis.signal : 'Signal'} BLOCKED — your plan only allows ${planDirection} on ${normalizedSymbol} today. Wait for a ${planDirection} setup.`);
@@ -9883,6 +9891,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 // Hard block — not scheduled and no override applies
                 console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} — not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}`);
                 blockedByPlan = true; // Goal Intelligence may override this below
+                _diagCap.neutralReason = `plan_symbol_not_scheduled (${todayName}: ${todayPlan.pairs.map((p: any) => p.symbol).join(',')})`;
                 analysis.signal = 'NEUTRAL';
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`VEDD SS AI: ${sanitizedSymbol} is NOT scheduled for ${todayName}. Today's pairs: ${todayPlan.pairs.map((p: any) => p.symbol).join(', ')}. Trade blocked.`);
@@ -10101,11 +10110,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         try {
           const { pool: _p } = await import('./db');
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
             [_cdiag.userId, _cdiag.symbol, _cdiag.timeframe, _cdiag.signal, _cdiag.confidence,
              _cdiag.gatePassed, _cdiag.visionEnabled, _cdiag.stage, _cdiag.decision, _cdiag.model,
-             _cdiag.err ? String(_cdiag.err).slice(0, 300) : null]
+             _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
+             _diagCap.buyVotes, _diagCap.sellVotes, _diagCap.neutralReason]
           );
         } catch { /* diag only — never disrupt trade flow */ }
       };

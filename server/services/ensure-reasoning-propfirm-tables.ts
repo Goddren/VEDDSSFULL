@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
   "err" text,
   "created_at" timestamp NOT NULL DEFAULT now()
 );
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 `;
 
 export async function ensureReasoningPropFirmTables(): Promise<void> {

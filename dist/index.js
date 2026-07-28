@@ -41983,6 +41983,9 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
   "err" text,
   "created_at" timestamp NOT NULL DEFAULT now()
 );
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
+ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 `;
   }
 });
@@ -56238,6 +56241,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         tradePlan: null,
         alerts: []
       };
+      const _diagCap = { buyVotes: null, sellVotes: null, neutralReason: null };
       let advanced = {};
       if (indicators && typeof indicators === "object") {
         try {
@@ -56703,6 +56707,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           baseVotes += 1.5;
           if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + mtfCount * 0.75 : baseVotes;
+          _diagCap.buyVotes = buyVotes;
+          _diagCap.sellVotes = sellVotes;
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = "BUY";
             analysis.confidence = Math.min(95, Math.round(buyVotes / totalVotes * 100 * adxPenalty));
@@ -56712,6 +56718,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           } else {
             analysis.signal = "NEUTRAL";
             analysis.confidence = 50;
+            _diagCap.neutralReason = `votes_below_3 (buy=${buyVotes},sell=${sellVotes})`;
           }
           if (advanced.sessionContext) {
             const sess = (advanced.sessionContext.currentSession || "").toLowerCase();
@@ -57221,6 +57228,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
           if (!todayPlan || todayPlan.skip === true) {
             console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} \u2014 ${todayName} is a skipped trading day.`);
+            _diagCap.neutralReason = `plan_skipped_day (${todayName})`;
             analysis.signal = "NEUTRAL";
             analysis.alerts = analysis.alerts || [];
             analysis.alerts.push(`VEDD SS AI: ${todayName} is a non-trading day in your weekly plan. All trades blocked.`);
@@ -57236,6 +57244,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 const todayCount = await getDailyTradeCountForPair(token.userId, normalizedSymbol, todayDateStr);
                 if (todayCount >= matchingPairPlan.maxTrades) {
                   console.log(`[SS Engine] Trade cap BLOCKED ${normalizedSymbol} \u2014 ${todayCount}/${matchingPairPlan.maxTrades} daily trades reached`);
+                  _diagCap.neutralReason = `plan_daily_cap (${todayCount}/${matchingPairPlan.maxTrades})`;
                   analysis.signal = "NEUTRAL";
                   analysis.alerts = analysis.alerts || [];
                   analysis.alerts.push(`Daily trade cap reached for ${normalizedSymbol} (${todayCount}/${matchingPairPlan.maxTrades}). Waiting for tomorrow.`);
@@ -57252,6 +57261,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 analysis.alerts.push(`VEDD SS AI: Trade matches your weekly plan (${planDirection} ${normalizedSymbol} - ${matchingPairPlan.session}). Confidence boosted +${boostAmount}%`);
               } else if (planDirection && planDirection !== "BOTH" && planDirection !== analysis.signal && analysis.signal !== "NEUTRAL") {
                 console.log(`[VEDD SS AI] Direction BLOCK on ${sanitizedSymbol}: Plan=${planDirection}, EA=${analysis.signal} \u2014 opposite direction rejected`);
+                _diagCap.neutralReason = `plan_direction_block (plan=${planDirection},ea=${analysis.signal})`;
                 analysis.signal = "NEUTRAL";
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`VEDD SS AI: ${analysis.signal !== "NEUTRAL" ? analysis.signal : "Signal"} BLOCKED \u2014 your plan only allows ${planDirection} on ${normalizedSymbol} today. Wait for a ${planDirection} setup.`);
@@ -57276,6 +57286,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               } else {
                 console.log(`[VEDD SS AI] BLOCKED ${sanitizedSymbol} \u2014 not in today's plan (${todayName}). Plan has: ${todayPlan.pairs.map((p) => p.symbol).join(", ")}`);
                 blockedByPlan = true;
+                _diagCap.neutralReason = `plan_symbol_not_scheduled (${todayName}: ${todayPlan.pairs.map((p) => p.symbol).join(",")})`;
                 analysis.signal = "NEUTRAL";
                 analysis.alerts = analysis.alerts || [];
                 analysis.alerts.push(`VEDD SS AI: ${sanitizedSymbol} is NOT scheduled for ${todayName}. Today's pairs: ${todayPlan.pairs.map((p) => p.symbol).join(", ")}. Trade blocked.`);
@@ -57447,8 +57458,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
         try {
           const { pool: _p } = await Promise.resolve().then(() => (init_db(), db_exports));
           await _p.query(
-            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO mt5_confirm_diag (user_id, symbol, timeframe, signal, confidence, gate_passed, vision_enabled, stage, decision, model, err, buy_votes, sell_votes, neutral_reason)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
             [
               _cdiag.userId,
               _cdiag.symbol,
@@ -57460,7 +57471,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               _cdiag.stage,
               _cdiag.decision,
               _cdiag.model,
-              _cdiag.err ? String(_cdiag.err).slice(0, 300) : null
+              _cdiag.err ? String(_cdiag.err).slice(0, 300) : null,
+              _diagCap.buyVotes,
+              _diagCap.sellVotes,
+              _diagCap.neutralReason
             ]
           );
         } catch {
