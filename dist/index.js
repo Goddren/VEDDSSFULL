@@ -56709,12 +56709,20 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + mtfCount * 0.75 : baseVotes;
           _diagCap.buyVotes = buyVotes;
           _diagCap.sellVotes = sellVotes;
+          const _winner = Math.max(buyVotes, sellVotes);
+          const _loser = Math.min(buyVotes, sellVotes);
+          const _decisive = _winner + _loser > 0 ? _winner / (_winner + _loser) : 1;
+          const _oneSidedNorm = Math.max(0, (_decisive - 0.5) / 0.5);
+          const STRONG_VOTES = 6;
+          const _magnitude = Math.min(1, _winner / STRONG_VOTES);
+          const _conviction = 0.6 * _oneSidedNorm + 0.4 * _magnitude;
+          const _scaledConf = Math.max(50, Math.min(95, Math.round(50 + 45 * _conviction * adxPenalty)));
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = "BUY";
-            analysis.confidence = Math.min(95, Math.round(buyVotes / totalVotes * 100 * adxPenalty));
+            analysis.confidence = _scaledConf;
           } else if (sellVotes > buyVotes && sellVotes >= 3) {
             analysis.signal = "SELL";
-            analysis.confidence = Math.min(95, Math.round(sellVotes / totalVotes * 100 * adxPenalty));
+            analysis.confidence = _scaledConf;
           } else {
             analysis.signal = "NEUTRAL";
             analysis.confidence = 50;

@@ -9199,12 +9199,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           if (breakoutEnabled && (advanced.breakoutDetection?.breakoutDetected || analysis.indicators?.independentBreakout?.breakoutDetected)) baseVotes += 4;
           const totalVotes = multiTimeframeEnabled && mtfCount > 0 ? baseVotes + (mtfCount * 0.75) : baseVotes;
           _diagCap.buyVotes = buyVotes; _diagCap.sellVotes = sellVotes;
+          // ── Confidence recalibration ────────────────────────────────────────
+          // The old formula divided the winning side's votes by totalVotes (the
+          // SUM OF EVERY INDICATOR'S MAXIMUM POSSIBLE CONTRIBUTION). That measured
+          // "what fraction of all possible evidence fired", not conviction — so
+          // even a clean, unopposed signal (e.g. buy 4.75 / sell 0) only scored
+          // ~38%, making the 60% AI-gate and 74% exec floor effectively
+          // unreachable and the engine near-permanently NEUTRAL/no-trade.
+          //
+          // New model blends two intuitive factors, each 0..1:
+          //   decisive  = winner / (winner + loser)   → how one-sided the read is
+          //   magnitude = winner / STRONG_VOTES        → how much evidence fired
+          // mapped into a 50..95 band. ADX penalty scales the above-50 portion so
+          // a weak/choppy trend pulls conviction back toward neutral (50) rather
+          // than collapsing the whole score.
+          const _winner = Math.max(buyVotes, sellVotes);
+          const _loser = Math.min(buyVotes, sellVotes);
+          const _decisive = (_winner + _loser) > 0 ? _winner / (_winner + _loser) : 1; // 0.5..1
+          const _oneSidedNorm = Math.max(0, (_decisive - 0.5) / 0.5);                   // 0..1
+          const STRONG_VOTES = 6;                                                        // ~evidence in a strong setup
+          const _magnitude = Math.min(1, _winner / STRONG_VOTES);                        // 0..1
+          const _conviction = (0.6 * _oneSidedNorm) + (0.4 * _magnitude);                // 0..1
+          const _scaledConf = Math.max(50, Math.min(95, Math.round(50 + 45 * _conviction * adxPenalty)));
           if (buyVotes > sellVotes && buyVotes >= 3) {
             analysis.signal = 'BUY';
-            analysis.confidence = Math.min(95, Math.round((buyVotes / totalVotes) * 100 * adxPenalty));
+            analysis.confidence = _scaledConf;
           } else if (sellVotes > buyVotes && sellVotes >= 3) {
             analysis.signal = 'SELL';
-            analysis.confidence = Math.min(95, Math.round((sellVotes / totalVotes) * 100 * adxPenalty));
+            analysis.confidence = _scaledConf;
           } else {
             analysis.signal = 'NEUTRAL';
             analysis.confidence = 50;
