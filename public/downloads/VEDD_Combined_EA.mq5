@@ -2440,6 +2440,17 @@ int OnInit()
    while(StringLen(base) > 0 && StringGetCharacter(base, StringLen(base)-1) == '/')
       base = StringSubstr(base, 0, StringLen(base)-1);
 
+   // Tolerate a full endpoint URL pasted into the base field (e.g.
+   // "https://veddbuild.com/api/mt5/chart-data"). This EA appends the API path
+   // itself, so without stripping we'd build ".../api/mt5/chart-data/api/mt5/
+   // chart-data" and every request 404s. Cut anything from "/api/" onward.
+   int _apiPos = StringFind(base, "/api/");
+   if(_apiPos > 8) // keep scheme+host (https://host)
+   {
+      Print("[VEDD] SERVER_URL contained an API path — normalized base to: ", StringSubstr(base, 0, _apiPos));
+      base = StringSubstr(base, 0, _apiPos);
+   }
+
    g_signalUrl      = base + "/api/vedd-live-engine/mt5-signals";
    g_confirmUrl     = base + "/api/vedd-live-engine/mt5-signal-confirm";
    g_chartDataUrl   = base + "/api/mt5/chart-data";

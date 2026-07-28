@@ -75070,6 +75070,12 @@ app.use(express2.json({ limit: "50mb", verify: (req, _res, buf) => {
   req.rawBody = buf;
 } }));
 app.use(express2.urlencoded({ extended: false, limit: "50mb" }));
+app.use((req, _res, next) => {
+  if (req.url.includes("/api/mt5/chart-data/api/mt5/chart-data")) {
+    req.url = req.url.replace("/api/mt5/chart-data/api/mt5/chart-data", "/api/mt5/chart-data");
+  }
+  next();
+});
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 app.get("/ambassador-portal", (req, res) => {
   const portalUrl = process.env.VEDD_PORTAL_URL;

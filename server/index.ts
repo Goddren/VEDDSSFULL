@@ -56,6 +56,18 @@ const app = express();
 app.use(express.json({ limit: '50mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 
+// Tolerate MT5 EAs that doubled the API path — this happens when a user pastes
+// the full endpoint URL into an EA's *base URL* field (the Combined EA appends
+// "/api/mt5/chart-data" itself), producing ".../api/mt5/chart-data/api/mt5/
+// chart-data" → 404. Collapse the duplicated segment so those posts still work
+// without the user reconfiguring the EA.
+app.use((req, _res, next) => {
+  if (req.url.includes('/api/mt5/chart-data/api/mt5/chart-data')) {
+    req.url = req.url.replace('/api/mt5/chart-data/api/mt5/chart-data', '/api/mt5/chart-data');
+  }
+  next();
+});
+
 // Health check endpoint — must respond before Vite compiles (Railway health check)
 app.get("/health", (_req, res) => res.status(200).json({ status: "ok" }));
 
