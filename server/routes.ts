@@ -13421,42 +13421,53 @@ Respond with ONLY valid JSON:
           continue;
         }
       }
+      // Parse the AI response if we got one. NEVER hard-fail: if every AI
+      // candidate errored (all provider keys down — e.g. undecryptable user keys
+      // + exhausted platform keys) or returned unusable JSON, fall through to a
+      // deterministic full-coverage plan below so the user always gets a plan.
+      let plan: any = null;
       if (lastAiError) {
-        const errMsg = lastAiError.message || '';
-        const errStatus = lastAiError.status || lastAiError.statusCode || 0;
-        if (errStatus === 429 || errMsg.includes('rate') || errMsg.includes('quota')) {
-          return res.status(429).json({ error: 'All AI providers hit rate limits. Wait 1 minute and try again, or add a Groq API key (free at console.groq.com).' });
+        console.error(`[Weekly Strategy] All AI candidates failed — falling back to deterministic plan. Last error: ${(lastAiError.message || String(lastAiError)).substring(0, 200)}`);
+      } else {
+        const content = response?.choices?.[0]?.message?.content || '';
+        if (content.trim()) {
+          try { plan = JSON.parse(content); }
+          catch {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) { try { plan = JSON.parse(jsonMatch[0]); } catch { plan = null; } }
+          }
         }
-        if (errStatus === 401 || errMsg.includes('invalid_api_key') || errMsg.includes('authentication_error')) {
-          return res.status(401).json({ error: 'AI API key is invalid or expired. Please update your key in AI API Keys settings.' });
+        if (plan && typeof plan === 'object' && !plan.weeklyPlan) {
+          console.error('[Weekly Strategy] AI response missing weeklyPlan — using deterministic fallback.');
         }
-        return res.status(500).json({ error: `AI error: ${errMsg.substring(0, 100)}` });
       }
 
-      const content = response.choices[0]?.message?.content || '';
-      if (!content.trim()) {
-        return res.status(500).json({ error: 'AI returned empty response. Please try again.' });
+      // Deterministic fallback plan when AI is unavailable or returned junk. The
+      // full-coverage normalization below fills weeklyPlan for every active day,
+      // so we only need a valid skeleton here.
+      if (!plan || typeof plan !== 'object') {
+        const _bal = Number(accountBalance) || 0;
+        plan = {
+          feasibility: 'AGGRESSIVE',
+          feasibilityReason: 'AI text generation was unavailable, so this is a balanced full-coverage plan: all selected pairs, both directions, with the live vote engine + AI second opinion deciding each setup.',
+          suggestedTarget: profitTarget,
+          growthStrategy: 'Full-coverage compounding — trade all selected pairs in either direction as high-confidence setups appear; risk is capped per trade and per day.',
+          weeklyPlan: {},
+          pairRankings: [],
+          riskManagement: {
+            maxDailyLoss: Math.round(_bal * 0.05 * 100) / 100,
+            maxDailyTrades: 10,
+            riskPerTrade: 1,
+            trailingStopMode: 'STANDARD',
+            dailyStopRule: 'Stop trading for the day once the daily loss limit is hit.',
+            aiConfidenceMinimum: 72,
+          },
+          keyInsights: ['Generated without AI narrative (providers unavailable).', 'All selected pairs enabled both directions.', 'Direction is decided live by vote consensus + AI second opinion.'],
+          weeklyProjection: { bestCase: profitTarget, expected: Math.round(profitTarget * 0.6), worstCase: 0 },
+          _aiFallback: true,
+        };
       }
-
-      let plan: any;
-      try {
-        plan = JSON.parse(content);
-      } catch {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          console.error('[Weekly Strategy] AI returned non-JSON:', content.substring(0, 200));
-          return res.status(500).json({ error: 'AI returned an invalid format. Please try again.' });
-        }
-        try {
-          plan = JSON.parse(jsonMatch[0]);
-        } catch {
-          return res.status(500).json({ error: 'AI returned malformed data. Please try again.' });
-        }
-      }
-      if (!plan || typeof plan !== 'object' || !plan.weeklyPlan) {
-        console.error('[Weekly Strategy] AI response missing weeklyPlan:', JSON.stringify(plan).substring(0, 200));
-        return res.status(500).json({ error: 'AI response was incomplete. Please try again.' });
-      }
+      if (!plan.weeklyPlan || typeof plan.weeklyPlan !== 'object') plan.weeklyPlan = {};
 
       // ── Full-coverage normalization ─────────────────────────────────────────
       // The generator historically emitted a single pair per day with a fixed
