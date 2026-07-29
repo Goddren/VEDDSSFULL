@@ -1014,6 +1014,10 @@ var init_schema = __esm({
       // platform default (20%) when isPropFirmAccount is true. Set per account
       // (not globally) because different prop firms enforce different %s.
       consistencyThresholdPct: doublePrecision("consistency_threshold_pct"),
+      // Per-account toggle — some prop firms don't enforce a consistency rule at
+      // all, so this must be opt-out per account, not forced on every funded
+      // account. Defaults on since most firms DO enforce it.
+      consistencyEnabled: boolean("consistency_enabled").notNull().default(true),
       // Last-known balance snapshot — persisted so the UI shows the real figure
       // immediately after a deploy/restart (and while a re-auth is in flight)
       // instead of $0 or an error. Refreshed by the background sync.
@@ -17997,8 +18001,23 @@ async function recordRealizedPnl(userId, connectionId, connectionType, realizedP
     console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
   }
 }
-async function getConsistencyStatus(connectionId, connectionType, thresholdPct) {
+async function getConsistencyStatus(connectionId, connectionType, thresholdPct, enabled = true) {
   const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  if (!enabled) {
+    return {
+      connectionId,
+      connectionType,
+      enabled: false,
+      thresholdPct: threshold,
+      todayPnl: 0,
+      totalPositivePnl: 0,
+      ratioPct: 0,
+      status: "disabled",
+      sizeMultiplier: 1,
+      hardBlocked: false,
+      guidance: "Consistency rule is turned off for this account \u2014 trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule."
+    };
+  }
   const dateStr = todayUtcDateStr();
   let rows = [];
   try {
@@ -42110,6 +42129,8 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
+-- Per-account opt-out \u2014 some prop firms don't enforce a consistency rule.
+ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_enabled" boolean NOT NULL DEFAULT true;
 
 -- Durable daily realized-P&L ledger \u2014 replaces the in-memory-only
 -- challengeDailyPnL map (wiped on every deploy/restart) as the source of truth
@@ -42261,8 +42282,9 @@ async function auditOnce() {
   const store = cache4();
   for (const conn of connections) {
     try {
-      const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct);
+      const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
       store[conn.id] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      if (!result.enabled) continue;
       if (result.status === "breached") {
         console.warn(`[Consistency Audit] ${conn.accountId} (${conn.propFirmName || "prop firm"}) BREACHED: ${result.guidance}`);
       } else if (result.status === "warning") {
@@ -58965,7 +58987,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   if (tlConn.isPropFirmAccount) {
                     try {
                       const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-                      const _consistency = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct);
+                      const _consistency = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct, tlConn.consistencyEnabled !== false);
                       if (_consistency.hardBlocked) {
                         console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
                         continue;
@@ -61992,7 +62014,8 @@ Rules:
       propFirmName,
       propFirmAccountSize,
       weeklyProfitTarget,
-      consistencyThresholdPct
+      consistencyThresholdPct,
+      consistencyEnabled
     } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
@@ -62018,6 +62041,7 @@ Rules:
       const pct2 = parseFloat(consistencyThresholdPct);
       updateDataById.consistencyThresholdPct = !isNaN(pct2) && pct2 > 0 && pct2 <= 100 ? pct2 : null;
     }
+    if (consistencyEnabled !== void 0) updateDataById.consistencyEnabled = !!consistencyEnabled;
     if (useRiskPercent !== void 0) updateDataById.useRiskPercent = !!useRiskPercent;
     if (riskPercent !== void 0) {
       const r = parseFloat(riskPercent);
@@ -62056,7 +62080,7 @@ Rules:
     }
     try {
       const { getConsistencyStatus: getConsistencyStatus2, DEFAULT_CONSISTENCY_THRESHOLD_PCT: DEFAULT_CONSISTENCY_THRESHOLD_PCT2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-      const status = await getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct);
+      const status = await getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct, connection2.consistencyEnabled !== false);
       res.json({
         isPropFirmAccount: !!connection2.isPropFirmAccount,
         defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT2,

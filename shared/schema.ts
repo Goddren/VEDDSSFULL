@@ -745,6 +745,10 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   // platform default (20%) when isPropFirmAccount is true. Set per account
   // (not globally) because different prop firms enforce different %s.
   consistencyThresholdPct: doublePrecision("consistency_threshold_pct"),
+  // Per-account toggle — some prop firms don't enforce a consistency rule at
+  // all, so this must be opt-out per account, not forced on every funded
+  // account. Defaults on since most firms DO enforce it.
+  consistencyEnabled: boolean("consistency_enabled").notNull().default(true),
   // Last-known balance snapshot — persisted so the UI shows the real figure
   // immediately after a deploy/restart (and while a re-auth is in flight)
   // instead of $0 or an error. Refreshed by the background sync.

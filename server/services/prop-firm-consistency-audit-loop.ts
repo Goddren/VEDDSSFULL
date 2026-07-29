@@ -29,8 +29,9 @@ async function auditOnce(): Promise<void> {
   const store = cache();
   for (const conn of connections) {
     try {
-      const result = await getConsistencyStatus(conn.id, 'tradelocker', conn.consistencyThresholdPct);
+      const result = await getConsistencyStatus(conn.id, 'tradelocker', conn.consistencyThresholdPct, conn.consistencyEnabled !== false);
       store[conn.id] = { ...result, checkedAt: new Date().toISOString() };
+      if (!result.enabled) continue; // opted out — nothing to audit/log
       if (result.status === 'breached') {
         console.warn(`[Consistency Audit] ${conn.accountId} (${conn.propFirmName || 'prop firm'}) BREACHED: ${result.guidance}`);
       } else if (result.status === 'warning') {

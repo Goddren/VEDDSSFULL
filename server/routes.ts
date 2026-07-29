@@ -11640,7 +11640,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if ((tlConn as any).isPropFirmAccount) {
                   try {
                     const { getConsistencyStatus } = await import('./services/prop-firm-consistency');
-                    const _consistency = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct);
+                    const _consistency = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct, (tlConn as any).consistencyEnabled !== false);
                     if (_consistency.hardBlocked) {
                       console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
                       continue; // skip this account entirely for the rest of today
@@ -15162,7 +15162,7 @@ Rules:
 
     const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent,
             isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget,
-            consistencyThresholdPct } = req.body;
+            consistencyThresholdPct, consistencyEnabled } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
@@ -15189,6 +15189,8 @@ Rules:
       const pct = parseFloat(consistencyThresholdPct);
       updateDataById.consistencyThresholdPct = (!isNaN(pct) && pct > 0 && pct <= 100) ? pct : null;
     }
+    // Per-account opt-out — some prop firms don't enforce a consistency rule
+    if (consistencyEnabled !== undefined) updateDataById.consistencyEnabled = !!consistencyEnabled;
 
     // Per-account risk-% sizing — save to DB (survives redeployment) + JSON sidecar for backward compat
     if (useRiskPercent !== undefined) updateDataById.useRiskPercent = !!useRiskPercent;
@@ -15232,7 +15234,7 @@ Rules:
     }
     try {
       const { getConsistencyStatus, DEFAULT_CONSISTENCY_THRESHOLD_PCT } = await import('./services/prop-firm-consistency');
-      const status = await getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct);
+      const status = await getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct, (connection as any).consistencyEnabled !== false);
       res.json({
         isPropFirmAccount: !!(connection as any).isPropFirmAccount,
         defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT,

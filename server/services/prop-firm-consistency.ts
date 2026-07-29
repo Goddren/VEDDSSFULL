@@ -22,11 +22,12 @@ const TAPER_START_FRACTION = 0.7;
 // Floor multiplier once inside the taper zone but not yet breached.
 const TAPER_FLOOR_MULTIPLIER = 0.25;
 
-export type ConsistencyStatus = 'safe' | 'warning' | 'breached';
+export type ConsistencyStatus = 'safe' | 'warning' | 'breached' | 'disabled';
 
 export interface ConsistencyResult {
   connectionId: number;
   connectionType: string;
+  enabled: boolean;
   thresholdPct: number;
   todayPnl: number;
   totalPositivePnl: number;
@@ -75,11 +76,25 @@ export async function recordRealizedPnl(
 export async function getConsistencyStatus(
   connectionId: number,
   connectionType: string,
-  thresholdPct: number | null | undefined
+  thresholdPct: number | null | undefined,
+  enabled: boolean = true
 ): Promise<ConsistencyResult> {
   const threshold = (typeof thresholdPct === 'number' && thresholdPct > 0)
     ? thresholdPct
     : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+
+  if (!enabled) {
+    // Opted out — some prop firms don't enforce this rule at all. No sizing
+    // impact, no block; still report the underlying numbers so the user can
+    // see what the ratio WOULD be if they turned it back on.
+    return {
+      connectionId, connectionType, enabled: false, thresholdPct: threshold,
+      todayPnl: 0, totalPositivePnl: 0, ratioPct: 0,
+      status: 'disabled', sizeMultiplier: 1, hardBlocked: false,
+      guidance: 'Consistency rule is turned off for this account — trades are not tapered or blocked based on daily profit share. Turn it on if your prop firm enforces a max-single-day-profit rule.',
+    };
+  }
+
   const dateStr = todayUtcDateStr();
 
   let rows: Array<{ trade_date: string; realized_pnl: string | number }> = [];

@@ -49,6 +49,8 @@ ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
 
 -- Per-account FTMO-style consistency cap (null = platform default 20%).
 ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
+-- Per-account opt-out — some prop firms don't enforce a consistency rule.
+ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_enabled" boolean NOT NULL DEFAULT true;
 
 -- Durable daily realized-P&L ledger — replaces the in-memory-only
 -- challengeDailyPnL map (wiped on every deploy/restart) as the source of truth

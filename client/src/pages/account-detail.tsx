@@ -2,18 +2,20 @@ import { useState } from 'react';
 import { useParams, Link } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
-import { ArrowLeft, Target, Shield, TrendingUp, TrendingDown, History, AlertTriangle, BarChart3, Gauge } from 'lucide-react';
+import { ArrowLeft, Target, Shield, TrendingUp, TrendingDown, History, AlertTriangle, BarChart3, Gauge, Info } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { fmtMoney as fmtMoneyShared } from '@/lib/utils';
+import { Switch } from '@/components/ui/switch';
 
 interface ConsistencyStatus {
   isPropFirmAccount: boolean;
   defaultThresholdPct: number;
+  enabled: boolean;
   thresholdPct: number;
   todayPnl: number;
   totalPositivePnl: number;
   ratioPct: number;
-  status: 'safe' | 'warning' | 'breached';
+  status: 'safe' | 'warning' | 'breached' | 'disabled';
   sizeMultiplier: number;
   hardBlocked: boolean;
   guidance: string;
@@ -98,6 +100,19 @@ export default function AccountDetailPage() {
       setEditingThreshold(false);
     },
   });
+
+  const setEnabledMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('PATCH', `/api/tradelocker/connection/${params.id}`, { consistencyEnabled: enabled });
+      if (!res.ok) throw new Error('Failed to update consistency rule');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tradelocker/connection/${params.id}/consistency`] });
+    },
+  });
+
+  const [showConsistencyInfo, setShowConsistencyInfo] = useState(false);
 
   if (isLoading) {
     return <div className="app-page flex items-center justify-center min-h-[60vh] text-gray-500 text-sm">Loading account…</div>;
@@ -199,63 +214,95 @@ export default function AccountDetailPage() {
       </div>
 
       {/* Consistency Monitor — FTMO-style: no single day's profit may exceed
-          a set % of total profit. Prop-firm accounts only. */}
+          a set % of total profit. Prop-firm accounts only. Toggleable per
+          account since not every prop firm enforces this rule. */}
       {consistency?.isPropFirmAccount && (() => {
-        const statusColor = consistency.status === 'breached' ? '#ef4444' : consistency.status === 'warning' ? '#f59e0b' : '#10b981';
-        const statusLabel = consistency.status === 'breached' ? 'Breached' : consistency.status === 'warning' ? 'Warning' : 'Safe';
+        const isOff = consistency.status === 'disabled';
+        const statusColor = isOff ? '#6b7280' : consistency.status === 'breached' ? '#ef4444' : consistency.status === 'warning' ? '#f59e0b' : '#10b981';
+        const statusLabel = isOff ? 'Off' : consistency.status === 'breached' ? 'Breached' : consistency.status === 'warning' ? 'Warning' : 'Safe';
         const barPct = Math.min(100, (consistency.ratioPct / consistency.thresholdPct) * 100);
         return (
           <div className="rounded-2xl border border-gray-700/60 bg-gray-900/50 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-bold text-white flex items-center gap-2">
-                <Gauge className="w-4 h-4" style={{ color: statusColor }} /> Consistency Monitor
-              </p>
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full" style={{ color: statusColor, background: `${statusColor}1a`, border: `1px solid ${statusColor}40` }}>
-                {statusLabel}
-              </span>
-            </div>
-
-            <div className="h-2 rounded-full bg-gray-800 overflow-hidden mb-2">
-              <div className="h-full rounded-full transition-all" style={{ width: `${barPct}%`, background: statusColor }} />
-            </div>
-            <p className="text-xs text-gray-400 mb-3">
-              Today's profit is <span className="font-bold text-white">{consistency.ratioPct.toFixed(1)}%</span> of total realized profit — cap is <span className="font-bold text-white">{consistency.thresholdPct}%</span>
-            </p>
-
-            <div className="grid grid-cols-2 gap-3 text-xs mb-3">
-              <div><p className="text-gray-500">Today's P&amp;L</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.todayPnl)}</p></div>
-              <div><p className="text-gray-500">Total profit (all-time)</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.totalPositivePnl)}</p></div>
-            </div>
-
-            <p className="text-[11px] text-gray-500 mb-3">{consistency.guidance}</p>
-
-            <div className="flex items-center justify-between pt-3 border-t border-gray-800/60">
-              <p className="text-[10px] text-gray-600">Cap for this account</p>
-              {editingThreshold ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number" value={thresholdInput} onChange={e => setThresholdInput(e.target.value)}
-                    placeholder={`${consistency.defaultThresholdPct}`} className="w-16 bg-black/40 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-indigo-500/50"
-                  />
-                  <span className="text-xs text-gray-500">%</span>
-                  <button
-                    onClick={() => setThresholdMutation.mutate(parseFloat(thresholdInput) || consistency.defaultThresholdPct)}
-                    disabled={setThresholdMutation.isPending}
-                    className="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white"
-                  >
-                    {setThresholdMutation.isPending ? '…' : 'Save'}
-                  </button>
-                  <button onClick={() => setEditingThreshold(false)} className="text-xs text-gray-500 px-1">Cancel</button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setThresholdInput(String(consistency.thresholdPct)); setEditingThreshold(true); }}
-                  className="text-xs font-bold text-indigo-400"
-                >
-                  {consistency.thresholdPct}% — Edit
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  <Gauge className="w-4 h-4" style={{ color: statusColor }} /> Consistency Monitor
+                </p>
+                <button onClick={() => setShowConsistencyInfo(v => !v)} className="text-gray-500 hover:text-gray-300">
+                  <Info className="w-3.5 h-3.5" />
                 </button>
-              )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full" style={{ color: statusColor, background: `${statusColor}1a`, border: `1px solid ${statusColor}40` }}>
+                  {statusLabel}
+                </span>
+                <Switch
+                  checked={!isOff}
+                  onCheckedChange={v => setEnabledMutation.mutate(v)}
+                  disabled={setEnabledMutation.isPending}
+                />
+              </div>
             </div>
+
+            {showConsistencyInfo && (
+              <div className="rounded-lg bg-black/30 border border-gray-800/80 px-3 py-2.5 mt-2 mb-3">
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  <span className="font-bold text-gray-300">Why this exists:</span> many prop firms (FTMO-style rules) will deny a payout — even after you hit the profit target — if one single day accounts for too much of your total profit. It's their way of proving your results come from a repeatable process, not one lucky day.
+                  <br /><br />
+                  <span className="font-bold text-gray-300">How VEDD handles it:</span> as today's profit approaches the cap, new trade sizes on this account automatically shrink. If today's profit actually reaches the cap, new trades are blocked on this account until the next trading day — nothing already banked is touched, and the ratio naturally comes back down as future days add to your total profit.
+                  <br /><br />
+                  <span className="font-bold text-gray-300">Not every firm has this rule</span> — use the switch above to turn it off for accounts where it doesn't apply. Full walkthrough: Workforce Academy → VEDD Platform Power Features → "Passing Prop Firm Challenges."
+                </p>
+              </div>
+            )}
+
+            {isOff ? (
+              <p className="text-xs text-gray-500 py-1">{consistency.guidance}</p>
+            ) : (
+              <>
+                <div className="h-2 rounded-full bg-gray-800 overflow-hidden mb-2 mt-2">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${barPct}%`, background: statusColor }} />
+                </div>
+                <p className="text-xs text-gray-400 mb-3">
+                  Today's profit is <span className="font-bold text-white">{consistency.ratioPct.toFixed(1)}%</span> of total realized profit — cap is <span className="font-bold text-white">{consistency.thresholdPct}%</span>
+                </p>
+
+                <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+                  <div><p className="text-gray-500">Today's P&amp;L</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.todayPnl)}</p></div>
+                  <div><p className="text-gray-500">Total profit (all-time)</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.totalPositivePnl)}</p></div>
+                </div>
+
+                <p className="text-[11px] text-gray-500 mb-3">{consistency.guidance}</p>
+
+                <div className="flex items-center justify-between pt-3 border-t border-gray-800/60">
+                  <p className="text-[10px] text-gray-600">Cap for this account</p>
+                  {editingThreshold ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number" value={thresholdInput} onChange={e => setThresholdInput(e.target.value)}
+                        placeholder={`${consistency.defaultThresholdPct}`} className="w-16 bg-black/40 border border-gray-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-indigo-500/50"
+                      />
+                      <span className="text-xs text-gray-500">%</span>
+                      <button
+                        onClick={() => setThresholdMutation.mutate(parseFloat(thresholdInput) || consistency.defaultThresholdPct)}
+                        disabled={setThresholdMutation.isPending}
+                        className="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white"
+                      >
+                        {setThresholdMutation.isPending ? '…' : 'Save'}
+                      </button>
+                      <button onClick={() => setEditingThreshold(false)} className="text-xs text-gray-500 px-1">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setThresholdInput(String(consistency.thresholdPct)); setEditingThreshold(true); }}
+                      className="text-xs font-bold text-indigo-400"
+                    >
+                      {consistency.thresholdPct}% — Edit
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         );
       })()}
