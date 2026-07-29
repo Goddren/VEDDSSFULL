@@ -8114,6 +8114,38 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             connResult = { success: false, error: guard.reason };
           }
         }
+        // CLOSE/MODIFY need a TradeLocker positionId, but the incoming signal's
+        // `ticket` (when present at all) is an MT5 ticket number — it has no
+        // relationship to TradeLocker's own position IDs, which are per-account
+        // and assigned independently. Forwarding it (or nothing) hit
+        // "Position ID required for close action" on every connected account.
+        // Resolve THIS account's own matching open position by symbol/direction.
+        let relayPositionId: string | undefined;
+        if (!connResult && (action === 'CLOSE' || action === 'MODIFY')) {
+          try {
+            const svc = await tlGetOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const relaySymNorm = (symbol || '').toUpperCase().replace('/', '');
+            const relayDirNorm = (direction || 'BUY').toUpperCase();
+            const tlMatch = tlPositions.find((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === relaySymNorm &&
+              (p.side || '').toUpperCase() === relayDirNorm
+            );
+            if (tlMatch) {
+              relayPositionId = tlMatch.id;
+            } else {
+              // No open position for this symbol/direction on this account —
+              // nothing to close/modify here. Skip silently instead of a
+              // confusing "position ID required" error for every account.
+              console.log(`[TradeLocker] Skipping ${action} on account ${tlConn.accountId} — no matching open ${relaySymNorm} ${relayDirNorm} position`);
+              connResult = { success: false, error: `No matching open position on this account for ${action}` };
+            }
+          } catch (posErr: any) {
+            console.error(`[TradeLocker] Position lookup failed for account ${tlConn.accountId} (${action}):`, posErr?.message);
+            connResult = { success: false, error: 'Failed to look up open positions for this account' };
+          }
+        }
+
         if (!connResult) try {
           connResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action,
@@ -8123,6 +8155,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             entryPrice,
             stopLoss,
             takeProfit,
+            positionId: relayPositionId,
           });
 
           await storage.createTradelockerTradeLog({

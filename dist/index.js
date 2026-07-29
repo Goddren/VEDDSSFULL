@@ -55982,6 +55982,27 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             connResult = { success: false, error: guard.reason };
           }
         }
+        let relayPositionId;
+        if (!connResult && (action === "CLOSE" || action === "MODIFY")) {
+          try {
+            const svc = await getOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const relaySymNorm = (symbol || "").toUpperCase().replace("/", "");
+            const relayDirNorm = (direction || "BUY").toUpperCase();
+            const tlMatch = tlPositions.find(
+              (p) => (p.symbol || "").toUpperCase().replace("/", "") === relaySymNorm && (p.side || "").toUpperCase() === relayDirNorm
+            );
+            if (tlMatch) {
+              relayPositionId = tlMatch.id;
+            } else {
+              console.log(`[TradeLocker] Skipping ${action} on account ${tlConn.accountId} \u2014 no matching open ${relaySymNorm} ${relayDirNorm} position`);
+              connResult = { success: false, error: `No matching open position on this account for ${action}` };
+            }
+          } catch (posErr) {
+            console.error(`[TradeLocker] Position lookup failed for account ${tlConn.accountId} (${action}):`, posErr?.message);
+            connResult = { success: false, error: "Failed to look up open positions for this account" };
+          }
+        }
         if (!connResult) try {
           connResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action,
@@ -55990,7 +56011,8 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             volume: relayVolume,
             entryPrice,
             stopLoss,
-            takeProfit
+            takeProfit,
+            positionId: relayPositionId
           });
           await storage.createTradelockerTradeLog({
             connectionId: tlConn.id,
