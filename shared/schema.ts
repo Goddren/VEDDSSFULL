@@ -740,6 +740,11 @@ export const tradelockerConnections = pgTable("tradelocker_connections", {
   propFirmName: text("prop_firm_name"), // e.g. "Topstep", "FTMO", "FundedNext", "The Funded Trader"
   propFirmAccountSize: doublePrecision("prop_firm_account_size"), // Funded account size in $ (for drawdown/target math)
   weeklyProfitTarget: doublePrecision("weekly_profit_target"), // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
+  // Per-account FTMO-style consistency cap: no single day's realized profit may
+  // exceed this % of the account's total realized profit. null = use the
+  // platform default (20%) when isPropFirmAccount is true. Set per account
+  // (not globally) because different prop firms enforce different %s.
+  consistencyThresholdPct: doublePrecision("consistency_threshold_pct"),
   // Last-known balance snapshot — persisted so the UI shows the real figure
   // immediately after a deploy/restart (and while a re-auth is in flight)
   // instead of $0 or an error. Refreshed by the background sync.
@@ -2558,6 +2563,28 @@ export const propFirmAccountState = pgTable("prop_firm_account_state", {
 }));
 
 export type PropFirmAccountState = typeof propFirmAccountState.$inferSelect;
+
+// Durable daily realized-P&L ledger per prop-firm account — the FTMO-style
+// consistency rule (no single day's profit may exceed X% of total profit)
+// previously lived ONLY in an in-memory map (server/services/live-trading-engine.ts
+// challengeDailyPnL) that resets to zero on every deploy/restart — a real
+// compliance risk for a live funded account mid-challenge. This table is the
+// single source of truth: one row per (connection, date), incremented as each
+// trade closes, read by the shared consistency service to compute the ratio.
+export const propFirmDailyPnl = pgTable("prop_firm_daily_pnl", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  connectionId: integer("connection_id").notNull(),
+  connectionType: text("connection_type").notNull().default('tradelocker'), // 'mt5' | 'tradelocker' | 'tradovate'
+  tradeDate: text("trade_date").notNull(), // 'YYYY-MM-DD', UTC — matches a single trading day
+  realizedPnl: doublePrecision("realized_pnl").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.connectionId, t.connectionType, t.tradeDate),
+}));
+
+export type PropFirmDailyPnl = typeof propFirmDailyPnl.$inferSelect;
 
 // ── Brain Data Marketplace ────────────────────────────────────────────────────
 // Sellers list a frozen snapshot of their ai_confirmation_outcomes history —

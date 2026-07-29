@@ -1366,6 +1366,11 @@ async function withRetry<T>(
     const { startPaperTradeResolverLoop } = await import('./services/paper-trade-resolver-loop');
     startPaperTradeResolverLoop();
 
+    // Start prop-firm consistency audit loop (live-monitors each funded
+    // account's FTMO-style consistency ratio from the durable ledger)
+    const { startPropFirmConsistencyAuditLoop } = await import('./services/prop-firm-consistency-audit-loop');
+    startPropFirmConsistencyAuditLoop();
+
     // Start Options AI Engine scan loop (produces the live decision feed)
     const { startOptionsEngineScanner } = await import('./services/options-scanner');
     startOptionsEngineScanner();

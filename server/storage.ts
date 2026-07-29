@@ -340,6 +340,7 @@ export interface IStorage {
   getTradelockerConnection(id: number): Promise<TradelockerConnection | undefined>;
   getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined>;
   getUserTradelockerConnections(userId: number): Promise<TradelockerConnection[]>;
+  getAllPropFirmTradelockerConnections(): Promise<TradelockerConnection[]>;
   updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined>;
   deleteTradelockerConnection(id: number): Promise<boolean>;
   
@@ -1927,6 +1928,14 @@ export class DatabaseStorage implements IStorage {
 
   async getUserTradelockerConnections(userId: number): Promise<TradelockerConnection[]> {
     return db.select().from(tradelockerConnections).where(eq(tradelockerConnections.userId, userId));
+  }
+
+  // Every active prop-firm-tagged connection across all users — used by the
+  // background consistency audit loop, which sweeps globally rather than
+  // per-user (it has no request context to scope to a single user).
+  async getAllPropFirmTradelockerConnections(): Promise<TradelockerConnection[]> {
+    return db.select().from(tradelockerConnections)
+      .where(and(eq(tradelockerConnections.isPropFirmAccount, true), eq(tradelockerConnections.isActive, true)));
   }
 
   async updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined> {

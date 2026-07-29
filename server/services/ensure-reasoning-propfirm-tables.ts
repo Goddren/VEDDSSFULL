@@ -46,6 +46,24 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
+
+-- Per-account FTMO-style consistency cap (null = platform default 20%).
+ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
+
+-- Durable daily realized-P&L ledger — replaces the in-memory-only
+-- challengeDailyPnL map (wiped on every deploy/restart) as the source of truth
+-- for the consistency ratio (today's profit / total profit).
+CREATE TABLE IF NOT EXISTS "prop_firm_daily_pnl" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "connection_type" text NOT NULL DEFAULT 'tradelocker',
+  "trade_date" text NOT NULL,
+  "realized_pnl" double precision NOT NULL DEFAULT 0,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("connection_id", "connection_type", "trade_date")
+);
 `;
 
 export async function ensureReasoningPropFirmTables(): Promise<void> {

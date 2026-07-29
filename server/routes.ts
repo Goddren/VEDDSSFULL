@@ -11632,6 +11632,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
                 console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots — ${_sizeLabel}`);
 
+                // ── Gate 0f: PROP FIRM CONSISTENCY (per-account, HARD gate) ──────────
+                // FTMO-style rule: no single day's profit may exceed a set % of total
+                // profit. Durable (survives restarts) — see server/services/prop-firm-consistency.ts.
+                // Strict per user decision: taper size as the ratio approaches the cap,
+                // hard-block new trades on THIS account once the cap is actually crossed.
+                if ((tlConn as any).isPropFirmAccount) {
+                  try {
+                    const { getConsistencyStatus } = await import('./services/prop-firm-consistency');
+                    const _consistency = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct);
+                    if (_consistency.hardBlocked) {
+                      console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
+                      continue; // skip this account entirely for the rest of today
+                    }
+                    if (_consistency.sizeMultiplier < 1) {
+                      const _preTaper = connLot;
+                      connLot = Math.max(0.01, Math.round(connLot * _consistency.sizeMultiplier * 100) / 100);
+                      console.log(`[Consistency TAPER] ${tlConn.accountId}: ${_preTaper} → ${connLot} lots (${Math.round(_consistency.sizeMultiplier * 100)}% — ${_consistency.guidance})`);
+                    }
+                  } catch (consErr: any) {
+                    console.error(`[Consistency] Check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, consErr?.message);
+                  }
+                }
+
               console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                 action: 'OPEN', symbol: sanitizedSymbol, direction: analysis.signal,
                 volume: connLot, refLot: tradeVolume, copyMode: _eaCopyMode,
@@ -15138,7 +15161,8 @@ Rules:
     }
 
     const { isActive, autoExecute, lotMultiplier, gateMode, useRiskPercent, riskPercent,
-            isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget } = req.body;
+            isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget,
+            consistencyThresholdPct } = req.body;
     const updateDataById: Record<string, any> = {};
     if (isActive !== undefined) updateDataById.isActive = isActive;
     if (autoExecute !== undefined) updateDataById.autoExecute = autoExecute;
@@ -15159,6 +15183,11 @@ Rules:
     if (propFirmAccountSize !== undefined) {
       const size = parseFloat(propFirmAccountSize);
       updateDataById.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+    // Per-account FTMO-style consistency cap — null = platform default (20%)
+    if (consistencyThresholdPct !== undefined) {
+      const pct = parseFloat(consistencyThresholdPct);
+      updateDataById.consistencyThresholdPct = (!isNaN(pct) && pct > 0 && pct <= 100) ? pct : null;
     }
 
     // Per-account risk-% sizing — save to DB (survives redeployment) + JSON sidecar for backward compat
@@ -15188,6 +15217,30 @@ Rules:
 
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
     res.json(safeConnection);
+  });
+
+  // Live consistency status for a single TradeLocker account — powers the
+  // per-account Consistency Monitor widget. Read-only; the same computation
+  // Gate 0f uses to decide whether to taper/block trades on this account.
+  app.get("/api/tradelocker/connection/:id/consistency", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getTradelockerConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { getConsistencyStatus, DEFAULT_CONSISTENCY_THRESHOLD_PCT } = await import('./services/prop-firm-consistency');
+      const status = await getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct);
+      res.json({
+        isPropFirmAccount: !!(connection as any).isPropFirmAccount,
+        defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+        ...status,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: `Failed to compute consistency status: ${err?.message || 'unknown error'}` });
+    }
   });
 
   // PATCH legacy (no ID) — updates first connection for backward compat
@@ -16785,10 +16838,12 @@ Format each recommendation as a clear, concise action item.`;
       const active = conns.filter((c: any) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000); // last 7 days
 
+      const { recordRealizedPnl } = await import('./services/prop-firm-consistency');
       const saveOrder = async (o: any, connId: number, accountId: string) => {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
         if (!isFinite(p)) return; // unparseable P&L → skip (a real breakeven is p===0 and IS logged)
+        const closedDateStr = (o.closeTime || o.closedAt) ? new Date(o.closeTime || o.closedAt).toISOString().slice(0, 10) : undefined;
         // Match the ticket format tradelocker-sync.ts uses when it first logs the
         // position as PENDING (`tl_<accountId>_<positionId>`) so this sync updates
         // that same row instead of creating a second, differently-keyed duplicate
@@ -16810,6 +16865,7 @@ Format each recommendation as a clear, concise action item.`;
               closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
             } as any);
             added++;
+            await recordRealizedPnl(userId, connId, 'tradelocker', p, closedDateStr);
           } else if ((existing as any).connectionId == null) {
             // Backfill connectionId on already-closed trades so per-account stats work
             await storage.updateAiTradeResult(existing.id, userId, { connectionId: connId } as any).catch(() => {});
@@ -16832,6 +16888,7 @@ Format each recommendation as a clear, concise action item.`;
           closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
         } as any);
         added++;
+        await recordRealizedPnl(userId, connId, 'tradelocker', p, closedDateStr);
       };
 
       for (const conn of active) {

@@ -240,6 +240,7 @@ __export(schema_exports, {
   personaPillarRotation: () => personaPillarRotation,
   priceAlerts: () => priceAlerts,
   propFirmAccountState: () => propFirmAccountState,
+  propFirmDailyPnl: () => propFirmDailyPnl,
   quizLeads: () => quizLeads,
   referralVisits: () => referralVisits,
   referrals: () => referrals2,
@@ -286,7 +287,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -1008,6 +1009,11 @@ var init_schema = __esm({
       // Funded account size in $ (for drawdown/target math)
       weeklyProfitTarget: doublePrecision("weekly_profit_target"),
       // Per-account profit goal ($), null = not set — distinct from the global weeklyStrategies target which is shared across every account
+      // Per-account FTMO-style consistency cap: no single day's realized profit may
+      // exceed this % of the account's total realized profit. null = use the
+      // platform default (20%) when isPropFirmAccount is true. Set per account
+      // (not globally) because different prop firms enforce different %s.
+      consistencyThresholdPct: doublePrecision("consistency_threshold_pct"),
       // Last-known balance snapshot — persisted so the UI shows the real figure
       // immediately after a deploy/restart (and while a re-auth is in flight)
       // instead of $0 or an error. Refreshed by the background sync.
@@ -2729,6 +2735,20 @@ var init_schema = __esm({
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     }, (t) => ({
       unq: unique().on(t.connectionId, t.connectionType)
+    }));
+    propFirmDailyPnl = pgTable("prop_firm_daily_pnl", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      connectionId: integer("connection_id").notNull(),
+      connectionType: text("connection_type").notNull().default("tradelocker"),
+      // 'mt5' | 'tradelocker' | 'tradovate'
+      tradeDate: text("trade_date").notNull(),
+      // 'YYYY-MM-DD', UTC — matches a single trading day
+      realizedPnl: doublePrecision("realized_pnl").notNull().default(0),
+      createdAt: timestamp("created_at").defaultNow().notNull(),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    }, (t) => ({
+      unq: unique().on(t.connectionId, t.connectionType, t.tradeDate)
     }));
     brainDataListings = pgTable("brain_data_listings", {
       id: serial("id").primaryKey(),
@@ -4531,6 +4551,12 @@ var init_storage = __esm({
       }
       async getUserTradelockerConnections(userId) {
         return db.select().from(tradelockerConnections).where(eq(tradelockerConnections.userId, userId));
+      }
+      // Every active prop-firm-tagged connection across all users — used by the
+      // background consistency audit loop, which sweeps globally rather than
+      // per-user (it has no request context to scope to a single user).
+      async getAllPropFirmTradelockerConnections() {
+        return db.select().from(tradelockerConnections).where(and(eq(tradelockerConnections.isPropFirmAccount, true), eq(tradelockerConnections.isActive, true)));
       }
       async updateTradelockerConnection(id, data) {
         const [result] = await db.update(tradelockerConnections).set({ ...data, updatedAt: /* @__PURE__ */ new Date() }).where(eq(tradelockerConnections.id, id)).returning();
@@ -17946,6 +17972,95 @@ var init_tradelocker = __esm({
   }
 });
 
+// server/services/prop-firm-consistency.ts
+var prop_firm_consistency_exports = {};
+__export(prop_firm_consistency_exports, {
+  DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+  getConsistencyStatus: () => getConsistencyStatus,
+  recordRealizedPnl: () => recordRealizedPnl
+});
+function todayUtcDateStr() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
+  if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
+  const dateStr = tradeDate || todayUtcDateStr();
+  try {
+    await pool.query(
+      `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (connection_id, connection_type, trade_date)
+       DO UPDATE SET realized_pnl = prop_firm_daily_pnl.realized_pnl + $5, updated_at = now()`,
+      [userId, connectionId, connectionType, dateStr, realizedPnlDelta]
+    );
+  } catch (err) {
+    console.error("[Consistency] Failed to record daily P&L (non-fatal):", err?.message ?? err);
+  }
+}
+async function getConsistencyStatus(connectionId, connectionType, thresholdPct) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const dateStr = todayUtcDateStr();
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Failed to read daily P&L (defaulting to safe/no-data):", err?.message ?? err);
+  }
+  let todayPnl = 0;
+  let totalPositivePnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl)) continue;
+    if (r.trade_date === dateStr) todayPnl = pnl;
+    if (pnl > 0) totalPositivePnl += pnl;
+  }
+  const todayPositive = Math.max(0, todayPnl);
+  const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
+  const taperStartPct = threshold * TAPER_START_FRACTION;
+  let status = "safe";
+  let sizeMultiplier = 1;
+  let hardBlocked = false;
+  let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
+  if (ratioPct >= threshold) {
+    status = "breached";
+    sizeMultiplier = 0;
+    hardBlocked = true;
+    guidance = `Consistency cap breached: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). New trades are blocked on this account until the next trading day. The ratio will come down as more profit accumulates on other days without adding to today's total.`;
+  } else if (ratioPct >= taperStartPct) {
+    status = "warning";
+    const span = threshold - taperStartPct;
+    const progress2 = span > 0 ? (ratioPct - taperStartPct) / span : 1;
+    sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+    guidance = `Approaching the consistency cap: today's profit is ${ratioPct.toFixed(1)}% of total (cap ${threshold}%). Position sizing is being reduced (${Math.round(sizeMultiplier * 100)}% of normal) to avoid crossing the line today.`;
+  }
+  return {
+    connectionId,
+    connectionType,
+    thresholdPct: threshold,
+    todayPnl,
+    totalPositivePnl,
+    ratioPct,
+    status,
+    sizeMultiplier,
+    hardBlocked,
+    guidance
+  };
+}
+var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER;
+var init_prop_firm_consistency = __esm({
+  "server/services/prop-firm-consistency.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
+    TAPER_START_FRACTION = 0.7;
+    TAPER_FLOOR_MULTIPLIER = 0.25;
+  }
+});
+
 // server/services/tradelocker-sync.ts
 var tradelocker_sync_exports = {};
 __export(tradelocker_sync_exports, {
@@ -17999,6 +18114,8 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           profitLoss: profit,
           closedAt: match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
         });
+        const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
+        await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
       }
     }
   }
@@ -18015,6 +18132,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         if (!isFinite(p) || p === 0) continue;
         const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === "tl_undefined") continue;
+        const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
           if (existing.result === "PENDING" || existing.connectionId == null) {
@@ -18025,6 +18143,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
             }).catch(() => {
             });
+            if (existing.result === "PENDING") await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
           }
           continue;
         }
@@ -18044,6 +18163,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
           closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
         }).catch(() => {
         });
+        await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
       }
     } catch (err) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
@@ -18202,6 +18322,7 @@ var init_tradelocker_sync = __esm({
     "use strict";
     init_storage();
     init_tradelocker();
+    init_prop_firm_consistency();
     lastOpenTickets = /* @__PURE__ */ new Map();
     lastOutcomeReconcile = /* @__PURE__ */ new Map();
     OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
@@ -18310,8 +18431,8 @@ async function getLiveAccounts(userId) {
   const mt5 = [];
   const tradelocker = [];
   try {
-    const cache4 = global.mt5AccountData?.[userId];
-    const entries = cache4?.lastUpdated ? [cache4] : Object.values(cache4 || {});
+    const cache5 = global.mt5AccountData?.[userId];
+    const entries = cache5?.lastUpdated ? [cache5] : Object.values(cache5 || {});
     for (const a of entries) {
       if (!a?.lastUpdated) continue;
       const age = (Date.now() - new Date(a.lastUpdated).getTime()) / 1e3;
@@ -29133,17 +29254,17 @@ function getNYTime(ts) {
   };
 }
 async function getBrokerIndexCandles(userId, symbol, mt5Tf) {
-  const cache4 = global.mt5ChartDataCache || {};
+  const cache5 = global.mt5ChartDataCache || {};
   const wanted = new Set(
     [symbol, ...INDEX_BROKER_ALIASES[symbol] || []].map((s) => s.replace(/[^A-Z0-9]/gi, "").toUpperCase())
   );
   const prefix = `mt5_chart_${userId}_`;
   const suffix = `_${mt5Tf}`;
-  for (const key of Object.keys(cache4)) {
+  for (const key of Object.keys(cache5)) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const symPart = key.slice(prefix.length, key.length - suffix.length);
     if (wanted.has(symPart.replace(/[^A-Z0-9]/gi, "").toUpperCase())) {
-      const entry = cache4[key];
+      const entry = cache5[key];
       if (entry?.candles?.length) return entry.candles;
     }
   }
@@ -41986,6 +42107,24 @@ CREATE TABLE IF NOT EXISTS "mt5_confirm_diag" (
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "buy_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "sell_votes" real;
 ALTER TABLE "mt5_confirm_diag" ADD COLUMN IF NOT EXISTS "neutral_reason" text;
+
+-- Per-account FTMO-style consistency cap (null = platform default 20%).
+ALTER TABLE "tradelocker_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
+
+-- Durable daily realized-P&L ledger \u2014 replaces the in-memory-only
+-- challengeDailyPnL map (wiped on every deploy/restart) as the source of truth
+-- for the consistency ratio (today's profit / total profit).
+CREATE TABLE IF NOT EXISTS "prop_firm_daily_pnl" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "connection_id" integer NOT NULL,
+  "connection_type" text NOT NULL DEFAULT 'tradelocker',
+  "trade_date" text NOT NULL,
+  "realized_pnl" double precision NOT NULL DEFAULT 0,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("connection_id", "connection_type", "trade_date")
+);
 `;
   }
 });
@@ -42098,6 +42237,58 @@ var init_paper_trade_resolver_loop = __esm({
     init_service();
     init_paper_trade_tracker();
     POLL_INTERVAL_MS2 = 10 * 60 * 1e3;
+  }
+});
+
+// server/services/prop-firm-consistency-audit-loop.ts
+var prop_firm_consistency_audit_loop_exports = {};
+__export(prop_firm_consistency_audit_loop_exports, {
+  startPropFirmConsistencyAuditLoop: () => startPropFirmConsistencyAuditLoop
+});
+function cache4() {
+  global.tlConsistencyStatus = global.tlConsistencyStatus || {};
+  return global.tlConsistencyStatus;
+}
+async function auditOnce() {
+  let connections;
+  try {
+    connections = await storage.getAllPropFirmTradelockerConnections();
+  } catch (e) {
+    console.error("[Consistency Audit] Failed to load prop-firm connections:", e.message);
+    return;
+  }
+  if (!connections.length) return;
+  const store = cache4();
+  for (const conn of connections) {
+    try {
+      const result = await getConsistencyStatus(conn.id, "tradelocker", conn.consistencyThresholdPct);
+      store[conn.id] = { ...result, checkedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      if (result.status === "breached") {
+        console.warn(`[Consistency Audit] ${conn.accountId} (${conn.propFirmName || "prop firm"}) BREACHED: ${result.guidance}`);
+      } else if (result.status === "warning") {
+        console.log(`[Consistency Audit] ${conn.accountId}: WARNING \u2014 ${result.guidance}`);
+      }
+    } catch (e) {
+      console.error(`[Consistency Audit] Failed for connection ${conn.id}:`, e.message);
+    }
+  }
+}
+function startPropFirmConsistencyAuditLoop() {
+  console.log(`[Consistency Audit] Background prop-firm consistency audit loop started (${POLL_INTERVAL_MS3 / 6e4}min interval).`);
+  setInterval(() => {
+    auditOnce().catch((e) => console.error("[Consistency Audit] Poll error:", e.message));
+  }, POLL_INTERVAL_MS3);
+  setTimeout(() => {
+    auditOnce().catch((e) => console.error("[Consistency Audit] Initial poll error:", e.message));
+  }, 2e4);
+}
+var POLL_INTERVAL_MS3;
+var init_prop_firm_consistency_audit_loop = __esm({
+  "server/services/prop-firm-consistency-audit-loop.ts"() {
+    "use strict";
+    init_storage();
+    init_prop_firm_consistency();
+    POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
   }
 });
 
@@ -58771,6 +58962,23 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                   }
                   if (_eaVolCap) connLot = Math.min(connLot, _eaVolCap.hardMaxLot);
                   console.log(`[TL sizing] ${tlConn.accountId}: ${connLot} lots \u2014 ${_sizeLabel}`);
+                  if (tlConn.isPropFirmAccount) {
+                    try {
+                      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+                      const _consistency = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct);
+                      if (_consistency.hardBlocked) {
+                        console.log(`[Consistency BLOCK] ${tlConn.accountId}: ${_consistency.guidance}`);
+                        continue;
+                      }
+                      if (_consistency.sizeMultiplier < 1) {
+                        const _preTaper = connLot;
+                        connLot = Math.max(0.01, Math.round(connLot * _consistency.sizeMultiplier * 100) / 100);
+                        console.log(`[Consistency TAPER] ${tlConn.accountId}: ${_preTaper} \u2192 ${connLot} lots (${Math.round(_consistency.sizeMultiplier * 100)}% \u2014 ${_consistency.guidance})`);
+                      }
+                    } catch (consErr) {
+                      console.error(`[Consistency] Check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, consErr?.message);
+                    }
+                  }
                   console.log(`[MT5 Chart Data AutoTrade] Executing on account ${tlConn.accountId} [${_connGateMode} mode]:`, {
                     action: "OPEN",
                     symbol: sanitizedSymbol,
@@ -59124,8 +59332,8 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     const userId = req.user.id;
     const { symbol, timeframe } = req.params;
     const chartDataKey = `mt5_chart_${userId}_${symbol}_${timeframe}`;
-    const cache4 = global.mt5ChartDataCache || {};
-    const chartData = cache4[chartDataKey];
+    const cache5 = global.mt5ChartDataCache || {};
+    const chartData = cache5[chartDataKey];
     if (!chartData) {
       return res.status(404).json({ error: "No chart data found. Make sure your MT5 Chart Data EA is running." });
     }
@@ -60541,8 +60749,8 @@ Respond with ONLY valid JSON:
     strategy.progressWinRate = winRate2;
     strategy.progressPercentage = Math.min(100, Math.max(0, Math.round(closedProfit / strategy.profitTarget * 100)));
     const _mt5BalLive = (() => {
-      const cache4 = global.mt5AccountData?.[userId];
-      return cache4 ? Object.values(cache4).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
+      const cache5 = global.mt5AccountData?.[userId];
+      return cache5 ? Object.values(cache5).reduce((s, a) => s + (a?.balance || 0), 0) : 0;
     })();
     const _tlBalLive = Object.values(global.tlAccountData?.[userId] || {}).reduce((s, a) => s + (a?.balance || 0), 0);
     const _liveBalance = _mt5BalLive + _tlBalLive;
@@ -61783,7 +61991,8 @@ Rules:
       isPropFirmAccount,
       propFirmName,
       propFirmAccountSize,
-      weeklyProfitTarget
+      weeklyProfitTarget,
+      consistencyThresholdPct
     } = req.body;
     const updateDataById = {};
     if (isActive !== void 0) updateDataById.isActive = isActive;
@@ -61804,6 +62013,10 @@ Rules:
     if (propFirmAccountSize !== void 0) {
       const size = parseFloat(propFirmAccountSize);
       updateDataById.propFirmAccountSize = isNaN(size) ? null : size;
+    }
+    if (consistencyThresholdPct !== void 0) {
+      const pct2 = parseFloat(consistencyThresholdPct);
+      updateDataById.consistencyThresholdPct = !isNaN(pct2) && pct2 > 0 && pct2 <= 100 ? pct2 : null;
     }
     if (useRiskPercent !== void 0) updateDataById.useRiskPercent = !!useRiskPercent;
     if (riskPercent !== void 0) {
@@ -61832,6 +62045,26 @@ Rules:
     }
     const { encryptedPassword: _, accessToken, refreshToken, ...safeConnection } = updated;
     res.json(safeConnection);
+  });
+  app2.get("/api/tradelocker/connection/:id/consistency", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getTradelockerConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const { getConsistencyStatus: getConsistencyStatus2, DEFAULT_CONSISTENCY_THRESHOLD_PCT: DEFAULT_CONSISTENCY_THRESHOLD_PCT2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const status = await getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct);
+      res.json({
+        isPropFirmAccount: !!connection2.isPropFirmAccount,
+        defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT2,
+        ...status
+      });
+    } catch (err) {
+      res.status(500).json({ error: `Failed to compute consistency status: ${err?.message || "unknown error"}` });
+    }
   });
   app2.patch("/api/tradelocker/connection", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -63288,10 +63521,12 @@ Format each recommendation as a clear, concise action item.`;
       const conns = await storage.getUserTradelockerConnections(userId);
       const active = conns.filter((c) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1e3) / 1e3);
+      const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
       const saveOrder = async (o, connId, accountId) => {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
         if (!isFinite(p)) return;
+        const closedDateStr = o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt).toISOString().slice(0, 10) : void 0;
         const tk = o.positionId ? `tl_${accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === "tl_undefined") return;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
@@ -63304,6 +63539,7 @@ Format each recommendation as a clear, concise action item.`;
               closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
             });
             added++;
+            await recordRealizedPnl2(userId, connId, "tradelocker", p, closedDateStr);
           } else if (existing.connectionId == null) {
             await storage.updateAiTradeResult(existing.id, userId, { connectionId: connId }).catch(() => {
             });
@@ -63326,6 +63562,7 @@ Format each recommendation as a clear, concise action item.`;
           closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : /* @__PURE__ */ new Date()
         });
         added++;
+        await recordRealizedPnl2(userId, connId, "tradelocker", p, closedDateStr);
       };
       for (const conn of active) {
         try {
@@ -72146,15 +72383,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     const userId = req.user.id;
     const rawSymbol = req.params.symbol.toUpperCase().replace(/[^A-Za-z0-9/_.-]/g, "");
-    const cache4 = global.mt5ChartDataCache || {};
-    const allKeys = Object.keys(cache4);
+    const cache5 = global.mt5ChartDataCache || {};
+    const allKeys = Object.keys(cache5);
     const PREFER_TF = ["M6", "M5", "M1", "M15", "M30", "H1", "H4"];
     let found = null;
     let foundTf = "";
     for (const tf of PREFER_TF) {
       const key = `mt5_chart_${userId}_${rawSymbol}_${tf}`;
-      if (cache4[key]) {
-        found = cache4[key];
+      if (cache5[key]) {
+        found = cache5[key];
         foundTf = tf;
         break;
       }
@@ -72162,7 +72399,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!found) {
       const partialKey = allKeys.find((k) => k.includes(`_${userId}_`) && k.includes(rawSymbol));
       if (partialKey) {
-        found = cache4[partialKey];
+        found = cache5[partialKey];
         foundTf = partialKey.split("_").pop() || "";
       }
     }
@@ -76434,6 +76671,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startTradeLockerSync2();
     const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));
     startPaperTradeResolverLoop2();
+    const { startPropFirmConsistencyAuditLoop: startPropFirmConsistencyAuditLoop2 } = await Promise.resolve().then(() => (init_prop_firm_consistency_audit_loop(), prop_firm_consistency_audit_loop_exports));
+    startPropFirmConsistencyAuditLoop2();
     const { startOptionsEngineScanner: startOptionsEngineScanner2 } = await Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports));
     startOptionsEngineScanner2();
     const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));

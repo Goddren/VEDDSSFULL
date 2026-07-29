@@ -8,6 +8,7 @@
 
 import { storage } from '../storage';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
+import { recordRealizedPnl } from './prop-firm-consistency';
 
 // accountId -> Set of open-position ticket ids seen on the previous sync pass.
 // Used to detect closures (a ticket that was open last cycle and is gone now)
@@ -114,6 +115,8 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           profitLoss: profit,
           closedAt: match?.closeTime ? new Date(match.closeTime) : new Date(),
         } as any);
+        const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
+        await recordRealizedPnl(userId, conn.id, 'tradelocker', profit, dStr);
       }
     }
   }
@@ -135,6 +138,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         if (!isFinite(p) || p === 0) continue; // zero P&L = not actually closed
         const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === 'tl_undefined') continue;
+        const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : undefined;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
           if (existing.result === 'PENDING' || (existing as any).connectionId == null) {
@@ -144,6 +148,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
               connectionId: conn.id,
               closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
             } as any).catch(() => {});
+            if (existing.result === 'PENDING') await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
           }
           continue;
         }
@@ -162,6 +167,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           notes: 'TradeLocker closed position (auto-reconciled)',
           closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
         } as any).catch(() => {});
+        await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
