@@ -16785,22 +16785,26 @@ Format each recommendation as a clear, concise action item.`;
       const active = conns.filter((c: any) => c.isActive);
       const fromTs = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000); // last 7 days
 
-      const saveOrder = async (o: any, connId: number) => {
+      const saveOrder = async (o: any, connId: number, accountId: string) => {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
         const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
-        if (!isFinite(p) || p === 0) return; // skip entries (zero P&L = position not yet closed)
+        if (!isFinite(p)) return; // unparseable P&L → skip (a real breakeven is p===0 and IS logged)
         // Match the ticket format tradelocker-sync.ts uses when it first logs the
         // position as PENDING (`tl_<accountId>_<positionId>`) so this sync updates
         // that same row instead of creating a second, differently-keyed duplicate
         // (previously keyed by the exit order's own id, which never matched).
-        const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
+        // NOTE: accountId MUST be passed in — it used to read `conn.accountId`, but
+        // `conn` is the for-loop var below and is NOT in this closure's scope, so it
+        // threw ReferenceError on every closed trade (swallowed by the per-conn
+        // catch) → zero closed trades were ever logged. That was the regression.
+        const tk = o.positionId ? `tl_${accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === 'tl_undefined') return;
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
           // Update if still PENDING
           if (existing.result === 'PENDING') {
             await storage.updateAiTradeResult(existing.id, userId, {
-              result: p > 0 ? 'WIN' : 'LOSS',
+              result: p > 0 ? 'WIN' : p < 0 ? 'LOSS' : 'BREAKEVEN',
               profitLoss: p,
               connectionId: connId,
               closedAt: o.closeTime || o.closedAt ? new Date(o.closeTime || o.closedAt) : new Date(),
@@ -16819,7 +16823,7 @@ Format each recommendation as a clear, concise action item.`;
           entryPrice: o.openPrice || o.entryPrice || 0,
           exitPrice: o.closePrice || o.exitPrice || 0,
           aiConfidence: 0,
-          result: p > 0 ? 'WIN' : 'LOSS',
+          result: p > 0 ? 'WIN' : p < 0 ? 'LOSS' : 'BREAKEVEN',
           profitLoss: p,
           source: 'tradelocker',
           connectionId: connId,
@@ -16841,7 +16845,7 @@ Format each recommendation as a clear, concise action item.`;
           // trade got silently skipped by saveOrder's `p === 0` guard.
           const closedTrades = await (svc as any).getClosedTradesWithPnl(fromTs);
           for (const o of closedTrades) {
-            await saveOrder(o, conn.id);
+            await saveOrder(o, conn.id, conn.accountId);
           }
         } catch (_) { /* per-connection, non-fatal */ }
       }
