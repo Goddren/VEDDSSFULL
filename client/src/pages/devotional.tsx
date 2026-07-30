@@ -34,7 +34,9 @@ import {
   ArrowRight,
   Shield,
   Sparkles,
+  Calculator,
 } from 'lucide-react';
+import { getSupremeMathematicsForDate } from '@/lib/supreme-mathematics';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -555,6 +557,36 @@ export default function DevotionalPage() {
 
         {devotional && (
           <div className="space-y-6">
+
+            {/* ── Supreme Mathematics for the Day ── */}
+            {(() => {
+              const sm = getSupremeMathematicsForDate(new Date(devotional.date + 'T12:00:00'));
+              return (
+                <div className="bg-black/60 backdrop-blur-sm border border-gray-800 rounded-xl overflow-hidden">
+                  <div className="bg-gradient-to-r from-amber-900/40 to-yellow-900/20 border-b border-gray-800 p-5">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge className="bg-amber-900/50 text-amber-300 border-amber-700 text-xs uppercase tracking-wide">
+                        Supreme Mathematics
+                      </Badge>
+                      <span className="text-gray-500 text-xs">
+                        {new Date(devotional.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2">
+                      <Calculator className="h-5 w-5 text-amber-400" />
+                      {sm.degree} — {sm.name}
+                    </h2>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    <p className="text-gray-200 leading-relaxed">{sm.meaning}</p>
+                    <div className="bg-gray-900/60 border border-gray-700/50 rounded-lg p-4">
+                      <p className="text-xs text-amber-400 font-semibold uppercase tracking-wider mb-1.5">Applied to Trading</p>
+                      <p className="text-gray-300 text-sm leading-relaxed">{sm.tradingTieIn}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Today's Devotional Card ── */}
             <div className="bg-black/60 backdrop-blur-sm border border-gray-800 rounded-xl overflow-hidden">
