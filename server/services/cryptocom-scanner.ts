@@ -297,6 +297,11 @@ function pushConsensus(userId: number, entry: ConsensusEntry): void {
   const list: ConsensusEntry[] = (global as any).cryptocomEngineConsensus[userId] || [];
   const deduped = list.filter(e => e.symbol !== entry.symbol);
   (global as any).cryptocomEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  // Mirror to the durable table so a server restart doesn't blank the panel
+  // until the next scan cycle happens to run (fire-and-forget, non-fatal).
+  import('./engine-consensus').then(({ recordEngineConsensus }) =>
+    recordEngineConsensus(userId, 'cryptocom', entry)
+  ).catch(() => {});
 }
 
 async function assembleConsensus(userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<boolean> {

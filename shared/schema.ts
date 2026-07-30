@@ -2590,6 +2590,33 @@ export const propFirmDailyPnl = pgTable("prop_firm_daily_pnl", {
 
 export type PropFirmDailyPnl = typeof propFirmDailyPnl.$inferSelect;
 
+// Durable Dual-Vote Consensus feed — the Options/Crypto.com engines' "Quant
+// Agent + AI Agent" consensus panels previously lived ONLY in an in-memory
+// Record<userId, ConsensusEntry[]> (global.optionsEngineConsensus /
+// cryptocomEngineConsensus), wiped on every server restart/deploy. One row
+// per (user, engine, symbol) — upserted on every scan cycle — so the panel
+// still shows the last real decision immediately after a restart instead of
+// "No signals processed yet" until the next scan happens to run.
+export const engineConsensusLog = pgTable("engine_consensus_log", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  engine: text("engine").notNull(), // 'options' | 'cryptocom'
+  symbol: text("symbol").notNull(),
+  strategy: text("strategy").notNull(),
+  quantVerdict: text("quant_verdict").notNull(),
+  quantScore: doublePrecision("quant_score").notNull().default(0),
+  aiVerdict: text("ai_verdict").notNull(),
+  aiConfidence: doublePrecision("ai_confidence").notNull().default(0),
+  aiReasoning: text("ai_reasoning").notNull().default(''),
+  consensus: text("consensus").notNull(),
+  tradeAllowed: boolean("trade_allowed").notNull().default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.userId, t.engine, t.symbol),
+}));
+
+export type EngineConsensusLog = typeof engineConsensusLog.$inferSelect;
+
 // ── Brain Data Marketplace ────────────────────────────────────────────────────
 // Sellers list a frozen snapshot of their ai_confirmation_outcomes history —
 // priced in VEDD by age/pairs/trades/win-rate — so a buyer can merge a copy

@@ -455,6 +455,17 @@ const brainLearningIntervals: Record<number, ReturnType<typeof setInterval>> = {
 // instead of silently resetting to defaults. Never auto-resumes trading.
 const persistedConfigOverrides: Record<number, Partial<LiveEngineConfig>> = {};
 
+// Read-only accessor for callers that need a user's saved config settings
+// (e.g. the prop-firm-challenge dashboard) without requiring the engine to
+// actually be running — getLiveEngineState() returns null whenever the
+// in-memory engine isn't started (every server restart, or before the user's
+// first "Start" click this session), which previously caused settings like
+// deepReasoningMode/consistencyEnforcementEnabled to visually show as
+// off/default even though they were correctly saved to the DB.
+export function getPersistedEngineConfigOverride(userId: number): Partial<LiveEngineConfig> | undefined {
+  return persistedConfigOverrides[userId];
+}
+
 export async function hydratePersistedEngineConfigs(): Promise<void> {
   try {
     const rows = await storage.getAllLiveEngineConfigOverrides();

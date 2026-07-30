@@ -99,6 +99,7 @@ __export(schema_exports, {
   dmKeywords: () => dmKeywords,
   eaShareAssets: () => eaShareAssets,
   eaSubscriptions: () => eaSubscriptions,
+  engineConsensusLog: () => engineConsensusLog,
   engineRunState: () => engineRunState,
   follows: () => follows,
   formationProviderEnum: () => formationProviderEnum,
@@ -287,7 +288,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2753,6 +2754,24 @@ var init_schema = __esm({
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     }, (t) => ({
       unq: unique().on(t.connectionId, t.connectionType, t.tradeDate)
+    }));
+    engineConsensusLog = pgTable("engine_consensus_log", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      engine: text("engine").notNull(),
+      // 'options' | 'cryptocom'
+      symbol: text("symbol").notNull(),
+      strategy: text("strategy").notNull(),
+      quantVerdict: text("quant_verdict").notNull(),
+      quantScore: doublePrecision("quant_score").notNull().default(0),
+      aiVerdict: text("ai_verdict").notNull(),
+      aiConfidence: doublePrecision("ai_confidence").notNull().default(0),
+      aiReasoning: text("ai_reasoning").notNull().default(""),
+      consensus: text("consensus").notNull(),
+      tradeAllowed: boolean("trade_allowed").notNull().default(false),
+      updatedAt: timestamp("updated_at").defaultNow().notNull()
+    }, (t) => ({
+      unq: unique().on(t.userId, t.engine, t.symbol)
     }));
     brainDataListings = pgTable("brain_data_listings", {
       id: serial("id").primaryKey(),
@@ -25314,6 +25333,7 @@ __export(live_trading_engine_exports, {
   getMT5Accounts: () => getMT5Accounts,
   getModelLockStatus: () => getModelLockStatus,
   getPendingMT5Signals: () => getPendingMT5Signals,
+  getPersistedEngineConfigOverride: () => getPersistedEngineConfigOverride,
   heartbeatMT5Account: () => heartbeatMT5Account,
   hydratePersistedEngineConfigs: () => hydratePersistedEngineConfigs,
   recordTradeResult: () => recordTradeResult,
@@ -25462,6 +25482,9 @@ function setMT5AccountReceiveSignals(userId, alias, receive) {
   if (!mt5AccountRegistry[userId]?.[alias]) return false;
   mt5AccountRegistry[userId][alias].receiveSignals = receive;
   return true;
+}
+function getPersistedEngineConfigOverride(userId) {
+  return persistedConfigOverrides[userId];
 }
 async function hydratePersistedEngineConfigs() {
   try {
@@ -30725,6 +30748,70 @@ var init_options_brain = __esm({
     "use strict";
     init_storage();
     STALE_MS2 = 6e4;
+  }
+});
+
+// server/services/engine-consensus.ts
+var engine_consensus_exports = {};
+__export(engine_consensus_exports, {
+  getEngineConsensusForUser: () => getEngineConsensusForUser,
+  recordEngineConsensus: () => recordEngineConsensus
+});
+async function recordEngineConsensus(userId, engine, entry) {
+  try {
+    await pool.query(
+      `INSERT INTO engine_consensus_log
+         (user_id, engine, symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+       ON CONFLICT (user_id, engine, symbol) DO UPDATE SET
+         strategy = $4, quant_verdict = $5, quant_score = $6, ai_verdict = $7,
+         ai_confidence = $8, ai_reasoning = $9, consensus = $10, trade_allowed = $11, updated_at = now()`,
+      [
+        userId,
+        engine,
+        entry.symbol,
+        entry.strategy,
+        entry.quantVerdict,
+        entry.quantScore,
+        entry.aiVerdict,
+        entry.aiConfidence,
+        entry.aiReasoning,
+        entry.consensus,
+        entry.tradeAllowed
+      ]
+    );
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to record consensus for ${engine}/${entry.symbol} (non-fatal):`, err?.message ?? err);
+  }
+}
+async function getEngineConsensusForUser(userId, engine) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT symbol, strategy, quant_verdict, quant_score, ai_verdict, ai_confidence, ai_reasoning, consensus, trade_allowed, updated_at
+       FROM engine_consensus_log WHERE user_id = $1 AND engine = $2 ORDER BY updated_at DESC LIMIT 20`,
+      [userId, engine]
+    );
+    return rows.map((r) => ({
+      symbol: r.symbol,
+      strategy: r.strategy,
+      quantVerdict: r.quant_verdict,
+      quantScore: r.quant_score,
+      aiVerdict: r.ai_verdict,
+      aiConfidence: r.ai_confidence,
+      aiReasoning: r.ai_reasoning,
+      consensus: r.consensus,
+      tradeAllowed: r.trade_allowed,
+      timestamp: new Date(r.updated_at).toISOString()
+    }));
+  } catch (err) {
+    console.error(`[engine-consensus] Failed to read consensus for ${engine} (non-fatal):`, err?.message ?? err);
+    return [];
+  }
+}
+var init_engine_consensus = __esm({
+  "server/services/engine-consensus.ts"() {
+    "use strict";
+    init_db();
   }
 });
 
@@ -42089,6 +42176,45 @@ CREATE TABLE IF NOT EXISTS "cryptocom_engine_trades" (
   }
 });
 
+// server/services/ensure-engine-consensus-table.ts
+var ensure_engine_consensus_table_exports = {};
+__export(ensure_engine_consensus_table_exports, {
+  ensureEngineConsensusTable: () => ensureEngineConsensusTable
+});
+async function ensureEngineConsensusTable() {
+  try {
+    await pool.query(DDL12);
+    console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
+  } catch (err) {
+    console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL12;
+var init_ensure_engine_consensus_table = __esm({
+  "server/services/ensure-engine-consensus-table.ts"() {
+    "use strict";
+    init_db();
+    DDL12 = `
+CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "engine" text NOT NULL,
+  "symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "quant_verdict" text NOT NULL,
+  "quant_score" double precision NOT NULL DEFAULT 0,
+  "ai_verdict" text NOT NULL,
+  "ai_confidence" double precision NOT NULL DEFAULT 0,
+  "ai_reasoning" text NOT NULL DEFAULT '',
+  "consensus" text NOT NULL,
+  "trade_allowed" boolean NOT NULL DEFAULT false,
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  UNIQUE("user_id", "engine", "symbol")
+);
+`;
+  }
+});
+
 // server/services/ensure-live-engine-config-table.ts
 var ensure_live_engine_config_table_exports = {};
 __export(ensure_live_engine_config_table_exports, {
@@ -42096,18 +42222,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -42126,18 +42252,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -42154,18 +42280,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -42729,6 +42855,10 @@ function pushOptionsConsensus(userId, entry) {
   const list = global.optionsEngineConsensus[userId] || [];
   const deduped = list.filter((e) => e.symbol !== entry.symbol);
   global.optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
+    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "options", entry)
+  ).catch(() => {
+  });
 }
 async function assembleOptionsConsensus(userId, symbol, result, cfg) {
   const quantVerdict = quantVerdictFromScore(result.score);
@@ -43686,6 +43816,10 @@ function pushConsensus(userId, entry) {
   const list = global.cryptocomEngineConsensus[userId] || [];
   const deduped = list.filter((e) => e.symbol !== entry.symbol);
   global.cryptocomEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
+    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "cryptocom", entry)
+  ).catch(() => {
+  });
 }
 async function assembleConsensus(userId, symbol, result, cfg) {
   const quantVerdict = quantVerdictFromScore2(result.score);
@@ -62649,7 +62783,11 @@ Rules:
   app2.get("/api/options-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const consensus = global.optionsEngineConsensus?.[userId] || [];
+    let consensus = global.optionsEngineConsensus?.[userId] || [];
+    if (consensus.length === 0) {
+      const { getEngineConsensusForUser: getEngineConsensusForUser2 } = await Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports));
+      consensus = await getEngineConsensusForUser2(userId, "options");
+    }
     const summary = {
       strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
       strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
@@ -62897,7 +63035,11 @@ Rules:
   app2.get("/api/cryptocom-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const consensus = global.cryptocomEngineConsensus?.[userId] || [];
+    let consensus = global.cryptocomEngineConsensus?.[userId] || [];
+    if (consensus.length === 0) {
+      const { getEngineConsensusForUser: getEngineConsensusForUser2 } = await Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports));
+      consensus = await getEngineConsensusForUser2(userId, "cryptocom");
+    }
     const summary = {
       strongConfirm: consensus.filter((c) => c.consensus === "STRONG_CONFIRM").length,
       strongSkip: consensus.filter((c) => c.consensus === "STRONG_SKIP").length,
@@ -70153,9 +70295,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app2.get("/api/prop-firm-challenge/dashboard", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user.id;
-    const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    const { getLiveEngineState: getLiveEngineState3, getPersistedEngineConfigOverride: getPersistedEngineConfigOverride2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
     const state = getLiveEngineState3(userId);
     if (!state) {
+      const persisted = getPersistedEngineConfigOverride2(userId);
       try {
         const dayStart = /* @__PURE__ */ new Date();
         dayStart.setUTCHours(0, 0, 0, 0);
@@ -70207,13 +70350,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           drawdownShieldActive: false,
           sessionFilterEnabled: false,
           inSessionWindow: utcHour2 >= 13 && utcHour2 < 17,
-          consistencyEnforcementEnabled: false,
-          consistencyMinProfitableDays: 10,
-          consistencyPeriodDays: 15,
+          consistencyEnforcementEnabled: persisted?.consistencyEnforcementEnabled ?? false,
+          consistencyMinProfitableDays: persisted?.consistencyMinProfitableDays ?? 10,
+          consistencyPeriodDays: persisted?.consistencyPeriodDays ?? 15,
+          maxDailyProfitPctOfTotal: persisted?.maxDailyProfitPctOfTotal ?? 0,
+          deepReasoningMode: persisted?.deepReasoningMode ?? false,
           profitableDays: profitableDays2,
           totalTradingDays: periodKeys2.length,
-          daysRemaining: Math.max(0, 15 - periodKeys2.length),
-          daysNeeded: Math.max(0, 10 - profitableDays2),
+          daysRemaining: Math.max(0, (persisted?.consistencyPeriodDays ?? 15) - periodKeys2.length),
+          daysNeeded: Math.max(0, (persisted?.consistencyMinProfitableDays ?? 10) - profitableDays2),
           riskMultiplier: 1,
           dailyPnLHistory,
           periodKeys: periodKeys2,
@@ -75886,6 +76031,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCryptocomEngineTables2();
   } catch (err) {
     console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));
+    await ensureEngineConsensusTable2();
+  } catch (err) {
+    console.error(`[startup] ensureEngineConsensusTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));

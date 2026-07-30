@@ -15777,7 +15777,14 @@ Rules:
   app.get("/api/options-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const consensus = (global as any).optionsEngineConsensus?.[userId] || [];
+    // In-memory cache is wiped on every server restart/deploy — fall back to
+    // the durable table so the panel shows the last real decision instead of
+    // "No signals processed yet" until the next scan cycle happens to run.
+    let consensus = (global as any).optionsEngineConsensus?.[userId] || [];
+    if (consensus.length === 0) {
+      const { getEngineConsensusForUser } = await import('./services/engine-consensus');
+      consensus = await getEngineConsensusForUser(userId, 'options');
+    }
     const summary = {
       strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
       strongSkip: consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
@@ -15972,7 +15979,14 @@ Rules:
   app.get("/api/cryptocom-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const consensus = (global as any).cryptocomEngineConsensus?.[userId] || [];
+    // In-memory cache is wiped on every server restart/deploy — fall back to
+    // the durable table so the panel shows the last real decision instead of
+    // "No signals processed yet" until the next scan cycle happens to run.
+    let consensus = (global as any).cryptocomEngineConsensus?.[userId] || [];
+    if (consensus.length === 0) {
+      const { getEngineConsensusForUser } = await import('./services/engine-consensus');
+      consensus = await getEngineConsensusForUser(userId, 'cryptocom');
+    }
     const summary = {
       strongConfirm: consensus.filter((c: any) => c.consensus === 'STRONG_CONFIRM').length,
       strongSkip: consensus.filter((c: any) => c.consensus === 'STRONG_SKIP').length,
@@ -24769,10 +24783,17 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   app.get("/api/prop-firm-challenge/dashboard", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const userId = req.user!.id;
-    const { getLiveEngineState } = await import('./services/live-trading-engine');
+    const { getLiveEngineState, getPersistedEngineConfigOverride } = await import('./services/live-trading-engine');
     const state = getLiveEngineState(userId);
     if (!state) {
-      // Engine not running — build a read-only history view from ai_trade_results
+      // Engine not running — build a read-only history view from ai_trade_results.
+      // Settings the user saved via /api/prop-firm-challenge/config still need to
+      // reflect here: they persist to the DB regardless of whether the engine is
+      // actively running, but this branch previously hardcoded them to off/default,
+      // which made toggles like Deep Reasoning Mode / Consistency Enforcement look
+      // like they "didn't stay on" every time the engine wasn't running (i.e. every
+      // server restart, or before the user's first Start click that session).
+      const persisted = getPersistedEngineConfigOverride(userId);
       try {
         const dayStart = new Date(); dayStart.setUTCHours(0, 0, 0, 0);
         const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 3600 * 1000);
@@ -24817,10 +24838,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           dailyProfitTargetPct: 2, dailyProfitTargetDollar: bal > 0 ? bal * 0.02 : null,
           drawdownShieldActive: false, sessionFilterEnabled: false,
           inSessionWindow: utcHour >= 13 && utcHour < 17,
-          consistencyEnforcementEnabled: false, consistencyMinProfitableDays: 10, consistencyPeriodDays: 15,
+          consistencyEnforcementEnabled: persisted?.consistencyEnforcementEnabled ?? false,
+          consistencyMinProfitableDays: persisted?.consistencyMinProfitableDays ?? 10,
+          consistencyPeriodDays: persisted?.consistencyPeriodDays ?? 15,
+          maxDailyProfitPctOfTotal: persisted?.maxDailyProfitPctOfTotal ?? 0,
+          deepReasoningMode: persisted?.deepReasoningMode ?? false,
           profitableDays, totalTradingDays: periodKeys.length,
-          daysRemaining: Math.max(0, 15 - periodKeys.length),
-          daysNeeded: Math.max(0, 10 - profitableDays),
+          daysRemaining: Math.max(0, (persisted?.consistencyPeriodDays ?? 15) - periodKeys.length),
+          daysNeeded: Math.max(0, (persisted?.consistencyMinProfitableDays ?? 10) - profitableDays),
           riskMultiplier: 1.0, dailyPnLHistory, periodKeys,
           scanCount: 0, tradesExecuted: todayTrades.length, openPositionCount: 0,
         });

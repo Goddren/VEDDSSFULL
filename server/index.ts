@@ -322,6 +322,15 @@ async function withRetry<T>(
     console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
+  // engine consensus panels — previously in-memory only, wiped on restart).
+  try {
+    const { ensureEngineConsensusTable } = await import('./services/ensure-engine-consensus-table');
+    await ensureEngineConsensusTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureEngineConsensusTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
   // hydrate propFirmMode/consistency-rule defaults from it so they survive
   // this restart — never auto-resumes live trading itself.

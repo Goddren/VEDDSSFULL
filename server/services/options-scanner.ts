@@ -419,6 +419,11 @@ function pushOptionsConsensus(userId: number, entry: OptionsConsensusEntry): voi
   const list: OptionsConsensusEntry[] = (global as any).optionsEngineConsensus[userId] || [];
   const deduped = list.filter(e => e.symbol !== entry.symbol);
   (global as any).optionsEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  // Mirror to the durable table so a server restart doesn't blank the panel
+  // until the next scan cycle happens to run (fire-and-forget, non-fatal).
+  import('./engine-consensus').then(({ recordEngineConsensus }) =>
+    recordEngineConsensus(userId, 'options', entry)
+  ).catch(() => {});
 }
 
 // Returns whether execution should proceed, and records the consensus entry
