@@ -339,6 +339,7 @@ export interface IStorage {
   createTradelockerConnection(connection: InsertTradelockerConnection): Promise<TradelockerConnection>;
   getTradelockerConnection(id: number): Promise<TradelockerConnection | undefined>;
   getUserTradelockerConnection(userId: number): Promise<TradelockerConnection | undefined>;
+  getTradelockerConnectionByAccount(userId: number, accountId: string, serverId: string): Promise<TradelockerConnection | undefined>;
   getUserTradelockerConnections(userId: number): Promise<TradelockerConnection[]>;
   getAllPropFirmTradelockerConnections(): Promise<TradelockerConnection[]>;
   updateTradelockerConnection(id: number, data: Partial<TradelockerConnection>): Promise<TradelockerConnection | undefined>;
@@ -1913,6 +1914,24 @@ export class DatabaseStorage implements IStorage {
   // TradeLocker Connection methods
   async createTradelockerConnection(connection: InsertTradelockerConnection): Promise<TradelockerConnection> {
     const [result] = await db.insert(tradelockerConnections).values(connection).returning();
+    return result;
+  }
+
+  // Finds an existing connection for the same broker account (not just same
+  // row id) — there's no DB unique constraint on (userId, accountId, serverId),
+  // so without this lookup, reconnecting the same TradeLocker account (e.g.
+  // after a credential change or full re-auth) creates a brand-new row with a
+  // new id and silently orphans every ai_trade_results row tagged with the old
+  // connectionId — the account's trade history, chart, and weekly goal all
+  // read by connectionId, so they'd all appear to reset to empty.
+  async getTradelockerConnectionByAccount(userId: number, accountId: string, serverId: string): Promise<TradelockerConnection | undefined> {
+    const [result] = await db.select().from(tradelockerConnections).where(
+      and(
+        eq(tradelockerConnections.userId, userId),
+        eq(tradelockerConnections.accountId, accountId),
+        eq(tradelockerConnections.serverId, serverId),
+      )
+    );
     return result;
   }
 

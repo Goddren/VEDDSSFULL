@@ -15157,30 +15157,53 @@ Rules:
 
     // Encrypt password after successful auth
     const encryptedPw = encryptPassword(password);
-    
-    const { brokerNameFromServerId } = await import('./services/broker-lookup');
-    const connection = await storage.createTradelockerConnection({
-      userId,
-      email,
-      encryptedPassword: encryptedPw,
-      serverId,
-      accountId,
-      accountType: resolvedAccountType,
-      isActive: true,
-      autoExecute: autoExecute || false,
-      brokerName: brokerNameFromServerId(serverId),
-      ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
-    });
 
-    // Persist accNum and lastConnectedAt immediately
-    if (resolvedAccNum) {
-      await storage.updateTradelockerConnection(connection.id, {
-        accNum: resolvedAccNum,
+    const { brokerNameFromServerId } = await import('./services/broker-lookup');
+
+    // Reconnecting the SAME broker account (same userId+accountId+serverId)
+    // must reuse the existing row instead of inserting a new one — a new row
+    // gets a new id, which orphans every ai_trade_results row already tagged
+    // with the old connectionId (trade history, the account-detail chart, and
+    // the weekly goal all read by connectionId, so the account would silently
+    // appear to have zero history going forward even though it has a real
+    // trading record under the stale id).
+    const existingConn = await storage.getTradelockerConnectionByAccount(userId, accountId, serverId);
+    let connection: Awaited<ReturnType<typeof storage.createTradelockerConnection>>;
+    if (existingConn) {
+      connection = (await storage.updateTradelockerConnection(existingConn.id, {
+        email,
+        encryptedPassword: encryptedPw,
+        accountType: resolvedAccountType,
+        isActive: true,
+        autoExecute: autoExecute || false,
+        brokerName: brokerNameFromServerId(serverId),
         lastConnectedAt: new Date(),
         lastError: null,
+        ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
+      }))!;
+    } else {
+      connection = await storage.createTradelockerConnection({
+        userId,
+        email,
+        encryptedPassword: encryptedPw,
+        serverId,
+        accountId,
+        accountType: resolvedAccountType,
+        isActive: true,
+        autoExecute: autoExecute || false,
+        brokerName: brokerNameFromServerId(serverId),
+        ...(resolvedAccNum ? { accNum: resolvedAccNum } : {}),
       });
+      // Persist accNum and lastConnectedAt immediately (already set above for the update path)
+      if (resolvedAccNum) {
+        await storage.updateTradelockerConnection(connection.id, {
+          accNum: resolvedAccNum,
+          lastConnectedAt: new Date(),
+          lastError: null,
+        });
+      }
     }
-    
+
     const { encryptedPassword: _, ...safeConnection } = connection;
     const typeCorrected = resolvedAccountType !== (accountType === 'demo' ? 'demo' : 'live');
     res.json({

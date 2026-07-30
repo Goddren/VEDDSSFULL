@@ -1967,7 +1967,15 @@ async function getUserApiKeyForProvider(userId: number, provider: string): Promi
 // actual chain-of-thought reasoning model — weighs them with the discipline
 // of a trader who has been consistently profitable for 30+ years: extreme
 // selectivity, capital preservation over frequency, no bias toward "yes."
-const VETERAN_JUDGE_MODEL = 'deepseek/deepseek-r1:free';
+// OpenRouter retired 'deepseek/deepseek-r1:free' (confirmed 404 on live test
+// 2026-07-26 — see DEPRECATED_MODEL_MAP above, which remaps user-selected
+// models to 'openai/gpt-oss-20b' for the same reason). This constant is
+// internal to the Veteran-Judge pass and isn't a user-selected model, so it
+// was missed in that fix — every Deep Reasoning Mode confirmation has been
+// hitting the same 404 and failing closed (confidence 0) since. Using the
+// larger 120b variant here (vs. the 20b default used elsewhere) since this
+// pass is specifically meant to be the deeper, more deliberate reasoning step.
+const VETERAN_JUDGE_MODEL = 'openai/gpt-oss-120b';
 
 const VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime — bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
 - Capital preservation is priority #1, always — profit is priority #2.
@@ -2009,8 +2017,9 @@ async function runDeepReasoningDebate(
   }
 
   // Pass 2 — Veteran Judge: a real reasoning model weighs both cases.
-  const judgeApiKey = (userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null) || process.env.OPENROUTER_API_KEY;
-  if (!judgeApiKey) {
+  const judgePersonalKey = userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null;
+  const judgePlatformKey = process.env.OPENROUTER_API_KEY;
+  if (!judgePersonalKey && !judgePlatformKey) {
     return {
       confirmed: false,
       aiDirection: 'NEUTRAL',
@@ -2023,11 +2032,27 @@ async function runDeepReasoningDebate(
   const judgeUser = `${prompt.user}\n\n## BULL CASE\n${bullCase || '(debate pass unavailable)'}\n\n## BEAR CASE\n${bearCase || '(debate pass unavailable)'}\n\nWeigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
 
   try {
-    const result = await callOpenRouterConfirmation(
-      { system: `${VETERAN_PERSONA}\n\n${prompt.system}`, user: judgeUser },
-      VETERAN_JUDGE_MODEL,
-      judgeApiKey
-    );
+    let result: { content: string; thinking: string | null };
+    try {
+      result = await callOpenRouterConfirmation(
+        { system: `${VETERAN_PERSONA}\n\n${prompt.system}`, user: judgeUser },
+        VETERAN_JUDGE_MODEL,
+        (judgePersonalKey || judgePlatformKey)!
+      );
+    } catch (personalErr) {
+      // Same masking bug as the main confirmation path: a broken/revoked
+      // personal OpenRouter key must not permanently block this pass when a
+      // working platform-wide key is available — retry once before giving up.
+      if (judgePersonalKey && judgePlatformKey && judgePlatformKey !== judgePersonalKey) {
+        result = await callOpenRouterConfirmation(
+          { system: `${VETERAN_PERSONA}\n\n${prompt.system}`, user: judgeUser },
+          VETERAN_JUDGE_MODEL,
+          judgePlatformKey
+        );
+      } else {
+        throw personalErr;
+      }
+    }
     if (!result.content) throw new Error('No response from Veteran-Judge model');
     const jsonMatch = result.content.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);

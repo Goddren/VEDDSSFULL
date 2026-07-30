@@ -4545,6 +4545,23 @@ var init_storage = __esm({
         const [result] = await db.insert(tradelockerConnections).values(connection2).returning();
         return result;
       }
+      // Finds an existing connection for the same broker account (not just same
+      // row id) — there's no DB unique constraint on (userId, accountId, serverId),
+      // so without this lookup, reconnecting the same TradeLocker account (e.g.
+      // after a credential change or full re-auth) creates a brand-new row with a
+      // new id and silently orphans every ai_trade_results row tagged with the old
+      // connectionId — the account's trade history, chart, and weekly goal all
+      // read by connectionId, so they'd all appear to reset to empty.
+      async getTradelockerConnectionByAccount(userId, accountId, serverId) {
+        const [result] = await db.select().from(tradelockerConnections).where(
+          and(
+            eq(tradelockerConnections.userId, userId),
+            eq(tradelockerConnections.accountId, accountId),
+            eq(tradelockerConnections.serverId, serverId)
+          )
+        );
+        return result;
+      }
       async getTradelockerConnection(id) {
         const [result] = await db.select().from(tradelockerConnections).where(eq(tradelockerConnections.id, id));
         return result;
@@ -9309,8 +9326,9 @@ async function runDeepReasoningDebate(prompt, userId) {
   } catch (e) {
     console.error("[Deep Reasoning] Debate pass failed (non-fatal, judge proceeds without it):", e.message);
   }
-  const judgeApiKey = (userId ? await getUserApiKeyForProvider(userId, "openrouter") : null) || process.env.OPENROUTER_API_KEY;
-  if (!judgeApiKey) {
+  const judgePersonalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
+  const judgePlatformKey = process.env.OPENROUTER_API_KEY;
+  if (!judgePersonalKey && !judgePlatformKey) {
     return {
       confirmed: false,
       aiDirection: "NEUTRAL",
@@ -9331,13 +9349,28 @@ ${bearCase || "(debate pass unavailable)"}
 
 Weigh both cases with total objectivity per your persona, think it through step by step, then decide.`;
   try {
-    const result = await callOpenRouterConfirmation(
-      { system: `${VETERAN_PERSONA}
+    let result;
+    try {
+      result = await callOpenRouterConfirmation(
+        { system: `${VETERAN_PERSONA}
 
 ${prompt.system}`, user: judgeUser },
-      VETERAN_JUDGE_MODEL,
-      judgeApiKey
-    );
+        VETERAN_JUDGE_MODEL,
+        judgePersonalKey || judgePlatformKey
+      );
+    } catch (personalErr) {
+      if (judgePersonalKey && judgePlatformKey && judgePlatformKey !== judgePersonalKey) {
+        result = await callOpenRouterConfirmation(
+          { system: `${VETERAN_PERSONA}
+
+${prompt.system}`, user: judgeUser },
+          VETERAN_JUDGE_MODEL,
+          judgePlatformKey
+        );
+      } else {
+        throw personalErr;
+      }
+    }
     if (!result.content) throw new Error("No response from Veteran-Judge model");
     const jsonMatch = result.content.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : result.content);
@@ -11633,7 +11666,7 @@ var init_openai = __esm({
     propFirmContextMap = /* @__PURE__ */ new Map();
     aiConfirmationLogs2 = /* @__PURE__ */ new Map();
     logIdCounter = 1;
-    VETERAN_JUDGE_MODEL = "deepseek/deepseek-r1:free";
+    VETERAN_JUDGE_MODEL = "openai/gpt-oss-120b";
     VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime \u2014 bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
 - Capital preservation is priority #1, always \u2014 profit is priority #2.
 - You are far more likely to skip a setup than take it. Most trades that look "pretty good" get passed on. You only act on genuine, high-probability confluence.
@@ -62070,24 +62103,40 @@ Rules:
     }
     const encryptedPw = encryptPassword(password);
     const { brokerNameFromServerId: brokerNameFromServerId2 } = await Promise.resolve().then(() => (init_broker_lookup(), broker_lookup_exports));
-    const connection2 = await storage.createTradelockerConnection({
-      userId,
-      email,
-      encryptedPassword: encryptedPw,
-      serverId,
-      accountId,
-      accountType: resolvedAccountType,
-      isActive: true,
-      autoExecute: autoExecute || false,
-      brokerName: brokerNameFromServerId2(serverId),
-      ...resolvedAccNum ? { accNum: resolvedAccNum } : {}
-    });
-    if (resolvedAccNum) {
-      await storage.updateTradelockerConnection(connection2.id, {
-        accNum: resolvedAccNum,
+    const existingConn = await storage.getTradelockerConnectionByAccount(userId, accountId, serverId);
+    let connection2;
+    if (existingConn) {
+      connection2 = await storage.updateTradelockerConnection(existingConn.id, {
+        email,
+        encryptedPassword: encryptedPw,
+        accountType: resolvedAccountType,
+        isActive: true,
+        autoExecute: autoExecute || false,
+        brokerName: brokerNameFromServerId2(serverId),
         lastConnectedAt: /* @__PURE__ */ new Date(),
-        lastError: null
+        lastError: null,
+        ...resolvedAccNum ? { accNum: resolvedAccNum } : {}
       });
+    } else {
+      connection2 = await storage.createTradelockerConnection({
+        userId,
+        email,
+        encryptedPassword: encryptedPw,
+        serverId,
+        accountId,
+        accountType: resolvedAccountType,
+        isActive: true,
+        autoExecute: autoExecute || false,
+        brokerName: brokerNameFromServerId2(serverId),
+        ...resolvedAccNum ? { accNum: resolvedAccNum } : {}
+      });
+      if (resolvedAccNum) {
+        await storage.updateTradelockerConnection(connection2.id, {
+          accNum: resolvedAccNum,
+          lastConnectedAt: /* @__PURE__ */ new Date(),
+          lastError: null
+        });
+      }
     }
     const { encryptedPassword: _, ...safeConnection } = connection2;
     const typeCorrected = resolvedAccountType !== (accountType === "demo" ? "demo" : "live");
