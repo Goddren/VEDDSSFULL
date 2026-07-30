@@ -8,7 +8,7 @@
 // the *reasoning* the engine gives, not yet a live order.
 
 import { storage } from '../storage';
-import { AlpacaService, decryptApiSecret, type AlpacaOptionContract } from '../alpaca';
+import { AlpacaService, decryptApiSecret, parseOccSymbol, type AlpacaOptionContract } from '../alpaca';
 import type { OptionsEngineConfig, AlpacaConnection } from '../../shared/schema';
 import { getOrRefreshOptionsBrain } from './options-brain';
 
@@ -549,7 +549,13 @@ function passesLiquidityAndIvGate(c: AlpacaOptionContract, cfg: OptionsEngineCon
   const mid = (c.bid + c.ask) / 2;
   const spreadPct = mid > 0 ? ((c.ask - c.bid) / mid) * 100 : Infinity;
   if (spreadPct > cfg.maxSpreadPct) return false;
-  if ((c.openInterest ?? 0) < cfg.minOpenInterest) return false;
+  // Alpaca's options snapshot endpoint does not return openInterest on this
+  // account's data plan (verified: 0/200 contracts across SPY/QQQ/NVDA/TSLA
+  // report it) — only enforce the OI floor when a real value is present,
+  // same pattern as the IV check below. Defaulting missing OI to 0 rejected
+  // every single contract and silently blocked 100% of trades since this
+  // gate was added (2026-07-20).
+  if (typeof c.openInterest === 'number' && c.openInterest < cfg.minOpenInterest) return false;
   if (typeof c.impliedVolatility === 'number' && c.impliedVolatility * 100 > cfg.ivRankMax) return false;
   return true;
 }
@@ -817,7 +823,7 @@ async function executeSignal(
   const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
   if (!contract || !contract.ask) {
     await storage.createOptionsEngineActivity({
-      userId, symbol: underlyingSymbol, decision: 'error', strategy: result.strategy,
+      userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
       reasoning: `${underlyingSymbol}: signal confirmed, but no matching option contract cleared the liquidity/spread filter for expiry preference "${cfg.expiryPreference}" / strike mode "${cfg.strikeSelectionMode}" within ${cfg.minDaysToExpiry}-${cfg.maxDaysToExpiry} days to expiry (max spread ${cfg.maxSpreadPct}%, min OI ${cfg.minOpenInterest}).`,
       score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
     });
@@ -938,7 +944,32 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
   for (const trade of alpacaTrades) {
     try {
       const quote = await service.getOptionQuote(trade.optionSymbol);
-      if (!quote || quote.mid <= 0) continue;
+      if (!quote || quote.mid <= 0) {
+        // Quote lookups fail permanently once a contract expires (the broker
+        // stops quoting it) — this previously left the trade 'open' forever
+        // with zero visibility, still counting against maxOpenPositions and
+        // daily-loss accounting. Reconcile against the contract's own
+        // expiration date (parsed from its OCC symbol): if it's past expiry
+        // and the broker no longer lists it as a live position, it settled
+        // (expired worthless or was exercised/assigned) — mark it failed/closed
+        // out rather than let it rot. Real P&L isn't fabricated here (we have
+        // no fill data for the settlement) — check the broker statement.
+        const { expirationDate } = parseOccSymbol(trade.optionSymbol, trade.underlyingSymbol);
+        const isPastExpiry = new Date(expirationDate + 'T21:00:00Z').getTime() < Date.now();
+        if (isPastExpiry) {
+          const livePositions = await service.getPositions();
+          const stillOpenAtBroker = livePositions.some(p => p.symbol === trade.optionSymbol);
+          if (!stillOpenAtBroker) {
+            await storage.markOptionsEngineTradeFailed(trade.id, `expired ${expirationDate} — settled by broker (worthless or exercised/assigned), real P&L not tracked here; check the Alpaca account statement`);
+            await storage.createOptionsEngineActivity({
+              userId, symbol: trade.underlyingSymbol, decision: 'error', strategy: trade.strategy,
+              reasoning: `${trade.underlyingSymbol}: ${trade.optionSymbol} expired ${expirationDate} and no longer appears in the broker's open positions — closed out of tracking. P&L wasn't captured by this reconciliation; check the Alpaca account statement for the actual settlement amount.`,
+              score: null, price: null, dailyChangePercent: null, source: 'alpaca',
+            });
+          }
+        }
+        continue;
+      }
 
       const pnlPercent = ((quote.mid - trade.entryPrice) / trade.entryPrice) * 100;
       let exitReason: string | null = null;

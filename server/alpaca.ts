@@ -300,7 +300,7 @@ export class AlpacaService {
 }
 
 // OCC option symbol format: {root}{YYMMDD}{C|P}{strike*1000, 8 digits}
-function parseOccSymbol(occSymbol: string, underlyingSymbol: string): { expirationDate: string; strikePrice: number; type: 'call' | 'put' } {
+export function parseOccSymbol(occSymbol: string, underlyingSymbol: string): { expirationDate: string; strikePrice: number; type: 'call' | 'put' } {
   const rest = occSymbol.slice(underlyingSymbol.length);
   const dateStr = rest.slice(0, 6);
   const typeChar = rest.charAt(6);
