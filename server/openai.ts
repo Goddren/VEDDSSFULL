@@ -1829,10 +1829,28 @@ async function callOpenAIConfirmation(prompt: { system: string; user: string }, 
       { role: "user", content: prompt.user }
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1000,
+    // resolvedModel can end up being a failover provider's own default (e.g.
+    // OpenRouter's gpt-oss-20b) rather than the `model` param this function
+    // was called with — checked on the actual model being sent, not `model`.
+    max_tokens: hasHiddenReasoningOverhead(resolvedModel) ? 2000 : 1000,
     temperature: 0.3,
   });
   return response.choices[0]?.message?.content || '';
+}
+
+// gpt-oss (Groq/OpenRouter's current default text models, see PROVIDER_MODELS)
+// and Qwen3 emit hidden reasoning tokens before the visible answer, same
+// failure mode as true reasoning models (o1/o3/R1) but NOT flagged by
+// isReasoningModel (which only recognizes the older o1/o3/r1 naming and
+// predates the June 2026 Groq model migration). Under a tight max_tokens
+// budget, reasoning alone can consume the whole allowance and leave content
+// empty — which every caller here treats as a hard AI failure (confidence 0),
+// indistinguishable from an actual auth/provider error. Kept separate from
+// isReasoningModel (used for temperature=1) since gpt-oss/Qwen3 accept a
+// normal temperature, unlike o1/o3.
+export function hasHiddenReasoningOverhead(modelId: string): boolean {
+  const m = (modelId || '').toLowerCase();
+  return isReasoningModel(modelId) || m.includes('gpt-oss') || m.includes('qwen3');
 }
 
 async function callAnthropicConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<string> {
@@ -1870,7 +1888,7 @@ async function callGroqConfirmation(prompt: { system: string; user: string }, mo
       { role: "user", content: prompt.user }
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1000,
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2000 : 1000, // Groq's default (gpt-oss-120b) needs headroom for hidden reasoning tokens
     temperature: 0.3,
   });
   return response.choices[0]?.message?.content || '';
@@ -1914,14 +1932,14 @@ function extractThinkingTrace(content: string): { thinking: string | null; rest:
 // without every user needing their own OpenRouter account.
 async function callOpenRouterConfirmation(prompt: { system: string; user: string }, model: string, apiKey: string): Promise<{ content: string; thinking: string | null }> {
   const client = buildOpenAICompatClient('openrouter', apiKey);
-  const reasoning = isReasoningModel(model);
+  const reasoning = isReasoningModel(model); // true chain-of-thought models (o1/o3/R1) need temperature=1
   const response = await (client as any).chat.completions.create({
     model,
     messages: [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user }
     ],
-    max_tokens: reasoning ? 2000 : 1000, // reasoning models spend tokens on <think> before the answer
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2000 : 1000, // gpt-oss/Qwen3/o1/o3/R1 all spend tokens on hidden reasoning before the answer
     temperature: reasoning ? 1 : 0.3,
   });
   const raw = response.choices?.[0]?.message?.content || '';
@@ -2131,8 +2149,9 @@ export async function getAiVisionConfirmation(
     } else if (provider === 'openrouter') {
       // Free-tier models (DeepSeek R1/V3 etc.) shouldn't require every user
       // to bring their own OpenRouter key — fall back to the platform key.
-      const apiKey = (userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null) || process.env.OPENROUTER_API_KEY;
-      if (!apiKey) {
+      const personalKey = userId ? await getUserApiKeyForProvider(userId, 'openrouter') : null;
+      const platformKey = process.env.OPENROUTER_API_KEY;
+      if (!personalKey && !platformKey) {
         return {
           confirmed: false,
           aiDirection: 'NEUTRAL',
@@ -2140,9 +2159,23 @@ export async function getAiVisionConfirmation(
           reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`,
         };
       }
-      const result = await callOpenRouterConfirmation(prompt, selectedModel, apiKey);
-      content = result.content;
-      thinkingTrace = result.thinking;
+      try {
+        const result = await callOpenRouterConfirmation(prompt, selectedModel, (personalKey || platformKey)!);
+        content = result.content;
+        thinkingTrace = result.thinking;
+      } catch (personalErr) {
+        // A broken/revoked personal key must not permanently block this provider —
+        // this call (unlike getUniversalAIClientForUser) is single-shot with no
+        // failover chain, so a masked platform key here means total failure with
+        // no recourse. Retry once with the platform-wide key before giving up.
+        if (personalKey && platformKey && platformKey !== personalKey) {
+          const result = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
+          content = result.content;
+          thinkingTrace = result.thinking;
+        } else {
+          throw personalErr;
+        }
+      }
     } else if (userId) {
       const apiKey = await getUserApiKeyForProvider(userId, provider);
       if (!apiKey) {
@@ -2728,18 +2761,33 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     for (const provider of order) {
       try {
         if (provider === 'groq') {
+          // A broken/revoked personal key must not shadow a working platform key
+          // for the same provider — push BOTH as separate failover links instead
+          // of `personalKey || platformKey`, which only ever tries one. Without
+          // this, one bad saved key silently kills every downstream provider too,
+          // since the whole chain still gets built around the "has a key" check
+          // even though that key never actually works.
           const personalGroqKey = keyFor('groq');
-          if (!personalGroqKey && !canUsePlatformKey) continue;
-          const c = await buildGroqEconomyClient(personalGroqKey) as any; // uses platform key if user has none
-          if (c) { c.usedPlatformKey = !personalGroqKey; clients.push(c); }
+          if (personalGroqKey) {
+            const c = await buildGroqEconomyClient(personalGroqKey) as any;
+            if (c) { c.usedPlatformKey = false; clients.push(c); }
+          }
+          if (canUsePlatformKey && process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== personalGroqKey) {
+            const c = await buildGroqEconomyClient(process.env.GROQ_API_KEY) as any;
+            if (c) { c.usedPlatformKey = true; clients.push(c); }
+          }
           continue;
         }
         if (provider === 'openrouter') {
           const personalKey = keyFor('openrouter');
-          const apiKey = personalKey || (canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined);
-          if (apiKey) {
-            const c = buildOpenAICompatClient('openrouter', apiKey) as any;
-            c.usedPlatformKey = !personalKey;
+          if (personalKey) {
+            const c = buildOpenAICompatClient('openrouter', personalKey) as any;
+            c.usedPlatformKey = false;
+            clients.push(c);
+          }
+          if (canUsePlatformKey && process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== personalKey) {
+            const c = buildOpenAICompatClient('openrouter', process.env.OPENROUTER_API_KEY) as any;
+            c.usedPlatformKey = true;
             clients.push(c);
           }
           continue;
@@ -2814,13 +2862,6 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
     if (!canUsePlatformKey) {
       console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month — platform-key fallback disabled`);
     }
-    // Same platform-key fallback pattern as getUniversalAIClientForUser — a saved
-    // personal key isn't required when a platform-wide OpenRouter key is configured,
-    // so vision analysis actually reaches OpenRouter's free tier instead of always
-    // skipping straight to paid gpt-4o-mini.
-    const platformKeyFor = (p: string): string | undefined =>
-      keyFor(p) || (p === 'openrouter' && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined);
-
     const clients: UniversalAIClient[] = [];
 
     // Respect the user's UI model selection — put their chosen provider first so
@@ -2865,25 +2906,37 @@ export async function getUniversalVisionClientForUser(userId: number): Promise<U
       }
     }
 
-    // 1. Preferred provider first (the one the user actually selected)
+    // 1. Preferred provider first (the one the user actually selected). A broken/
+    // revoked personal key must not shadow a working platform key for the same
+    // provider — push both as separate failover links (same fix as the text
+    // client) instead of `personalKey || platformKey`, which only ever tries one.
     const preferredPersonalKey = keyFor(selProvider);
-    const preferredApiKey = preferredPersonalKey || platformKeyFor(selProvider);
-    if (preferredApiKey) {
+    if (preferredPersonalKey) {
       await storage.updateUserApiKeyUsage(userId, selProvider).catch(() => {});
-      const c = buildProviderClient(selProvider, preferredApiKey, selModel) as any;
-      if (c) { c.usedPlatformKey = !preferredPersonalKey; clients.push(c); }
+      const c = buildProviderClient(selProvider, preferredPersonalKey, selModel) as any;
+      if (c) { c.usedPlatformKey = false; clients.push(c); }
+    }
+    const preferredPlatformKey = selProvider === 'openrouter' && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined;
+    if (preferredPlatformKey && preferredPlatformKey !== preferredPersonalKey) {
+      const c = buildProviderClient(selProvider, preferredPlatformKey, selModel) as any;
+      if (c) { c.usedPlatformKey = true; clients.push(c); }
     }
 
     // 2. Remaining vision-capable providers as failover (skip the one already added)
     // Groq excluded — no reliable vision model available; Groq users fall through to OpenAI backstop.
     const VISION_PROVIDERS = ['openrouter', 'anthropic', 'openai', 'google', 'mistral'];
     for (const provider of VISION_PROVIDERS) {
-      if (provider === selProvider) continue; // already added above
+      if (provider === selProvider) continue; // already added above (both personal+platform variants)
       const personalKey = keyFor(provider);
-      const key = personalKey || platformKeyFor(provider);
-      if (!key) continue;
-      const c = buildProviderClient(provider, key) as any;
-      if (c) { c.usedPlatformKey = !personalKey; clients.push(c); }
+      if (personalKey) {
+        const c = buildProviderClient(provider, personalKey) as any;
+        if (c) { c.usedPlatformKey = false; clients.push(c); }
+      }
+      const platformKey = provider === 'openrouter' && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : undefined;
+      if (platformKey && platformKey !== personalKey) {
+        const c = buildProviderClient(provider, platformKey) as any;
+        if (c) { c.usedPlatformKey = true; clients.push(c); }
+      }
     }
 
     // Platform backstop — OpenAI gpt-4o-mini (vision-capable, high rate limits)

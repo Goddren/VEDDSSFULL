@@ -376,15 +376,21 @@ function quantVerdictFromScore(score: number | null): QuantVerdict {
 
 async function getOptionsAiConfirmation(userId: number, symbol: string, result: StrategyResult, cfg: OptionsEngineConfig): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   try {
-    const { getUniversalAIClientForUser } = await import('../openai');
+    const { getUniversalAIClientForUser, hasHiddenReasoningOverhead } = await import('../openai');
     const client = await getUniversalAIClientForUser(userId);
     const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
     const user = `Underlying: ${symbol}\nStrategy: ${result.strategy}\nDirection: ${result.direction}\nQuant score: ${result.score}/100\nPrice: ${result.price}\nDaily change %: ${result.dailyChangePercent}\nScanner reasoning: ${result.reasoning}\n\nWould you confirm this trade?`;
+    const model = (client as any).defaultModel || 'gpt-4o-mini';
     const r = await (client as any).chat.completions.create({
-      model: (client as any).defaultModel || 'gpt-4o-mini',
+      model,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       response_format: { type: 'json_object' },
-      max_tokens: 300,
+      // 300 was too tight for gpt-oss/Qwen3 (the current Groq/OpenRouter default
+      // models) — their hidden reasoning tokens alone could consume the whole
+      // budget and leave content empty, which this function's catch block then
+      // reports as a hard failure (confidence 0) indistinguishable from an
+      // actual provider/auth error.
+      max_tokens: hasHiddenReasoningOverhead(model) ? 1200 : 300,
       temperature: 0.3,
     });
     const parsed = JSON.parse(r.choices?.[0]?.message?.content || '{}');

@@ -7773,6 +7773,7 @@ __export(openai_exports, {
   getUniversalAIClientForUser: () => getUniversalAIClientForUser,
   getUniversalVisionClientForUser: () => getUniversalVisionClientForUser,
   getUserModelPreference: () => getUserModelPreference,
+  hasHiddenReasoningOverhead: () => hasHiddenReasoningOverhead,
   hydrateAiVisionMap: () => hydrateAiVisionMap,
   hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
   inferModelProvider: () => inferModelProvider,
@@ -9175,10 +9176,17 @@ async function callOpenAIConfirmation(prompt, model, userId) {
       { role: "user", content: prompt.user }
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1e3,
+    // resolvedModel can end up being a failover provider's own default (e.g.
+    // OpenRouter's gpt-oss-20b) rather than the `model` param this function
+    // was called with — checked on the actual model being sent, not `model`.
+    max_tokens: hasHiddenReasoningOverhead(resolvedModel) ? 2e3 : 1e3,
     temperature: 0.3
   });
   return response.choices[0]?.message?.content || "";
+}
+function hasHiddenReasoningOverhead(modelId) {
+  const m = (modelId || "").toLowerCase();
+  return isReasoningModel(modelId) || m.includes("gpt-oss") || m.includes("qwen3");
 }
 async function callAnthropicConfirmation(prompt, model, apiKey) {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
@@ -9213,7 +9221,8 @@ async function callGroqConfirmation(prompt, model, apiKey) {
       { role: "user", content: prompt.user }
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1e3,
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
+    // Groq's default (gpt-oss-120b) needs headroom for hidden reasoning tokens
     temperature: 0.3
   });
   return response.choices[0]?.message?.content || "";
@@ -9253,8 +9262,8 @@ async function callOpenRouterConfirmation(prompt, model, apiKey) {
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user }
     ],
-    max_tokens: reasoning ? 2e3 : 1e3,
-    // reasoning models spend tokens on <think> before the answer
+    max_tokens: hasHiddenReasoningOverhead(model) ? 2e3 : 1e3,
+    // gpt-oss/Qwen3/o1/o3/R1 all spend tokens on hidden reasoning before the answer
     temperature: reasoning ? 1 : 0.3
   });
   const raw = response.choices?.[0]?.message?.content || "";
@@ -9423,8 +9432,9 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     if (provider === "openai") {
       content = await callOpenAIConfirmation(prompt, selectedModel, userId);
     } else if (provider === "openrouter") {
-      const apiKey = (userId ? await getUserApiKeyForProvider(userId, "openrouter") : null) || process.env.OPENROUTER_API_KEY;
-      if (!apiKey) {
+      const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
+      const platformKey = process.env.OPENROUTER_API_KEY;
+      if (!personalKey && !platformKey) {
         return {
           confirmed: false,
           aiDirection: "NEUTRAL",
@@ -9432,9 +9442,19 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
           reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
         };
       }
-      const result2 = await callOpenRouterConfirmation(prompt, selectedModel, apiKey);
-      content = result2.content;
-      thinkingTrace = result2.thinking;
+      try {
+        const result2 = await callOpenRouterConfirmation(prompt, selectedModel, personalKey || platformKey);
+        content = result2.content;
+        thinkingTrace = result2.thinking;
+      } catch (personalErr) {
+        if (personalKey && platformKey && platformKey !== personalKey) {
+          const result2 = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
+          content = result2.content;
+          thinkingTrace = result2.thinking;
+        } else {
+          throw personalErr;
+        }
+      }
     } else if (userId) {
       const apiKey = await getUserApiKeyForProvider(userId, provider);
       if (!apiKey) {
@@ -9808,20 +9828,32 @@ async function getUniversalAIClientForUser(userId) {
       try {
         if (provider === "groq") {
           const personalGroqKey = keyFor("groq");
-          if (!personalGroqKey && !canUsePlatformKey) continue;
-          const c = await buildGroqEconomyClient(personalGroqKey);
-          if (c) {
-            c.usedPlatformKey = !personalGroqKey;
-            clients.push(c);
+          if (personalGroqKey) {
+            const c = await buildGroqEconomyClient(personalGroqKey);
+            if (c) {
+              c.usedPlatformKey = false;
+              clients.push(c);
+            }
+          }
+          if (canUsePlatformKey && process.env.GROQ_API_KEY && process.env.GROQ_API_KEY !== personalGroqKey) {
+            const c = await buildGroqEconomyClient(process.env.GROQ_API_KEY);
+            if (c) {
+              c.usedPlatformKey = true;
+              clients.push(c);
+            }
           }
           continue;
         }
         if (provider === "openrouter") {
           const personalKey = keyFor("openrouter");
-          const apiKey2 = personalKey || (canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0);
-          if (apiKey2) {
-            const c = buildOpenAICompatClient("openrouter", apiKey2);
-            c.usedPlatformKey = !personalKey;
+          if (personalKey) {
+            const c = buildOpenAICompatClient("openrouter", personalKey);
+            c.usedPlatformKey = false;
+            clients.push(c);
+          }
+          if (canUsePlatformKey && process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY !== personalKey) {
+            const c = buildOpenAICompatClient("openrouter", process.env.OPENROUTER_API_KEY);
+            c.usedPlatformKey = true;
             clients.push(c);
           }
           continue;
@@ -9918,20 +9950,26 @@ async function getUniversalVisionClientForUser(userId) {
     if (!canUsePlatformKey) {
       console.warn(`[AI Vision] user ${userId} has exceeded their platform-key AI cost cap this month \u2014 platform-key fallback disabled`);
     }
-    const platformKeyFor = (p) => keyFor(p) || (p === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0);
     const clients = [];
     const selModel = getUserModelPreference(userId);
     const selProvider = inferModelProvider(selModel);
     const selIsVision = !AVAILABLE_VISION_MODELS.find((m) => m.id === selModel)?.textOnly;
     console.log(`[AI Vision] user ${userId} selected model: ${selModel} (provider: ${selProvider}, vision: ${selIsVision})`);
     const preferredPersonalKey = keyFor(selProvider);
-    const preferredApiKey = preferredPersonalKey || platformKeyFor(selProvider);
-    if (preferredApiKey) {
+    if (preferredPersonalKey) {
       await storage2.updateUserApiKeyUsage(userId, selProvider).catch(() => {
       });
-      const c = buildProviderClient2(selProvider, preferredApiKey, selModel);
+      const c = buildProviderClient2(selProvider, preferredPersonalKey, selModel);
       if (c) {
-        c.usedPlatformKey = !preferredPersonalKey;
+        c.usedPlatformKey = false;
+        clients.push(c);
+      }
+    }
+    const preferredPlatformKey = selProvider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
+    if (preferredPlatformKey && preferredPlatformKey !== preferredPersonalKey) {
+      const c = buildProviderClient2(selProvider, preferredPlatformKey, selModel);
+      if (c) {
+        c.usedPlatformKey = true;
         clients.push(c);
       }
     }
@@ -9939,12 +9977,20 @@ async function getUniversalVisionClientForUser(userId) {
     for (const provider of VISION_PROVIDERS) {
       if (provider === selProvider) continue;
       const personalKey = keyFor(provider);
-      const key = personalKey || platformKeyFor(provider);
-      if (!key) continue;
-      const c = buildProviderClient2(provider, key);
-      if (c) {
-        c.usedPlatformKey = !personalKey;
-        clients.push(c);
+      if (personalKey) {
+        const c = buildProviderClient2(provider, personalKey);
+        if (c) {
+          c.usedPlatformKey = false;
+          clients.push(c);
+        }
+      }
+      const platformKey = provider === "openrouter" && canUsePlatformKey ? process.env.OPENROUTER_API_KEY : void 0;
+      if (platformKey && platformKey !== personalKey) {
+        const c = buildProviderClient2(provider, platformKey);
+        if (c) {
+          c.usedPlatformKey = true;
+          clients.push(c);
+        }
       }
     }
     if (process.env.OPENAI_API_KEY && canUsePlatformKey) {
@@ -42610,7 +42656,7 @@ function quantVerdictFromScore(score) {
 }
 async function getOptionsAiConfirmation(userId, symbol, result, cfg) {
   try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2, hasHiddenReasoningOverhead: hasHiddenReasoningOverhead2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const client2 = await getUniversalAIClientForUser2(userId);
     const system = 'You are a disciplined options-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
     const user = `Underlying: ${symbol}
@@ -42622,11 +42668,17 @@ Daily change %: ${result.dailyChangePercent}
 Scanner reasoning: ${result.reasoning}
 
 Would you confirm this trade?`;
+    const model = client2.defaultModel || "gpt-4o-mini";
     const r = await client2.chat.completions.create({
-      model: client2.defaultModel || "gpt-4o-mini",
+      model,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
       response_format: { type: "json_object" },
-      max_tokens: 300,
+      // 300 was too tight for gpt-oss/Qwen3 (the current Groq/OpenRouter default
+      // models) — their hidden reasoning tokens alone could consume the whole
+      // budget and leave content empty, which this function's catch block then
+      // reports as a hard failure (confidence 0) indistinguishable from an
+      // actual provider/auth error.
+      max_tokens: hasHiddenReasoningOverhead2(model) ? 1200 : 300,
       temperature: 0.3
     });
     const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
