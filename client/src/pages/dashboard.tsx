@@ -622,6 +622,7 @@ const Dashboard: React.FC = () => {
     hasStrategy: boolean;
     allTimeTrades: number; allTimeWins: number; allTimeLosses: number; allTimeBreakeven: number;
     allTimePnL: number; allTimeWinRate: number;
+    tlDataComplete?: boolean;
   }>({
     queryKey: ['/api/mt5/daily-summary'],
     enabled: !!user,
@@ -849,14 +850,18 @@ const Dashboard: React.FC = () => {
   }, [mt5AccountData]);
 
   const tlBalance: number | null = React.useMemo(() => {
-    // Prefer live totals from the background-sync cache; fall back to stale DB value
-    if (tlLive && tlLive.totalBalance > 0) return tlLive.totalBalance;
+    // Trust a successful live fetch even when the real balance is genuinely
+    // $0 (blown/drained account) — only fall back to the stale DB value when
+    // we have no live read at all (not yet fetched, or the connection itself
+    // failed). Previously a `> 0` guard treated a real zero as "bad data" and
+    // silently kept showing the last nonzero cached balance instead.
+    if (tlLive?.connected) return tlLive.totalBalance;
     const b = (tlConnection as any)?.accountBalance ?? (tlConnection as any)?.balance ?? null;
     return b && b > 0 ? b : null;
   }, [tlLive, tlConnection]);
 
   const tlEquity: number | null = React.useMemo(() => {
-    if (tlLive && tlLive.totalEquity > 0) return tlLive.totalEquity;
+    if (tlLive?.connected) return tlLive.totalEquity;
     return (tlConnection as any)?.equity ?? null;
   }, [tlLive, tlConnection]);
 
@@ -926,13 +931,20 @@ const Dashboard: React.FC = () => {
   const buySignals = analyses.filter((a) => a.direction?.toLowerCase() === 'buy').length;
   const sellSignals = analyses.filter((a) => a.direction?.toLowerCase() === 'sell').length;
   
-  // Calculate accuracy rate from user profile or analyses
+  // Calculate accuracy rate — real trades first, never a stale self-reported stat
   const accuracyRate = React.useMemo(() => {
-    // First try to use winRate from user profile
+    // Prefer the win rate computed server-side from actual closed trades
+    // (ai_trade_results) — userProfile.winRate is a self-reported/onboarding
+    // field nothing ever recalculates, so it can permanently disagree with
+    // real trading results once real trades exist.
+    if (dailySummary?.allTimeTrades && dailySummary.allTimeTrades > 0) {
+      return dailySummary.allTimeWinRate ?? 0;
+    }
+    // No real trades yet — fall back to the self-reported profile field
     if (userProfile?.winRate && userProfile.winRate > 0) {
       return Math.round(userProfile.winRate);
     }
-    // If no profile data, calculate from analyses with high confidence
+    // Last resort: estimate from chart-analysis confidence labels
     if (analyses.length === 0) return 0;
     const highConfidenceAnalyses = analyses.filter((a) => {
       const conf = a.confidence?.toLowerCase();
@@ -942,7 +954,7 @@ const Dashboard: React.FC = () => {
       return Math.round((highConfidenceAnalyses.length / analyses.length) * 100);
     }
     return 0;
-  }, [analyses, userProfile]);
+  }, [analyses, userProfile, dailySummary]);
   
   // Get the most recent analyses
   const recentAnalyses = analyses.slice(0, 5);
@@ -969,9 +981,15 @@ const Dashboard: React.FC = () => {
   const tlDailyPnlSum = Array.isArray(tlLiveAccts)
     ? tlLiveAccts.reduce((s: number, a: any) => s + (a?.dailyPnl ?? 0), 0)
     : 0;
+  // Realized-only — must match dayProgressPct's basis (todayClosedProfit,
+  // realized-only) so the ring's fill % and its center dollar figure never
+  // visually contradict each other. Previously fell back to `.profit`
+  // (ACCOUNT_PROFIT — floating P&L of open positions, not a daily figure)
+  // when the EA didn't send `dailyPnL`, mislabeling unrealized swings as
+  // "Daily P&L." Unrealized P&L is shown separately (see unrealizedPnL below).
   const liveDailyPnl  = mt5LiveAcct?.connected
-    ? (mt5LiveAcct.dailyPnL ?? mt5LiveAcct.profit ?? 0) + tlDailyPnlSum
-    : (todayClosedProfit + unrealizedPnL);
+    ? (mt5LiveAcct.dailyPnL ?? todayClosedProfit) + tlDailyPnlSum
+    : todayClosedProfit;
   const liveWeeklyPnl = platformMonitors?.mt5?.weeklyPnl ?? weekClosedProfit;
   const weekGoalPct   = Math.min(100, weekProgressPct);
   const dayGoalPct    = Math.min(100, dayProgressPct);
@@ -1234,6 +1252,16 @@ const Dashboard: React.FC = () => {
               <p className="text-[10px] font-semibold" style={{ color: liveDailyPnl >= 0 ? '#10b981' : '#ef4444' }}>
                 {liveDailyPnl >= 0 ? '▲' : '▼'} ${Math.abs(liveDailyPnl).toFixed(2)}
               </p>
+              {unrealizedPnL !== 0 && (
+                <p className="text-[9px] text-cyan-400/80 mt-0.5">
+                  {unrealizedPnL >= 0 ? '+' : ''}${unrealizedPnL.toFixed(2)} open
+                </p>
+              )}
+              {dailySummary?.tlDataComplete === false && (
+                <p className="text-[8px] text-amber-400/80 mt-0.5" title="A TradeLocker sync call failed this refresh — some realized P&L may be missing from this total until the next successful sync.">
+                  ⚠ TL data incomplete
+                </p>
+              )}
             </div>
 
             {/* Today's trades */}

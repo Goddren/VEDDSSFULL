@@ -12228,8 +12228,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
 
-    // Sync TL closed trades into DB first so weekly/daily stats include them
-    try { await syncTradeLockerOutcomes(userId); } catch (_) {}
+    // Sync TL closed trades into DB first so weekly/daily stats include them.
+    // Track failures instead of silently swallowing them — todayDb/weekDb below
+    // read from ai_trade_results, which this sync populates; if it throws, that
+    // day's TradeLocker-realized P&L can be silently missing from the totals
+    // with no signal to the user that anything is wrong.
+    let tlDataComplete = true;
+    try { await syncTradeLockerOutcomes(userId); } catch (_) { tlDataComplete = false; }
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -12339,10 +12344,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {
           console.error(`[daily-summary] TL ${conn.accountId} error:`, (connErr as Error).message);
+          tlDataComplete = false;
         }
       }
     } catch (tlErr) {
       console.error('[daily-summary] TL fetch error:', (tlErr as Error).message);
+      tlDataComplete = false;
     }
 
     const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
@@ -12436,6 +12443,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       allTimeBreakeven,
       allTimePnL:         Math.round(allTimePnL * 100) / 100,
       allTimeWinRate,
+      // false if a TradeLocker sync/fetch call failed this request — some
+      // realized P&L or trade counts may be missing from the totals above.
+      tlDataComplete,
     });
   });
 

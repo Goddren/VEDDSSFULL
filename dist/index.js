@@ -59471,9 +59471,11 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
   app2.get("/api/mt5/daily-summary", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
+    let tlDataComplete = true;
     try {
       await syncTradeLockerOutcomes(userId);
     } catch (_) {
+      tlDataComplete = false;
     }
     const now = /* @__PURE__ */ new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -59546,10 +59548,12 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
           console.log(`[daily-summary] TL ${conn.accountId}: today=$${connTodayPnL.toFixed(2)} week=$${connWeekPnL.toFixed(2)} (${closedTrades.length} closed trades)`);
         } catch (connErr) {
           console.error(`[daily-summary] TL ${conn.accountId} error:`, connErr.message);
+          tlDataComplete = false;
         }
       }
     } catch (tlErr) {
       console.error("[daily-summary] TL fetch error:", tlErr.message);
+      tlDataComplete = false;
     }
     const unrealizedPnL = mt5UnrealizedPnL + tlUnrealizedPnL;
     const todayClosedProfit = todayDb.reduce((s, t) => s + (t.profitLoss || 0), 0) + todayCache.reduce((s, t) => s + (t.profit || 0), 0) + tlTodayClosedPnL;
@@ -59611,7 +59615,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       allTimeLosses,
       allTimeBreakeven,
       allTimePnL: Math.round(allTimePnL * 100) / 100,
-      allTimeWinRate
+      allTimeWinRate,
+      // false if a TradeLocker sync/fetch call failed this request — some
+      // realized P&L or trade counts may be missing from the totals above.
+      tlDataComplete
     });
   });
   app2.get("/api/mt5/decision-feed", async (req, res) => {
