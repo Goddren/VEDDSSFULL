@@ -15996,6 +15996,22 @@ Rules:
     res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
   });
 
+  // ── All-Time Performance — combines every connected engine (MT5,
+  // TradeLocker, Options, Crypto.com, Futures) into one durable answer for
+  // "what's my biggest day / all-time total, across every account?" instead
+  // of that requiring hand-written cross-table SQL every time it's asked.
+  app.get("/api/performance/all-time", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getAllTimePerformance } = await import('./services/all-time-performance');
+      const perf = await getAllTimePerformance(userId);
+      res.json(perf);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/tradelocker/trades", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ error: "Authentication required" });

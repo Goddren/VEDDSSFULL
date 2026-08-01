@@ -1178,6 +1178,12 @@ const Dashboard: React.FC = () => {
                 <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">Connect MT5 EA or TradeLocker →</p>
               </Link>
             )}
+            <Link href="/all-time-performance" className="flex-shrink-0 rounded-xl border border-amber-500/25 hover:border-amber-500/50 px-3 py-2.5 min-w-[140px] transition-colors block" style={{ background: 'rgba(245,158,11,0.07)' }}>
+              <div className="flex items-center gap-1 mb-1">
+                <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">🏆 All-Time</span>
+              </div>
+              <p className="text-[10px] text-white font-semibold leading-tight">Every account,<br />combined</p>
+            </Link>
           </div>
 
           {/* Goal achieved banner — shows when daily or weekly target hit */}

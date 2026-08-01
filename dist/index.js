@@ -30815,6 +30815,95 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/all-time-performance.ts
+var all_time_performance_exports = {};
+__export(all_time_performance_exports, {
+  getAllTimePerformance: () => getAllTimePerformance
+});
+async function getAllTimePerformance(userId) {
+  const atrQuery = pool.query(
+    `SELECT
+       CASE WHEN source IN ('tradelocker', 'tradelocker_auto') THEN 'tradelocker' ELSE 'mt5' END AS engine,
+       date_trunc('day', closed_at)::date AS day,
+       sum(profit_loss) AS pnl, count(*) AS trades
+     FROM ai_trade_results
+     WHERE user_id = $1 AND result IS NOT NULL AND result != 'PENDING' AND closed_at IS NOT NULL
+     GROUP BY engine, day`,
+    [userId]
+  );
+  const optQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM options_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const cryptoQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM cryptocom_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const futuresQuery = pool.query(
+    `SELECT date_trunc('day', closed_at)::date AS day, sum(realized_pnl) AS pnl, count(*) AS trades
+     FROM futures_engine_trades WHERE user_id = $1 AND status = 'closed' AND closed_at IS NOT NULL
+     GROUP BY day`,
+    [userId]
+  );
+  const [atr2, opt, crypto13, futures] = await Promise.all([
+    atrQuery.catch(() => ({ rows: [] })),
+    optQuery.catch(() => ({ rows: [] })),
+    cryptoQuery.catch(() => ({ rows: [] })),
+    futuresQuery.catch(() => ({ rows: [] }))
+  ]);
+  const byDay = {};
+  const addRows = (rows, engineOverride) => {
+    for (const r of rows) {
+      const day = r.day instanceof Date ? r.day.toISOString().slice(0, 10) : String(r.day).slice(0, 10);
+      const engine = engineOverride ?? r.engine;
+      byDay[day] = byDay[day] || {};
+      byDay[day][engine] = byDay[day][engine] || { pnl: 0, trades: 0 };
+      byDay[day][engine].pnl += Number(r.pnl) || 0;
+      byDay[day][engine].trades += Number(r.trades) || 0;
+    }
+  };
+  addRows(atr2.rows);
+  addRows(opt.rows, "options");
+  addRows(crypto13.rows, "cryptocom");
+  addRows(futures.rows, "futures");
+  const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
+    const byEngine = Object.entries(engines).map(([engine, v]) => ({
+      engine,
+      pnl: Math.round(v.pnl * 100) / 100,
+      trades: v.trades
+    }));
+    const total = Math.round(byEngine.reduce((s, e) => s + e.pnl, 0) * 100) / 100;
+    return { date: date2, total, byEngine };
+  }).sort((a, b) => a.date.localeCompare(b.date));
+  const biggestDay = dailyHistory.length > 0 ? dailyHistory.reduce((max, d) => d.total > max.total ? d : max, dailyHistory[0]) : null;
+  const allTimeTotal = Math.round(dailyHistory.reduce((s, d) => s + d.total, 0) * 100) / 100;
+  const totalTrades = dailyHistory.reduce((s, d) => s + d.byEngine.reduce((s2, e) => s2 + e.trades, 0), 0);
+  const engineTotals = {};
+  for (const d of dailyHistory) {
+    for (const e of d.byEngine) {
+      engineTotals[e.engine] = engineTotals[e.engine] || { pnl: 0, trades: 0 };
+      engineTotals[e.engine].pnl += e.pnl;
+      engineTotals[e.engine].trades += e.trades;
+    }
+  }
+  const byEngineAllTime = Object.entries(engineTotals).map(([engine, v]) => ({
+    engine,
+    pnl: Math.round(v.pnl * 100) / 100,
+    trades: v.trades
+  }));
+  return { allTimeTotal, totalTrades, biggestDay, dailyHistory, byEngineAllTime };
+}
+var init_all_time_performance = __esm({
+  "server/services/all-time-performance.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
 // server/services/btc-5min-predictor.ts
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
@@ -63047,6 +63136,17 @@ Rules:
       watch: consensus.filter((c) => c.consensus === "WATCH").length
     };
     res.json({ consensus, summary, updatedAt: consensus[0]?.timestamp || null });
+  });
+  app2.get("/api/performance/all-time", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { getAllTimePerformance: getAllTimePerformance2 } = await Promise.resolve().then(() => (init_all_time_performance(), all_time_performance_exports));
+      const perf = await getAllTimePerformance2(userId);
+      res.json(perf);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.get("/api/tradelocker/trades", async (req, res) => {
     if (!req.isAuthenticated()) {
