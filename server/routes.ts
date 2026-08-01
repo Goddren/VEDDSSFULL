@@ -28588,10 +28588,6 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     return MICRO_TIERS.find(t => balance >= t.minBalance && balance <= t.maxBalance) ?? MICRO_TIERS[MICRO_TIERS.length - 1];
   }
 
-  // Declare globals for in-memory storage
-  if (!(global as any).microGrowthSessions) (global as any).microGrowthSessions = {};
-  if (!(global as any).microGrowthHistory) (global as any).microGrowthHistory = {};
-
   // GET /api/micro-growth/status
   app.get('/api/micro-growth/status', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
@@ -28606,11 +28602,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       ? Math.min(100, Math.round(((balance - tierDef.minBalance) / (nextTierBalance - tierDef.minBalance)) * 100))
       : 100;
 
-    const history: any[] = (global as any).microGrowthHistory[userId] ?? [];
-    const todayStr = new Date().toDateString();
-    const todayPnl = history.filter((s: any) => new Date(s.startedAt).toDateString() === todayStr).reduce((acc: number, s: any) => acc + (s.pnl ?? 0), 0);
-    const totalPnl = history.reduce((acc: number, s: any) => acc + (s.pnl ?? 0), 0);
-    const sessionCount = history.length;
+    const { getMicroGrowthStats } = await import('./services/micro-growth-sessions');
+    const { todayPnl, totalPnl, sessionCount } = await getMicroGrowthStats(userId);
 
     res.json({
       tier: tierDef.tier,
@@ -28630,8 +28623,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // GET /api/micro-growth/doubling-status — simple compounding-milestone
   // tracker: same risk per trade (MICRO_TIERS lot sizing, unchanged), just
-  // tracks progress toward the next 2x balance checkpoint. Durable — survives
-  // restarts unlike the rest of Micro Growth's in-memory session history.
+  // tracks progress toward the next 2x balance checkpoint.
   app.get('/api/micro-growth/doubling-status', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
     const userId = (req.user as any).id;
@@ -28688,10 +28680,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       sessionPairs = cryptoOnly.length ? cryptoOnly : ['BTCUSD']; // default to BTC on weekends
     }
 
-    const session: any = {
+    const { createMicroGrowthSession } = await import('./services/micro-growth-sessions');
+    const session = {
       id: `${userId}_${Date.now()}`,
       userId,
-      startedAt: new Date(),
+      startedAt: new Date().toISOString(),
       durationMs: tierDef.sessionDurationMin * 60000,
       tier: tierDef.tier,
       lotSize: tierDef.lotSize,
@@ -28700,22 +28693,21 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       slPips: tierDef.slPips,
       pairs: sessionPairs,
       weekendCryptoMode: isWeekend,
-      status: 'active',
       tradesCount: 0,
       pipsGained: 0,
       pnl: 0,
     };
 
-    (global as any).microGrowthSessions[userId] = session;
-    res.json({ sessionId: session.id, session });
+    await createMicroGrowthSession(session);
+    res.json({ sessionId: session.id, session: { ...session, status: 'active' } });
   });
 
   // GET /api/micro-growth/sessions
   app.get('/api/micro-growth/sessions', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
     const userId = (req.user as any).id;
-    const history: any[] = (global as any).microGrowthHistory[userId] ?? [];
-    res.json(history.slice(-20).reverse());
+    const { getMicroGrowthHistory } = await import('./services/micro-growth-sessions');
+    res.json(await getMicroGrowthHistory(userId, 20));
   });
 
   // POST /api/micro-growth/log-session
@@ -28729,29 +28721,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       pnl?: number;
       pairs?: string[];
     };
+    if (!sessionId) return res.status(400).json({ message: 'sessionId required' });
 
-    const activeSession = (global as any).microGrowthSessions[userId];
-    if (!activeSession || activeSession.id !== sessionId) {
+    const { completeMicroGrowthSession } = await import('./services/micro-growth-sessions');
+    const completed = await completeMicroGrowthSession(sessionId, userId, {
+      pipsGained: pipsGained ?? 0, tradesCount: tradesCount ?? 0, pnl: pnl ?? 0, pairs,
+    });
+    if (!completed) {
       return res.status(404).json({ message: 'Session not found or already completed' });
     }
-
-    const completed = {
-      ...activeSession,
-      pipsGained: pipsGained ?? 0,
-      tradesCount: tradesCount ?? 0,
-      pnl: pnl ?? 0,
-      pairs: pairs ?? activeSession.pairs,
-      status: 'completed',
-      completedAt: new Date(),
-    };
-
-    if (!(global as any).microGrowthHistory[userId]) (global as any).microGrowthHistory[userId] = [];
-    const userHistory: any[] = (global as any).microGrowthHistory[userId];
-    userHistory.push(completed);
-    // keep last 50
-    if (userHistory.length > 50) userHistory.splice(0, userHistory.length - 50);
-
-    delete (global as any).microGrowthSessions[userId];
 
     res.json({ success: true, session: completed });
   });

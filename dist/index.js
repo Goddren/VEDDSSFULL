@@ -228,6 +228,7 @@ __export(schema_exports, {
   marketDataRefreshJobs: () => marketDataRefreshJobs,
   marketDataSnapshots: () => marketDataSnapshots,
   microGrowthMilestones: () => microGrowthMilestones,
+  microGrowthSessions: () => microGrowthSessions,
   mt5ApiTokens: () => mt5ApiTokens,
   mt5SignalLogs: () => mt5SignalLogs,
   nameCheckSourceEnum: () => nameCheckSourceEnum,
@@ -289,7 +290,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, microGrowthSessions, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -2784,6 +2785,26 @@ var init_schema = __esm({
       lastMilestoneHitAt: timestamp("last_milestone_hit_at"),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
+    });
+    microGrowthSessions = pgTable("micro_growth_sessions", {
+      id: text("id").primaryKey(),
+      // matches the existing `${userId}_${Date.now()}` format
+      userId: integer("user_id").references(() => users.id).notNull(),
+      startedAt: timestamp("started_at").notNull(),
+      durationMs: integer("duration_ms").notNull(),
+      tier: integer("tier").notNull(),
+      lotSize: doublePrecision("lot_size").notNull(),
+      maxTrades: integer("max_trades").notNull(),
+      pipTarget: integer("pip_target").notNull(),
+      slPips: integer("sl_pips").notNull(),
+      pairs: jsonb("pairs").notNull().default([]),
+      weekendCryptoMode: boolean("weekend_crypto_mode").notNull().default(false),
+      status: text("status").notNull().default("active"),
+      // 'active' | 'completed'
+      tradesCount: integer("trades_count").notNull().default(0),
+      pipsGained: doublePrecision("pips_gained").notNull().default(0),
+      pnl: doublePrecision("pnl").notNull().default(0),
+      completedAt: timestamp("completed_at")
     });
     brainDataListings = pgTable("brain_data_listings", {
       id: serial("id").primaryKey(),
@@ -38358,6 +38379,110 @@ var init_slide_flattener = __esm({
   }
 });
 
+// server/services/micro-growth-sessions.ts
+var micro_growth_sessions_exports = {};
+__export(micro_growth_sessions_exports, {
+  completeMicroGrowthSession: () => completeMicroGrowthSession,
+  createMicroGrowthSession: () => createMicroGrowthSession,
+  getActiveMicroGrowthSession: () => getActiveMicroGrowthSession,
+  getMicroGrowthHistory: () => getMicroGrowthHistory,
+  getMicroGrowthStats: () => getMicroGrowthStats
+});
+function toRow(r) {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    startedAt: new Date(r.started_at).toISOString(),
+    durationMs: r.duration_ms,
+    tier: r.tier,
+    lotSize: r.lot_size,
+    maxTrades: r.max_trades,
+    pipTarget: r.pip_target,
+    slPips: r.sl_pips,
+    pairs: r.pairs ?? [],
+    weekendCryptoMode: r.weekend_crypto_mode,
+    status: r.status,
+    tradesCount: r.trades_count,
+    pipsGained: r.pips_gained,
+    pnl: r.pnl,
+    completedAt: r.completed_at ? new Date(r.completed_at).toISOString() : null
+  };
+}
+async function createMicroGrowthSession(session3) {
+  await pool.query(
+    `INSERT INTO micro_growth_sessions
+       (id, user_id, started_at, duration_ms, tier, lot_size, max_trades, pip_target, sl_pips, pairs, weekend_crypto_mode, status, trades_count, pips_gained, pnl)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', $12, $13, $14)`,
+    [
+      session3.id,
+      session3.userId,
+      session3.startedAt,
+      session3.durationMs,
+      session3.tier,
+      session3.lotSize,
+      session3.maxTrades,
+      session3.pipTarget,
+      session3.slPips,
+      JSON.stringify(session3.pairs),
+      session3.weekendCryptoMode,
+      session3.tradesCount,
+      session3.pipsGained,
+      session3.pnl
+    ]
+  );
+}
+async function getActiveMicroGrowthSession(userId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM micro_growth_sessions WHERE user_id = $1 AND status = 'active' ORDER BY started_at DESC LIMIT 1`,
+    [userId]
+  );
+  return rows[0] ? toRow(rows[0]) : null;
+}
+async function completeMicroGrowthSession(sessionId, userId, updates) {
+  const { rows } = await pool.query(
+    `UPDATE micro_growth_sessions
+     SET status = 'completed', pips_gained = $1, trades_count = $2, pnl = $3,
+         pairs = COALESCE($4, pairs), completed_at = now()
+     WHERE id = $5 AND user_id = $6 AND status = 'active'
+     RETURNING *`,
+    [
+      updates.pipsGained,
+      updates.tradesCount,
+      updates.pnl,
+      updates.pairs ? JSON.stringify(updates.pairs) : null,
+      sessionId,
+      userId
+    ]
+  );
+  return rows[0] ? toRow(rows[0]) : null;
+}
+async function getMicroGrowthHistory(userId, limit = 20) {
+  const { rows } = await pool.query(
+    `SELECT * FROM micro_growth_sessions WHERE user_id = $1 AND status = 'completed'
+     ORDER BY completed_at DESC LIMIT $2`,
+    [userId, limit]
+  );
+  return rows.map(toRow);
+}
+async function getMicroGrowthStats(userId) {
+  const { rows } = await pool.query(
+    `SELECT
+       COALESCE(sum(pnl) FILTER (WHERE completed_at >= date_trunc('day', now())), 0) AS today_pnl,
+       COALESCE(sum(pnl), 0) AS total_pnl,
+       count(*) AS session_count
+     FROM micro_growth_sessions WHERE user_id = $1 AND status = 'completed'`,
+    [userId]
+  );
+  const r = rows[0];
+  return { todayPnl: Number(r.today_pnl), totalPnl: Number(r.total_pnl), sessionCount: Number(r.session_count) };
+}
+var init_micro_growth_sessions = __esm({
+  "server/services/micro-growth-sessions.ts"() {
+    "use strict";
+    init_db();
+  }
+});
+
 // server/services/micro-growth-milestones.ts
 var micro_growth_milestones_exports = {};
 __export(micro_growth_milestones_exports, {
@@ -42440,6 +42565,48 @@ CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   }
 });
 
+// server/services/ensure-micro-growth-sessions-table.ts
+var ensure_micro_growth_sessions_table_exports = {};
+__export(ensure_micro_growth_sessions_table_exports, {
+  ensureMicroGrowthSessionsTable: () => ensureMicroGrowthSessionsTable
+});
+async function ensureMicroGrowthSessionsTable() {
+  try {
+    await pool.query(DDL14);
+    console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
+  } catch (err) {
+    console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL14;
+var init_ensure_micro_growth_sessions_table = __esm({
+  "server/services/ensure-micro-growth-sessions-table.ts"() {
+    "use strict";
+    init_db();
+    DDL14 = `
+CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
+  "id" text PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "started_at" timestamp NOT NULL,
+  "duration_ms" integer NOT NULL,
+  "tier" integer NOT NULL,
+  "lot_size" double precision NOT NULL,
+  "max_trades" integer NOT NULL,
+  "pip_target" integer NOT NULL,
+  "sl_pips" integer NOT NULL,
+  "pairs" jsonb NOT NULL DEFAULT '[]',
+  "weekend_crypto_mode" boolean NOT NULL DEFAULT false,
+  "status" text NOT NULL DEFAULT 'active',
+  "trades_count" integer NOT NULL DEFAULT 0,
+  "pips_gained" double precision NOT NULL DEFAULT 0,
+  "pnl" double precision NOT NULL DEFAULT 0,
+  "completed_at" timestamp
+);
+CREATE INDEX IF NOT EXISTS "micro_growth_sessions_user_status_idx" ON "micro_growth_sessions" ("user_id", "status");
+`;
+  }
+});
+
 // server/services/ensure-live-engine-config-table.ts
 var ensure_live_engine_config_table_exports = {};
 __export(ensure_live_engine_config_table_exports, {
@@ -42447,18 +42614,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -42477,18 +42644,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -42505,18 +42672,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -73794,8 +73961,6 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   function getMicroTier(balance) {
     return MICRO_TIERS.find((t) => balance >= t.minBalance && balance <= t.maxBalance) ?? MICRO_TIERS[MICRO_TIERS.length - 1];
   }
-  if (!global.microGrowthSessions) global.microGrowthSessions = {};
-  if (!global.microGrowthHistory) global.microGrowthHistory = {};
   app2.get("/api/micro-growth/status", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
     const userId = req.user.id;
@@ -73805,11 +73970,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const nextTierDef = MICRO_TIERS.find((t) => t.minBalance > tierDef.minBalance);
     const nextTierBalance = nextTierDef ? nextTierDef.minBalance : null;
     const progressPct = nextTierBalance ? Math.min(100, Math.round((balance - tierDef.minBalance) / (nextTierBalance - tierDef.minBalance) * 100)) : 100;
-    const history = global.microGrowthHistory[userId] ?? [];
-    const todayStr = (/* @__PURE__ */ new Date()).toDateString();
-    const todayPnl = history.filter((s) => new Date(s.startedAt).toDateString() === todayStr).reduce((acc, s) => acc + (s.pnl ?? 0), 0);
-    const totalPnl = history.reduce((acc, s) => acc + (s.pnl ?? 0), 0);
-    const sessionCount = history.length;
+    const { getMicroGrowthStats: getMicroGrowthStats2 } = await Promise.resolve().then(() => (init_micro_growth_sessions(), micro_growth_sessions_exports));
+    const { todayPnl, totalPnl, sessionCount } = await getMicroGrowthStats2(userId);
     res.json({
       tier: tierDef.tier,
       balance,
@@ -73868,10 +74030,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       const cryptoOnly = sessionPairs.filter((p) => CRYPTO_PAIRS2.includes(p));
       sessionPairs = cryptoOnly.length ? cryptoOnly : ["BTCUSD"];
     }
+    const { createMicroGrowthSession: createMicroGrowthSession2 } = await Promise.resolve().then(() => (init_micro_growth_sessions(), micro_growth_sessions_exports));
     const session3 = {
       id: `${userId}_${Date.now()}`,
       userId,
-      startedAt: /* @__PURE__ */ new Date(),
+      startedAt: (/* @__PURE__ */ new Date()).toISOString(),
       durationMs: tierDef.sessionDurationMin * 6e4,
       tier: tierDef.tier,
       lotSize: tierDef.lotSize,
@@ -73880,42 +74043,34 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       slPips: tierDef.slPips,
       pairs: sessionPairs,
       weekendCryptoMode: isWeekend,
-      status: "active",
       tradesCount: 0,
       pipsGained: 0,
       pnl: 0
     };
-    global.microGrowthSessions[userId] = session3;
-    res.json({ sessionId: session3.id, session: session3 });
+    await createMicroGrowthSession2(session3);
+    res.json({ sessionId: session3.id, session: { ...session3, status: "active" } });
   });
   app2.get("/api/micro-growth/sessions", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
     const userId = req.user.id;
-    const history = global.microGrowthHistory[userId] ?? [];
-    res.json(history.slice(-20).reverse());
+    const { getMicroGrowthHistory: getMicroGrowthHistory2 } = await Promise.resolve().then(() => (init_micro_growth_sessions(), micro_growth_sessions_exports));
+    res.json(await getMicroGrowthHistory2(userId, 20));
   });
   app2.post("/api/micro-growth/log-session", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
     const userId = req.user.id;
     const { sessionId, pipsGained, tradesCount, pnl, pairs } = req.body;
-    const activeSession = global.microGrowthSessions[userId];
-    if (!activeSession || activeSession.id !== sessionId) {
-      return res.status(404).json({ message: "Session not found or already completed" });
-    }
-    const completed = {
-      ...activeSession,
+    if (!sessionId) return res.status(400).json({ message: "sessionId required" });
+    const { completeMicroGrowthSession: completeMicroGrowthSession2 } = await Promise.resolve().then(() => (init_micro_growth_sessions(), micro_growth_sessions_exports));
+    const completed = await completeMicroGrowthSession2(sessionId, userId, {
       pipsGained: pipsGained ?? 0,
       tradesCount: tradesCount ?? 0,
       pnl: pnl ?? 0,
-      pairs: pairs ?? activeSession.pairs,
-      status: "completed",
-      completedAt: /* @__PURE__ */ new Date()
-    };
-    if (!global.microGrowthHistory[userId]) global.microGrowthHistory[userId] = [];
-    const userHistory = global.microGrowthHistory[userId];
-    userHistory.push(completed);
-    if (userHistory.length > 50) userHistory.splice(0, userHistory.length - 50);
-    delete global.microGrowthSessions[userId];
+      pairs
+    });
+    if (!completed) {
+      return res.status(404).json({ message: "Session not found or already completed" });
+    }
     res.json({ success: true, session: completed });
   });
   app2.get("/api/micro-growth/vp-signals", async (req, res) => {
@@ -76320,6 +76475,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureMicroGrowthMilestonesTable2();
   } catch (err) {
     console.error(`[startup] ensureMicroGrowthMilestonesTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureMicroGrowthSessionsTable: ensureMicroGrowthSessionsTable2 } = await Promise.resolve().then(() => (init_ensure_micro_growth_sessions_table(), ensure_micro_growth_sessions_table_exports));
+    await ensureMicroGrowthSessionsTable2();
+  } catch (err) {
+    console.error(`[startup] ensureMicroGrowthSessionsTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureLiveEngineConfigTable: ensureLiveEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_live_engine_config_table(), ensure_live_engine_config_table_exports));

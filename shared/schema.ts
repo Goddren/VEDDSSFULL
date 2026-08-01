@@ -2638,6 +2638,32 @@ export const microGrowthMilestones = pgTable("micro_growth_milestones", {
 
 export type MicroGrowthMilestone = typeof microGrowthMilestones.$inferSelect;
 
+// Micro Growth session history — was global.microGrowthSessions (active) /
+// global.microGrowthHistory (completed), both in-memory only, wiped on every
+// restart/deploy. A user's today's-P&L, total P&L, and session count on the
+// status page would silently reset to zero every time the server restarted,
+// and an in-progress session would just vanish without ever resolving.
+export const microGrowthSessions = pgTable("micro_growth_sessions", {
+  id: text("id").primaryKey(), // matches the existing `${userId}_${Date.now()}` format
+  userId: integer("user_id").references(() => users.id).notNull(),
+  startedAt: timestamp("started_at").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  tier: integer("tier").notNull(),
+  lotSize: doublePrecision("lot_size").notNull(),
+  maxTrades: integer("max_trades").notNull(),
+  pipTarget: integer("pip_target").notNull(),
+  slPips: integer("sl_pips").notNull(),
+  pairs: jsonb("pairs").notNull().default([]),
+  weekendCryptoMode: boolean("weekend_crypto_mode").notNull().default(false),
+  status: text("status").notNull().default('active'), // 'active' | 'completed'
+  tradesCount: integer("trades_count").notNull().default(0),
+  pipsGained: doublePrecision("pips_gained").notNull().default(0),
+  pnl: doublePrecision("pnl").notNull().default(0),
+  completedAt: timestamp("completed_at"),
+});
+
+export type MicroGrowthSession = typeof microGrowthSessions.$inferSelect;
+
 // ── Brain Data Marketplace ────────────────────────────────────────────────────
 // Sellers list a frozen snapshot of their ai_confirmation_outcomes history —
 // priced in VEDD by age/pairs/trades/win-rate — so a buyer can merge a copy
