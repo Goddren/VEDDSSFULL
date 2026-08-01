@@ -6211,8 +6211,8 @@ function parseFreqtradeParams(code) {
 async function getStrategyContext(symbol) {
   const assetClass = classifySymbol(symbol);
   const cacheKey = `strategy_${assetClass}`;
-  const cached2 = getCached(cacheKey);
-  if (cached2) return cached2;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
   const baseRules = { ...ASSET_DEFAULTS[assetClass] };
   let externalParams = {};
   let sourceNote = `Embedded validated defaults (${assetClass})`;
@@ -6405,9 +6405,9 @@ function rateLabel(wr) {
 }
 async function getLearnedInsights(userId, symbol) {
   const cacheKey = userId;
-  const cached2 = learningCache.get(cacheKey);
-  if (cached2 && Date.now() - cached2.ts < LEARNING_CACHE_TTL) {
-    return cached2.insights;
+  const cached = learningCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < LEARNING_CACHE_TTL) {
+    return cached.insights;
   }
   try {
     const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1e3);
@@ -16747,10 +16747,10 @@ function decryptPassword(encryptedPassword) {
 }
 async function getOrCreateService(connection2) {
   const connId = connection2.id || `pending_${connection2.accountType}_${connection2.accountId}_${connection2.accNum || ""}`;
-  const cached2 = serviceCache.get(connId);
-  if (cached2 && Date.now() - cached2.createdAt < SERVICE_CACHE_TTL) {
+  const cached = serviceCache.get(connId);
+  if (cached && Date.now() - cached.createdAt < SERVICE_CACHE_TTL) {
     console.log("[TradeLocker] Reusing cached service for connection", connId);
-    return cached2.service;
+    return cached.service;
   }
   const service = new TradeLockerService(
     connection2.accountType,
@@ -17740,10 +17740,10 @@ var init_tradelocker = __esm({
         const instCacheKey = `${this.baseUrl}:${this.accountId}:${symbol.toUpperCase()}`;
         let tradableInstrumentId = null;
         let infoRouteId = null;
-        const cached2 = instrumentCache.get(instCacheKey);
-        if (cached2 && cached2.infoRouteId != null && Date.now() - cached2.cachedAt < INSTRUMENT_CACHE_TTL) {
-          tradableInstrumentId = cached2.tradableInstrumentId;
-          infoRouteId = cached2.infoRouteId;
+        const cached = instrumentCache.get(instCacheKey);
+        if (cached && cached.infoRouteId != null && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+          tradableInstrumentId = cached.tradableInstrumentId;
+          infoRouteId = cached.infoRouteId;
         } else {
           const listKey = `${this.baseUrl}:${this.accountId}`;
           let instruments;
@@ -21909,16 +21909,16 @@ var init_service = __esm({
         if (!provider) {
           throw new Error(`No provider available for asset type: ${request.assetType}`);
         }
-        const cached2 = marketDataCache.get(
+        const cached = marketDataCache.get(
           request.symbol,
           request.timeframe,
           provider.name
         );
-        if (cached2) {
+        if (cached) {
           return {
-            bars: cached2,
+            bars: cached,
             provider: provider.name,
-            hash: this.generateHash(cached2),
+            hash: this.generateHash(cached),
             fromCache: true
           };
         }
@@ -28040,14 +28040,14 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
     }
     if (!usedMultiModel) {
       const cacheKey = Object.keys(marketAnalysis).sort().join("|");
-      const cached2 = state.aiResponseCache[cacheKey];
+      const cached = state.aiResponseCache[cacheKey];
       const pairPrices = Object.values(marketAnalysis).map((d) => d.currentPrice || 0);
       const avgPrice = pairPrices.length > 0 ? pairPrices.reduce((a, b) => a + b, 0) / pairPrices.length : 0;
-      const cachedPrice = cached2?.price ?? 0;
+      const cachedPrice = cached?.price ?? 0;
       const pipMove = cachedPrice > 0 ? Math.abs(avgPrice - cachedPrice) / cachedPrice * 1e4 : 999;
-      const cacheAge = cached2 ? Date.now() - cached2.ts : 999999;
-      if (cached2 && cacheAge < 6e4 && pipMove < 3) {
-        decisions = cached2.response;
+      const cacheAge = cached ? Date.now() - cached.ts : 999999;
+      if (cached && cacheAge < 6e4 && pipMove < 3) {
+        decisions = cached.response;
         addActivity2(userId, { type: "info", message: `\u{1F4BE} Cache hit: reusing last AI response (${Math.round(cacheAge / 1e3)}s old, ${pipMove.toFixed(1)}p move) \u2014 API call saved` });
       } else {
         const buildReq = (m) => ({
@@ -30955,8 +30955,11 @@ var init_all_time_performance = __esm({
 var btc_5min_predictor_exports = {};
 __export(btc_5min_predictor_exports, {
   clearBTCPredictionCache: () => clearBTCPredictionCache,
+  clearCryptoPredictionCache: () => clearCryptoPredictionCache,
   getBTC5MinPrediction: () => getBTC5MinPrediction,
-  getBTCCandles: () => getBTCCandles
+  getBTCCandles: () => getBTCCandles,
+  getCryptoCandles: () => getCryptoCandles,
+  getCryptoPrediction: () => getCryptoPrediction
 });
 function ema(values, period) {
   const k = 2 / (period + 1);
@@ -31016,8 +31019,8 @@ async function fetchBinanceCandles(symbol, interval, limit) {
     volume: parseFloat(c[5])
   }));
 }
-async function fetchCoinbaseCandles(limit) {
-  const url = `${COINBASE_BASE}/products/BTC-USD/candles?granularity=300`;
+async function fetchCoinbaseCandles(limit, product = "BTC-USD") {
+  const url = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
   const res = await fetch(url, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
@@ -31035,17 +31038,17 @@ async function fetchCoinbaseCandles(limit) {
     volume: parseFloat(c[5])
   }));
 }
-async function fetchCandlesWithFallback(symbol, interval, limit) {
+async function fetchCandlesWithFallback(symbol, interval, limit, coinbaseProduct = "BTC-USD") {
   try {
     const candles = await fetchBinanceCandles(symbol, interval, limit);
     return { candles, source: "binance" };
   } catch (binanceErr) {
     console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
-    const candles = await fetchCoinbaseCandles(limit);
+    const candles = await fetchCoinbaseCandles(limit, coinbaseProduct);
     return { candles, source: "coinbase" };
   }
 }
-function buildPrediction(candles, fromCache, source = "binance") {
+function buildPrediction(candles, fromCache, source = "binance", binanceSymbol = "BTCUSDT", coinbaseProduct = "BTC-USD") {
   const closes = candles.map((c) => c.close);
   const volumes = candles.map((c) => c.volume);
   const highs = candles.map((c) => c.high);
@@ -31133,53 +31136,72 @@ function buildPrediction(candles, fromCache, source = "binance") {
     reasons: sorted,
     fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
     fromCache,
-    symbol: source === "coinbase" ? "BTC-USD" : "BTCUSDT",
+    symbol: source === "coinbase" ? coinbaseProduct : binanceSymbol,
     source
   };
 }
-async function getBTC5MinPrediction(forceRefresh = false) {
+async function getCryptoPrediction(coin, forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && cachedPrediction && now - cacheTimestamp2 < CACHE_TTL_MS4) {
-    return { ...cachedPrediction, fromCache: true };
+  const cached = predictionCache.get(coin);
+  if (!forceRefresh && cached && now - cached.ts < CACHE_TTL_MS4) {
+    return { ...cached.prediction, fromCache: true };
   }
-  const { candles, source } = await fetchCandlesWithFallback("BTCUSDT", "5m", 100);
-  const prediction = buildPrediction(candles, false, source);
-  cachedPrediction = prediction;
-  cacheTimestamp2 = now;
+  const { binance, coinbase } = COIN_MAP[coin];
+  const { candles, source } = await fetchCandlesWithFallback(binance, "5m", 100, coinbase);
+  const prediction = buildPrediction(candles, false, source, binance, coinbase);
+  predictionCache.set(coin, { prediction, ts: now });
   return prediction;
 }
+function clearCryptoPredictionCache(coin) {
+  if (coin) predictionCache.delete(coin);
+  else predictionCache.clear();
+}
+async function getCryptoCandles(coin, limit = 100) {
+  const { binance, coinbase } = COIN_MAP[coin];
+  return fetchCandlesWithFallback(binance, "5m", limit, coinbase);
+}
+async function getBTC5MinPrediction(forceRefresh = false) {
+  return getCryptoPrediction("BTC", forceRefresh);
+}
 function clearBTCPredictionCache() {
-  cachedPrediction = null;
-  cacheTimestamp2 = 0;
+  clearCryptoPredictionCache("BTC");
 }
 async function getBTCCandles(limit = 100) {
-  return fetchCandlesWithFallback("BTCUSDT", "5m", limit);
+  return getCryptoCandles("BTC", limit);
 }
-var BINANCE_BASE, COINBASE_BASE, CACHE_TTL_MS4, cachedPrediction, cacheTimestamp2;
+var BINANCE_BASE, COINBASE_BASE, CACHE_TTL_MS4, COIN_MAP, predictionCache;
 var init_btc_5min_predictor = __esm({
   "server/services/btc-5min-predictor.ts"() {
     "use strict";
     BINANCE_BASE = "https://api.binance.com";
     COINBASE_BASE = "https://api.exchange.coinbase.com";
     CACHE_TTL_MS4 = 3e4;
-    cachedPrediction = null;
-    cacheTimestamp2 = 0;
+    COIN_MAP = {
+      BTC: { binance: "BTCUSDT", coinbase: "BTC-USD" },
+      ETH: { binance: "ETHUSDT", coinbase: "ETH-USD" },
+      SOL: { binance: "SOLUSDT", coinbase: "SOL-USD" },
+      XRP: { binance: "XRPUSDT", coinbase: "XRP-USD" },
+      DOGE: { binance: "DOGEUSDT", coinbase: "DOGE-USD" }
+    };
+    predictionCache = /* @__PURE__ */ new Map();
   }
 });
 
 // server/services/kalshi.ts
 var kalshi_exports = {};
 __export(kalshi_exports, {
+  KALSHI_SERIES_MAP: () => KALSHI_SERIES_MAP,
   clearKalshiCache: () => clearKalshiCache,
-  getKalshiBTCEvent: () => getKalshiBTCEvent
+  getKalshiBTCEvent: () => getKalshiBTCEvent,
+  getKalshiCryptoEvent: () => getKalshiCryptoEvent
 });
 function parseDollars(val) {
   if (val == null) return 0;
   const n = parseFloat(String(val));
   return isNaN(n) ? 0 : Math.round(n * 100);
 }
-async function fetchNearestEvent() {
-  const url = `${KALSHI_BASE}/events?series_ticker=KXBTC&limit=10&status=open`;
+async function fetchNearestEvent(seriesTicker) {
+  const url = `${KALSHI_BASE}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
   const res = await fetch(url, {
     headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
     signal: AbortSignal.timeout(8e3)
@@ -31240,14 +31262,15 @@ function buildBrackets(rawMarkets) {
     };
   });
 }
-async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
+async function getKalshiCryptoEvent(seriesTicker, currentPrice, forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && cached && now - cacheTs < CACHE_TTL_MS5) {
-    return { ...cached, fromCache: true };
+  const hit = eventCache.get(seriesTicker);
+  if (!forceRefresh && hit && now - hit.ts < CACHE_TTL_MS5) {
+    return { ...hit.event, fromCache: true };
   }
-  const nearestEvent = await fetchNearestEvent();
+  const nearestEvent = await fetchNearestEvent(seriesTicker);
   if (!nearestEvent) {
-    throw new Error("No active KXBTC events on Kalshi");
+    throw new Error(`No active ${seriesTicker} events on Kalshi`);
   }
   const rawMarkets = await fetchEventMarkets(nearestEvent.eventTicker);
   const brackets = buildBrackets(rawMarkets);
@@ -31255,11 +31278,11 @@ async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
   const hasActiveLiquidity = brackets.some((b) => b.hasLiquidity);
   const consensusBracket = brackets.reduce((best, b) => b.yesProbability > (best?.yesProbability ?? -1) ? b : best, null);
   let nearestBracket = null;
-  if (currentBTCPrice && brackets.length) {
+  if (currentPrice && brackets.length) {
     nearestBracket = brackets.reduce((best, b) => {
       const mid = b.floorStrike != null && b.capStrike != null ? (b.floorStrike + b.capStrike) / 2 : b.floorStrike ?? b.capStrike ?? 0;
       const bestMid = best.floorStrike != null && best.capStrike != null ? (best.floorStrike + best.capStrike) / 2 : best.floorStrike ?? best.capStrike ?? 0;
-      return Math.abs(mid - currentBTCPrice) < Math.abs(bestMid - currentBTCPrice) ? b : best;
+      return Math.abs(mid - currentPrice) < Math.abs(bestMid - currentPrice) ? b : best;
     });
   }
   const msUntilClose = Math.max(0, new Date(nearestEvent.closeTime).getTime() - now);
@@ -31276,22 +31299,30 @@ async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
     fetchedAt: (/* @__PURE__ */ new Date()).toISOString(),
     fromCache: false
   };
-  cached = result;
-  cacheTs = now;
+  eventCache.set(seriesTicker, { event: result, ts: now });
   return result;
 }
-function clearKalshiCache() {
-  cached = null;
-  cacheTs = 0;
+async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
+  return getKalshiCryptoEvent("KXBTC", currentBTCPrice, forceRefresh);
 }
-var KALSHI_BASE, CACHE_TTL_MS5, cached, cacheTs;
+function clearKalshiCache(seriesTicker) {
+  if (seriesTicker) eventCache.delete(seriesTicker);
+  else eventCache.clear();
+}
+var KALSHI_BASE, CACHE_TTL_MS5, KALSHI_SERIES_MAP, eventCache;
 var init_kalshi = __esm({
   "server/services/kalshi.ts"() {
     "use strict";
     KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
     CACHE_TTL_MS5 = 6e4;
-    cached = null;
-    cacheTs = 0;
+    KALSHI_SERIES_MAP = {
+      BTC: { hourly: "KXBTC", fifteenMin: "KXBTC15M" },
+      ETH: { hourly: "KXETH", fifteenMin: "KXETH15M" },
+      SOL: { hourly: "KXSOL", fifteenMin: "KXSOL15M" },
+      XRP: { hourly: "KXXRP", fifteenMin: "KXXRP15M" },
+      DOGE: { hourly: "KXDOGE", fifteenMin: "KXDOGE15M" }
+    };
+    eventCache = /* @__PURE__ */ new Map();
   }
 });
 
@@ -32114,9 +32145,9 @@ function ensembleSignal(candles) {
   const reason = `Ensemble ${direction}: ${Math.max(bull, bear)}/5 factors agree (${notes.join(", ")}). Trending regime confirmed.`;
   return { direction, confidence: confidence2, currentPrice: price, priceChange1h, reason, strategy: "ensemble" };
 }
-async function getKalshiSignal(strategy) {
+async function getKalshiSignal(strategy, coin = "BTC") {
   if (strategy === "momentum") {
-    const p = await getBTC5MinPrediction();
+    const p = await getCryptoPrediction(coin);
     return {
       direction: p.direction,
       confidence: p.confidence,
@@ -32126,7 +32157,7 @@ async function getKalshiSignal(strategy) {
       strategy: "momentum"
     };
   }
-  const { candles } = await getBTCCandles(100);
+  const { candles } = await getCryptoCandles(coin, 100);
   if (!candles.length) {
     return { direction: "NEUTRAL", confidence: 0, currentPrice: 0, priceChange1h: 0, reason: "No candle data available", strategy };
   }
@@ -32147,12 +32178,12 @@ function estimateHourlyVol(candles) {
   const perCandle = Math.sqrt(variance);
   return perCandle * Math.sqrt(12);
 }
-async function getKalshiConsensus() {
-  const { candles } = await getBTCCandles(100);
+async function getKalshiConsensus(coin = "BTC") {
+  const { candles } = await getCryptoCandles(coin, 100);
   if (!candles.length) {
     return { direction: "NEUTRAL", confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ["No candle data"] };
   }
-  const momentumPred = await getBTC5MinPrediction().catch(() => null);
+  const momentumPred = await getCryptoPrediction(coin).catch(() => null);
   const signals = [];
   if (momentumPred) {
     signals.push({
@@ -32529,6 +32560,7 @@ var init_kalshi_performance = __esm({
 // server/services/kalshi-engine.ts
 var kalshi_engine_exports = {};
 __export(kalshi_engine_exports, {
+  KALSHI_TRADEABLE_COINS: () => KALSHI_TRADEABLE_COINS,
   closeAllKalshiTrades: () => closeAllKalshiTrades,
   closeKalshiTrade: () => closeKalshiTrade,
   getKalshiEngineState: () => getKalshiEngineState,
@@ -32565,6 +32597,10 @@ function updateKalshiEngineConfig(userId, patch) {
   const s = getKalshiEngineState(userId);
   const clean = { ...patch };
   if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  if (clean.symbols) {
+    const deduped = Array.from(new Set(clean.symbols)).filter((c) => KALSHI_TRADEABLE_COINS.includes(c));
+    clean.symbols = deduped.length ? deduped : ["BTC"];
+  }
   if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
   if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
@@ -32684,6 +32720,7 @@ async function _placeKalshiYes(userId, s, p) {
   }
   const trade = {
     id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    coin: p.coin,
     ticker: p.ticker,
     subtitle: p.subtitle,
     side: "yes",
@@ -32730,111 +32767,101 @@ async function _runKalshiScan(userId, manual = false) {
       return { fired: false, reason: r };
     }
   }
+  const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
+  let lastReason = "No qualifying signal this cycle";
+  for (const coin of symbols) {
+    const result = await _scanOneCoin(userId, s, coin);
+    if (result.fired) {
+      s.lastScanResult = result.reason;
+      return result;
+    }
+    lastReason = result.reason;
+  }
+  s.lastScanResult = lastReason;
+  return { fired: false, reason: lastReason };
+}
+async function _scanOneCoin(userId, s, coin) {
   if (s.config.autoTradeValuePicks) {
     try {
-      const vp = await scanKalshiValuePicks(userId, 1);
+      const vp = await scanKalshiValuePicks(userId, 1, coin);
       const top = vp.picks[0];
       if (!top) {
-        const r = `Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
       }
       if (top.valueScore < s.config.minValueScore) {
-        const r = `Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top.subtitle}"`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin}: Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top.subtitle}"` };
       }
-      const fired = await _placeKalshiYes(userId, s, {
+      return await _placeKalshiYes(userId, s, {
+        coin,
         ticker: top.ticker,
         subtitle: top.subtitle,
         priceInCents: top.marketAskCents,
         confidence: top.confidence,
         btcPrice: vp.btcPrice,
         direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
-        label: `Value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge)`,
+        label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge)`,
         strategy: "consensus"
       });
-      return fired;
     } catch (err) {
-      const r = `Value-pick scan error: ${err.message}`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Value-pick scan error: ${err.message}` };
     }
   }
   try {
     let effectiveStrategy;
     let stratLabel;
     if (s.config.strategy === "auto") {
-      const scan = await scanAllKalshiStrategies(userId);
+      const scan = await scanAllKalshiStrategies(userId, coin);
       if (!scan.selected) {
-        const r = `Auto: all strategies NEUTRAL this cycle \u2014 no trade`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin} Auto: all strategies NEUTRAL this cycle \u2014 no trade` };
       }
       effectiveStrategy = scan.selected;
       const sel = scan.rows.find((row) => row.strategy === effectiveStrategy);
-      stratLabel = `Auto\u2192${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t \xB7 conf ${sel.confidence}%)`;
+      stratLabel = `${coin} Auto\u2192${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t \xB7 conf ${sel.confidence}%)`;
     } else {
       effectiveStrategy = s.config.strategy;
-      stratLabel = STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy;
+      stratLabel = `${coin} ${STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy}`;
     }
-    const pred = await getKalshiSignal(effectiveStrategy);
+    const pred = await getKalshiSignal(effectiveStrategy, coin);
     if (!pred || pred.direction === "NEUTRAL") {
-      const r = `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${stratLabel}: NEUTRAL \u2014 ${pred?.reason ?? "no clear direction"}` };
     }
     if (pred.confidence < s.config.minConfidence) {
-      const r = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)` };
     }
     if (s.config.requireAlignedHourly) {
       const aligned = pred.direction === "BUY" && pred.priceChange1h > 0 || pred.direction === "SELL" && pred.priceChange1h < 0;
       if (!aligned) {
-        const r = `1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${stratLabel}: 1h trend (${pred.priceChange1h > 0 ? "+" : ""}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal` };
       }
     }
     if (s.config.requireConfluence !== false) {
-      const consensus = await getKalshiConsensus();
+      const consensus = await getKalshiConsensus(coin);
       const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
       if (!agrees) {
-        const r = `Confluence fail: ${stratLabel} says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${stratLabel}: Confluence fail: says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)` };
       }
     }
-    const event = await getKalshiBTCEvent(pred.currentPrice);
+    const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+    const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
     if (!event.brackets.length) {
-      const r = "No active KXBTC brackets available";
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
     }
     if (event.msUntilClose < 15 * 60 * 1e3) {
-      const r = "Nearest KXBTC event closes in <15 min \u2014 waiting for next event";
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <15 min \u2014 waiting for next event` };
     }
     const bracket = _selectBracket(event.brackets, pred);
     if (!bracket) {
-      const r = "Could not find a suitable bracket for current signal";
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Could not find a suitable bracket for current signal` };
     }
     const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
     if (priceInCents >= 97) {
-      const r = `Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive` };
     }
     if (priceInCents > pred.confidence - 5) {
-      const r = `No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.` };
     }
     return await _placeKalshiYes(userId, s, {
+      coin,
       ticker: bracket.ticker,
       subtitle: bracket.subtitle,
       priceInCents,
@@ -32845,9 +32872,7 @@ async function _runKalshiScan(userId, manual = false) {
       strategy: effectiveStrategy
     });
   } catch (err) {
-    const r = `Scan error: ${err.message}`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
+    return { fired: false, reason: `${coin}: Scan error: ${err.message}` };
   }
 }
 function _selectBracket(brackets, pred) {
@@ -32888,9 +32913,9 @@ function _findNearestBetween(brackets, btcPrice) {
     return Math.abs(midA - btcPrice) - Math.abs(midB - btcPrice);
   })[0];
 }
-async function scanAllKalshiStrategies(userId) {
+async function scanAllKalshiStrategies(userId, coin = "BTC") {
   const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const consensus = await getKalshiConsensus();
+  const consensus = await getKalshiConsensus(coin);
   const perf = getKalshiPerformance(userId);
   const rows = consensus.signals.map((sig) => {
     const stat = perf.byStrategy.find((p) => p.strategy === sig.strategy);
@@ -32940,9 +32965,9 @@ function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
   }
   return 0;
 }
-async function scanKalshiValuePicks(userId, limit = 5) {
+async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC") {
   const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
-  const consensus = await getKalshiConsensus();
+  const consensus = await getKalshiConsensus(coin);
   const btcPrice = consensus.currentPrice;
   const base = {
     consensus: { direction: consensus.direction, confidence: consensus.confidence, agreement: consensus.agreement, reasons: consensus.reasons },
@@ -32953,11 +32978,12 @@ async function scanKalshiValuePicks(userId, limit = 5) {
     scannedAt
   };
   if (!btcPrice) return base;
-  const event = await getKalshiBTCEvent(btcPrice).catch(() => null);
+  const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+  const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
   if (!event || !event.brackets.length) return base;
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 6e4);
-  const { candles } = await getBTCCandles(100).catch(() => ({ candles: [] }));
+  const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] }));
   const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
   const hoursLeft = Math.max(0.1, event.msUntilClose / 36e5);
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
@@ -33004,14 +33030,19 @@ async function scanKalshiValuePicks(userId, limit = 5) {
 }
 async function _updateOpenTradePrices(userId, s) {
   if (!s.openTrades.length) return;
-  let brackets = [];
-  try {
-    const event = await getKalshiBTCEvent(void 0, true);
-    brackets = event.brackets;
-  } catch {
-    return;
+  const coinsInPlay = Array.from(new Set(s.openTrades.map((t) => t.coin || "BTC")));
+  const bracketsByCoin = /* @__PURE__ */ new Map();
+  for (const coin of coinsInPlay) {
+    try {
+      const seriesTicker = KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
+      const event = await getKalshiCryptoEvent(seriesTicker, void 0, true);
+      bracketsByCoin.set(coin, event.brackets);
+    } catch {
+    }
   }
   for (const t of [...s.openTrades]) {
+    const brackets = bracketsByCoin.get(t.coin || "BTC");
+    if (!brackets) continue;
     const b = brackets.find((x) => x.ticker === t.ticker);
     if (!b) continue;
     const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
@@ -33084,7 +33115,7 @@ function closeAllKalshiTrades(userId) {
   ids.forEach((id) => closeKalshiTrade(userId, id));
   return ids.length;
 }
-var _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS;
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -33093,10 +33124,13 @@ var init_kalshi_engine = __esm({
     init_kalshi_strategies();
     init_btc_5min_predictor();
     init_kalshi_performance();
+    KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE"];
     _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();
     DEFAULT_CONFIG2 = {
+      symbols: ["BTC"],
+      // preserves existing behavior for accounts that never touch this setting
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,
@@ -34222,13 +34256,13 @@ async function runSolAIReview(userId, state, scanResult, openPositions) {
     ...openPositions.map((p) => p.symbol).sort()
   ].join("|");
   const REVIEW_CACHE_TTL = 5 * 6e4;
-  const cached2 = state.aiReviewCache[cacheKey];
-  if (cached2 && Date.now() - cached2.ts < REVIEW_CACHE_TTL) {
-    const ageS = Math.round((Date.now() - cached2.ts) / 1e3);
+  const cached = state.aiReviewCache[cacheKey];
+  if (cached && Date.now() - cached.ts < REVIEW_CACHE_TTL) {
+    const ageS = Math.round((Date.now() - cached.ts) / 1e3);
     const macroBiasCache = state.lastMacro?.bias ?? null;
     const cacheConsensus = [];
     let confirms = 0, skips = 0;
-    for (const d of cached2.result) {
+    for (const d of cached.result) {
       if (!d || !d.symbol || d.type !== "signal") continue;
       const tokenData = buySignals.find((t) => t.token.symbol === d.symbol);
       if (!tokenData) continue;
@@ -46511,9 +46545,9 @@ var TradovateService = class {
     return fills.slice(0, limit);
   }
   async resolveContractId(rootSymbol) {
-    const cached2 = this.contractCache.get(rootSymbol.toUpperCase());
-    if (cached2 && Date.now() - cached2.cachedAt.getTime() < 10 * 60 * 1e3) {
-      return { contractId: cached2.contractId, name: cached2.name };
+    const cached = this.contractCache.get(rootSymbol.toUpperCase());
+    if (cached && Date.now() - cached.cachedAt.getTime() < 10 * 60 * 1e3) {
+      return { contractId: cached.contractId, name: cached.name };
     }
     await this.ensureAuthenticated();
     const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
@@ -46578,9 +46612,9 @@ function getCacheKey(userId, accountType) {
 }
 async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
   const cacheKey = getCacheKey(userId, accountType);
-  const cached2 = serviceCache2.get(cacheKey);
-  if (cached2 && Date.now() - cached2.cachedAt.getTime() < CACHE_TTL_MS2) {
-    return cached2.service;
+  const cached = serviceCache2.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt.getTime() < CACHE_TTL_MS2) {
+    return cached.service;
   }
   const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
   const password = decryptPassword4(encryptedPassword);
@@ -65441,9 +65475,9 @@ Respond with ONLY valid JSON:
       } catch (mdErr) {
         const mt5Cache = global.mt5ChartDataCache || {};
         const cacheKey = `mt5_chart_${userId}_${pair}_H1`;
-        const cached2 = mt5Cache[cacheKey];
-        if (cached2?.candles?.length >= 50) {
-          bars = cached2.candles.map((c) => ({
+        const cached = mt5Cache[cacheKey];
+        if (cached?.candles?.length >= 50) {
+          bars = cached.candles.map((c) => ({
             timestamp: typeof c.timestamp === "number" ? c.timestamp : new Date(c.time || c.timestamp).getTime(),
             open: Number(c.open),
             high: Number(c.high),
@@ -66854,11 +66888,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
           const positions = await svc.getPositions().catch(() => []);
           const unrealized = positions.reduce((s, p) => s + parseFloat(p.unrealizedPnl ?? p.unrealizedPnL ?? p.pnl ?? p.profit ?? 0), 0);
           let balance = 0, equity = 0;
-          const cached2 = _tlCache[conn.accountId];
-          const cacheFresh = cached2 && !cached2.error && Date.now() - new Date(cached2.lastUpdated).getTime() < 12e4;
+          const cached = _tlCache[conn.accountId];
+          const cacheFresh = cached && !cached.error && Date.now() - new Date(cached.lastUpdated).getTime() < 12e4;
           if (cacheFresh) {
-            balance = cached2.balance ?? 0;
-            equity = cached2.equity ?? balance;
+            balance = cached.balance ?? 0;
+            equity = cached.equity ?? balance;
           } else {
             const balData = await svc.getAccountInfo();
             balance = balData?.balance ?? 0;

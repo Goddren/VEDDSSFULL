@@ -90,6 +90,7 @@ interface KalshiEvent {
 
 interface KalshiTradeRecord {
   id: string;
+  coin?: "BTC" | "ETH" | "SOL" | "XRP" | "DOGE";
   ticker: string;
   subtitle: string;
   entryPriceCents: number;
@@ -115,6 +116,7 @@ interface KalshiEngineState {
   totalRealizedPnl: number;
   totalUnrealizedPnl: number;
   config: {
+    symbols: string[];
     contractsPerTrade: number;
     maxOpenTrades: number;
     cooldownMinutes: number;
@@ -321,6 +323,9 @@ export default function PolymarketEnginePage() {
   const [gisReady, setGisReady]               = useState(false);
   const [googleEmailPrefilled, setGoogleEmailPrefilled] = useState(false);
   const googleBtnRef                          = useRef<HTMLDivElement>(null);
+  // Which coins' hourly bracket markets to scan (was BTC-only) — empty array
+  // means "untouched this session", falls back to the saved server config.
+  const [kalshiCfgSymbols, setKalshiCfgSymbols] = useState<string[]>([]);
   const [kalshiCfgContracts, setKalshiCfgContracts] = useState("");
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
@@ -632,6 +637,7 @@ export default function PolymarketEnginePage() {
 
   const saveKalshiConfig = () => {
     const patch: any = {};
+    if (kalshiCfgSymbols.length) patch.symbols = kalshiCfgSymbols;
     if (kalshiCfgContracts)  patch.contractsPerTrade = Number(kalshiCfgContracts);
     if (kalshiCfgMaxTrades)  patch.maxOpenTrades     = Number(kalshiCfgMaxTrades);
     if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
@@ -1437,6 +1443,33 @@ export default function PolymarketEnginePage() {
                         );
                       })}
                     </div>
+                  </div>
+
+                  {/* Symbol selector — which coins' hourly bracket markets to scan.
+                      Was BTC-only; SOL sometimes has no currently-open hourly event
+                      (skipped that cycle, not an error) so it's still offered. */}
+                  <div className="mb-3">
+                    <label className="text-[9px] text-gray-400 block mb-1">Coins to Trade</label>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {(["BTC", "ETH", "SOL", "XRP", "DOGE"] as const).map(coin => {
+                        const current = kalshiCfgSymbols.length ? kalshiCfgSymbols : (kalshiEngineState?.config.symbols ?? ["BTC"]);
+                        const active = current.includes(coin);
+                        return (
+                          <button
+                            key={coin}
+                            onClick={() => {
+                              const base = kalshiCfgSymbols.length ? kalshiCfgSymbols : (kalshiEngineState?.config.symbols ?? ["BTC"]);
+                              const next = base.includes(coin) ? base.filter(c => c !== coin) : [...base, coin];
+                              setKalshiCfgSymbols(next.length ? next : ["BTC"]);
+                            }}
+                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-amber-600/40 border-amber-500/50 text-amber-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
+                          >
+                            <span className="block text-[10px] font-bold leading-tight">{coin}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[8px] text-gray-500 leading-snug mt-1">Engine scans each selected coin's hourly bracket market every cycle and trades the first one that clears every gate.</p>
                   </div>
 
                   {/* Confluence requirement */}

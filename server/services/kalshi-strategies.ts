@@ -9,7 +9,7 @@
  *  - markov:         next-state probability from a candle-direction transition matrix
  */
 
-import { getBTC5MinPrediction, getBTCCandles, type BTC5MinCandle } from './btc-5min-predictor';
+import { getCryptoPrediction, getCryptoCandles, type BTC5MinCandle, type CryptoCoin } from './btc-5min-predictor';
 import { computeOrderFlow } from './orderflow-strategy';
 
 export type KalshiStrategy = 'momentum' | 'volume_profile' | 'markov' | 'order_flow' | 'ensemble';
@@ -294,9 +294,9 @@ export function ensembleSignal(candles: BTC5MinCandle[]): TradeSignal {
 
 // ── Unified signal entry point ──────────────────────────────────────────────────
 
-export async function getKalshiSignal(strategy: KalshiStrategy): Promise<TradeSignal> {
+export async function getKalshiSignal(strategy: KalshiStrategy, coin: CryptoCoin = 'BTC'): Promise<TradeSignal> {
   if (strategy === 'momentum') {
-    const p = await getBTC5MinPrediction();
+    const p = await getCryptoPrediction(coin);
     return {
       direction: p.direction,
       confidence: p.confidence,
@@ -307,7 +307,7 @@ export async function getKalshiSignal(strategy: KalshiStrategy): Promise<TradeSi
     };
   }
 
-  const { candles } = await getBTCCandles(100);
+  const { candles } = await getCryptoCandles(coin, 100);
   if (!candles.length) {
     return { direction: 'NEUTRAL', confidence: 0, currentPrice: 0, priceChange1h: 0, reason: 'No candle data available', strategy };
   }
@@ -346,13 +346,13 @@ export function estimateHourlyVol(candles: BTC5MinCandle[]): number {
   return perCandle * Math.sqrt(12); // 12 five-min candles per hour
 }
 
-export async function getKalshiConsensus(): Promise<KalshiConsensus> {
-  const { candles } = await getBTCCandles(100);
+export async function getKalshiConsensus(coin: CryptoCoin = 'BTC'): Promise<KalshiConsensus> {
+  const { candles } = await getCryptoCandles(coin, 100);
   if (!candles.length) {
     return { direction: 'NEUTRAL', confidence: 0, agreement: 0, currentPrice: 0, priceChange1h: 0, signals: [], reasons: ['No candle data'] };
   }
 
-  const momentumPred = await getBTC5MinPrediction().catch(() => null);
+  const momentumPred = await getCryptoPrediction(coin).catch(() => null);
   const signals: TradeSignal[] = [];
   if (momentumPred) {
     signals.push({

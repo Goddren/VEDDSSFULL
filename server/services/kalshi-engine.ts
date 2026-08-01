@@ -13,14 +13,23 @@
  * at current AMM ask price, tracks virtual P&L).
  */
 
-import { getKalshiBTCEvent, type KalshiBTCBracket }   from './kalshi';
+import { getKalshiCryptoEvent, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
 import {
   placeKalshiOrder, getKalshiBalance, loadKalshiCredentials,
   type KalshiOrderResult,
 } from './kalshi-trading';
 import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
-import { getBTCCandles } from './btc-5min-predictor';
+import { getCryptoCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
+
+// Coins with a real, currently-tradeable hourly bracket market (same product
+// structure as the original KXBTC). Verified live against Kalshi's API before
+// adding: SOL sometimes has zero currently-open hourly events (handled as a
+// per-symbol skip in the scan loop, not a hard error) — still listed since it
+// comes and goes. 15-minute markets (KXBTC15M etc.) are a DIFFERENT product
+// (single directional yes/no bet vs. multi-bracket price range) and are
+// intentionally NOT included here — they'd need separate handling.
+export const KALSHI_TRADEABLE_COINS: KalshiCryptoCoin[] = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
 
 // Session peak-bankroll tracker for Drawdown Shield — same in-memory,
 // session-scoped pattern used by futures-scanner.ts/cryptocom-scanner.ts.
@@ -30,6 +39,7 @@ const _sessionPeakBankroll = new Map<number, number>();
 
 export interface KalshiTradeRecord {
   id: string;
+  coin: KalshiCryptoCoin;  // which series/event this trade belongs to — added for multi-coin support
   ticker: string;
   subtitle: string;
   side: 'yes' | 'no';
@@ -66,6 +76,11 @@ export interface KalshiEngineState {
 }
 
 export interface KalshiEngineConfig {
+  // Which coins' hourly bracket markets to scan each cycle (was hardcoded to
+  // BTC-only). The engine tries each in order and fires on the first one that
+  // clears every gate that cycle — see KALSHI_TRADEABLE_COINS for what's
+  // actually available (15-min markets are a different product, not covered).
+  symbols: KalshiCryptoCoin[];
   contractsPerTrade: number;   // number of Kalshi contracts per order
   maxOpenTrades: number;
   cooldownMinutes: number;
@@ -101,6 +116,7 @@ const _states  = new Map<number, KalshiEngineState>();
 const _timers  = new Map<number, ReturnType<typeof setInterval>>();
 
 const DEFAULT_CONFIG: KalshiEngineConfig = {
+  symbols:              ['BTC'], // preserves existing behavior for accounts that never touch this setting
   contractsPerTrade:    5,
   maxOpenTrades:        3,
   cooldownMinutes:      20,
@@ -155,6 +171,11 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   const clean: Partial<KalshiEngineConfig> = { ...patch };
   // Guard the strategy field against invalid values
   if (clean.strategy && !STRATEGY_LABELS[clean.strategy]) delete clean.strategy;
+  // Guard symbols: only real tradeable coins, at least one, no duplicates
+  if (clean.symbols) {
+    const deduped = Array.from(new Set(clean.symbols)).filter(c => KALSHI_TRADEABLE_COINS.includes(c));
+    clean.symbols = deduped.length ? deduped : ['BTC'];
+  }
   // Clamp auto-trade / exit fields to sane ranges
   if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
@@ -274,7 +295,7 @@ export async function manualKalshiScan(userId: number): Promise<{ fired: boolean
 async function _placeKalshiYes(
   userId: number,
   s: KalshiEngineState,
-  p: { ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
+  p: { coin: KalshiCryptoCoin; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
 ): Promise<{ fired: boolean; reason: string }> {
   // Compounding mode sizes the stake from the growing bankroll; otherwise fixed
   // count — then Brain Learning Mode / Kelly / Drawdown Shield adjust it further.
@@ -297,6 +318,7 @@ async function _placeKalshiYes(
 
   const trade: KalshiTradeRecord = {
     id:                `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    coin:              p.coin,
     ticker:            p.ticker,
     subtitle:          p.subtitle,
     side:              'yes',
@@ -330,6 +352,10 @@ async function _placeKalshiYes(
 }
 
 // ── Core scan ─────────────────────────────────────────────────────────────────
+// Loops the configured symbols (default ['BTC'], preserving old behavior) and
+// fires on the first one that clears every gate this cycle. Per-symbol logic
+// lives in _scanOneCoin — unchanged from the original single-coin version,
+// just parameterized by `coin` throughout instead of assuming BTC.
 
 async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: boolean; reason: string }> {
   const s = getKalshiEngineState(userId);
@@ -355,36 +381,45 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     }
   }
 
+  const symbols = s.config.symbols?.length ? s.config.symbols : (['BTC'] as KalshiCryptoCoin[]);
+  let lastReason = 'No qualifying signal this cycle';
+  for (const coin of symbols) {
+    const result = await _scanOneCoin(userId, s, coin);
+    if (result.fired) {
+      s.lastScanResult = result.reason;
+      return result;
+    }
+    lastReason = result.reason;
+  }
+  s.lastScanResult = lastReason;
+  return { fired: false, reason: lastReason };
+}
+
+async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCryptoCoin): Promise<{ fired: boolean; reason: string }> {
   // ── Auto-trade the top High-Value Pick (all-strategy consensus + edge model) ──
   if (s.config.autoTradeValuePicks) {
     try {
-      const vp = await scanKalshiValuePicks(userId, 1);
+      const vp = await scanKalshiValuePicks(userId, 1, coin);
       const top = vp.picks[0];
       if (!top) {
-        const r = `Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
       }
       if (top.valueScore < s.config.minValueScore) {
-        const r = `Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) — "${top.subtitle}"`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin}: Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) — "${top.subtitle}"` };
       }
-      const fired = await _placeKalshiYes(userId, s, {
+      return await _placeKalshiYes(userId, s, {
+        coin,
         ticker: top.ticker,
         subtitle: top.subtitle,
         priceInCents: top.marketAskCents,
         confidence: top.confidence,
         btcPrice: vp.btcPrice,
         direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
-        label: `Value pick (score ${top.valueScore}, +${top.edgePct}¢ edge)`,
+        label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}¢ edge)`,
         strategy: 'consensus',
       });
-      return fired;
     } catch (err: any) {
-      const r = `Value-pick scan error: ${err.message}`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Value-pick scan error: ${err.message}` };
     }
   }
 
@@ -394,32 +429,26 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     let effectiveStrategy: KalshiStrategy;
     let stratLabel: string;
     if (s.config.strategy === 'auto') {
-      const scan = await scanAllKalshiStrategies(userId);
+      const scan = await scanAllKalshiStrategies(userId, coin);
       if (!scan.selected) {
-        const r = `Auto: all strategies NEUTRAL this cycle — no trade`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${coin} Auto: all strategies NEUTRAL this cycle — no trade` };
       }
       effectiveStrategy = scan.selected;
       const sel = scan.rows.find(row => row.strategy === effectiveStrategy)!;
-      stratLabel = `Auto→${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t · conf ${sel.confidence}%)`;
+      stratLabel = `${coin} Auto→${STRATEGY_LABELS[effectiveStrategy]} (acc ${sel.winRate}%/${sel.decidedTrades}t · conf ${sel.confidence}%)`;
     } else {
       effectiveStrategy = s.config.strategy;
-      stratLabel = STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy;
+      stratLabel = `${coin} ${STRATEGY_LABELS[effectiveStrategy] ?? effectiveStrategy}`;
     }
 
     // 1. Get directional signal from the resolved strategy
-    const pred = await getKalshiSignal(effectiveStrategy);
+    const pred = await getKalshiSignal(effectiveStrategy, coin);
     if (!pred || pred.direction === 'NEUTRAL') {
-      const r = `${stratLabel}: NEUTRAL — ${pred?.reason ?? 'no clear direction'}`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${stratLabel}: NEUTRAL — ${pred?.reason ?? 'no clear direction'}` };
     }
 
     if (pred.confidence < s.config.minConfidence) {
-      const r = `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${stratLabel}: confidence ${pred.confidence}% below threshold (${s.config.minConfidence}%)` };
     }
 
     // Optional: require 1h trend to agree
@@ -428,9 +457,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
         (pred.direction === 'BUY'  && pred.priceChange1h > 0) ||
         (pred.direction === 'SELL' && pred.priceChange1h < 0);
       if (!aligned) {
-        const r = `1h trend (${pred.priceChange1h > 0 ? '+' : ''}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${stratLabel}: 1h trend (${pred.priceChange1h > 0 ? '+' : ''}${pred.priceChange1h.toFixed(2)}%) conflicts with ${pred.direction} signal` };
       }
     }
 
@@ -438,57 +465,47 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     // signal (≥60% weighted agreement). Trading a single strategy that the others
     // contradict is a major loss source — only fire when the book agrees.
     if (s.config.requireConfluence !== false) {
-      const consensus = await getKalshiConsensus();
+      const consensus = await getKalshiConsensus(coin);
       const agrees = consensus.direction === pred.direction && consensus.agreement >= 0.6;
       if (!agrees) {
-        const r = `Confluence fail: ${stratLabel} says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need ≥60% agreeing)`;
-        s.lastScanResult = r;
-        return { fired: false, reason: r };
+        return { fired: false, reason: `${stratLabel}: Confluence fail: says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need ≥60% agreeing)` };
       }
     }
 
-    // 2. Get KXBTC market event
-    const event = await getKalshiBTCEvent(pred.currentPrice);
+    // 2. Get the coin's hourly bracket market event
+    const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+    const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
     if (!event.brackets.length) {
-      const r = 'No active KXBTC brackets available';
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
     }
 
     // Skip if event closes in < 15 min (not enough time for trade to resolve meaningfully)
     if (event.msUntilClose < 15 * 60 * 1000) {
-      const r = 'Nearest KXBTC event closes in <15 min — waiting for next event';
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <15 min — waiting for next event` };
     }
 
     // 3. Select bracket
     const bracket = _selectBracket(event.brackets, pred);
     if (!bracket) {
-      const r = 'Could not find a suitable bracket for current signal';
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Could not find a suitable bracket for current signal` };
     }
 
     // 4. Determine order: always BUY YES on chosen bracket
     const priceInCents = bracket.yesAsk > 0 ? bracket.yesAsk : Math.max(1, bracket.yesProbability);
     if (priceInCents >= 97) {
-      const r = `Bracket ${bracket.subtitle} already at ${priceInCents}¢ — too expensive`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}¢ — too expensive` };
     }
 
     // Expected-value gate: our signal confidence ≈ P(win). Never pay MORE for the
     // contract than our edge justifies — buying an 80¢ contract on a 72% signal is
     // negative EV. Require the price to be at least 5¢ below implied probability.
     if (priceInCents > pred.confidence - 5) {
-      const r = `No edge: ${bracket.subtitle} costs ${priceInCents}¢ but signal implies ~${pred.confidence}% win — need ≤${pred.confidence - 5}¢. Skip.`;
-      s.lastScanResult = r;
-      return { fired: false, reason: r };
+      return { fired: false, reason: `${coin}: No edge: ${bracket.subtitle} costs ${priceInCents}¢ but signal implies ~${pred.confidence}% win — need ≤${pred.confidence - 5}¢. Skip.` };
     }
 
     // 5. Place the order via shared helper
     return await _placeKalshiYes(userId, s, {
+      coin,
       ticker: bracket.ticker,
       subtitle: bracket.subtitle,
       priceInCents,
@@ -500,9 +517,7 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     });
 
   } catch (err: any) {
-    const r = `Scan error: ${err.message}`;
-    s.lastScanResult = r;
-    return { fired: false, reason: r };
+    return { fired: false, reason: `${coin}: Scan error: ${err.message}` };
   }
 }
 
@@ -580,9 +595,15 @@ export interface KalshiStrategyScanResult {
   scannedAt: string;
 }
 
-export async function scanAllKalshiStrategies(userId: number): Promise<KalshiStrategyScanResult> {
+export async function scanAllKalshiStrategies(userId: number, coin: KalshiCryptoCoin = 'BTC'): Promise<KalshiStrategyScanResult> {
   const scannedAt = new Date().toISOString();
-  const consensus: KalshiConsensus = await getKalshiConsensus(); // runs all 4 strategies
+  const consensus: KalshiConsensus = await getKalshiConsensus(coin); // runs all 4 strategies
+  // Per-strategy win-rate history is tracked per-user, not per-coin — a
+  // simplification for this multi-coin expansion. BTC momentum's track record
+  // currently informs the "auto" strategy pick for ETH/SOL/etc too, rather
+  // than each coin building its own separate history. Splitting kalshi-
+  // performance.ts out per-coin would be a reasonable fast-follow if the
+  // learning signal needs to be more precise once real multi-coin history builds up.
   const perf = getKalshiPerformance(userId);
 
   const rows: KalshiStrategyScanRow[] = consensus.signals.map(sig => {
@@ -684,9 +705,9 @@ function _bracketModelProb(
   return 0;
 }
 
-export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<KalshiValueScanResult> {
+export async function scanKalshiValuePicks(userId: number, limit = 5, coin: KalshiCryptoCoin = 'BTC'): Promise<KalshiValueScanResult> {
   const scannedAt = new Date().toISOString();
-  const consensus: KalshiConsensus = await getKalshiConsensus();
+  const consensus: KalshiConsensus = await getKalshiConsensus(coin);
   const btcPrice = consensus.currentPrice;
 
   const base: KalshiValueScanResult = {
@@ -695,13 +716,14 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
   };
   if (!btcPrice) return base;
 
-  const event = await getKalshiBTCEvent(btcPrice).catch(() => null);
+  const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+  const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
   if (!event || !event.brackets.length) return base;
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 60000);
 
   // Volatility scaled to the remaining time until the event closes
-  const { candles } = await getBTCCandles(100).catch(() => ({ candles: [] as any[] }));
+  const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] as any[] }));
   const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 0.004;
   const hoursLeft = Math.max(0.1, event.msUntilClose / 3600000);
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
@@ -775,17 +797,26 @@ export async function scanKalshiValuePicks(userId: number, limit = 5): Promise<K
 async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Promise<void> {
   if (!s.openTrades.length) return;
 
-  // Pull the latest event once and match each open trade by ticker to refresh
-  // its current YES price (we value a YES position at the bid — what we can sell at).
-  let brackets: KalshiBTCBracket[] = [];
-  try {
-    const event = await getKalshiBTCEvent(undefined, true);
-    brackets = event.brackets;
-  } catch {
-    return; // can't refresh prices this cycle — leave positions untouched
+  // Pull each coin's latest event once (open trades can now span multiple
+  // coins) and match each open trade by ticker to refresh its current YES
+  // price (we value a YES position at the bid — what we can sell at).
+  // Trades opened before this expansion (or `coin` missing for any reason)
+  // fall back to BTC, matching the original single-coin behavior.
+  const coinsInPlay = Array.from(new Set(s.openTrades.map(t => t.coin || 'BTC')));
+  const bracketsByCoin = new Map<KalshiCryptoCoin, KalshiBTCBracket[]>();
+  for (const coin of coinsInPlay) {
+    try {
+      const seriesTicker = KALSHI_SERIES_MAP[coin]?.hourly ?? 'KXBTC';
+      const event = await getKalshiCryptoEvent(seriesTicker, undefined, true);
+      bracketsByCoin.set(coin, event.brackets);
+    } catch {
+      // Can't refresh this coin's prices this cycle — leave its positions untouched.
+    }
   }
 
   for (const t of [...s.openTrades]) {
+    const brackets = bracketsByCoin.get(t.coin || 'BTC');
+    if (!brackets) continue;
     const b = brackets.find(x => x.ticker === t.ticker);
     if (!b) continue;
     // Sell-side value = yes bid (fallback to probability/last)

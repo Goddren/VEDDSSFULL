@@ -15,6 +15,18 @@ const BINANCE_BASE = 'https://api.binance.com';
 const COINBASE_BASE = 'https://api.exchange.coinbase.com';
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
+// Coin → {Binance symbol, Coinbase product} — added to extend this predictor
+// (originally BTC-only) to the other coins Kalshi lists hourly/15-min range
+// events for. Coinbase product codes confirmed against their public API.
+export type CryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE';
+const COIN_MAP: Record<CryptoCoin, { binance: string; coinbase: string }> = {
+  BTC:  { binance: 'BTCUSDT',  coinbase: 'BTC-USD' },
+  ETH:  { binance: 'ETHUSDT',  coinbase: 'ETH-USD' },
+  SOL:  { binance: 'SOLUSDT',  coinbase: 'SOL-USD' },
+  XRP:  { binance: 'XRPUSDT',  coinbase: 'XRP-USD' },
+  DOGE: { binance: 'DOGEUSDT', coinbase: 'DOGE-USD' },
+};
+
 export interface BTC5MinCandle {
   openTime: number;
   open: number;
@@ -47,9 +59,11 @@ export interface BTC5MinPrediction {
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
+// Per-coin now (was a single module-level slot when this was BTC-only) so
+// scanning multiple coins in the same cycle doesn't have each one clobber the
+// last one's cached prediction.
 
-let cachedPrediction: BTC5MinPrediction | null = null;
-let cacheTimestamp = 0;
+const predictionCache = new Map<CryptoCoin, { prediction: BTC5MinPrediction; ts: number }>();
 
 // ── Technical analysis helpers ────────────────────────────────────────────────
 
@@ -119,9 +133,9 @@ async function fetchBinanceCandles(symbol: string, interval: string, limit: numb
 
 // Coinbase fallback — returns [time(s), low, high, open, close, volume], newest first.
 // Used when Binance is geo-blocked (HTTP 451) from US-hosted servers.
-async function fetchCoinbaseCandles(limit: number): Promise<BTC5MinCandle[]> {
+async function fetchCoinbaseCandles(limit: number, product = 'BTC-USD'): Promise<BTC5MinCandle[]> {
   // granularity 300 = 5-minute candles; Coinbase caps at 300 candles per request
-  const url = `${COINBASE_BASE}/products/BTC-USD/candles?granularity=300`;
+  const url = `${COINBASE_BASE}/products/${product}/candles?granularity=300`;
   const res = await fetch(url, {
     headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
     signal: AbortSignal.timeout(8000),
@@ -141,20 +155,20 @@ async function fetchCoinbaseCandles(limit: number): Promise<BTC5MinCandle[]> {
 }
 
 // Tries Binance first, falls back to Coinbase on geo-block / failure.
-async function fetchCandlesWithFallback(symbol: string, interval: string, limit: number): Promise<{ candles: BTC5MinCandle[]; source: string }> {
+async function fetchCandlesWithFallback(symbol: string, interval: string, limit: number, coinbaseProduct = 'BTC-USD'): Promise<{ candles: BTC5MinCandle[]; source: string }> {
   try {
     const candles = await fetchBinanceCandles(symbol, interval, limit);
     return { candles, source: 'binance' };
   } catch (binanceErr: any) {
     console.warn(`[BTC5Min] Binance fetch failed (${binanceErr.message}); falling back to Coinbase`);
-    const candles = await fetchCoinbaseCandles(limit);
+    const candles = await fetchCoinbaseCandles(limit, coinbaseProduct);
     return { candles, source: 'coinbase' };
   }
 }
 
 // ── Prediction builder ────────────────────────────────────────────────────────
 
-function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean, source = 'binance'): BTC5MinPrediction {
+function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean, source = 'binance', binanceSymbol = 'BTCUSDT', coinbaseProduct = 'BTC-USD'): BTC5MinPrediction {
   const closes  = candles.map(c => c.close);
   const volumes = candles.map(c => c.volume);
   const highs   = candles.map(c => c.high);
@@ -272,32 +286,51 @@ function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean, source = 
     reasons: sorted,
     fetchedAt: new Date().toISOString(),
     fromCache,
-    symbol: source === 'coinbase' ? 'BTC-USD' : 'BTCUSDT',
+    symbol: source === 'coinbase' ? coinbaseProduct : binanceSymbol,
     source,
   };
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// Generic multi-coin entry points (BTC, ETH, SOL, XRP, DOGE — added to extend
+// the Kalshi engine beyond its original BTC-only KXBTC hourly brackets).
+// getBTC5MinPrediction/getBTCCandles below are kept as thin BTC-only wrappers
+// so existing callers (Polymarket engine, etc.) are untouched.
 
-export async function getBTC5MinPrediction(forceRefresh = false): Promise<BTC5MinPrediction> {
+export async function getCryptoPrediction(coin: CryptoCoin, forceRefresh = false): Promise<BTC5MinPrediction> {
   const now = Date.now();
-  if (!forceRefresh && cachedPrediction && (now - cacheTimestamp) < CACHE_TTL_MS) {
-    return { ...cachedPrediction, fromCache: true };
+  const cached = predictionCache.get(coin);
+  if (!forceRefresh && cached && (now - cached.ts) < CACHE_TTL_MS) {
+    return { ...cached.prediction, fromCache: true };
   }
 
-  const { candles, source } = await fetchCandlesWithFallback('BTCUSDT', '5m', 100);
-  const prediction = buildPrediction(candles, false, source);
-  cachedPrediction = prediction;
-  cacheTimestamp   = now;
+  const { binance, coinbase } = COIN_MAP[coin];
+  const { candles, source } = await fetchCandlesWithFallback(binance, '5m', 100, coinbase);
+  const prediction = buildPrediction(candles, false, source, binance, coinbase);
+  predictionCache.set(coin, { prediction, ts: now });
   return prediction;
 }
 
+export function clearCryptoPredictionCache(coin?: CryptoCoin): void {
+  if (coin) predictionCache.delete(coin);
+  else predictionCache.clear();
+}
+
+/** Raw 5-min candles (Binance → Coinbase fallback) for any supported coin. */
+export async function getCryptoCandles(coin: CryptoCoin, limit = 100): Promise<{ candles: BTC5MinCandle[]; source: string }> {
+  const { binance, coinbase } = COIN_MAP[coin];
+  return fetchCandlesWithFallback(binance, '5m', limit, coinbase);
+}
+
+export async function getBTC5MinPrediction(forceRefresh = false): Promise<BTC5MinPrediction> {
+  return getCryptoPrediction('BTC', forceRefresh);
+}
+
 export function clearBTCPredictionCache(): void {
-  cachedPrediction = null;
-  cacheTimestamp   = 0;
+  clearCryptoPredictionCache('BTC');
 }
 
 /** Raw 5-min BTC candles (Binance → Coinbase fallback) for alternative strategies. */
 export async function getBTCCandles(limit = 100): Promise<{ candles: BTC5MinCandle[]; source: string }> {
-  return fetchCandlesWithFallback('BTCUSDT', '5m', limit);
+  return getCryptoCandles('BTC', limit);
 }

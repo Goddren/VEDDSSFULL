@@ -18,6 +18,20 @@
 const KALSHI_BASE = 'https://api.elections.kalshi.com/trade-api/v2';
 const CACHE_TTL_MS = 60_000; // 60 s
 
+// Coin → Kalshi series ticker, confirmed live against Kalshi's /series listing
+// (same "price range at [time]" bracket structure as KXBTC for all of these —
+// verified the /markets response shape matches exactly: floor_strike/cap_strike/
+// yes_ask_dollars/strike_type). '15m' variants fire every 15 minutes instead of
+// hourly — the closest thing to "continuous" trading Kalshi actually offers.
+export type KalshiCryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE';
+export const KALSHI_SERIES_MAP: Record<KalshiCryptoCoin, { hourly: string; fifteenMin: string }> = {
+  BTC:  { hourly: 'KXBTC',  fifteenMin: 'KXBTC15M' },
+  ETH:  { hourly: 'KXETH',  fifteenMin: 'KXETH15M' },
+  SOL:  { hourly: 'KXSOL',  fifteenMin: 'KXSOL15M' },
+  XRP:  { hourly: 'KXXRP',  fifteenMin: 'KXXRP15M' },
+  DOGE: { hourly: 'KXDOGE', fifteenMin: 'KXDOGE15M' },
+};
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface KalshiBTCBracket {
@@ -51,9 +65,11 @@ export interface KalshiBTCEvent {
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
+// Per-series now (was a single module-level slot when this only ever fetched
+// KXBTC) so scanning multiple coins/series in one cycle doesn't clobber
+// each other's cached event.
 
-let cached: KalshiBTCEvent | null = null;
-let cacheTs = 0;
+const eventCache = new Map<string, { event: KalshiBTCEvent; ts: number }>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,8 +81,8 @@ function parseDollars(val: string | number | undefined | null): number {
 
 // ── API fetchers ──────────────────────────────────────────────────────────────
 
-async function fetchNearestEvent(): Promise<{ eventTicker: string; title: string; closeTime: string } | null> {
-  const url = `${KALSHI_BASE}/events?series_ticker=KXBTC&limit=10&status=open`;
+async function fetchNearestEvent(seriesTicker: string): Promise<{ eventTicker: string; title: string; closeTime: string } | null> {
+  const url = `${KALSHI_BASE}/events?series_ticker=${seriesTicker}&limit=10&status=open`;
   const res = await fetch(url, {
     headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
     signal: AbortSignal.timeout(8000),
@@ -147,18 +163,21 @@ function buildBrackets(rawMarkets: any[]): KalshiBTCBracket[] {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function getKalshiBTCEvent(
-  currentBTCPrice?: number,
+/** Generic version — any Kalshi series ticker (KXBTC, KXETH15M, etc). */
+export async function getKalshiCryptoEvent(
+  seriesTicker: string,
+  currentPrice?: number,
   forceRefresh = false,
 ): Promise<KalshiBTCEvent> {
   const now = Date.now();
-  if (!forceRefresh && cached && (now - cacheTs) < CACHE_TTL_MS) {
-    return { ...cached, fromCache: true };
+  const hit = eventCache.get(seriesTicker);
+  if (!forceRefresh && hit && (now - hit.ts) < CACHE_TTL_MS) {
+    return { ...hit.event, fromCache: true };
   }
 
-  const nearestEvent = await fetchNearestEvent();
+  const nearestEvent = await fetchNearestEvent(seriesTicker);
   if (!nearestEvent) {
-    throw new Error('No active KXBTC events on Kalshi');
+    throw new Error(`No active ${seriesTicker} events on Kalshi`);
   }
 
   const rawMarkets = await fetchEventMarkets(nearestEvent.eventTicker);
@@ -171,9 +190,9 @@ export async function getKalshiBTCEvent(
   const consensusBracket = brackets.reduce<KalshiBTCBracket | null>((best, b) =>
     b.yesProbability > (best?.yesProbability ?? -1) ? b : best, null);
 
-  // Nearest to current BTC price (if we know it)
+  // Nearest to current price (if we know it)
   let nearestBracket: KalshiBTCBracket | null = null;
-  if (currentBTCPrice && brackets.length) {
+  if (currentPrice && brackets.length) {
     nearestBracket = brackets.reduce((best, b) => {
       // For "between" brackets use midpoint; for tails use the strike
       const mid = b.floorStrike != null && b.capStrike != null
@@ -182,7 +201,7 @@ export async function getKalshiBTCEvent(
       const bestMid = best.floorStrike != null && best.capStrike != null
         ? (best.floorStrike + best.capStrike) / 2
         : best.floorStrike ?? best.capStrike ?? 0;
-      return Math.abs(mid - currentBTCPrice) < Math.abs(bestMid - currentBTCPrice) ? b : best;
+      return Math.abs(mid - currentPrice) < Math.abs(bestMid - currentPrice) ? b : best;
     });
   }
 
@@ -202,12 +221,19 @@ export async function getKalshiBTCEvent(
     fromCache:         false,
   };
 
-  cached  = result;
-  cacheTs = now;
+  eventCache.set(seriesTicker, { event: result, ts: now });
   return result;
 }
 
-export function clearKalshiCache(): void {
-  cached  = null;
-  cacheTs = 0;
+/** BTC-only wrapper — kept for existing callers untouched by the multi-coin expansion. */
+export async function getKalshiBTCEvent(
+  currentBTCPrice?: number,
+  forceRefresh = false,
+): Promise<KalshiBTCEvent> {
+  return getKalshiCryptoEvent('KXBTC', currentBTCPrice, forceRefresh);
+}
+
+export function clearKalshiCache(seriesTicker?: string): void {
+  if (seriesTicker) eventCache.delete(seriesTicker);
+  else eventCache.clear();
 }
