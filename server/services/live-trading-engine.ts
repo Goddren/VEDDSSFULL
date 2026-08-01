@@ -273,7 +273,7 @@ export interface MT5AccountInfo {
 const mt5AccountRegistry: Record<number, Record<string, MT5AccountInfo>> = {};
 
 /** Push a signal to all registered alias queues (or 'default' if none registered). */
-function broadcastMT5Signal(userId: number, signal: PendingMT5Signal): void {
+export function broadcastMT5Signal(userId: number, signal: PendingMT5Signal): void {
   // Trading mode gate: 'ea_only' means the server AI never fires trade signals.
   const mode = engineStates[userId]?.config?.tradingMode ?? 'server_ai';
   if (mode === 'ea_only' && signal.action === 'OPEN') {

@@ -20040,6 +20040,11 @@ ${headlines}`
 });
 
 // server/utils/pipUtils.ts
+var pipUtils_exports = {};
+__export(pipUtils_exports, {
+  getPipSize: () => getPipSize,
+  getPipValue: () => getPipValue
+});
 function matchesAny(symbol, patterns) {
   const s = symbol.toUpperCase();
   return patterns.some((p) => s.includes(p.toUpperCase()));
@@ -25333,6 +25338,7 @@ var init_composite_signal = __esm({
 // server/services/live-trading-engine.ts
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
+  broadcastMT5Signal: () => broadcastMT5Signal,
   confirmMT5Signal: () => confirmMT5Signal,
   emergencyStopEngine: () => emergencyStopEngine,
   getAllMT5Signals: () => getAllMT5Signals,
@@ -73875,22 +73881,35 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
     } catch {
     }
-    if (typeof global.addMT5Signal === "function") {
-      global.addMT5Signal(userId, {
-        symbol,
-        direction: direction.toUpperCase(),
-        orderType: orderType ?? "market",
-        entryPrice: entryPrice ?? null,
-        stopLoss: slPips ?? null,
-        takeProfit: tpPips ?? null,
-        lotSize: lotSize ?? 0.01,
-        source: "micro_growth",
-        timestamp: (/* @__PURE__ */ new Date()).toISOString()
-      }, accountAlias ?? "default");
-      res.json({ success: true });
-    } else {
-      res.status(503).json({ message: "MT5 signal dispatcher not available \u2014 ensure live engine is running" });
+    const dir = direction.toUpperCase() === "SELL" ? "SELL" : "BUY";
+    let stopLoss = null;
+    let takeProfit = null;
+    if (typeof entryPrice === "number" && entryPrice > 0) {
+      const { getPipSize: getPipSize2 } = await Promise.resolve().then(() => (init_pipUtils(), pipUtils_exports));
+      const pipSize = getPipSize2(symbol);
+      if (typeof slPips === "number") stopLoss = Math.round((dir === "BUY" ? entryPrice - slPips * pipSize : entryPrice + slPips * pipSize) * 1e5) / 1e5;
+      if (typeof tpPips === "number") takeProfit = Math.round((dir === "BUY" ? entryPrice + tpPips * pipSize : entryPrice - tpPips * pipSize) * 1e5) / 1e5;
     }
+    const { broadcastMT5Signal: broadcastMT5Signal2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+    broadcastMT5Signal2(userId, {
+      id: `microgrowth_${userId}_${Date.now()}`,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      symbol,
+      direction: dir,
+      action: "OPEN",
+      lotSize: lotSize ?? 0.01,
+      entryPrice: entryPrice ?? null,
+      stopLoss,
+      takeProfit,
+      confidence: 100,
+      reason: `Micro Growth ${orderType ?? "market"} signal`,
+      holdTime: "",
+      strategy: "micro_growth",
+      confluences: [],
+      status: "pending",
+      orderType: orderType ?? "market"
+    });
+    res.json({ success: true });
   });
   app2.get("/api/paper-trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });

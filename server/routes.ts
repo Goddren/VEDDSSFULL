@@ -28857,23 +28857,45 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
     } catch { /* if engine state can't be read, fail open rather than block legitimate use */ }
 
-    // Use the same addMT5Signal helper used by the SS engine
-    if (typeof (global as any).addMT5Signal === 'function') {
-      (global as any).addMT5Signal(userId, {
-        symbol,
-        direction: direction.toUpperCase(),
-        orderType: orderType ?? 'market',
-        entryPrice: entryPrice ?? null,
-        stopLoss: slPips ?? null,
-        takeProfit: tpPips ?? null,
-        lotSize: lotSize ?? 0.01,
-        source: 'micro_growth',
-        timestamp: new Date().toISOString(),
-      }, accountAlias ?? 'default');
-      res.json({ success: true });
-    } else {
-      res.status(503).json({ message: 'MT5 signal dispatcher not available — ensure live engine is running' });
+    // `global.addMT5Signal` was never defined anywhere in this codebase — this
+    // check always failed and every dispatch silently 503'd, meaning Micro
+    // Growth has never actually pushed a signal to MT5 since this feature was
+    // built. Wired to the real queue (broadcastMT5Signal, now exported) that
+    // the SS AI Engine itself uses. Also fixes a second bug: slPips/tpPips are
+    // PIP DISTANCES, but stopLoss/takeProfit on PendingMT5Signal are absolute
+    // PRICE LEVELS everywhere else in the codebase (e.g. the trailing-stop
+    // signal a few hundred lines up) — passing raw pip counts straight through
+    // would have set a stop-loss at a price like "20" on a EURUSD trade.
+    const dir = direction.toUpperCase() === 'SELL' ? 'SELL' : 'BUY';
+    let stopLoss: number | null = null;
+    let takeProfit: number | null = null;
+    if (typeof entryPrice === 'number' && entryPrice > 0) {
+      const { getPipSize } = await import('./utils/pipUtils');
+      const pipSize = getPipSize(symbol);
+      if (typeof slPips === 'number') stopLoss = Math.round((dir === 'BUY' ? entryPrice - slPips * pipSize : entryPrice + slPips * pipSize) * 100000) / 100000;
+      if (typeof tpPips === 'number') takeProfit = Math.round((dir === 'BUY' ? entryPrice + tpPips * pipSize : entryPrice - tpPips * pipSize) * 100000) / 100000;
     }
+
+    const { broadcastMT5Signal } = await import('./services/live-trading-engine');
+    broadcastMT5Signal(userId, {
+      id: `microgrowth_${userId}_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      symbol,
+      direction: dir,
+      action: 'OPEN',
+      lotSize: lotSize ?? 0.01,
+      entryPrice: entryPrice ?? null,
+      stopLoss,
+      takeProfit,
+      confidence: 100,
+      reason: `Micro Growth ${orderType ?? 'market'} signal`,
+      holdTime: '',
+      strategy: 'micro_growth',
+      confluences: [],
+      status: 'pending',
+      orderType: (orderType as any) ?? 'market',
+    });
+    res.json({ success: true });
   });
 
   // ── Paper Trade AI Journal ─────────────────────────────────────────────────
