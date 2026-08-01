@@ -205,6 +205,19 @@ async function withRetry<T>(
     console.error(`[startup] restoreDurableFiles error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure the durable Kalshi engine config table exists, then hydrate saved
+  // coin-selection/strategy/risk settings BEFORE the run-state restore below
+  // fires the engine back up — otherwise a running engine would restart with
+  // symbols reset to BTC-only until the override cache caught up.
+  try {
+    const { ensureKalshiEngineConfigTable } = await import('./services/ensure-kalshi-engine-config-table');
+    await ensureKalshiEngineConfigTable();
+    const { hydratePersistedKalshiConfigs } = await import('./services/kalshi-engine');
+    await hydratePersistedKalshiConfigs();
+  } catch (err: any) {
+    console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Restore Polymarket + Kalshi engine run-state for all users that had engines
   // running before the last Render redeploy (persisted to DB on start/stop).
   try {

@@ -145,8 +145,15 @@ const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
   auto:           'Auto (Best)',
 };
 
+// Persisted per-user config overrides, hydrated from kalshi_engine_configs at
+// boot (see hydratePersistedKalshiConfigs). Applied on top of DEFAULT_CONFIG
+// whenever fresh in-memory state is created, so symbols/strategy/risk
+// settings survive a Render redeploy instead of resetting to BTC-only.
+const _persistedConfigOverrides = new Map<number, Partial<KalshiEngineConfig>>();
+
 export function getKalshiEngineState(userId: number): KalshiEngineState {
   if (!_states.has(userId)) {
+    const override = _persistedConfigOverrides.get(userId);
     _states.set(userId, {
       isRunning:          false,
       isPaperMode:        !loadKalshiCredentials(userId),
@@ -157,7 +164,7 @@ export function getKalshiEngineState(userId: number): KalshiEngineState {
       closedTrades:       [],
       totalRealizedPnl:   0,
       totalUnrealizedPnl: 0,
-      config: { ...DEFAULT_CONFIG },
+      config: override ? { ...DEFAULT_CONFIG, ...override } : { ...DEFAULT_CONFIG },
     });
   }
   // Re-check paper mode each time (creds may have been added since start)
@@ -183,6 +190,35 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   if (clean.riskPctPerTrade  != null) clean.riskPctPerTrade  = Math.max(1, Math.min(25, clean.riskPctPerTrade));
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1_000_000, clean.startingBankroll));
   s.config = { ...s.config, ...clean };
+  _persistKalshiConfig(userId, s.config);
+}
+
+function _persistKalshiConfig(userId: number, config: KalshiEngineConfig): void {
+  import('../db').then(({ db }) => {
+    import('../../shared/schema').then(({ kalshiEngineConfigs }) => {
+      db.insert(kalshiEngineConfigs)
+        .values({ userId, config })
+        .onConflictDoUpdate({
+          target: kalshiEngineConfigs.userId,
+          set: { config, updatedAt: new Date() },
+        })
+        .catch(console.error);
+    });
+  });
+}
+
+export async function hydratePersistedKalshiConfigs(): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { kalshiEngineConfigs } = await import('../../shared/schema');
+    const rows = await db.select().from(kalshiEngineConfigs);
+    for (const row of rows) {
+      _persistedConfigOverrides.set(row.userId, row.config as Partial<KalshiEngineConfig>);
+    }
+    console.log(`[Kalshi] Hydrated ${rows.length} persisted engine config(s) — coin/strategy/risk settings will survive this restart.`);
+  } catch (e) {
+    console.error('[Kalshi] Failed to hydrate persisted engine configs:', e);
+  }
 }
 
 // ── Compounding sizing ─────────────────────────────────────────────────────────

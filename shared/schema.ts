@@ -3623,6 +3623,24 @@ export const engineRunState = pgTable("engine_run_state", {
 
 export type EngineRunState = typeof engineRunState.$inferSelect;
 
+// Durable mirror of the Kalshi engine's KalshiEngineConfig (server/services/
+// kalshi-engine.ts) — that config otherwise lives ONLY in an in-memory
+// Map<userId, KalshiEngineState>, wiped on every restart/deploy. engineRunState
+// above already persists isRunning/isPaperMode, but not which coins/strategy/
+// risk settings were actually configured — so a redeploy silently reset
+// `symbols` back to ['BTC'] and every other setting back to defaults even
+// while the engine kept running. Mirrors the live_engine_configs pattern
+// used for the FX SS AI Engine.
+export const kalshiEngineConfigs = pgTable("kalshi_engine_configs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  config: jsonb("config").notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type KalshiEngineConfigRow = typeof kalshiEngineConfigs.$inferSelect;
+
 // ─── Business Credit Builder ──────────────────────────────────────────────────
 
 export const bizEntityTypeEnum = pgEnum("biz_entity_type", ["llc", "s_corp", "c_corp", "sole_prop"]);
