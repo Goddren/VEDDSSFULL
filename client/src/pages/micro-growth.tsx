@@ -37,6 +37,17 @@ interface MicroStatus {
   progressPct: number;
 }
 
+interface DoublingStatus {
+  startingBalance: number;
+  currentMilestoneBase: number;
+  targetBalance: number;
+  currentBalance: number;
+  progressPct: number;
+  doublingsCompleted: number;
+  justCompletedDoubling: boolean;
+  lastMilestoneHitAt: string | null;
+}
+
 interface MicroSession {
   id: string;
   userId: number;
@@ -199,6 +210,13 @@ export default function MicroGrowthPage() {
   const { data: status, refetch: refetchStatus } = useQuery<MicroStatus>({
     queryKey: ['/api/micro-growth/status', balance],
     queryFn: () => apiRequest('GET', `/api/micro-growth/status?balance=${balance}`).then(r => r.json()),
+    enabled: !!user,
+    refetchOnWindowFocus: false,
+  });
+
+  const { data: doubling } = useQuery<DoublingStatus>({
+    queryKey: ['/api/micro-growth/doubling-status', balance],
+    queryFn: () => apiRequest('GET', `/api/micro-growth/doubling-status?balance=${balance}`).then(r => r.json()),
     enabled: !!user,
     refetchOnWindowFocus: false,
   });
@@ -645,6 +663,34 @@ export default function MicroGrowthPage() {
                     <span className="text-sm text-yellow-400 font-semibold">Maximum tier reached!</span>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Doubling Challenge — simple compounding milestones. Same risk
+              per trade as the tier table above; this only tracks progress
+              toward the next 2x balance checkpoint. ── */}
+          {doubling && (
+            <Card style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.25)' }}>
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-4 h-4 text-yellow-400" />
+                    <span className="text-sm font-semibold text-white">Doubling Challenge</span>
+                  </div>
+                  <Badge style={{ background: 'rgba(234,179,8,0.15)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }}>
+                    {doubling.doublingsCompleted}x doubled
+                  </Badge>
+                </div>
+                <p className="text-xs text-gray-400 mb-3">
+                  Started at ${doubling.startingBalance.toFixed(2)} — risk per trade never changes, this just tracks progress toward the next 2x checkpoint.
+                </p>
+                <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                  <span>${doubling.currentMilestoneBase.toFixed(2)}</span>
+                  <span className="text-yellow-400">Target: ${doubling.targetBalance.toFixed(2)}</span>
+                </div>
+                <Progress value={doubling.progressPct} className="h-2" style={{ '--progress-color': '#eab308' } as any} />
+                <p className="text-xs text-gray-500 mt-1">{doubling.progressPct}% of the way to doubling #{doubling.doublingsCompleted + 1}</p>
               </CardContent>
             </Card>
           )}

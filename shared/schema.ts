@@ -2617,6 +2617,27 @@ export const engineConsensusLog = pgTable("engine_consensus_log", {
 
 export type EngineConsensusLog = typeof engineConsensusLog.$inferSelect;
 
+// Micro Growth's "doubling challenge" — a simple compounding-milestone
+// tracker for small FX accounts. Deliberately NOT a martingale/anti-martingale
+// sizing scheme: risk per trade stays the same (governed by the existing
+// MICRO_TIERS lot-size table), this only tracks progress toward the next
+// 2x balance checkpoint and counts how many doublings have been hit. One row
+// per user — durable so the challenge survives restarts instead of resetting
+// to an unknown state every deploy (the same in-memory-only gap the rest of
+// Micro Growth's session history still has).
+export const microGrowthMilestones = pgTable("micro_growth_milestones", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull().unique(),
+  startingBalance: doublePrecision("starting_balance").notNull(),
+  currentMilestoneBase: doublePrecision("current_milestone_base").notNull(), // this leg's 1x checkpoint; target = base * 2
+  doublingsCompleted: integer("doublings_completed").notNull().default(0),
+  lastMilestoneHitAt: timestamp("last_milestone_hit_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type MicroGrowthMilestone = typeof microGrowthMilestones.$inferSelect;
+
 // ── Brain Data Marketplace ────────────────────────────────────────────────────
 // Sellers list a frozen snapshot of their ai_confirmation_outcomes history —
 // priced in VEDD by age/pairs/trades/win-rate — so a buyer can merge a copy

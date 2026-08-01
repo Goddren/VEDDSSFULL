@@ -28628,6 +28628,42 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     });
   });
 
+  // GET /api/micro-growth/doubling-status — simple compounding-milestone
+  // tracker: same risk per trade (MICRO_TIERS lot sizing, unchanged), just
+  // tracks progress toward the next 2x balance checkpoint. Durable — survives
+  // restarts unlike the rest of Micro Growth's in-memory session history.
+  app.get('/api/micro-growth/doubling-status', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const rawBalance = parseFloat(req.query.balance as string);
+    const balance = isNaN(rawBalance) ? 25 : rawBalance;
+    try {
+      const { getOrAdvanceDoublingStatus } = await import('./services/micro-growth-milestones');
+      const status = await getOrAdvanceDoublingStatus(userId, balance);
+      res.json(status);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // POST /api/micro-growth/doubling-reset — restart the challenge from a new
+  // starting balance (e.g. after a withdrawal, or to deliberately start over).
+  app.post('/api/micro-growth/doubling-reset', async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });
+    const userId = (req.user as any).id;
+    const { startingBalance } = req.body as { startingBalance?: number };
+    if (typeof startingBalance !== 'number' || startingBalance <= 0) {
+      return res.status(400).json({ message: 'startingBalance must be a positive number' });
+    }
+    try {
+      const { resetDoublingChallenge } = await import('./services/micro-growth-milestones');
+      await resetDoublingChallenge(userId, startingBalance);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // POST /api/micro-growth/start-session
   app.post('/api/micro-growth/start-session', async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: 'Unauthorized' });

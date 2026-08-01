@@ -331,6 +331,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureEngineConsensusTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Micro Growth's doubling-milestone tracker table exists.
+  try {
+    const { ensureMicroGrowthMilestonesTable } = await import('./services/ensure-micro-growth-milestones-table');
+    await ensureMicroGrowthMilestonesTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureMicroGrowthMilestonesTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
   // hydrate propFirmMode/consistency-rule defaults from it so they survive
   // this restart — never auto-resumes live trading itself.
