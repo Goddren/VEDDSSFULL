@@ -20743,7 +20743,15 @@ var init_cryptocom = __esm({
         if (!account) throw new Error("Crypto.com returned no account balance data");
         return {
           balance: parseFloat(account.total_cash_balance ?? "0"),
-          equity: parseFloat(account.total_balance ?? "0"),
+          // Crypto.com's user-balance response has no `total_balance` field at all
+          // (confirmed via raw API response) — that typo silently returned 0 via
+          // the `?? '0'` fallback, every call, forever. `total_margin_balance` is
+          // the real equity figure (cash + collateral value, matches total_cash_balance
+          // when there's no open PnL). This 0 equity fed straight into
+          // computeCryptocomQuantity's `accountBalance <= 0` short-circuit, which is
+          // why the engine never sized a single trade since inception despite
+          // correctly detecting signals the whole time.
+          equity: parseFloat(account.total_margin_balance ?? account.total_cash_balance ?? "0"),
           availableBalance: parseFloat(account.total_available_balance ?? "0"),
           currency: "USD"
         };
