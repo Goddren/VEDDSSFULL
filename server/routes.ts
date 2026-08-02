@@ -28245,6 +28245,62 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // GET /api/workforce/course-progress — "where the learner left off" for every
+  // course the current user has touched. Previously lived only in React
+  // useState on the client, so a refresh or redeploy silently dropped every
+  // in-progress course back to "not enrolled" (certificates already survived
+  // via workforce_certificates above — this closes the same gap for
+  // in-progress enrollment/lesson-position state).
+  app.get("/api/workforce/course-progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as User).id;
+      const rows = await storage.getUserWorkforceCourseProgress(userId);
+      const progress = rows.map(r => ({
+        courseId: r.courseId,
+        currentLesson: r.currentLesson,
+        progress: r.progressPct,
+        completed: r.completed,
+        score: r.score ?? undefined,
+        enrolledAt: r.enrolledAt,
+      }));
+      res.json({ progress });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/workforce/course-progress — upsert progress for one course.
+  // Called on enroll, on every lesson navigation (Previous/Next), and on
+  // course completion — whatever subset of fields changed.
+  app.post("/api/workforce/course-progress", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const userId = (req.user as User).id;
+      const { courseId, currentLesson, progress, completed, score } = req.body;
+      if (courseId == null) return res.status(400).json({ error: "courseId is required" });
+      const patch: Record<string, any> = {};
+      if (currentLesson != null) patch.currentLesson = Math.max(1, parseInt(currentLesson, 10));
+      if (progress != null) patch.progressPct = Math.max(0, Math.min(100, Math.round(progress)));
+      if (completed != null) patch.completed = !!completed;
+      if (score != null) patch.score = Math.round(score);
+      const row = await storage.upsertWorkforceCourseProgress(userId, parseInt(courseId, 10), patch);
+      res.json({
+        success: true,
+        progress: {
+          courseId: row.courseId,
+          currentLesson: row.currentLesson,
+          progress: row.progressPct,
+          completed: row.completed,
+          score: row.score ?? undefined,
+          enrolledAt: row.enrolledAt,
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/verify/:certId — PUBLIC certificate verification endpoint
   app.get("/api/verify/:certId", async (req: Request, res: Response) => {
     try {

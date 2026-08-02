@@ -3441,6 +3441,30 @@ export type InsertWorkforceEnrollment = z.infer<typeof insertWorkforceEnrollment
 
 export const insertWorkforceCertificateSchema = createInsertSchema(workforceCertificates).omit({ id: true, issuedAt: true });
 export type WorkforceCertificate = typeof workforceCertificates.$inferSelect;
+
+// Workforce Academy course progress — "where the learner left off". The
+// client's enrollment/lesson-position state (COURSES[] id, current lesson,
+// progress %) previously lived ONLY in React useState, so a page refresh or
+// Render redeploy silently dropped every in-progress course back to
+// "not enrolled." Certificates already survived (workforceCertificates
+// above); this is the same fix applied to in-progress courses. One row per
+// (user, courseId) — upserted on enroll, on every lesson navigation, and on
+// course completion.
+export const workforceCourseProgress = pgTable("workforce_course_progress", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  courseId: integer("course_id").notNull(), // client-side Workforce Academy COURSES[] id — same numbering as workforceCertificates.courseId
+  currentLesson: integer("current_lesson").notNull().default(1),
+  progressPct: integer("progress_pct").notNull().default(0),
+  completed: boolean("completed").notNull().default(false),
+  score: integer("score"),
+  enrolledAt: timestamp("enrolled_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => ({
+  unq: unique().on(t.userId, t.courseId),
+}));
+
+export type WorkforceCourseProgress = typeof workforceCourseProgress.$inferSelect;
 export type InsertWorkforceCertificate = z.infer<typeof insertWorkforceCertificateSchema>;
 
 export const insertImpactMetricSchema = createInsertSchema(impactMetrics).omit({ id: true, recordedAt: true });

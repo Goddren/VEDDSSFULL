@@ -360,6 +360,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureMicroGrowthSessionsTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Workforce Academy's "where you left off" course-progress table exists.
+  try {
+    const { ensureWorkforceCourseProgressTable } = await import('./services/ensure-workforce-course-progress-table');
+    await ensureWorkforceCourseProgressTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureWorkforceCourseProgressTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Live Engine (FX SS AI Engine) durable config table exists, then
   // hydrate propFirmMode/consistency-rule defaults from it so they survive
   // this restart — never auto-resumes live trading itself.

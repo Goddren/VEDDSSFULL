@@ -1298,10 +1298,11 @@ interface CurriculumResult { overview: string; objectives: string[]; modules: { 
 // ─── Lesson Player ───────────────────────────────────────────────────────────
 
 function LessonPlayer({
-  courseId, courseTitle, courseColor, initialLesson, onClose, onComplete
+  courseId, courseTitle, courseColor, initialLesson, onClose, onComplete, onProgress
 }: {
   courseId: number; courseTitle: string; courseColor: string; initialLesson: number;
   onClose: () => void; onComplete: (score: number) => void;
+  onProgress?: (lesson: number, progressPct: number) => void;
 }) {
   const content = LESSON_CONTENT[courseId];
   const [currentLesson, setCurrentLesson] = useState(initialLesson - 1); // 0-indexed
@@ -1326,6 +1327,11 @@ function LessonPlayer({
   const lesson = lessons[currentLesson];
   const totalLessons = lessons.length;
   const isLastLesson = currentLesson === totalLessons - 1;
+
+  function goToLesson(index: number) {
+    setCurrentLesson(index);
+    onProgress?.(index + 1, Math.round((index / totalLessons) * 100));
+  }
 
   function submitAssessment() {
     const qs = content.assessment.questions;
@@ -1464,7 +1470,7 @@ function LessonPlayer({
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-t border-white/10 flex-shrink-0 pb-[env(safe-area-inset-bottom,12px)] sm:pb-4">
           <Button variant="outline" size="sm" className="border-white/10 text-gray-300 hover:text-white text-xs sm:text-sm"
             disabled={currentLesson === 0}
-            onClick={() => setCurrentLesson(p => p - 1)}>
+            onClick={() => goToLesson(currentLesson - 1)}>
             <ChevronLeft className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Previous</span>
           </Button>
           <span className="text-[11px] text-gray-500">{currentLesson + 1} / {totalLessons}</span>
@@ -1473,7 +1479,7 @@ function LessonPlayer({
               <span className="hidden sm:inline">Take </span>Assessment <ChevronRight className="w-4 h-4 sm:ml-1" />
             </Button>
           ) : (
-            <Button size="sm" className="text-white text-xs sm:text-sm" style={{ background: courseColor }} onClick={() => setCurrentLesson(p => p + 1)}>
+            <Button size="sm" className="text-white text-xs sm:text-sm" style={{ background: courseColor }} onClick={() => goToLesson(currentLesson + 1)}>
               Next <ChevronRight className="w-4 h-4 sm:ml-1" />
             </Button>
           )}
@@ -1958,6 +1964,25 @@ export default function WorkforceAcademyPage() {
   });
   const certificates = certData?.certificates ?? [];
 
+  // ── Load persisted course progress ("where you left off") from backend ────
+  const { data: progressData } = useQuery<{ progress: EnrolledCourse[] }>({
+    queryKey: ["/api/workforce/course-progress"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/workforce/course-progress");
+      return res.json();
+    },
+  });
+  useEffect(() => {
+    if (progressData?.progress) setEnrollments(progressData.progress);
+  }, [progressData]);
+
+  // Best-effort persist — local state already reflects the change immediately,
+  // so a failed request here just means the next page load falls back to
+  // whatever was last saved rather than blocking the UI.
+  function persistProgress(courseId: number, patch: Partial<Pick<EnrolledCourse, "currentLesson" | "progress" | "completed" | "score">>) {
+    apiRequest("POST", "/api/workforce/course-progress", { courseId, ...patch }).catch(() => {});
+  }
+
   const cats = ["all", "ai_literacy", "digital_skills", "trading_fundamentals", "financial_planning", "web3_basics", "stem"];
   const catLabels: Record<string, string> = { all: "All", ai_literacy: "AI Literacy", digital_skills: "Digital Skills", trading_fundamentals: "Trading", financial_planning: "Finance", web3_basics: "Web3", stem: "STEM" };
 
@@ -1970,6 +1995,7 @@ export default function WorkforceAcademyPage() {
   function handleEnroll(courseId: number) {
     if (enrollments.find(e => e.courseId === courseId)) return;
     setEnrollments(prev => [...prev, { courseId, progress: 0, completed: false, currentLesson: 1, enrolledAt: new Date().toISOString() }]);
+    persistProgress(courseId, { currentLesson: 1, progress: 0, completed: false });
     const course = COURSES.find(c => c.id === courseId);
     toast({ title: `Enrolled in ${course?.title}`, description: "Go to My Progress to start learning." });
   }
@@ -1982,6 +2008,7 @@ export default function WorkforceAcademyPage() {
     const course = COURSES.find(c => c.id === courseId);
     if (!course) return;
     setEnrollments(prev => prev.map(e => e.courseId === courseId ? { ...e, completed: true, progress: 100, score } : e));
+    persistProgress(courseId, { completed: true, progress: 100, score });
 
     const acred = COURSE_ACCREDITATION[courseId];
     const certId = generateCertId(courseId);
@@ -2209,6 +2236,10 @@ export default function WorkforceAcademyPage() {
               onComplete={(score) => {
                 handleComplete(lessonOpen.courseId, score);
                 setLessonOpen(null);
+              }}
+              onProgress={(lesson, progressPct) => {
+                setEnrollments(prev => prev.map(e => e.courseId === lessonOpen.courseId ? { ...e, currentLesson: lesson, progress: progressPct } : e));
+                persistProgress(lessonOpen.courseId, { currentLesson: lesson, progress: progressPct });
               }}
             />
           )}

@@ -42,6 +42,7 @@ import {
   type AmbassadorTrainingProgress, type InsertAmbassadorTrainingProgress,
   type AmbassadorCertification, type InsertAmbassadorCertification,
   workforceCertificates, type WorkforceCertificate, type InsertWorkforceCertificate,
+  workforceCourseProgress, type WorkforceCourseProgress,
   type GovernanceProposal, type InsertGovernanceProposal, type GovernanceVote, type InsertGovernanceVote,
   type AmbassadorContentProgress, type InsertAmbassadorContentProgress,
   type AmbassadorContentStats, type InsertAmbassadorContentStats,
@@ -473,6 +474,12 @@ export interface IStorage {
   createWorkforceCertificate(cert: InsertWorkforceCertificate): Promise<WorkforceCertificate>;
   getUserWorkforceCertificates(userId: number): Promise<WorkforceCertificate[]>;
   getWorkforceCertificateByCertId(certificateId: string): Promise<WorkforceCertificate | undefined>;
+  getUserWorkforceCourseProgress(userId: number): Promise<WorkforceCourseProgress[]>;
+  upsertWorkforceCourseProgress(
+    userId: number,
+    courseId: number,
+    patch: Partial<Pick<WorkforceCourseProgress, "currentLesson" | "progressPct" | "completed" | "score">>,
+  ): Promise<WorkforceCourseProgress>;
 
   // Wallet integration methods
   getUserByWalletAddress(walletAddress: string): Promise<User | undefined>;
@@ -2754,6 +2761,27 @@ export class DatabaseStorage implements IStorage {
   async getWorkforceCertificateByCertId(certificateId: string): Promise<WorkforceCertificate | undefined> {
     const [result] = await db.select().from(workforceCertificates)
       .where(eq(workforceCertificates.certificateId, certificateId));
+    return result;
+  }
+
+  // Workforce Academy course progress — "where the learner left off"
+  async getUserWorkforceCourseProgress(userId: number): Promise<WorkforceCourseProgress[]> {
+    return await db.select().from(workforceCourseProgress)
+      .where(eq(workforceCourseProgress.userId, userId));
+  }
+
+  async upsertWorkforceCourseProgress(
+    userId: number,
+    courseId: number,
+    patch: Partial<Pick<WorkforceCourseProgress, "currentLesson" | "progressPct" | "completed" | "score">>,
+  ): Promise<WorkforceCourseProgress> {
+    const [result] = await db.insert(workforceCourseProgress)
+      .values({ userId, courseId, ...patch })
+      .onConflictDoUpdate({
+        target: [workforceCourseProgress.userId, workforceCourseProgress.courseId],
+        set: { ...patch, updatedAt: new Date() },
+      })
+      .returning();
     return result;
   }
 
