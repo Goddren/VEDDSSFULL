@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft, Zap, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
-  TrendingDown, Radar, Ban, Brain, Swords, BarChart3, Settings2,
+  TrendingDown, Radar, Ban, Brain, Swords, BarChart3, Settings2, Shield,
 } from "lucide-react";
 
 // ── Types mirroring the server schema ───────────────────────────────────────
@@ -28,6 +28,8 @@ type AlpacaConnection = {
   useRiskPercent: boolean;
   riskPercent: number;
   isPropFirmAccount: boolean;
+  propFirmName: string | null;
+  propFirmAccountSize: number | null;
   lastConnectedAt: string | null;
   lastError: string | null;
   tradeCount: number;
@@ -43,9 +45,45 @@ type TastytradeConnection = {
   useRiskPercent: boolean;
   riskPercent: number;
   isPropFirmAccount: boolean;
+  propFirmName: string | null;
+  propFirmAccountSize: number | null;
   lastConnectedAt: string | null;
   lastError: string | null;
   tradeCount: number;
+};
+
+// ── Prop-firm challenge/funded state (per Alpaca/TastyTrade connection) ────
+type PropFirmState = {
+  phase: 'challenge' | 'funded';
+  phaseStartBalance: number;
+  profitTarget: number | null;
+  challengeDailyDrawdownPct: number;
+  challengeConsistencyEnabled: boolean;
+  challengeConsistencyThresholdPct: number;
+  fundedDailyDrawdownPct: number;
+  fundedConsistencyEnabled: boolean;
+  fundedConsistencyThresholdPct: number;
+};
+
+type PropFirmDashboardAccount = {
+  connectionId: number;
+  connectionType: 'alpaca' | 'tastytrade';
+  label: string;
+  accountSize: number | null;
+  phase: 'challenge' | 'funded';
+  profitTarget: number | null;
+  activeDailyDrawdownPct: number | null;
+  consistency: {
+    enabled: boolean;
+    thresholdPct: number;
+    todayPnl: number;
+    totalPositivePnl: number;
+    ratioPct: number;
+    status: 'safe' | 'warning' | 'breached' | 'disabled';
+    sizeMultiplier: number;
+    hardBlocked: boolean;
+    guidance: string;
+  };
 };
 
 type CryptocomConnection = {
@@ -256,6 +294,12 @@ export default function OptionsEnginePage() {
     queryKey: ['/api/tastytrade/connections'],
     refetchInterval: 30000,
     staleTime: 0,
+  });
+
+  // ── Prop Firm — per-connection challenge/funded dashboard ──────────────
+  const { data: propFirmDashboard } = useQuery<{ accounts: PropFirmDashboardAccount[] }>({
+    queryKey: ['/api/options-engine/prop-firm/dashboard'],
+    refetchInterval: 30000,
   });
 
   const createTastyMutation = useMutation({
@@ -471,8 +515,9 @@ export default function OptionsEnginePage() {
         </div>
 
         <Tabs defaultValue="setup" className="w-full">
-          <TabsList className="grid grid-cols-4 mb-6">
+          <TabsList className="grid grid-cols-5 mb-6">
             <TabsTrigger value="setup" className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" /> Setup & Config</TabsTrigger>
+            <TabsTrigger value="propfirm" className="flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Prop Firm</TabsTrigger>
             <TabsTrigger value="brain" className="flex items-center gap-1.5"><Brain className="w-3.5 h-3.5" /> Brain</TabsTrigger>
             <TabsTrigger value="consensus" className="flex items-center gap-1.5"><Swords className="w-3.5 h-3.5" /> Consensus</TabsTrigger>
             <TabsTrigger value="feed" className="flex items-center gap-1.5"><Radar className="w-3.5 h-3.5" /> Live Feed</TabsTrigger>
@@ -1189,6 +1234,71 @@ export default function OptionsEnginePage() {
 
           </TabsContent>
 
+          <TabsContent value="propfirm" className="mt-0 space-y-6">
+            {/* ── Prop-Firm Dashboard — one card per connection marked as a ── */}
+            {/* ── prop-firm account, each tracked completely independently ── */}
+            {propFirmDashboard?.accounts && propFirmDashboard.accounts.length > 0 && (
+              <Card className="bg-gray-900 border-gray-800">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2"><Shield className="w-4 h-4 text-indigo-400" /> Prop-Firm Dashboard</CardTitle>
+                  <CardDescription>Live consistency/drawdown status per prop-firm account.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid md:grid-cols-2 gap-3">
+                  {propFirmDashboard.accounts.map(acc => {
+                    const statusColor = acc.consistency.status === 'breached' ? 'text-red-400 border-red-700 bg-red-900/10'
+                      : acc.consistency.status === 'warning' ? 'text-amber-400 border-amber-700 bg-amber-900/10'
+                      : acc.consistency.status === 'disabled' ? 'text-gray-400 border-gray-700 bg-gray-900/40'
+                      : 'text-emerald-400 border-emerald-700 bg-emerald-900/10';
+                    return (
+                      <div key={`${acc.connectionType}-${acc.connectionId}`} className={`p-3 rounded-lg border space-y-1.5 ${statusColor}`}>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold text-white">{acc.label}</p>
+                          <Badge variant="outline" className={`text-[10px] ${acc.phase === 'funded' ? 'border-emerald-700 text-emerald-400' : 'border-amber-700 text-amber-400'}`}>
+                            {acc.phase === 'funded' ? 'Funded' : 'Challenge'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          Today's P&L: <span className={acc.consistency.todayPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>${acc.consistency.todayPnl.toFixed(2)}</span>
+                          {acc.activeDailyDrawdownPct != null && <span> · drawdown limit {acc.activeDailyDrawdownPct}%</span>}
+                        </p>
+                        <p className="text-[11px] text-gray-500">{acc.consistency.guidance}</p>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── Configure which connections are prop-firm accounts ── */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base">Configure Prop-Firm Accounts</CardTitle>
+                <CardDescription>
+                  Mark any connected Alpaca or TastyTrade account as a prop-firm challenge — the engine trades it
+                  independently of your other accounts, enforcing its own drawdown/consistency rules. Set up both the
+                  Challenge and Funded rule sets ahead of time; flipping the status switches which set is active
+                  automatically once the challenge is passed.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {alpacaLoading || tastyLoading ? (
+                  <p className="text-xs text-gray-500">Loading connections...</p>
+                ) : alpacaConnections.length === 0 && tastyConnections.length === 0 ? (
+                  <p className="text-xs text-gray-500">Connect an Alpaca or TastyTrade account in Setup & Config first.</p>
+                ) : (
+                  <>
+                    {alpacaConnections.map(conn => (
+                      <PropFirmAccountCard key={`alpaca-${conn.id}`} conn={conn} connectionType="alpaca" updateConnMutation={updateAlpacaMutation} />
+                    ))}
+                    {tastyConnections.map(conn => (
+                      <PropFirmAccountCard key={`tastytrade-${conn.id}`} conn={conn} connectionType="tastytrade" updateConnMutation={updateTastyMutation} />
+                    ))}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="brain" className="mt-0 space-y-6">
             {/* ── Self-Learning Brain ── */}
             <Card className="bg-gray-900 border-gray-800">
@@ -1531,6 +1641,160 @@ export default function OptionsEnginePage() {
           </TabsContent>
         </Tabs>
       </div>
+    </div>
+  );
+}
+
+// ── Per-connection prop-firm config card — mark a connection as a prop-firm
+// account, then edit its Challenge and Funded rule sets independently. The
+// active set switches automatically with the phase selector; the inactive
+// set stays saved so a user can pre-configure funded-account rules before
+// ever needing them (or edit challenge rules again if reset).
+function PropFirmAccountCard({
+  conn, connectionType, updateConnMutation,
+}: {
+  conn: AlpacaConnection | TastytradeConnection;
+  connectionType: 'alpaca' | 'tastytrade';
+  updateConnMutation: { mutate: (args: { id: number; data: any }) => void };
+}) {
+  const stateQueryKey = `/api/options-engine/prop-firm/state?connectionType=${connectionType}&connectionId=${conn.id}`;
+  const { data: stateData, isLoading } = useQuery<{ state: PropFirmState | null }>({
+    queryKey: [stateQueryKey],
+    enabled: conn.isPropFirmAccount,
+  });
+  const state = stateData?.state;
+
+  const updateStateMutation = useMutation({
+    mutationFn: async (patch: Partial<PropFirmState>) => {
+      const res = await apiRequest('PATCH', '/api/options-engine/prop-firm/state', { connectionType, connectionId: conn.id, ...patch });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [stateQueryKey] });
+      queryClient.invalidateQueries({ queryKey: ['/api/options-engine/prop-firm/dashboard'] });
+    },
+  });
+
+  const identityLabel = connectionType === 'alpaca'
+    ? `${(conn as AlpacaConnection).apiKeyId.slice(0, 8)}•••• (${conn.accountType})`
+    : `${(conn as TastytradeConnection).username} (${conn.accountType})`;
+
+  return (
+    <div className="p-4 bg-gray-800/50 border border-gray-700 rounded-lg space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-white">{conn.propFirmName || identityLabel}</p>
+          <p className="text-[10px] text-gray-500 uppercase">{connectionType} · {identityLabel}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-gray-400">Prop-Firm Account</Label>
+          <Switch checked={conn.isPropFirmAccount} onCheckedChange={(v) => updateConnMutation.mutate({ id: conn.id, data: { isPropFirmAccount: v } })} />
+        </div>
+      </div>
+
+      {conn.isPropFirmAccount && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-400">Firm name</Label>
+              <Input
+                defaultValue={conn.propFirmName ?? ''} placeholder="e.g. FTMO"
+                onBlur={(e) => updateConnMutation.mutate({ id: conn.id, data: { propFirmName: e.target.value } })}
+                className="bg-gray-900 border-gray-700 h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-gray-400">Account size ($)</Label>
+              <Input
+                type="number" defaultValue={conn.propFirmAccountSize ?? ''} placeholder="100000"
+                onBlur={(e) => updateConnMutation.mutate({ id: conn.id, data: { propFirmAccountSize: parseFloat(e.target.value) } })}
+                className="bg-gray-900 border-gray-700 h-8 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Label className="text-xs text-gray-400">Status</Label>
+            <Select value={state?.phase ?? 'challenge'} onValueChange={(v) => updateStateMutation.mutate({ phase: v as 'challenge' | 'funded' })}>
+              <SelectTrigger className="h-8 text-xs bg-gray-900 border-gray-700 w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="challenge">Challenge</SelectItem>
+                <SelectItem value="funded">Funded</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {isLoading ? (
+            <p className="text-xs text-gray-500">Loading rules...</p>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-3">
+              {/* Challenge rules */}
+              <div className={`p-3 rounded-lg border space-y-2 ${(state?.phase ?? 'challenge') === 'challenge' ? 'border-amber-700/50 bg-amber-900/10' : 'border-gray-700 bg-gray-900/40'}`}>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-amber-400">Challenge Rules</p>
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-400">Daily drawdown limit (%)</Label>
+                  <Input
+                    type="number" step="0.5" min="0.5" max="20"
+                    defaultValue={state?.challengeDailyDrawdownPct ?? 5}
+                    onBlur={(e) => updateStateMutation.mutate({ challengeDailyDrawdownPct: parseFloat(e.target.value) })}
+                    className="bg-gray-900 border-gray-700 h-8 text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={state?.challengeConsistencyEnabled ?? true}
+                    onCheckedChange={(v) => updateStateMutation.mutate({ challengeConsistencyEnabled: v })}
+                  />
+                  <Label className="text-xs text-gray-300">Consistency rule</Label>
+                </div>
+                {(state?.challengeConsistencyEnabled ?? true) && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-400">Max single-day profit (% of total)</Label>
+                    <Input
+                      type="number" step="1" min="1" max="100"
+                      defaultValue={state?.challengeConsistencyThresholdPct ?? 30}
+                      onBlur={(e) => updateStateMutation.mutate({ challengeConsistencyThresholdPct: parseFloat(e.target.value) })}
+                      className="bg-gray-900 border-gray-700 h-8 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Funded rules */}
+              <div className={`p-3 rounded-lg border space-y-2 ${state?.phase === 'funded' ? 'border-emerald-700/50 bg-emerald-900/10' : 'border-gray-700 bg-gray-900/40'}`}>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-400">Funded Rules</p>
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-400">Daily drawdown limit (%)</Label>
+                  <Input
+                    type="number" step="0.5" min="0.5" max="20"
+                    defaultValue={state?.fundedDailyDrawdownPct ?? 3}
+                    onBlur={(e) => updateStateMutation.mutate({ fundedDailyDrawdownPct: parseFloat(e.target.value) })}
+                    className="bg-gray-900 border-gray-700 h-8 text-sm"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={state?.fundedConsistencyEnabled ?? false}
+                    onCheckedChange={(v) => updateStateMutation.mutate({ fundedConsistencyEnabled: v })}
+                  />
+                  <Label className="text-xs text-gray-300">Consistency rule</Label>
+                </div>
+                {(state?.fundedConsistencyEnabled ?? false) && (
+                  <div className="space-y-1">
+                    <Label className="text-xs text-gray-400">Max single-day profit (% of total)</Label>
+                    <Input
+                      type="number" step="1" min="1" max="100"
+                      defaultValue={state?.fundedConsistencyThresholdPct ?? 30}
+                      onBlur={(e) => updateStateMutation.mutate({ fundedConsistencyThresholdPct: parseFloat(e.target.value) })}
+                      className="bg-gray-900 border-gray-700 h-8 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

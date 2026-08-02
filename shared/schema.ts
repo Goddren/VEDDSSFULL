@@ -2552,14 +2552,40 @@ export type AiConfirmationLogRow = typeof aiConfirmationLogs.$inferSelect;
 // Gate 0 and the reasoning pipeline get more conservative automatically as an
 // account nears its drawdown limit or profit target, the way an experienced
 // prop-firm trader manages a challenge.
+//
+// Extended for the Options Engine's per-connection prop-firm support: this
+// table was previously defined but never read or written anywhere (dead
+// scaffolding), so 'phase1'/'phase2' was simplified to a plain 'challenge' |
+// 'funded' switch, and two full, independently-editable rule sets were added
+// (challenge* / funded*) so a user can pre-configure both phases' risk limits
+// once and have the engine automatically switch which set is active when
+// they flip phase after a challenge is passed — rather than re-entering
+// limits by hand. One row per (connection, connectionType); connectionType
+// now also covers 'alpaca' | 'tastytrade' in addition to the original FX
+// broker types.
 export const propFirmAccountState = pgTable("prop_firm_account_state", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
-  connectionId: integer("connection_id").notNull(), // references the MT5/TradeLocker/Tradovate connection this state is for
-  connectionType: text("connection_type").notNull().default('tradelocker'), // 'mt5' | 'tradelocker' | 'tradovate'
-  phase: text("phase").notNull().default('phase1'), // 'phase1' | 'phase2' | 'funded'
+  connectionId: integer("connection_id").notNull(), // references the MT5/TradeLocker/Tradovate/Alpaca/TastyTrade connection this state is for
+  connectionType: text("connection_type").notNull().default('tradelocker'), // 'mt5' | 'tradelocker' | 'tradovate' | 'alpaca' | 'tastytrade'
+  phase: text("phase").notNull().default('challenge'), // 'challenge' | 'funded'
   phaseStartBalance: real("phase_start_balance").notNull(),
   profitTarget: real("profit_target"), // $ target to graduate this phase (null = no target, e.g. funded)
+
+  // ── Challenge-phase risk limits (active while phase = 'challenge') ────────
+  challengeDailyDrawdownPct: real("challenge_daily_drawdown_pct").notNull().default(5),
+  challengeConsistencyEnabled: boolean("challenge_consistency_enabled").notNull().default(true),
+  challengeConsistencyThresholdPct: real("challenge_consistency_threshold_pct").notNull().default(30),
+
+  // ── Funded-phase risk limits (active while phase = 'funded') — deliberately
+  // independent fields, not a shared "current" set, so a user can dial in
+  // funded-account rules ahead of time (real capital/payouts at stake, often
+  // looser drawdown, consistency rule usually dropped) without losing their
+  // challenge-phase configuration when they graduate.
+  fundedDailyDrawdownPct: real("funded_daily_drawdown_pct").notNull().default(3),
+  fundedConsistencyEnabled: boolean("funded_consistency_enabled").notNull().default(false),
+  fundedConsistencyThresholdPct: real("funded_consistency_threshold_pct").notNull().default(30),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => ({

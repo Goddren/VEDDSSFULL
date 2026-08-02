@@ -15829,6 +15829,103 @@ Rules:
     res.json(config);
   });
 
+  // ── Options AI Engine — per-connection prop-firm challenge/funded state ────
+  // Mirrors the FX side's per-account prop-firm tracking, but scoped to
+  // Alpaca/TastyTrade connections so a user can run a prop-firm challenge
+  // account and a personal account on the Options Engine at the same time,
+  // each with its own risk rules (see checkSafetyGates in options-scanner.ts).
+  async function ownsOptionsConnection(userId: number, connectionType: string, connectionId: number): Promise<boolean> {
+    if (connectionType === 'alpaca') {
+      const conn = await storage.getAlpacaConnection(connectionId);
+      return !!conn && conn.userId === userId;
+    }
+    if (connectionType === 'tastytrade') {
+      const conn = await storage.getTastytradeConnection(connectionId);
+      return !!conn && conn.userId === userId;
+    }
+    return false;
+  }
+
+  app.get("/api/options-engine/prop-firm/state", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connectionType = String(req.query.connectionType || '');
+    const connectionId = parseInt(String(req.query.connectionId || ''), 10);
+    if (!['alpaca', 'tastytrade'].includes(connectionType) || isNaN(connectionId)) {
+      return res.status(400).json({ error: "connectionType ('alpaca'|'tastytrade') and connectionId are required" });
+    }
+    if (!(await ownsOptionsConnection(userId, connectionType, connectionId))) {
+      return res.status(404).json({ error: "Connection not found" });
+    }
+    const state = await storage.getPropFirmAccountState(connectionId, connectionType);
+    res.json({ state: state ?? null });
+  });
+
+  app.patch("/api/options-engine/prop-firm/state", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionType, connectionId } = req.body;
+    const connId = parseInt(connectionId, 10);
+    if (!['alpaca', 'tastytrade'].includes(connectionType) || isNaN(connId)) {
+      return res.status(400).json({ error: "connectionType ('alpaca'|'tastytrade') and connectionId are required" });
+    }
+    if (!(await ownsOptionsConnection(userId, connectionType, connId))) {
+      return res.status(404).json({ error: "Connection not found" });
+    }
+    const allowed = [
+      'phase', 'phaseStartBalance', 'profitTarget',
+      'challengeDailyDrawdownPct', 'challengeConsistencyEnabled', 'challengeConsistencyThresholdPct',
+      'fundedDailyDrawdownPct', 'fundedConsistencyEnabled', 'fundedConsistencyThresholdPct',
+    ];
+    const patch: Record<string, any> = {};
+    for (const key of allowed) {
+      if (req.body[key] === undefined) continue;
+      if (key === 'phase') { if (['challenge', 'funded'].includes(req.body.phase)) patch.phase = req.body.phase; continue; }
+      if (key.endsWith('Enabled')) { patch[key] = !!req.body[key]; continue; }
+      const n = Number(req.body[key]);
+      if (isFinite(n)) patch[key] = n;
+    }
+    const state = await storage.upsertPropFirmAccountState(userId, connId, connectionType, patch);
+    res.json({ state });
+  });
+
+  app.get("/api/options-engine/prop-firm/dashboard", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getConsistencyStatus } = await import('./services/prop-firm-consistency');
+      const [alpacaConns, tastytradeConns] = await Promise.all([
+        storage.getUserAlpacaConnections(userId),
+        storage.getUserTastytradeConnections(userId),
+      ]);
+      const propAccounts = [
+        ...alpacaConns.filter(c => (c as any).isPropFirmAccount).map(c => ({ ...c, connectionType: 'alpaca' as const })),
+        ...tastytradeConns.filter(c => (c as any).isPropFirmAccount).map(c => ({ ...c, connectionType: 'tastytrade' as const })),
+      ];
+      const accounts = await Promise.all(propAccounts.map(async (conn) => {
+        const state = await storage.getPropFirmAccountState(conn.id, conn.connectionType);
+        const isFunded = state?.phase === 'funded';
+        const activeThreshold = state ? (isFunded ? state.fundedConsistencyThresholdPct : state.challengeConsistencyThresholdPct) : null;
+        const activeEnabled = state ? (isFunded ? state.fundedConsistencyEnabled : state.challengeConsistencyEnabled) : false;
+        const activeDrawdownPct = state ? (isFunded ? state.fundedDailyDrawdownPct : state.challengeDailyDrawdownPct) : null;
+        const consistency = await getConsistencyStatus(conn.id, conn.connectionType, activeThreshold, activeEnabled);
+        return {
+          connectionId: conn.id,
+          connectionType: conn.connectionType,
+          label: (conn as any).propFirmName || `${conn.connectionType === 'alpaca' ? 'Alpaca' : 'TastyTrade'} #${conn.id}`,
+          accountSize: (conn as any).propFirmAccountSize ?? null,
+          phase: state?.phase ?? 'challenge',
+          profitTarget: state?.profitTarget ?? null,
+          activeDailyDrawdownPct: activeDrawdownPct,
+          consistency,
+        };
+      }));
+      res.json({ accounts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Crypto.com — separate crypto-derivatives bucket, distinct from the ──────
   // ── equity Options Engine (perpetuals/futures; options only in some regions) ─
   app.get("/api/cryptocom/connections", async (req: Request, res: Response) => {

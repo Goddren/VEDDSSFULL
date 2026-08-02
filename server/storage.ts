@@ -5,7 +5,7 @@ import {
   webhookConfigs, webhookLogs, mt5ApiTokens, mt5SignalLogs, tradelockerConnections, tradelockerTradeLogs,
   tradovateConnections, tradovateTradeLogs,
   alpacaConnections, tastytradeConnections, optionsEngineConfigs, cryptocomConnections, optionsEngineActivity, optionsEngineTrades,
-  liveEngineConfigs,
+  liveEngineConfigs, propFirmAccountState, type PropFirmAccountState,
   ambassadorTrainingProgress, ambassadorCertifications, governanceProposals, governanceVotes,
   ambassadorContentProgress, ambassadorContentStats,
   ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants,
@@ -380,15 +380,26 @@ export interface IStorage {
 
   // Options AI Engine — executed trades
   createOptionsEngineTrade(trade: InsertOptionsEngineTrade): Promise<OptionsEngineTrade>;
-  getOpenOptionsEngineTrades(userId: number): Promise<OptionsEngineTrade[]>;
+  getOpenOptionsEngineTrades(userId: number, connectionId?: number): Promise<OptionsEngineTrade[]>;
   getUserOptionsEngineTrades(userId: number, limit?: number): Promise<OptionsEngineTrade[]>;
   closeOptionsEngineTrade(id: number, data: { exitPrice: number; exitOrderId?: string; exitReason: string; realizedPnl: number }): Promise<OptionsEngineTrade | undefined>;
   markOptionsEngineTradeFailed(id: number, reason: string): Promise<void>;
-  getTodayOptionsEngineTradeCount(userId: number): Promise<number>;
-  getTodayOptionsEngineRealizedPnl(userId: number): Promise<number>;
+  getTodayOptionsEngineTradeCount(userId: number, connectionId?: number): Promise<number>;
+  getTodayOptionsEngineRealizedPnl(userId: number, connectionId?: number): Promise<number>;
   getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }>;
-  getOptionsEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>>;
+  getOptionsEngineDailyPnlHistory(userId: number, days: number, connectionId?: number): Promise<Record<string, number>>;
   updateOptionsEngineTradeTrailState(id: number, data: { peakPnlPercent: number; trailArmed: boolean }): Promise<void>;
+  getPropFirmAccountState(connectionId: number, connectionType: string): Promise<PropFirmAccountState | undefined>;
+  getAllPropFirmAccountStatesForUser(userId: number, connectionType?: string): Promise<PropFirmAccountState[]>;
+  upsertPropFirmAccountState(
+    userId: number,
+    connectionId: number,
+    connectionType: string,
+    patch: Partial<Pick<PropFirmAccountState,
+      "phase" | "phaseStartBalance" | "profitTarget" |
+      "challengeDailyDrawdownPct" | "challengeConsistencyEnabled" | "challengeConsistencyThresholdPct" |
+      "fundedDailyDrawdownPct" | "fundedConsistencyEnabled" | "fundedConsistencyThresholdPct">>,
+  ): Promise<PropFirmAccountState>;
 
   // Futures AI Engine — persisted config (FX SS AI Engine parity)
   getUserFuturesEngineConfig(userId: number): Promise<FuturesEngineConfig | undefined>;
@@ -2115,9 +2126,10 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getOpenOptionsEngineTrades(userId: number): Promise<OptionsEngineTrade[]> {
-    return db.select().from(optionsEngineTrades)
-      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'open')));
+  async getOpenOptionsEngineTrades(userId: number, connectionId?: number): Promise<OptionsEngineTrade[]> {
+    const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'open')];
+    if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+    return db.select().from(optionsEngineTrades).where(and(...conditions));
   }
 
   async getUserOptionsEngineTrades(userId: number, limit: number = 50): Promise<OptionsEngineTrade[]> {
@@ -2141,17 +2153,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(optionsEngineTrades.id, id));
   }
 
-  async getTodayOptionsEngineTradeCount(userId: number): Promise<number> {
+  async getTodayOptionsEngineTradeCount(userId: number, connectionId?: number): Promise<number> {
     const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
-    const rows = await db.select().from(optionsEngineTrades)
-      .where(and(eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)));
+    const conditions = [eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)];
+    if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+    const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
     return rows.length;
   }
 
-  async getTodayOptionsEngineRealizedPnl(userId: number): Promise<number> {
+  async getTodayOptionsEngineRealizedPnl(userId: number, connectionId?: number): Promise<number> {
     const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
-    const rows = await db.select().from(optionsEngineTrades)
-      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, startOfDay)));
+    const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, startOfDay)];
+    if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+    const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
     return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
   }
 
@@ -2172,10 +2186,11 @@ export class DatabaseStorage implements IStorage {
     return { totalClosed, wins, winRate, lossStreak };
   }
 
-  async getOptionsEngineDailyPnlHistory(userId: number, days: number): Promise<Record<string, number>> {
+  async getOptionsEngineDailyPnlHistory(userId: number, days: number, connectionId?: number): Promise<Record<string, number>> {
     const since = new Date(); since.setUTCHours(0, 0, 0, 0); since.setUTCDate(since.getUTCDate() - days);
-    const rows = await db.select().from(optionsEngineTrades)
-      .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, since)));
+    const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed'), gte(optionsEngineTrades.closedAt, since)];
+    if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+    const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
     const history: Record<string, number> = {};
     for (const r of rows) {
       if (!r.closedAt) continue;
@@ -2183,6 +2198,44 @@ export class DatabaseStorage implements IStorage {
       history[day] = (history[day] || 0) + (r.realizedPnl || 0);
     }
     return history;
+  }
+
+  // ── Prop-firm account state (challenge/funded phase + per-phase risk rules) ──
+  // One row per (connectionId, connectionType) — supports MT5/TradeLocker/
+  // Tradovate (FX) and Alpaca/TastyTrade (Options), independently of each other.
+  async getPropFirmAccountState(connectionId: number, connectionType: string): Promise<PropFirmAccountState | undefined> {
+    const [row] = await db.select().from(propFirmAccountState)
+      .where(and(eq(propFirmAccountState.connectionId, connectionId), eq(propFirmAccountState.connectionType, connectionType)));
+    return row;
+  }
+
+  async getAllPropFirmAccountStatesForUser(userId: number, connectionType?: string): Promise<PropFirmAccountState[]> {
+    const conditions = [eq(propFirmAccountState.userId, userId)];
+    if (connectionType) conditions.push(eq(propFirmAccountState.connectionType, connectionType));
+    return db.select().from(propFirmAccountState).where(and(...conditions));
+  }
+
+  async upsertPropFirmAccountState(
+    userId: number,
+    connectionId: number,
+    connectionType: string,
+    patch: Partial<Pick<PropFirmAccountState,
+      "phase" | "phaseStartBalance" | "profitTarget" |
+      "challengeDailyDrawdownPct" | "challengeConsistencyEnabled" | "challengeConsistencyThresholdPct" |
+      "fundedDailyDrawdownPct" | "fundedConsistencyEnabled" | "fundedConsistencyThresholdPct">>,
+  ): Promise<PropFirmAccountState> {
+    const existing = await this.getPropFirmAccountState(connectionId, connectionType);
+    if (existing) {
+      const [row] = await db.update(propFirmAccountState)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(propFirmAccountState.id, existing.id))
+        .returning();
+      return row;
+    }
+    const [row] = await db.insert(propFirmAccountState)
+      .values({ userId, connectionId, connectionType, phaseStartBalance: 0, ...patch } as any)
+      .returning();
+    return row;
   }
 
   async updateOptionsEngineTradeTrailState(id: number, data: { peakPnlPercent: number; trailArmed: boolean }): Promise<void> {

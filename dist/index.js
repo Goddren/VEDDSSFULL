@@ -2732,14 +2732,26 @@ var init_schema = __esm({
       id: serial("id").primaryKey(),
       userId: integer("user_id").references(() => users.id).notNull(),
       connectionId: integer("connection_id").notNull(),
-      // references the MT5/TradeLocker/Tradovate connection this state is for
+      // references the MT5/TradeLocker/Tradovate/Alpaca/TastyTrade connection this state is for
       connectionType: text("connection_type").notNull().default("tradelocker"),
-      // 'mt5' | 'tradelocker' | 'tradovate'
-      phase: text("phase").notNull().default("phase1"),
-      // 'phase1' | 'phase2' | 'funded'
+      // 'mt5' | 'tradelocker' | 'tradovate' | 'alpaca' | 'tastytrade'
+      phase: text("phase").notNull().default("challenge"),
+      // 'challenge' | 'funded'
       phaseStartBalance: real("phase_start_balance").notNull(),
       profitTarget: real("profit_target"),
       // $ target to graduate this phase (null = no target, e.g. funded)
+      // ── Challenge-phase risk limits (active while phase = 'challenge') ────────
+      challengeDailyDrawdownPct: real("challenge_daily_drawdown_pct").notNull().default(5),
+      challengeConsistencyEnabled: boolean("challenge_consistency_enabled").notNull().default(true),
+      challengeConsistencyThresholdPct: real("challenge_consistency_threshold_pct").notNull().default(30),
+      // ── Funded-phase risk limits (active while phase = 'funded') — deliberately
+      // independent fields, not a shared "current" set, so a user can dial in
+      // funded-account rules ahead of time (real capital/payouts at stake, often
+      // looser drawdown, consistency rule usually dropped) without losing their
+      // challenge-phase configuration when they graduate.
+      fundedDailyDrawdownPct: real("funded_daily_drawdown_pct").notNull().default(3),
+      fundedConsistencyEnabled: boolean("funded_consistency_enabled").notNull().default(false),
+      fundedConsistencyThresholdPct: real("funded_consistency_threshold_pct").notNull().default(30),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     }, (t) => ({
@@ -4760,8 +4772,10 @@ var init_storage = __esm({
         const [result] = await db.insert(optionsEngineTrades).values(trade).returning();
         return result;
       }
-      async getOpenOptionsEngineTrades(userId) {
-        return db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "open")));
+      async getOpenOptionsEngineTrades(userId, connectionId) {
+        const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "open")];
+        if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+        return db.select().from(optionsEngineTrades).where(and(...conditions));
       }
       async getUserOptionsEngineTrades(userId, limit = 50) {
         return db.select().from(optionsEngineTrades).where(eq(optionsEngineTrades.userId, userId)).orderBy(desc(optionsEngineTrades.createdAt)).limit(limit);
@@ -4773,16 +4787,20 @@ var init_storage = __esm({
       async markOptionsEngineTradeFailed(id, reason) {
         await db.update(optionsEngineTrades).set({ status: "failed", exitReason: reason, closedAt: /* @__PURE__ */ new Date(), updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineTrades.id, id));
       }
-      async getTodayOptionsEngineTradeCount(userId) {
+      async getTodayOptionsEngineTradeCount(userId, connectionId) {
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
-        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)));
+        const conditions = [eq(optionsEngineTrades.userId, userId), gte(optionsEngineTrades.createdAt, startOfDay)];
+        if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+        const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
         return rows.length;
       }
-      async getTodayOptionsEngineRealizedPnl(userId) {
+      async getTodayOptionsEngineRealizedPnl(userId, connectionId) {
         const startOfDay = /* @__PURE__ */ new Date();
         startOfDay.setUTCHours(0, 0, 0, 0);
-        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, startOfDay)));
+        const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, startOfDay)];
+        if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+        const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
         return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
       }
       async getOptionsEngineTradeStats(userId) {
@@ -4798,11 +4816,13 @@ var init_storage = __esm({
         }
         return { totalClosed, wins, winRate: winRate2, lossStreak };
       }
-      async getOptionsEngineDailyPnlHistory(userId, days) {
+      async getOptionsEngineDailyPnlHistory(userId, days, connectionId) {
         const since = /* @__PURE__ */ new Date();
         since.setUTCHours(0, 0, 0, 0);
         since.setUTCDate(since.getUTCDate() - days);
-        const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, since)));
+        const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed"), gte(optionsEngineTrades.closedAt, since)];
+        if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+        const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
         const history = {};
         for (const r of rows) {
           if (!r.closedAt) continue;
@@ -4810,6 +4830,27 @@ var init_storage = __esm({
           history[day] = (history[day] || 0) + (r.realizedPnl || 0);
         }
         return history;
+      }
+      // ── Prop-firm account state (challenge/funded phase + per-phase risk rules) ──
+      // One row per (connectionId, connectionType) — supports MT5/TradeLocker/
+      // Tradovate (FX) and Alpaca/TastyTrade (Options), independently of each other.
+      async getPropFirmAccountState(connectionId, connectionType) {
+        const [row] = await db.select().from(propFirmAccountState).where(and(eq(propFirmAccountState.connectionId, connectionId), eq(propFirmAccountState.connectionType, connectionType)));
+        return row;
+      }
+      async getAllPropFirmAccountStatesForUser(userId, connectionType) {
+        const conditions = [eq(propFirmAccountState.userId, userId)];
+        if (connectionType) conditions.push(eq(propFirmAccountState.connectionType, connectionType));
+        return db.select().from(propFirmAccountState).where(and(...conditions));
+      }
+      async upsertPropFirmAccountState(userId, connectionId, connectionType, patch) {
+        const existing = await this.getPropFirmAccountState(connectionId, connectionType);
+        if (existing) {
+          const [row2] = await db.update(propFirmAccountState).set({ ...patch, updatedAt: /* @__PURE__ */ new Date() }).where(eq(propFirmAccountState.id, existing.id)).returning();
+          return row2;
+        }
+        const [row] = await db.insert(propFirmAccountState).values({ userId, connectionId, connectionType, phaseStartBalance: 0, ...patch }).returning();
+        return row;
       }
       async updateOptionsEngineTradeTrailState(id, data) {
         await db.update(optionsEngineTrades).set({ peakPnlPercent: data.peakPnlPercent, trailArmed: data.trailArmed, updatedAt: /* @__PURE__ */ new Date() }).where(eq(optionsEngineTrades.id, id));
@@ -42874,13 +42915,22 @@ CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
   "user_id" integer NOT NULL REFERENCES "users"("id"),
   "connection_id" integer NOT NULL,
   "connection_type" text NOT NULL DEFAULT 'tradelocker',
-  "phase" text NOT NULL DEFAULT 'phase1',
+  "phase" text NOT NULL DEFAULT 'challenge',
   "phase_start_balance" real NOT NULL,
   "profit_target" real,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("connection_id", "connection_type")
 );
+-- Options Engine per-connection prop-firm support: independent challenge/funded
+-- rule sets so the engine's risk gates can switch automatically on phase change
+-- without the user re-entering limits (see shared/schema.ts comment).
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_daily_drawdown_pct" real NOT NULL DEFAULT 5;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_consistency_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_consistency_threshold_pct" real NOT NULL DEFAULT 30;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_daily_drawdown_pct" real NOT NULL DEFAULT 3;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_consistency_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_consistency_threshold_pct" real NOT NULL DEFAULT 30;
 
 -- TEMP read-only diagnostic: one row per MT5 chart-data POST that reaches the
 -- second-opinion region, capturing exactly where the flow stops (signal gate /
@@ -43620,33 +43670,48 @@ async function computeContractQuantity(userId, cfg, equity, askPrice, signalScor
   }
   return finalize(baseQty, "");
 }
-async function checkSafetyGates(userId, cfg, equity) {
+async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca") {
   if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayOptionsEngineTradeCount(userId);
+    const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
   }
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
   let riskMultiplier = 1;
   if (equity > 0) {
-    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId);
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId);
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
       return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
     }
-    if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+    const propState = await storage.getPropFirmAccountState(connectionId, connectionType);
+    if (propState) {
+      const isFunded = propState.phase === "funded";
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
       return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains`, riskMultiplier: 1 };
     }
-    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
-    sessionPeakEquity.set(userId, peak);
+    const peak = Math.max(sessionPeakEquity.get(connectionId) ?? equity, equity);
+    sessionPeakEquity.set(connectionId, peak);
     const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
       riskMultiplier = Math.min(riskMultiplier, 0.25);
     }
-    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
-      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+    if (!propState && cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays, connectionId);
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       history[today] = todayPnl;
       const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
@@ -43695,7 +43760,7 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     return;
   }
   const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const gate = await checkSafetyGates(userId, cfg, gateEquity);
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca");
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -43869,8 +43934,8 @@ function computeTrailFloorPercent(cfg, peakPnlPercent) {
       return -Infinity;
   }
 }
-async function monitorOpenPositions(service, userId, cfg) {
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+async function monitorOpenPositions(service, userId, cfg, connectionId) {
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
   for (const trade of alpacaTrades) {
     try {
@@ -43922,6 +43987,11 @@ async function monitorOpenPositions(service, userId, cfg) {
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "limit", limitPrice: exitLimitPrice, timeInForce: "day" });
       const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
       await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      try {
+        const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+        await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
+      } catch {
+      }
       await storage.createOptionsEngineActivity({
         userId,
         symbol: trade.underlyingSymbol,
@@ -43946,8 +44016,8 @@ async function scanOneUser(userId) {
   if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
   lastScanAt.set(userId, now);
   const alpacaConns = await storage.getUserAlpacaConnections(userId);
-  const activeAlpaca = alpacaConns.find((c) => c.isActive);
-  if (!activeAlpaca) {
+  const activeConns = alpacaConns.filter((c) => c.isActive);
+  if (activeConns.length === 0) {
     await storage.createOptionsEngineActivity({
       userId,
       symbol: "\u2014",
@@ -43961,10 +44031,11 @@ async function scanOneUser(userId) {
     });
     return;
   }
+  const primaryConn = activeConns[0];
   let service;
   try {
-    const secret = decryptApiSecret(activeAlpaca.encryptedApiSecret);
-    service = new AlpacaService(activeAlpaca.accountType, activeAlpaca.apiKeyId, secret);
+    const secret = decryptApiSecret(primaryConn.encryptedApiSecret);
+    service = new AlpacaService(primaryConn.accountType, primaryConn.apiKeyId, secret);
   } catch (err) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -43979,10 +44050,34 @@ async function scanOneUser(userId) {
     });
     return;
   }
-  await monitorOpenPositions(service, userId, config).catch(
-    (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId}:`, e.message)
-  );
-  const canAutoExecute = activeAlpaca.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto");
+  const connServices = /* @__PURE__ */ new Map();
+  connServices.set(primaryConn.id, service);
+  for (const conn of activeConns) {
+    if (connServices.has(conn.id)) continue;
+    try {
+      const secret = decryptApiSecret(conn.encryptedApiSecret);
+      connServices.set(conn.id, new AlpacaService(conn.accountType, conn.apiKeyId, secret));
+    } catch (err) {
+      await storage.createOptionsEngineActivity({
+        userId,
+        symbol: "\u2014",
+        decision: "error",
+        reasoning: `Could not decrypt credentials for Alpaca connection "${conn.propFirmName || conn.accountId || conn.id}": ${err.message}`,
+        score: null,
+        price: null,
+        dailyChangePercent: null,
+        source: "alpaca",
+        strategy: null
+      });
+    }
+  }
+  for (const conn of activeConns) {
+    const connSvc = connServices.get(conn.id);
+    if (!connSvc) continue;
+    await monitorOpenPositions(connSvc, userId, config, conn.id).catch(
+      (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId} connection ${conn.id}:`, e.message)
+    );
+  }
   const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
   const allowedDows = Array.isArray(config.tradingDaysOfWeek) ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
   if (!allowedDows.includes(todayDow)) return;
@@ -44040,7 +44135,10 @@ async function scanOneUser(userId) {
         source: "alpaca",
         strategy: result.strategy
       });
-      if (result.decision === "signal" && canAutoExecute) {
+      const executingConns = activeConns.filter(
+        (c) => c.autoExecute && (config.executionSource === "alpaca" || config.executionSource === "auto") && connServices.has(c.id)
+      );
+      if (result.decision === "signal" && executingConns.length > 0) {
         const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e) => {
           console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
           return false;
@@ -44048,9 +44146,12 @@ async function scanOneUser(userId) {
         if (tradeAllowed) {
           const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
           const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
-          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
-            (e) => console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
-          );
+          for (const conn of executingConns) {
+            const connSvc = connServices.get(conn.id);
+            await executeSignal(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
+              (e) => console.error(`[options-scanner] executeSignal failed for ${symbol} on connection ${conn.id}:`, e.message)
+            );
+          }
         } else {
           await storage.createOptionsEngineActivity({
             userId,
@@ -63445,6 +63546,106 @@ Rules:
     }
     const config = await storage.upsertOptionsEngineConfig(userId, updateData);
     res.json(config);
+  });
+  async function ownsOptionsConnection(userId, connectionType, connectionId) {
+    if (connectionType === "alpaca") {
+      const conn = await storage.getAlpacaConnection(connectionId);
+      return !!conn && conn.userId === userId;
+    }
+    if (connectionType === "tastytrade") {
+      const conn = await storage.getTastytradeConnection(connectionId);
+      return !!conn && conn.userId === userId;
+    }
+    return false;
+  }
+  app2.get("/api/options-engine/prop-firm/state", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connectionType = String(req.query.connectionType || "");
+    const connectionId = parseInt(String(req.query.connectionId || ""), 10);
+    if (!["alpaca", "tastytrade"].includes(connectionType) || isNaN(connectionId)) {
+      return res.status(400).json({ error: "connectionType ('alpaca'|'tastytrade') and connectionId are required" });
+    }
+    if (!await ownsOptionsConnection(userId, connectionType, connectionId)) {
+      return res.status(404).json({ error: "Connection not found" });
+    }
+    const state = await storage.getPropFirmAccountState(connectionId, connectionType);
+    res.json({ state: state ?? null });
+  });
+  app2.patch("/api/options-engine/prop-firm/state", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionType, connectionId } = req.body;
+    const connId = parseInt(connectionId, 10);
+    if (!["alpaca", "tastytrade"].includes(connectionType) || isNaN(connId)) {
+      return res.status(400).json({ error: "connectionType ('alpaca'|'tastytrade') and connectionId are required" });
+    }
+    if (!await ownsOptionsConnection(userId, connectionType, connId)) {
+      return res.status(404).json({ error: "Connection not found" });
+    }
+    const allowed = [
+      "phase",
+      "phaseStartBalance",
+      "profitTarget",
+      "challengeDailyDrawdownPct",
+      "challengeConsistencyEnabled",
+      "challengeConsistencyThresholdPct",
+      "fundedDailyDrawdownPct",
+      "fundedConsistencyEnabled",
+      "fundedConsistencyThresholdPct"
+    ];
+    const patch = {};
+    for (const key of allowed) {
+      if (req.body[key] === void 0) continue;
+      if (key === "phase") {
+        if (["challenge", "funded"].includes(req.body.phase)) patch.phase = req.body.phase;
+        continue;
+      }
+      if (key.endsWith("Enabled")) {
+        patch[key] = !!req.body[key];
+        continue;
+      }
+      const n = Number(req.body[key]);
+      if (isFinite(n)) patch[key] = n;
+    }
+    const state = await storage.upsertPropFirmAccountState(userId, connId, connectionType, patch);
+    res.json({ state });
+  });
+  app2.get("/api/options-engine/prop-firm/dashboard", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const [alpacaConns, tastytradeConns] = await Promise.all([
+        storage.getUserAlpacaConnections(userId),
+        storage.getUserTastytradeConnections(userId)
+      ]);
+      const propAccounts = [
+        ...alpacaConns.filter((c) => c.isPropFirmAccount).map((c) => ({ ...c, connectionType: "alpaca" })),
+        ...tastytradeConns.filter((c) => c.isPropFirmAccount).map((c) => ({ ...c, connectionType: "tastytrade" }))
+      ];
+      const accounts = await Promise.all(propAccounts.map(async (conn) => {
+        const state = await storage.getPropFirmAccountState(conn.id, conn.connectionType);
+        const isFunded = state?.phase === "funded";
+        const activeThreshold = state ? isFunded ? state.fundedConsistencyThresholdPct : state.challengeConsistencyThresholdPct : null;
+        const activeEnabled = state ? isFunded ? state.fundedConsistencyEnabled : state.challengeConsistencyEnabled : false;
+        const activeDrawdownPct = state ? isFunded ? state.fundedDailyDrawdownPct : state.challengeDailyDrawdownPct : null;
+        const consistency = await getConsistencyStatus2(conn.id, conn.connectionType, activeThreshold, activeEnabled);
+        return {
+          connectionId: conn.id,
+          connectionType: conn.connectionType,
+          label: conn.propFirmName || `${conn.connectionType === "alpaca" ? "Alpaca" : "TastyTrade"} #${conn.id}`,
+          accountSize: conn.propFirmAccountSize ?? null,
+          phase: state?.phase ?? "challenge",
+          profitTarget: state?.profitTarget ?? null,
+          activeDailyDrawdownPct: activeDrawdownPct,
+          consistency
+        };
+      }));
+      res.json({ accounts });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
   app2.get("/api/cryptocom/connections", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

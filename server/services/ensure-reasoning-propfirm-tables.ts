@@ -16,13 +16,22 @@ CREATE TABLE IF NOT EXISTS "prop_firm_account_state" (
   "user_id" integer NOT NULL REFERENCES "users"("id"),
   "connection_id" integer NOT NULL,
   "connection_type" text NOT NULL DEFAULT 'tradelocker',
-  "phase" text NOT NULL DEFAULT 'phase1',
+  "phase" text NOT NULL DEFAULT 'challenge',
   "phase_start_balance" real NOT NULL,
   "profit_target" real,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
   UNIQUE("connection_id", "connection_type")
 );
+-- Options Engine per-connection prop-firm support: independent challenge/funded
+-- rule sets so the engine's risk gates can switch automatically on phase change
+-- without the user re-entering limits (see shared/schema.ts comment).
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_daily_drawdown_pct" real NOT NULL DEFAULT 5;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_consistency_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "challenge_consistency_threshold_pct" real NOT NULL DEFAULT 30;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_daily_drawdown_pct" real NOT NULL DEFAULT 3;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_consistency_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "prop_firm_account_state" ADD COLUMN IF NOT EXISTS "funded_consistency_threshold_pct" real NOT NULL DEFAULT 30;
 
 -- TEMP read-only diagnostic: one row per MT5 chart-data POST that reaches the
 -- second-opinion region, capturing exactly where the flow stops (signal gate /

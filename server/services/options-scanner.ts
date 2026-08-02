@@ -699,46 +699,80 @@ async function computeContractQuantity(
   return finalize(baseQty, '');
 }
 
-// Session high-watermark for Drawdown Shield — resets on process restart,
-// same "session" scope as the FX engine's shield (it is meant to react to
-// intra-session equity swings, not survive indefinitely across restarts).
+// Session high-watermark for Drawdown Shield, keyed by connectionId — resets
+// on process restart, same "session" scope as the FX engine's shield (it is
+// meant to react to intra-session equity swings, not survive indefinitely
+// across restarts).
 const sessionPeakEquity = new Map<number, number>();
 
-async function checkSafetyGates(userId: number, cfg: OptionsEngineConfig, equity: number): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
+async function checkSafetyGates(
+  userId: number, cfg: OptionsEngineConfig, equity: number, connectionId: number, connectionType: string = 'alpaca',
+): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayOptionsEngineTradeCount(userId);
+    const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
   }
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
 
   let riskMultiplier = 1;
 
   if (equity > 0) {
-    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId);
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId);
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
       return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
     }
-    if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+
+    // ── Per-connection prop-firm gate — a connection explicitly marked as a
+    // prop-firm account uses ITS OWN challenge/funded rule set (independently
+    // editable, see propFirmAccountState) instead of the engine-wide
+    // cfg.propFirmMode fields below, and is backed by the same durable
+    // consistency ledger (prop_firm_daily_pnl) the FX engine uses — so
+    // multiple prop-firm accounts on this engine are tracked completely
+    // independently rather than blended into one user-wide PnL figure.
+    const propState = await storage.getPropFirmAccountState(connectionId, connectionType);
+    if (propState) {
+      const isFunded = propState.phase === 'funded';
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+
+      const { getConsistencyStatus } = await import('./prop-firm-consistency');
+      const consistency = await getConsistencyStatus(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
+
     if (cfg.dailyProfitTarget > 0 && todayPnl >= (equity * cfg.dailyProfitTarget / 100)) {
       return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached — locking in gains`, riskMultiplier: 1 };
     }
 
     // ── Drawdown Shield — auto-tighten to conservative sizing once equity
     // pulls back from its session peak by more than the configured threshold.
-    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
-    sessionPeakEquity.set(userId, peak);
+    // Keyed per connection (not userId) so each account's own equity curve
+    // is tracked independently once a user has more than one.
+    const peak = Math.max(sessionPeakEquity.get(connectionId) ?? equity, equity);
+    sessionPeakEquity.set(connectionId, peak);
     const ddFromPeakPct = peak > 0 ? ((peak - equity) / peak) * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
       riskMultiplier = Math.min(riskMultiplier, 0.25);
     }
 
-    // ── Consistency enforcement — reduce risk as the prop-firm challenge
-    // period runs low on days remaining to hit the min-profitable-days bar.
-    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
-      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+    // ── Consistency enforcement (legacy, engine-wide) — reduce risk as the
+    // prop-firm challenge period runs low on days remaining to hit the
+    // min-profitable-days bar. Only runs for connections that AREN'T using
+    // the new per-connection prop-firm state above, to avoid applying two
+    // different consistency systems to the same account at once.
+    if (!propState && cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getOptionsEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays, connectionId);
       const today = new Date().toISOString().split('T')[0];
       history[today] = todayPnl;
       const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
@@ -797,7 +831,7 @@ async function executeSignal(
   }
 
   const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const gate = await checkSafetyGates(userId, cfg, gateEquity);
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection.id, 'alpaca');
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'skipped',
@@ -949,8 +983,12 @@ function computeTrailFloorPercent(cfg: OptionsEngineConfig, peakPnlPercent: numb
 
 // ── Exit management — close open trades on profit target / stop loss, or a
 // per-trade trailing stop once cfg.trailMethod is enabled and armed ─────────
-async function monitorOpenPositions(service: AlpacaService, userId: number, cfg: OptionsEngineConfig): Promise<void> {
-  const openTrades = await storage.getOpenOptionsEngineTrades(userId);
+async function monitorOpenPositions(service: AlpacaService, userId: number, cfg: OptionsEngineConfig, connectionId: number): Promise<void> {
+  // Scoped to THIS connection — previously every connection beyond the first
+  // was monitored/closed using whichever Alpaca session happened to be
+  // "the" one for the whole user, which would fail (or worse, misroute an
+  // order) once a user had more than one Alpaca account connected.
+  const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   const alpacaTrades = openTrades.filter(t => t.broker === 'alpaca');
   for (const trade of alpacaTrades) {
     try {
@@ -1018,6 +1056,16 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: 'sell', quantity: trade.quantity, type: 'limit', limitPrice: exitLimitPrice, timeInForce: 'day' });
       const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
       await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      // Feed the shared prop-firm consistency ledger unconditionally — cheap
+      // no-op for accounts that aren't marked prop-firm (nothing reads
+      // prop_firm_daily_pnl unless getPropFirmAccountState finds a row for
+      // this connection), but means the moment an account IS marked, its
+      // drawdown/consistency math is already backed by real history instead
+      // of needing a backfill.
+      try {
+        const { recordRealizedPnl } = await import('./prop-firm-consistency');
+        await recordRealizedPnl(userId, connectionId, 'alpaca', realizedPnl);
+      } catch { /* non-critical */ }
       await storage.createOptionsEngineActivity({
         userId, symbol: trade.underlyingSymbol, decision: 'signal', strategy: trade.strategy,
         reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
@@ -1039,8 +1087,8 @@ async function scanOneUser(userId: number): Promise<void> {
   lastScanAt.set(userId, now);
 
   const alpacaConns = await storage.getUserAlpacaConnections(userId);
-  const activeAlpaca = alpacaConns.find(c => c.isActive);
-  if (!activeAlpaca) {
+  const activeConns = alpacaConns.filter(c => c.isActive);
+  if (activeConns.length === 0) {
     await storage.createOptionsEngineActivity({
       userId, symbol: '—', decision: 'error',
       reasoning: 'No active Alpaca connection — market data requires at least one connected Alpaca account. TastyTrade/Crypto.com orders can still execute, but symbol scanning needs Alpaca for now.',
@@ -1049,10 +1097,18 @@ async function scanOneUser(userId: number): Promise<void> {
     return;
   }
 
+  // Market data (symbol scanning) is account-agnostic — build one service off
+  // the first active connection for that, rather than repeating identical
+  // scans per connection. Execution and position monitoring, below, use each
+  // connection's OWN service so multiple prop-firm/personal accounts each
+  // trade under their own credentials and risk gates — previously every
+  // connection beyond the first silently reused this same session, which
+  // would monitor/close/size trades against the wrong Alpaca account.
+  const primaryConn = activeConns[0];
   let service: AlpacaService;
   try {
-    const secret = decryptApiSecret(activeAlpaca.encryptedApiSecret);
-    service = new AlpacaService(activeAlpaca.accountType as 'paper' | 'live', activeAlpaca.apiKeyId, secret);
+    const secret = decryptApiSecret(primaryConn.encryptedApiSecret);
+    service = new AlpacaService(primaryConn.accountType as 'paper' | 'live', primaryConn.apiKeyId, secret);
   } catch (err: any) {
     await storage.createOptionsEngineActivity({
       userId, symbol: '—', decision: 'error',
@@ -1062,16 +1118,32 @@ async function scanOneUser(userId: number): Promise<void> {
     return;
   }
 
-  // Exit management runs every cycle regardless of new signals — closing a
-  // winning/losing position takes priority over opening a new one.
-  await monitorOpenPositions(service, userId, config).catch((e: any) =>
-    console.error(`[options-scanner] monitorOpenPositions failed for user ${userId}:`, e.message)
-  );
+  const connServices = new Map<number, AlpacaService>();
+  connServices.set(primaryConn.id, service);
+  for (const conn of activeConns) {
+    if (connServices.has(conn.id)) continue;
+    try {
+      const secret = decryptApiSecret(conn.encryptedApiSecret);
+      connServices.set(conn.id, new AlpacaService(conn.accountType as 'paper' | 'live', conn.apiKeyId, secret));
+    } catch (err: any) {
+      await storage.createOptionsEngineActivity({
+        userId, symbol: '—', decision: 'error',
+        reasoning: `Could not decrypt credentials for Alpaca connection "${conn.propFirmName || conn.accountId || conn.id}": ${err.message}`,
+        score: null, price: null, dailyChangePercent: null, source: 'alpaca', strategy: null,
+      });
+    }
+  }
 
-  // Auto-execution requires BOTH the engine's executionSource to allow Alpaca
-  // AND the connection's own autoExecute switch — the per-connection toggle is
-  // the master kill switch a user controls independently of engine settings.
-  const canAutoExecute = activeAlpaca.autoExecute && (config.executionSource === 'alpaca' || config.executionSource === 'auto');
+  // Exit management runs every cycle regardless of new signals — closing a
+  // winning/losing position takes priority over opening a new one. Runs once
+  // per connection, using that connection's own service.
+  for (const conn of activeConns) {
+    const connSvc = connServices.get(conn.id);
+    if (!connSvc) continue;
+    await monitorOpenPositions(connSvc, userId, config, conn.id).catch((e: any) =>
+      console.error(`[options-scanner] monitorOpenPositions failed for user ${userId} connection ${conn.id}:`, e.message)
+    );
+  }
 
   // Trading-days-of-week gate — skip the whole scan on days the user hasn't opted into.
   const todayDow = new Date().getUTCDay();
@@ -1151,7 +1223,17 @@ async function scanOneUser(userId: number): Promise<void> {
         score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent,
         source: 'alpaca', strategy: result.strategy,
       });
-      if (result.decision === 'signal' && canAutoExecute) {
+      // Auto-execution requires BOTH the engine's executionSource to allow
+      // Alpaca AND each connection's own autoExecute switch — checked here
+      // per connection so e.g. a personal account can stay paused while a
+      // prop-firm challenge account keeps trading the same signal.
+      const executingConns = activeConns.filter(c =>
+        c.autoExecute && (config.executionSource === 'alpaca' || config.executionSource === 'auto') && connServices.has(c.id)
+      );
+      if (result.decision === 'signal' && executingConns.length > 0) {
+        // Consensus (AI second opinion) is a judgment on the SIGNAL itself,
+        // not on any one account — check it once per symbol, then execute
+        // independently on every qualifying connection.
         const tradeAllowed = await assembleOptionsConsensus(userId, symbol, result, symbolCfg).catch((e: any) => {
           console.error(`[options-scanner] consensus check failed for ${symbol}:`, e.message);
           // Fail CLOSED — a broken consensus check (e.g. the AI call erroring)
@@ -1166,9 +1248,12 @@ async function scanOneUser(userId: number): Promise<void> {
           // warm-up/ad-hoc paths already inside computeContractQuantity.
           const brainMultiplier = symbolKnowledge && symbolKnowledge.totalTrades >= 10 ? symbolKnowledge.recommendedContractMultiplier : null;
           const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
-          await executeSignal(service, activeAlpaca, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch((e: any) =>
-            console.error(`[options-scanner] executeSignal failed for ${symbol}:`, e.message)
-          );
+          for (const conn of executingConns) {
+            const connSvc = connServices.get(conn.id)!;
+            await executeSignal(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch((e: any) =>
+              console.error(`[options-scanner] executeSignal failed for ${symbol} on connection ${conn.id}:`, e.message)
+            );
+          }
         } else {
           await storage.createOptionsEngineActivity({
             userId, symbol, decision: 'skipped', strategy: result.strategy,
