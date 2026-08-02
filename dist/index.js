@@ -5108,17 +5108,20 @@ var init_storage = __esm({
           ).orderBy(desc(aiConfirmationOutcomes.confirmedAt)).limit(500);
           const groups = {};
           for (const row of rows) {
-            if (row.tradeOutcome === "PENDING") continue;
+            if (row.tradeOutcome !== "WIN" && row.tradeOutcome !== "LOSS" && row.tradeOutcome !== "BREAKEVEN") continue;
             const key = `${row.symbol}|${row.tradeSource ?? "ai_confirmation"}|${row.confluenceGrade ?? "N/A"}`;
-            if (!groups[key]) groups[key] = { symbol: row.symbol, tradeSource: row.tradeSource ?? "ai_confirmation", confluenceGrade: row.confluenceGrade ?? "N/A", tradeCount: 0, wins: 0, totalPips: 0 };
+            if (!groups[key]) groups[key] = { symbol: row.symbol, tradeSource: row.tradeSource ?? "ai_confirmation", confluenceGrade: row.confluenceGrade ?? "N/A", tradeCount: 0, wins: 0, totalPips: 0, pipsCount: 0 };
             groups[key].tradeCount++;
             if (row.tradeOutcome === "WIN") groups[key].wins++;
-            if (row.actualPips) groups[key].totalPips += row.actualPips;
+            if (row.actualPips != null) {
+              groups[key].totalPips += row.actualPips;
+              groups[key].pipsCount++;
+            }
           }
           return Object.values(groups).map((g) => ({
             ...g,
             winRate: g.tradeCount > 0 ? Math.round(g.wins / g.tradeCount * 100) : 0,
-            avgPips: g.tradeCount > 0 ? Math.round(g.totalPips / g.tradeCount) : 0
+            avgPips: g.pipsCount > 0 ? Math.round(g.totalPips / g.pipsCount) : 0
           })).sort((a, b) => b.winRate - a.winRate);
         } catch (err) {
           console.error("[BrainSummary]", err);
@@ -18300,6 +18303,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         });
         const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
         await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
+        try {
+          await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, result, null);
+        } catch {
+        }
       }
     }
   }
@@ -18317,28 +18324,37 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === "tl_undefined") continue;
         const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
+        const reconResult = p > 0 ? "WIN" : "LOSS";
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
           if (existing.result === "PENDING" || existing.connectionId == null) {
             await storage.updateAiTradeResult(existing.id, userId, {
-              result: p > 0 ? "WIN" : "LOSS",
+              result: reconResult,
               profitLoss: p,
               connectionId: conn.id,
               closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
             }).catch(() => {
             });
-            if (existing.result === "PENDING") await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+            if (existing.result === "PENDING") {
+              await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+              try {
+                await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);
+              } catch {
+              }
+            }
           }
           continue;
         }
+        const reconDirection = /sell|short/i.test(o.side || "") ? "SELL" : "BUY";
+        const reconSymbol = (o.symbol || "UNKNOWN").toUpperCase().replace("/", "");
         await storage.createAiTradeResult({
           userId,
-          symbol: (o.symbol || "UNKNOWN").toUpperCase().replace("/", ""),
-          direction: /sell|short/i.test(o.side || "") ? "SELL" : "BUY",
+          symbol: reconSymbol,
+          direction: reconDirection,
           entryPrice: o.openPrice || 0,
           exitPrice: o.closePrice || 0,
           aiConfidence: 0,
-          result: p > 0 ? "WIN" : "LOSS",
+          result: reconResult,
           profitLoss: p,
           source: "tradelocker",
           connectionId: conn.id,
@@ -18348,6 +18364,10 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         }).catch(() => {
         });
         await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
+        try {
+          await storage.resolveConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, null);
+        } catch {
+        }
       }
     } catch (err) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
@@ -57057,7 +57077,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now())
               });
               try {
-                const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
+                const pips = typeof closedTrade.profitPips === "number" ? closedTrade.profitPips : null;
                 await storage.resolveConfirmationOutcome(
                   token.userId,
                   tradeSymbol,

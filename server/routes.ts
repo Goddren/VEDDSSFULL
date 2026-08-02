@@ -8457,7 +8457,11 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 closedAt: new Date(closedTrade.closeTime || closedTrade.timestamp || Date.now()),
               });
               try {
-                const pips = closedTrade.profitPips ?? closedTrade.profit ?? 0;
+                // Dollar P&L (closedTrade.profit) is NOT pips — falling back to it here
+                // previously stored e.g. a $47 profit as "47 pips" whenever the EA payload
+                // omitted profitPips, silently corrupting the Brain Dashboard's avg-pips
+                // figures. Store null (no pip data) rather than a wrong number.
+                const pips = typeof closedTrade.profitPips === 'number' ? closedTrade.profitPips : null;
                 await storage.resolveConfirmationOutcome(
                   token.userId, tradeSymbol, existingResult.direction, tradeResult, pips
                 );

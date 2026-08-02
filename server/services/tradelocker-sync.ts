@@ -117,6 +117,14 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         } as any);
         const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
         await recordRealizedPnl(userId, conn.id, 'tradelocker', profit, dStr);
+        // Resolve any matching PENDING 2nd-confirmation record so the Brain
+        // Dashboard reflects real TradeLocker outcomes — previously this only
+        // happened for MT5 closed trades, so an account trading exclusively on
+        // TradeLocker (like this account) never had a single confirmation
+        // resolve to WIN/LOSS, no matter how many real trades closed.
+        try {
+          await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, result, null);
+        } catch { /* non-critical */ }
       }
     }
   }
@@ -139,27 +147,35 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         const tk = o.positionId ? `tl_${conn.accountId}_${o.positionId}` : `tl_${o.id || o.orderId}`;
         if (!tk || tk === 'tl_undefined') continue;
         const reconDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : undefined;
+        const reconResult = p > 0 ? 'WIN' : 'LOSS';
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
           if (existing.result === 'PENDING' || (existing as any).connectionId == null) {
             await storage.updateAiTradeResult(existing.id, userId, {
-              result: p > 0 ? 'WIN' : 'LOSS',
+              result: reconResult,
               profitLoss: p,
               connectionId: conn.id,
               closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
             } as any).catch(() => {});
-            if (existing.result === 'PENDING') await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
+            if (existing.result === 'PENDING') {
+              await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
+              try {
+                await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);
+              } catch { /* non-critical */ }
+            }
           }
           continue;
         }
+        const reconDirection = /sell|short/i.test(o.side || '') ? 'SELL' : 'BUY';
+        const reconSymbol = (o.symbol || 'UNKNOWN').toUpperCase().replace('/', '');
         await storage.createAiTradeResult({
           userId,
-          symbol: (o.symbol || 'UNKNOWN').toUpperCase().replace('/', ''),
-          direction: /sell|short/i.test(o.side || '') ? 'SELL' : 'BUY',
+          symbol: reconSymbol,
+          direction: reconDirection,
           entryPrice: o.openPrice || 0,
           exitPrice: o.closePrice || 0,
           aiConfidence: 0,
-          result: p > 0 ? 'WIN' : 'LOSS',
+          result: reconResult,
           profitLoss: p,
           source: 'tradelocker',
           connectionId: conn.id,
@@ -168,6 +184,9 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
         } as any).catch(() => {});
         await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
+        try {
+          await storage.resolveConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, null);
+        } catch { /* non-critical */ }
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);

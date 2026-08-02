@@ -2570,7 +2570,7 @@ export class DatabaseStorage implements IStorage {
     symbol: string,
     direction: string,
     tradeOutcome: string,
-    actualPips: number
+    actualPips: number | null
   ): Promise<void> {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const rows = await db
@@ -2637,20 +2637,33 @@ export class DatabaseStorage implements IStorage {
         .limit(500);
 
       // Group manually for compatibility
-      const groups: Record<string, { symbol: string; tradeSource: string; confluenceGrade: string; tradeCount: number; wins: number; totalPips: number }> = {};
+      const groups: Record<string, { symbol: string; tradeSource: string; confluenceGrade: string; tradeCount: number; wins: number; totalPips: number; pipsCount: number }> = {};
       for (const row of rows) {
-        if (row.tradeOutcome === 'PENDING') continue;
+        // Only count trades that actually happened and resolved — PENDING never
+        // opened yet, and REJECTED means the AI declined the signal (no trade
+        // ever opened). Counting REJECTED here inflated tradeCount with signals
+        // that were never taken and could never win, permanently dragging every
+        // symbol/source's displayed win rate toward 0% regardless of real
+        // trading performance.
+        if (row.tradeOutcome !== 'WIN' && row.tradeOutcome !== 'LOSS' && row.tradeOutcome !== 'BREAKEVEN') continue;
         const key = `${row.symbol}|${(row as any).tradeSource ?? 'ai_confirmation'}|${row.confluenceGrade ?? 'N/A'}`;
-        if (!groups[key]) groups[key] = { symbol: row.symbol, tradeSource: (row as any).tradeSource ?? 'ai_confirmation', confluenceGrade: row.confluenceGrade ?? 'N/A', tradeCount: 0, wins: 0, totalPips: 0 };
+        if (!groups[key]) groups[key] = { symbol: row.symbol, tradeSource: (row as any).tradeSource ?? 'ai_confirmation', confluenceGrade: row.confluenceGrade ?? 'N/A', tradeCount: 0, wins: 0, totalPips: 0, pipsCount: 0 };
         groups[key].tradeCount++;
         if (row.tradeOutcome === 'WIN') groups[key].wins++;
-        if (row.actualPips) groups[key].totalPips += row.actualPips;
+        // actualPips is null for sources (e.g. TradeLocker) that don't have a
+        // pip conversion yet — average over only the trades that HAVE pip data,
+        // not every trade in the group, or a handful of real pip values get
+        // diluted by a majority of nulls treated as zero.
+        if (row.actualPips != null) {
+          groups[key].totalPips += row.actualPips;
+          groups[key].pipsCount++;
+        }
       }
 
       return Object.values(groups).map(g => ({
         ...g,
         winRate: g.tradeCount > 0 ? Math.round((g.wins / g.tradeCount) * 100) : 0,
-        avgPips: g.tradeCount > 0 ? Math.round(g.totalPips / g.tradeCount) : 0,
+        avgPips: g.pipsCount > 0 ? Math.round(g.totalPips / g.pipsCount) : 0,
       })).sort((a, b) => b.winRate - a.winRate);
     } catch (err) {
       console.error('[BrainSummary]', err);
