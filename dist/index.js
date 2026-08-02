@@ -18459,6 +18459,10 @@ async function syncUserTradeLocker(userId, force = false) {
       try {
         const svc = await getOrCreateService(conn);
         const info = await svc.getAccountInfo();
+        if (conn.lastError) {
+          storage.updateTradelockerConnection(conn.id, { lastError: null }).catch(() => {
+          });
+        }
         store[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,

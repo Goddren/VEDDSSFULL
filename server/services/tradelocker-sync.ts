@@ -250,6 +250,18 @@ export async function syncUserTradeLocker(userId: number, force = false): Promis
       try {
         const svc = await tlGetOrCreateService(conn);
         const info = await svc.getAccountInfo();
+
+        // A live successful fetch proves the connection is healthy right now —
+        // clear out any stale lastError so it doesn't linger in the UI forever.
+        // Previously nothing ever cleared this field on success, so an old
+        // transient failure (e.g. a since-fixed code path that used to
+        // propagate raw broker error pages into lastError) could sit there
+        // indefinitely and keep showing as a current problem on the Weekly
+        // Strategy execution-diagnostics panel long after it stopped being one.
+        if ((conn as any).lastError) {
+          storage.updateTradelockerConnection(conn.id, { lastError: null } as any).catch(() => {});
+        }
+
         store[userId][conn.accountId] = {
           accountId: conn.accountId,
           connectionId: conn.id,
