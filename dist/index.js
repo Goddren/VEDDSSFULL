@@ -21457,6 +21457,332 @@ var init_vedd_token_service = __esm({
   }
 });
 
+// server/tradovate.ts
+function getCacheKey(userId, accountType) {
+  return `${userId}:${accountType}`;
+}
+async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
+  const cacheKey = getCacheKey(userId, accountType);
+  const cached = serviceCache2.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt.getTime() < CACHE_TTL_MS2) {
+    return cached.service;
+  }
+  const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+  const password = decryptPassword4(encryptedPassword);
+  const svc = new TradovateService(accountType);
+  svc.setCredentials(username, password);
+  if (accountId) svc.setAccountId(parseInt(accountId, 10));
+  if (cachedToken && tokenExpiresAt && tokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1e3) {
+    svc.setToken(cachedToken, tokenExpiresAt);
+  } else {
+    await svc.authenticate(username, password);
+  }
+  serviceCache2.set(cacheKey, { service: svc, cachedAt: /* @__PURE__ */ new Date() });
+  return svc;
+}
+async function executeFuturesSignal(connection2, signal) {
+  try {
+    const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
+    const password = decryptPassword4(connection2.encryptedPassword);
+    const svc = await getOrCreateTradovateService(
+      connection2.userId || 0,
+      connection2.username,
+      connection2.encryptedPassword,
+      connection2.accountType,
+      connection2.accountId,
+      connection2.accessToken,
+      connection2.tokenExpiresAt
+    );
+    const { contractId, name: contractName } = await svc.resolveContractId(signal.symbol);
+    const account = await svc.getAccount();
+    const accountId = account.id;
+    if (signal.action === "CLOSE") {
+      const closed = await svc.liquidatePosition(accountId, contractId);
+      return { success: closed };
+    }
+    const order = {
+      accountId,
+      contractId,
+      symbol: contractName,
+      action: signal.direction === "BUY" ? "Buy" : "Sell",
+      orderQty: signal.contracts,
+      orderType: "Market",
+      timeInForce: "Day"
+    };
+    const result = await svc.placeOrder(order);
+    if (result.orderId && (signal.stopLoss || signal.takeProfit)) {
+      console.log(`[Tradovate] Order ${result.orderId} filled. SL: ${signal.stopLoss}, TP: ${signal.takeProfit} \u2014 bracket implementation in Phase 2`);
+    }
+    return { success: true, orderId: result.orderId };
+  } catch (error) {
+    console.error("[Tradovate] executeFuturesSignal error:", error);
+    return { success: false, error: error.message || "Unknown error" };
+  }
+}
+var TradovateService, serviceCache2, CACHE_TTL_MS2;
+var init_tradovate = __esm({
+  "server/tradovate.ts"() {
+    "use strict";
+    init_tradelocker();
+    TradovateService = class {
+      baseUrl;
+      mdUrl;
+      // market data endpoint
+      accessToken = null;
+      tokenExpiresAt = null;
+      accountId = null;
+      username = "";
+      password = "";
+      onTokenRefresh = null;
+      // Contract ID cache: root symbol → { contractId, name, cachedAt }
+      contractCache = /* @__PURE__ */ new Map();
+      constructor(accountType) {
+        if (accountType === "live") {
+          this.baseUrl = "https://live.tradovateapi.com/v1";
+          this.mdUrl = "https://md.tradovateapi.com/v1";
+        } else {
+          this.baseUrl = "https://demo.tradovateapi.com/v1";
+          this.mdUrl = "https://md.tradovateapi.com/v1";
+        }
+      }
+      setCredentials(username, password) {
+        this.username = username;
+        this.password = password;
+      }
+      setToken(accessToken, expiresAt) {
+        this.accessToken = accessToken;
+        this.tokenExpiresAt = expiresAt;
+      }
+      setAccountId(id) {
+        this.accountId = id;
+      }
+      async ensureAuthenticated() {
+        const now = /* @__PURE__ */ new Date();
+        if (!this.accessToken || !this.tokenExpiresAt || this.tokenExpiresAt.getTime() - now.getTime() < 5 * 60 * 1e3) {
+          if (!this.username || !this.password) {
+            throw new Error("No credentials set for Tradovate re-authentication");
+          }
+          await this.authenticate(this.username, this.password);
+        }
+      }
+      async authenticate(username, password) {
+        this.username = username;
+        this.password = password;
+        const body = {
+          name: username,
+          password,
+          appId: process.env.TRADOVATE_APP_ID || "VEDD",
+          appVersion: "1.0",
+          cid: process.env.TRADOVATE_CID ? parseInt(process.env.TRADOVATE_CID, 10) : 0,
+          sec: process.env.TRADOVATE_SEC || ""
+        };
+        const response = await fetch(`${this.baseUrl}/auth/accesstokenrequest`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate auth HTTP ${response.status}: ${text2}`);
+        }
+        const data = await response.json();
+        if (!data.accessToken || data.p === "error") {
+          throw new Error(data.d || "Tradovate authentication failed");
+        }
+        const expiresAt = data.expirationTime ? new Date(data.expirationTime) : new Date(Date.now() + 75 * 60 * 1e3);
+        this.accessToken = data.accessToken;
+        this.tokenExpiresAt = expiresAt;
+        if (this.onTokenRefresh) {
+          this.onTokenRefresh(data.accessToken, expiresAt);
+        }
+        return data;
+      }
+      async get(path16) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path16}`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate GET ${path16} failed (${response.status}): ${text2}`);
+        }
+        return response.json();
+      }
+      async post(path16, body) {
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}${path16}`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Tradovate POST ${path16} failed (${response.status}): ${text2}`);
+        }
+        return response.json();
+      }
+      async getAccounts() {
+        const accounts = await this.get("/account/list");
+        return accounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          balance: a.cashBalance ?? 0,
+          openPnL: a.openPnL ?? 0,
+          closedPnL: a.closedPnL ?? 0,
+          equity: (a.cashBalance ?? 0) + (a.openPnL ?? 0),
+          marginUsed: a.initialMargin ?? 0,
+          availableMargin: a.availableFunds ?? 0,
+          currency: "USD"
+        }));
+      }
+      async getAccount() {
+        const accounts = await this.getAccounts();
+        if (accounts.length === 0) throw new Error("No Tradovate accounts found");
+        if (this.accountId) {
+          const match = accounts.find((a) => a.id === this.accountId);
+          if (match) return match;
+        }
+        return accounts[0];
+      }
+      async getPositions() {
+        const positions = await this.get("/position/list");
+        return positions.filter((p) => p.netPos !== 0).map((p) => ({
+          id: p.id,
+          contractId: p.contractId,
+          symbol: p.contract?.name || String(p.contractId),
+          netPos: p.netPos,
+          netPrice: p.netPrice ?? 0,
+          openPnL: p.openPnL ?? 0,
+          timeEntered: p.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+        }));
+      }
+      async getFills(limit = 100) {
+        const fills = await this.get("/fill/list");
+        return fills.slice(0, limit);
+      }
+      async resolveContractId(rootSymbol) {
+        const cached = this.contractCache.get(rootSymbol.toUpperCase());
+        if (cached && Date.now() - cached.cachedAt.getTime() < 10 * 60 * 1e3) {
+          return { contractId: cached.contractId, name: cached.name };
+        }
+        await this.ensureAuthenticated();
+        const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
+          headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
+        });
+        if (!response.ok) throw new Error(`Failed to resolve contract for ${rootSymbol}`);
+        const contracts = await response.json();
+        const active = contracts.filter((c) => !c.expired && c.name).sort((a, b) => {
+          const da = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+          const db2 = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
+          return da - db2;
+        });
+        if (active.length === 0) throw new Error(`No active contracts found for ${rootSymbol}`);
+        const frontMonth = active[0];
+        const result = { contractId: frontMonth.id, name: frontMonth.name };
+        this.contractCache.set(rootSymbol.toUpperCase(), { ...result, cachedAt: /* @__PURE__ */ new Date() });
+        return result;
+      }
+      async placeOrder(order) {
+        const body = {
+          accountId: order.accountId,
+          contractId: order.contractId,
+          action: order.action,
+          orderQty: order.orderQty,
+          orderType: order.orderType,
+          price: order.price,
+          stopPrice: order.stopPrice,
+          timeInForce: order.timeInForce || "Day",
+          isAutomated: true
+        };
+        const result = await this.post("/order/placeorder", body);
+        if (result.failureReason) {
+          throw new Error(`Order rejected: ${result.failureReason}`);
+        }
+        return {
+          orderId: result.orderId || result.id,
+          status: result.orderStatus || "Working",
+          message: result.errorMessage
+        };
+      }
+      async cancelOrder(orderId) {
+        try {
+          await this.post("/order/cancelorder", { orderId });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      async liquidatePosition(accountId, contractId) {
+        try {
+          await this.post("/order/liquidateposition", { accountId, contractId, isAutomated: true });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    };
+    serviceCache2 = /* @__PURE__ */ new Map();
+    CACHE_TTL_MS2 = 50 * 60 * 1e3;
+  }
+});
+
+// server/futures-instruments.ts
+function getInstrument(symbol) {
+  return FUTURES_INSTRUMENTS[symbol.toUpperCase()];
+}
+function calculateContractRisk(symbol, entryPrice, stopLossPrice, contracts) {
+  const inst = getInstrument(symbol);
+  if (!inst) return { ticks: 0, dollarRisk: 0, pointsRisk: 0 };
+  const priceDiff = Math.abs(entryPrice - stopLossPrice);
+  const ticks = Math.round(priceDiff / inst.tickSize);
+  const dollarRisk = ticks * inst.tickValue * contracts;
+  return { ticks, dollarRisk, pointsRisk: priceDiff };
+}
+function calculateContractSize(symbol, accountBalance, riskPercent, entryPrice, stopLossPrice) {
+  const inst = getInstrument(symbol);
+  if (!inst) return 1;
+  const riskDollars = accountBalance * (riskPercent / 100);
+  const priceDiff = Math.abs(entryPrice - stopLossPrice);
+  if (priceDiff <= 0) return 1;
+  const ticks = Math.round(priceDiff / inst.tickSize);
+  const dollarRiskPerContract = ticks * inst.tickValue;
+  if (dollarRiskPerContract <= 0) return 1;
+  return Math.max(1, Math.floor(riskDollars / dollarRiskPerContract));
+}
+var FUTURES_INSTRUMENTS;
+var init_futures_instruments = __esm({
+  "server/futures-instruments.ts"() {
+    "use strict";
+    FUTURES_INSTRUMENTS = {
+      // ── Equity Index ───────────────────────────────────────────────────────────
+      NQ: { symbol: "NQ", tickSize: 0.25, tickValue: 5, pointValue: 20, exchange: "CME", description: "E-mini NASDAQ-100", microContract: false, standardContract: null, typicalDailyRange: 200, category: "equity" },
+      MNQ: { symbol: "MNQ", tickSize: 0.25, tickValue: 0.5, pointValue: 2, exchange: "CME", description: "Micro E-mini NASDAQ-100", microContract: true, standardContract: "NQ", typicalDailyRange: 200, category: "equity" },
+      ES: { symbol: "ES", tickSize: 0.25, tickValue: 12.5, pointValue: 50, exchange: "CME", description: "E-mini S&P 500", microContract: false, standardContract: null, typicalDailyRange: 50, category: "equity" },
+      MES: { symbol: "MES", tickSize: 0.25, tickValue: 1.25, pointValue: 5, exchange: "CME", description: "Micro E-mini S&P 500", microContract: true, standardContract: "ES", typicalDailyRange: 50, category: "equity" },
+      YM: { symbol: "YM", tickSize: 1, tickValue: 5, pointValue: 5, exchange: "CBOT", description: "E-mini Dow Jones 30", microContract: false, standardContract: null, typicalDailyRange: 300, category: "equity" },
+      MYM: { symbol: "MYM", tickSize: 1, tickValue: 0.5, pointValue: 0.5, exchange: "CBOT", description: "Micro E-mini Dow Jones 30", microContract: true, standardContract: "YM", typicalDailyRange: 300, category: "equity" },
+      RTY: { symbol: "RTY", tickSize: 0.1, tickValue: 5, pointValue: 50, exchange: "CME", description: "E-mini Russell 2000", microContract: false, standardContract: null, typicalDailyRange: 20, category: "equity" },
+      M2K: { symbol: "M2K", tickSize: 0.1, tickValue: 0.5, pointValue: 5, exchange: "CME", description: "Micro E-mini Russell 2000", microContract: true, standardContract: "RTY", typicalDailyRange: 20, category: "equity" },
+      // ── Metals ─────────────────────────────────────────────────────────────────
+      GC: { symbol: "GC", tickSize: 0.1, tickValue: 10, pointValue: 100, exchange: "COMEX", description: "Gold Futures", microContract: false, standardContract: null, typicalDailyRange: 25, category: "metal" },
+      MGC: { symbol: "MGC", tickSize: 0.1, tickValue: 1, pointValue: 10, exchange: "COMEX", description: "Micro Gold Futures", microContract: true, standardContract: "GC", typicalDailyRange: 25, category: "metal" },
+      SI: { symbol: "SI", tickSize: 5e-3, tickValue: 25, pointValue: 5e3, exchange: "COMEX", description: "Silver Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "metal" },
+      SIL: { symbol: "SIL", tickSize: 5e-3, tickValue: 2.5, pointValue: 500, exchange: "COMEX", description: "Micro Silver Futures", microContract: true, standardContract: "SI", typicalDailyRange: 0.5, category: "metal" },
+      // ── Energy ─────────────────────────────────────────────────────────────────
+      CL: { symbol: "CL", tickSize: 0.01, tickValue: 10, pointValue: 1e3, exchange: "NYMEX", description: "Crude Oil Futures (WTI)", microContract: false, standardContract: null, typicalDailyRange: 2, category: "energy" },
+      MCL: { symbol: "MCL", tickSize: 0.01, tickValue: 1, pointValue: 100, exchange: "NYMEX", description: "Micro Crude Oil Futures", microContract: true, standardContract: "CL", typicalDailyRange: 2, category: "energy" },
+      NG: { symbol: "NG", tickSize: 1e-3, tickValue: 10, pointValue: 1e4, exchange: "NYMEX", description: "Natural Gas Futures", microContract: false, standardContract: null, typicalDailyRange: 0.1, category: "energy" },
+      // ── Treasury Rates ──────────────────────────────────────────────────────────
+      ZN: { symbol: "ZN", tickSize: 0.015625, tickValue: 15.625, pointValue: 1e3, exchange: "CBOT", description: "10-Year T-Note Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "rates" },
+      ZB: { symbol: "ZB", tickSize: 0.03125, tickValue: 31.25, pointValue: 1e3, exchange: "CBOT", description: "30-Year T-Bond Futures", microContract: false, standardContract: null, typicalDailyRange: 1, category: "rates" }
+    };
+  }
+});
+
 // server/market-data/cache.ts
 var MarketDataCache, marketDataCache;
 var init_cache = __esm({
@@ -23315,6 +23641,1402 @@ function computeOrderFlow(candles, lookback = 20) {
 var init_orderflow_strategy = __esm({
   "server/services/orderflow-strategy.ts"() {
     "use strict";
+  }
+});
+
+// server/moomoo.ts
+function toFutuSymbol(symbol) {
+  return FUTU_SYMBOL_MAP[symbol] || symbol;
+}
+function getMoomooService(userId) {
+  return moomooServices.get(userId) || null;
+}
+function getOrCreateMoomooService(userId, connection2) {
+  const existing = moomooServices.get(userId);
+  if (existing) {
+    existing.updateConnection(connection2);
+    return existing;
+  }
+  const svc = new MoomooService(connection2);
+  moomooServices.set(userId, svc);
+  return svc;
+}
+function removeMoomooService(userId) {
+  moomooServices.delete(userId);
+}
+var FUTU_SYMBOL_MAP, moomooServices, MoomooService;
+var init_moomoo = __esm({
+  "server/moomoo.ts"() {
+    "use strict";
+    FUTU_SYMBOL_MAP = {
+      NQ: "NQmain",
+      MNQ: "MNQmain",
+      ES: "ESmain",
+      MES: "MESmain",
+      YM: "YMmain",
+      MYM: "MYMmain",
+      RTY: "RTYmain",
+      M2K: "M2Kmain",
+      GC: "GCmain",
+      MGC: "MGCmain",
+      SI: "SImain",
+      CL: "CLmain",
+      MCL: "MCLmain",
+      NG: "NGmain"
+    };
+    moomooServices = /* @__PURE__ */ new Map();
+    MoomooService = class {
+      connection;
+      connected = false;
+      orderCounter = 1e3;
+      constructor(connection2) {
+        this.connection = connection2;
+      }
+      updateConnection(connection2) {
+        this.connection = connection2;
+      }
+      isConnected() {
+        return this.connected;
+      }
+      isPaperMode() {
+        return this.connection.isPaper || process.env.MOOMOO_PAPER_MODE === "true";
+      }
+      // Test connectivity to OpenD or enable paper mode
+      async connect() {
+        if (this.isPaperMode()) {
+          this.connected = true;
+          return { success: true, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/user/check`, {
+            method: "GET",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(5e3)
+          });
+          if (res.ok) {
+            this.connected = true;
+            return { success: true, isPaper: false };
+          }
+          throw new Error(`OpenD returned ${res.status}`);
+        } catch (err) {
+          console.warn("[Moomoo] OpenD unreachable \u2014 switching to paper mode:", err.message);
+          this.connection.isPaper = true;
+          this.connected = true;
+          return { success: true, isPaper: true, error: `OpenD offline \u2014 paper mode active` };
+        }
+      }
+      async getAccountInfo() {
+        const isPaper = this.isPaperMode();
+        if (isPaper) {
+          return {
+            accountId: this.connection.accountId || "PAPER",
+            balance: 5e4,
+            equity: 5e4,
+            unrealizedPnl: 0,
+            marginUsed: 0,
+            availableMargin: 5e4,
+            currency: "USD",
+            isPaper: true
+          };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/accinfo/query`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const info = data?.s2c?.acc_info_list?.[0];
+          if (!info) throw new Error("No account info returned");
+          return {
+            accountId: this.connection.accountId,
+            balance: info.cash || 0,
+            equity: info.net_asset_val || 0,
+            unrealizedPnl: info.unrealized_pl || 0,
+            marginUsed: info.margin_call_margin || 0,
+            availableMargin: info.avl_withdrawal_amount || 0,
+            currency: "USD",
+            isPaper: false
+          };
+        } catch (err) {
+          throw new Error(`Moomoo account info failed: ${err.message}`);
+        }
+      }
+      async placeOrder(req) {
+        const isPaper = this.isPaperMode();
+        const futuSymbol = toFutuSymbol(req.symbol);
+        const orderId = `MM${++this.orderCounter}`;
+        if (isPaper) {
+          console.log(`[Moomoo Paper] ${req.direction} ${req.contracts} ${futuSymbol} | SL=${req.stopLoss ?? "N/A"} TP=${req.takeProfit ?? "N/A"}`);
+          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const body = {
+            header: { req_id: orderId },
+            acc_id: parseInt(this.connection.accountId) || 0,
+            sec_type: 5,
+            // futures
+            code: futuSymbol,
+            trd_side: req.direction === "BUY" ? 1 : 2,
+            order_type: 2,
+            // market order
+            qty: req.contracts,
+            price: 0,
+            // market price
+            trd_env: 1,
+            // real trading
+            remark: "VEDD_AUTO"
+          };
+          const res = await fetch(`${url}/v1/trade/place_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const orderNum = data?.s2c?.order_id?.toString();
+          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+          return { success: true, orderId: orderNum, isPaper: false };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+      // Options trading via OpenD sec_type=3. Requires OpenD to already have
+      // option quote/trade permissions enabled on the connected Futu account.
+      async getOptionsChain(underlyingCode) {
+        if (this.isPaperMode()) return [];
+        const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+        const res = await fetch(`${url}/v1/qot/get_option_chain`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
+          // market 11 = US
+          signal: AbortSignal.timeout(1e4)
+        });
+        if (!res.ok) throw new Error(`OpenD ${res.status}`);
+        const data = await res.json();
+        return data?.s2c?.optionChain || [];
+      }
+      async placeOptionsOrder(req) {
+        const isPaper = this.isPaperMode();
+        const orderId = `MMOPT${++this.orderCounter}`;
+        if (isPaper) {
+          console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
+          return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
+        }
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const body = {
+            header: { req_id: orderId },
+            acc_id: parseInt(this.connection.accountId) || 0,
+            sec_type: 3,
+            // option
+            code: req.optionCode,
+            trd_side: req.direction === "BUY" ? 1 : 2,
+            order_type: req.orderType === "limit" ? 1 : 2,
+            qty: req.contracts,
+            price: req.orderType === "limit" ? req.limitPrice || 0 : 0,
+            trd_env: 1,
+            remark: "VEDD_AUTO_OPTIONS"
+          };
+          const res = await fetch(`${url}/v1/trade/place_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(1e4)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          const data = await res.json();
+          const orderNum = data?.s2c?.order_id?.toString();
+          if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
+          return { success: true, orderId: orderNum, isPaper: false };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+      async cancelOrder(orderId) {
+        if (this.isPaperMode()) return { success: true };
+        try {
+          const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
+          const res = await fetch(`${url}/v1/trade/modify_order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
+            signal: AbortSignal.timeout(8e3)
+          });
+          if (!res.ok) throw new Error(`OpenD ${res.status}`);
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: err.message };
+        }
+      }
+    };
+  }
+});
+
+// server/services/futures-scanner.ts
+var futures_scanner_exports = {};
+__export(futures_scanner_exports, {
+  DEFAULT_FUTURES_SYMBOLS: () => DEFAULT_FUTURES_SYMBOLS,
+  buildFuturesScanConfigFromRow: () => buildFuturesScanConfigFromRow,
+  getFuturesScannerActivities: () => getFuturesScannerActivities,
+  getFuturesScannerSignals: () => getFuturesScannerSignals,
+  getFuturesScannerState: () => getFuturesScannerState,
+  recordFuturesTradeOutcome: () => recordFuturesTradeOutcome,
+  resumeActiveFuturesScanners: () => resumeActiveFuturesScanners,
+  startFuturesEngineScanner: () => startFuturesEngineScanner,
+  startFuturesScanner: () => startFuturesScanner,
+  stopFuturesScanner: () => stopFuturesScanner
+});
+function uid() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+function addActivity(userId, entry) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  state.activities.unshift({ id: uid(), timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry });
+  if (state.activities.length > MAX_ACTIVITIES) state.activities.length = MAX_ACTIVITIES;
+}
+function addSignal(userId, signal) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  state.signals.unshift(signal);
+  if (state.signals.length > MAX_SIGNALS) state.signals.length = MAX_SIGNALS;
+}
+function convertToCandles(bars) {
+  return bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
+}
+function getCurrentFuturesSession() {
+  const hour = (/* @__PURE__ */ new Date()).getUTCHours();
+  if (hour >= 14 && hour < 21) return "CME_RTH";
+  if (hour >= 8 && hour < 10) return "LONDON_OPEN";
+  if (hour >= 21 || hour < 2) return "AFTER_HOURS";
+  return "OVERNIGHT";
+}
+function getAdjustedMinConfidence(userId, symbol) {
+  const state = scannerStates[userId];
+  if (!state) return 65;
+  const perf = state.symbolPerformance[symbol];
+  if (!perf || perf.wins + perf.losses < 3) return state.config.minConfidence;
+  const winRate2 = perf.wins / (perf.wins + perf.losses);
+  if (winRate2 < 0.35) return Math.min(90, state.config.minConfidence + 10);
+  if (winRate2 > 0.65) return Math.max(55, state.config.minConfidence - 5);
+  return state.config.minConfidence;
+}
+function recordOutcome(userId, symbol, won, rMultiple2) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  if (!state.symbolPerformance[symbol]) {
+    state.symbolPerformance[symbol] = { wins: 0, losses: 0, totalR: 0 };
+  }
+  const perf = state.symbolPerformance[symbol];
+  if (won) {
+    perf.wins++;
+    state.wins++;
+  } else {
+    perf.losses++;
+    state.losses++;
+  }
+  perf.totalR += rMultiple2;
+  addActivity(userId, {
+    type: "info",
+    symbol,
+    message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
+  });
+}
+async function computeFuturesContractSize(userId, cfg, accountBalance, riskPerTradePct, entryPrice, stopLoss, symbol, signalScore = null) {
+  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
+  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
+    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
+    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + kelly.winRate / 100 * 0.25))) : baseContracts;
+    return { contracts: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
+  }
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+    }
+    return { contracts: baseContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getFuturesEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
+    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+  }
+  return { contracts: baseContracts, reasoning: "" };
+}
+function computeFuturesTrailFloorR(cfg, peakR) {
+  switch (cfg.trailMethod) {
+    case "fixed_r":
+      return peakR - cfg.trailFixedR;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case "profit_lock":
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakR - cfg.trailFixedR * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR / 1 * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case "swing_structure":
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function monitorOpenFuturesPositions(userId, cfg) {
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
+  for (const trade of openTrades) {
+    try {
+      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: "futures", timeframe: "1m", limit: 2 });
+      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
+      if (!currentPrice || !trade.stopLoss) continue;
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === "long";
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      if (armed) {
+        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
+        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          const connection2 = await storage.getUserTradovateConnection(userId);
+          if (connection2) {
+            await executeFuturesSignal(connection2, {
+              action: "CLOSE",
+              symbol: trade.symbol,
+              direction: isLong ? "SELL" : "BUY",
+              contracts: trade.contracts
+            }).catch(() => {
+            });
+          }
+          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
+          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
+          addActivity(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
+          continue;
+        }
+      }
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err) {
+      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
+    }
+  }
+}
+async function checkFuturesSafetyGates(userId, cfg, equity) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayFuturesEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
+    futuresSessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
+      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
+      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
+      const tradingDays = recentKeys.length;
+      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
+      const todayIsLosing = todayPnl < 0;
+      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
+      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
+      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
+      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+function quickQuantVerdict(data, direction) {
+  let score = 0;
+  const adx = data.adx?.adx || 0;
+  const rsi3 = data.rsi?.value || 50;
+  const macdHist2 = data.macd?.histogram || 0;
+  if (adx > 25) score += 25;
+  if (direction === "BUY" ? rsi3 >= 40 && rsi3 <= 65 : rsi3 >= 35 && rsi3 <= 60) score += 20;
+  if (direction === "BUY" ? macdHist2 > 0 : macdHist2 < 0) score += 20;
+  if (data.trend === (direction === "BUY" ? "BULLISH" : "BEARISH")) score += 15;
+  const verdict = score >= 50 ? "CONFIRM" : score >= 30 ? "WATCH" : "SKIP";
+  return { verdict, score };
+}
+function pushFuturesConsensus(userId, entry) {
+  global.futuresEngineConsensus = global.futuresEngineConsensus || {};
+  const list = global.futuresEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+}
+async function getFuturesAiConfirmation(userId, symbol, strategy, direction, data) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
+    const user = `Symbol: ${symbol}
+Strategy: ${strategy}
+Direction: ${direction}
+ADX: ${data.adx?.adx ?? "n/a"}
+RSI: ${data.rsi?.value ?? "n/a"}
+MACD histogram: ${data.macd?.histogram ?? "n/a"}
+Trend: ${data.trend ?? "n/a"}
+
+Would you confirm this trade?`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return {
+      confirmed: !!parsed.confirmed,
+      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
+      reasoning: String(parsed.reasoning || "")
+    };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+async function assembleFuturesConsensus(userId, symbol, strategy, direction, data, cfg, precomputedAi) {
+  const quant = quickQuantVerdict(data, direction);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quant.verdict !== "SKIP";
+    pushFuturesConsensus(userId, {
+      symbol,
+      strategy,
+      quantVerdict: quant.verdict,
+      quantScore: quant.score,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      consensus: quant.verdict === "CONFIRM" ? "STRONG_CONFIRM" : quant.verdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
+  const aiConfidence = ai.confidence;
+  const aiVerdict = precomputedAi ? aiConfidence >= 60 ? "CONFIRM" : "SKIP" : ai.confirmed ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP";
+  pushFuturesConsensus(userId, {
+    symbol,
+    strategy,
+    quantVerdict: quant.verdict,
+    quantScore: quant.score,
+    aiVerdict,
+    aiConfidence,
+    consensus,
+    tradeAllowed,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  return tradeAllowed;
+}
+function isHighImpactNewsWindow() {
+  const now = /* @__PURE__ */ new Date();
+  const utcDay = now.getUTCDay();
+  const utcHour = now.getUTCHours();
+  const utcMin = now.getUTCMinutes();
+  const totalMin = utcHour * 60 + utcMin;
+  if (utcDay === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay === 3 && totalMin >= 915 && totalMin <= 945) return true;
+  if (utcDay >= 1 && utcDay <= 5 && totalMin >= 795 && totalMin <= 825) return true;
+  if (utcDay === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
+  return false;
+}
+function computeSmartMoney(candles) {
+  const res = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
+  if (candles.length < 10) return res;
+  const recent = candles.slice(-12);
+  for (let i = 1; i < recent.length - 2; i++) {
+    const c = recent[i];
+    const bodyPct = Math.abs(c.c - c.o) / c.o;
+    if (bodyPct < 8e-4) continue;
+    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
+    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
+  }
+  for (let i = 1; i < recent.length - 1; i++) {
+    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
+    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
+  }
+  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.l));
+  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.h));
+  const last = recent[recent.length - 1];
+  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
+  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
+  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
+  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
+  return res;
+}
+function computeVolumeProfile(candles, currentPrice) {
+  const empty = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
+  if (candles.length < 5) return empty;
+  const prices = candles.map((c) => (c.h + c.l + c.c) / 3);
+  const minP = Math.min(...prices), maxP = Math.max(...prices);
+  if (maxP === minP) return empty;
+  const BUCKETS = 20;
+  const bSize = (maxP - minP) / BUCKETS;
+  const volByBucket = new Array(BUCKETS).fill(0);
+  for (let i = 0; i < candles.length; i++) {
+    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
+    volByBucket[idx] += candles[i].v || 1;
+  }
+  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
+  const poc = minP + (pocIdx + 0.5) * bSize;
+  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
+  const target = totalVol * 0.7;
+  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
+  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
+    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
+    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
+    if (addLo >= addHi && lo > 0) {
+      lo--;
+      acc += addLo;
+    } else if (hi < BUCKETS - 1) {
+      hi++;
+      acc += addHi;
+    } else break;
+  }
+  const val = minP + lo * bSize;
+  const vah = minP + (hi + 1) * bSize;
+  const prox = bSize * 1.5;
+  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
+}
+function computeVolumeDelta(candles, lookback = 10) {
+  let delta = 0;
+  for (const c of candles.slice(-lookback)) {
+    const range = c.h - c.l;
+    if (range <= 0) continue;
+    const buyFrac = (c.c - c.l) / range;
+    delta += (buyFrac * 2 - 1) * (c.v || 1);
+  }
+  return delta;
+}
+async function runFuturesAIAnalysis(userId, marketAnalysis) {
+  const state = scannerStates[userId];
+  if (!state) return;
+  const config = state.config;
+  const session3 = getCurrentFuturesSession();
+  if (config.aiMode === "rule_based") {
+    const newsBlock = isHighImpactNewsWindow();
+    if (newsBlock) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
+    for (const [symbol, data] of Object.entries(marketAnalysis)) {
+      const inst = getInstrument(symbol);
+      if (!inst) continue;
+      const adx = data.adx?.adx || 0;
+      const plusDI = data.adx?.plusDI || 0;
+      const minusDI = data.adx?.minusDI || 0;
+      const rsi3 = data.rsi?.value || 50;
+      const macdCross = data.macd?.histogram > 0;
+      const candles = data.candles || [];
+      let direction = null;
+      let confluences = [];
+      let confidence2 = 0;
+      let strategy = "rule_based";
+      if (adx > 25 && plusDI > minusDI && rsi3 < 65 && macdCross) {
+        direction = "BUY";
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
+      } else if (adx > 25 && minusDI > plusDI && rsi3 > 35 && !macdCross) {
+        direction = "SELL";
+        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
+        confidence2 = 65;
+        strategy = "adx_macd";
+      }
+      const sm = computeSmartMoney(candles);
+      if (!direction && sm.liqSweepBull) {
+        direction = "BUY";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bull)"];
+      } else if (!direction && sm.liqSweepBear) {
+        direction = "SELL";
+        confidence2 = 63;
+        strategy = "smart_money";
+        confluences = ["Liquidity sweep reversal (bear)"];
+      }
+      if (direction) {
+        const isBull = direction === "BUY";
+        if (sm.orderBlockBull && isBull) {
+          confidence2 += 4;
+          confluences.push("Bullish order block");
+        }
+        if (sm.orderBlockBear && !isBull) {
+          confidence2 += 4;
+          confluences.push("Bearish order block");
+        }
+        if (sm.fvgBull && isBull) {
+          confidence2 += 3;
+          confluences.push("Bullish FVG");
+        }
+        if (sm.fvgBear && !isBull) {
+          confidence2 += 3;
+          confluences.push("Bearish FVG");
+        }
+        if (sm.liqSweepBull && isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bull)");
+        }
+        if (sm.liqSweepBear && !isBull) {
+          confidence2 += 5;
+          confluences.push("Liquidity sweep (bear)");
+        }
+        const vp = computeVolumeProfile(candles, data.currentPrice);
+        if (vp.poc > 0) {
+          if (isBull && vp.priceNearVAL) {
+            confidence2 += 4;
+            confluences.push("Price at VAL (vol support)");
+          }
+          if (!isBull && vp.priceNearVAH) {
+            confidence2 += 4;
+            confluences.push("Price at VAH (vol resistance)");
+          }
+          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
+        }
+        const delta = computeVolumeDelta(candles);
+        if (isBull && delta > 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: buyer aggression`);
+        } else if (!isBull && delta < 0) {
+          confidence2 += 3;
+          confluences.push(`Vol delta: seller aggression`);
+        } else if (delta !== 0) {
+          confidence2 -= 4;
+          confluences.push("Vol delta opposing signal");
+        }
+        if (candles.length >= 10) {
+          const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
+          confidence2 += markov.confidenceAdjustment;
+          confluences.push(markov.reason);
+          if (markov.confidenceAdjustment !== 0) {
+            strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
+          }
+        }
+        if (candles.length >= 10) {
+          const of = computeOrderFlow(candles, Math.min(30, candles.length));
+          const isBull2 = direction === "BUY";
+          if (of.direction !== "NEUTRAL") {
+            if (of.direction === direction) {
+              if (of.divergence) {
+                confidence2 += 5;
+                confluences.push(`OF delta divergence (${of.divergenceType})`);
+              }
+              if (of.absorption) {
+                confidence2 += 4;
+                confluences.push(`OF absorption (${of.absorptionType})`);
+              }
+              if (of.imbalance) {
+                confidence2 += 3;
+                confluences.push(`OF imbalance (${of.imbalanceType})`);
+              }
+              if (of.cvdTrend !== "flat") {
+                confidence2 += 2;
+                confluences.push(`CVD ${of.cvdTrend}`);
+              }
+              strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
+            } else {
+              confidence2 -= 8;
+              confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
+            }
+          } else if (!direction) {
+            if (of.confidence >= 65) {
+              direction = of.direction;
+              confidence2 = of.confidence;
+              strategy = "order_flow";
+              confluences = of.confluences;
+            }
+          }
+        }
+        if (newsBlock) {
+          confidence2 -= 15;
+          confluences.push("News window penalty");
+        }
+      }
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && direction === "BUY" || effectiveDirectionFilter === "short_only" && direction === "SELL";
+      if (direction && !directionAllowed) continue;
+      if (!direction) continue;
+      let minConf = getAdjustedMinConfidence(userId, symbol);
+      if (config.smartSymbolEscalation) {
+        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
+        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
+      }
+      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
+      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
+      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
+      const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
+      const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
+      const tpTicks = slTicks * 2;
+      const entryPrice = data.currentPrice;
+      const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
+      const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
+      const maxContracts = config.symbolContractOverrides[symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
+      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
+      const signal = {
+        id: uid(),
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol,
+        direction,
+        contracts: Math.max(1, contracts),
+        entryPrice,
+        stopLoss: sl,
+        takeProfit: tp,
+        stopLossTicks: slTicks,
+        takeProfitTicks: tpTicks,
+        confidence: Math.min(100, Math.max(0, confidence2)),
+        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
+        strategy,
+        confluences,
+        status: "pending"
+      };
+      addActivity(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
+      addSignal(userId, signal);
+      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
+      }
+    }
+    return;
+  }
+  let openai2;
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    openai2 = await getUniversalAIClientForUser2(userId);
+  } catch {
+    addActivity(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
+    return;
+  }
+  const _primaryClient = openai2;
+  const _primaryModel = openai2.defaultModel || "gpt-4o";
+  let _usingGroq = false;
+  if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
+    try {
+      const OpenAI9 = (await import("openai")).default;
+      const groq = new OpenAI9({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
+      groq.defaultModel = "openai/gpt-oss-120b";
+      openai2 = groq;
+      _usingGroq = true;
+    } catch {
+    }
+  }
+  const model = openai2.defaultModel || "gpt-4o";
+  const newsWindowActive = isHighImpactNewsWindow();
+  if (newsWindowActive) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
+  const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
+    const inst = getInstrument(sym);
+    const vol = data.volatilityContext;
+    const sr = data.supportResistance;
+    const atr2 = vol?.currentATR || 0;
+    const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
+    const candles = data.candles || [];
+    const perfNote = (() => {
+      const perf = state.symbolPerformance[sym];
+      if (!perf || perf.wins + perf.losses < 2) return "";
+      const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
+      return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
+    })();
+    const smNote = (() => {
+      if (candles.length < 10) return "";
+      const sm = computeSmartMoney(candles);
+      const parts = [];
+      if (sm.orderBlockBull) parts.push("BullOB");
+      if (sm.orderBlockBear) parts.push("BearOB");
+      if (sm.fvgBull) parts.push("BullFVG");
+      if (sm.fvgBear) parts.push("BearFVG");
+      if (sm.liqSweepBull) parts.push("LiqSweepBull");
+      if (sm.liqSweepBear) parts.push("LiqSweepBear");
+      return parts.length ? `, SmartMoney=[${parts.join(",")}]` : "";
+    })();
+    const vpNote = (() => {
+      if (candles.length < 5) return "";
+      const vp = computeVolumeProfile(candles, data.currentPrice);
+      if (!vp.poc) return "";
+      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
+    })();
+    const deltaNote = (() => {
+      if (candles.length < 5) return "";
+      const d = computeVolumeDelta(candles);
+      return `, VolDelta=${d > 0 ? "+" : ""}${Math.round(d)}(${d > 0 ? "buyers" : "sellers"})`;
+    })();
+    const markovNote = (() => {
+      if (candles.length < 10) return "";
+      const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
+      const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
+      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
+    })();
+    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
+  }).join("\n");
+  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
+  const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
+  const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
+
+CURRENT SESSION: ${session3} (UTC hour: ${(/* @__PURE__ */ new Date()).getUTCHours()})
+ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
+CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
+SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
+
+MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
+${marketSummary}
+
+STRATEGY CONFLUENCE GUIDE:
+- SmartMoney=[BullOB/BearOB]: Order block present \u2014 high-probability reversal zone
+- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap \u2014 price likely fills imbalance
+- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal \u2014 strong fade opportunity
+- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
+- VolProfile(NearPOC=true): Highest traded price cluster \u2014 magnet or pivot
+- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
+- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence \xB1pts
+
+FUTURES TRADING RULES:
+- Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
+- Energy (CL, NG) and Metals (GC, SI) trade 24h but with best volume during RTH
+- ALWAYS calculate stop loss in TICKS, not pips \u2014 each instrument has unique tick size
+- Prefer 1.5R minimum reward:risk. Scale to 2R or 3R when momentum is clear
+- During AFTER_HOURS or OVERNIGHT, only trade if ADX > 30 and patterns are clear
+- High-impact news (FOMC, NFP, CPI, EIA) creates volatility \u2014 avoid entries 15min before/after
+- Micro contracts (MNQ, MES, MYM, M2K, MGC, MCL) are appropriate for smaller accounts
+- Self-learning: if a symbol has been losing (shown in history), be MORE selective (require 80%+ confidence)
+
+Analyze the market data and decide whether to generate trade signals.
+
+Respond ONLY with valid JSON:
+{
+  "decisions": [
+    {
+      "symbol": "NQ",
+      "direction": "BUY",
+      "confidence": 78,
+      "strategy": "breakout_momentum",
+      "reason": "brief explanation",
+      "confluences": ["ADX 32 trending", "RSI 58 rising", "MACD bullish cross", "price at support"],
+      "stopLossTicks": 20,
+      "takeProfitTicks": 40,
+      "holdTime": "45-90 minutes"
+    }
+  ],
+  "marketOverview": "brief overall assessment",
+  "sessionNote": "any session-specific notes"
+}
+
+Rules for decisions array:
+- Only include signals with confidence >= ${config.minConfidence}%
+- Max ${config.maxOpenTrades} signals per cycle
+- If no good setups exist, return empty decisions array
+- stopLossTicks and takeProfitTicks must be positive integers
+- confidence is 0-100`;
+  try {
+    addActivity(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
+    const _mkReq = (m) => ({
+      model: m,
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      max_tokens: 1200,
+      temperature: 0.3
+    });
+    let response;
+    try {
+      response = await openai2.chat.completions.create(_mkReq(model));
+    } catch (aiErr) {
+      if (_usingGroq) {
+        addActivity(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
+        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
+      } else {
+        throw aiErr;
+      }
+    }
+    const raw = response.choices[0]?.message?.content || "{}";
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
+    const decisions = parsed.decisions || [];
+    if (parsed.marketOverview) {
+      addActivity(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
+    }
+    if (decisions.length === 0) {
+      addActivity(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
+      return;
+    }
+    for (const d of decisions) {
+      if (!d.symbol || !d.direction || !d.confidence) continue;
+      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
+      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && d.direction === "BUY" || effectiveDirectionFilter === "short_only" && d.direction === "SELL";
+      if (!directionAllowed) continue;
+      const minConf = getAdjustedMinConfidence(userId, d.symbol);
+      if (d.confidence < minConf) {
+        addActivity(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
+        continue;
+      }
+      const inst = getInstrument(d.symbol);
+      if (!inst) continue;
+      const price = marketAnalysis[d.symbol]?.currentPrice || 0;
+      const slTicks = Math.max(4, d.stopLossTicks || 20);
+      const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
+      const sl = d.direction === "BUY" ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
+      const tp = d.direction === "BUY" ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
+      const maxContracts = config.symbolContractOverrides[d.symbol] || void 0;
+      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
+      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
+      const signal = {
+        id: uid(),
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        symbol: d.symbol,
+        direction: d.direction,
+        contracts,
+        entryPrice: price,
+        stopLoss: sl,
+        takeProfit: tp,
+        stopLossTicks: slTicks,
+        takeProfitTicks: tpTicks,
+        confidence: d.confidence,
+        reason: (d.reason || "") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
+        strategy: d.strategy || "ai_analysis",
+        confluences: d.confluences || [],
+        status: "pending"
+      };
+      addActivity(userId, {
+        type: "signal",
+        symbol: d.symbol,
+        direction: d.direction,
+        confidence: d.confidence,
+        message: `\u26A1 FUTURES SIGNAL: ${d.direction} ${d.symbol} @ ${price} | Conf: ${d.confidence}% | SL: ${slTicks}t ($${(slTicks * inst.tickValue * contracts).toFixed(0)} risk) | TP: ${tpTicks}t | Strategy: ${d.strategy}`,
+        details: { confluences: d.confluences, holdTime: d.holdTime }
+      });
+      addSignal(userId, signal);
+      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
+      if (tradeAllowed) {
+        await executeSignalIfEnabled(userId, signal);
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = "Blocked by Dual-Vote Consensus";
+        addActivity(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
+      }
+    }
+  } catch (err) {
+    addActivity(userId, { type: "error", message: `Futures AI error: ${err.message}` });
+  }
+}
+async function executeSignalIfEnabled(userId, signal) {
+  const state = scannerStates[userId];
+  if (!state || !state.config.enableAutoExecution) return;
+  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
+  if (!gate.allowed) {
+    signal.status = "rejected";
+    signal.executionResult = gate.reason;
+    addActivity(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
+    return;
+  }
+  if (gate.riskMultiplier < 1) {
+    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
+    addActivity(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
+  }
+  const moomoo = getMoomooService(userId);
+  if (moomoo && moomoo.isConnected()) {
+    try {
+      const result = await moomoo.placeOrder({
+        symbol: signal.symbol,
+        direction: signal.direction,
+        contracts: signal.contracts,
+        stopLoss: signal.stopLoss || void 0,
+        takeProfit: signal.takeProfit || void 0
+      });
+      if (result.success) {
+        signal.status = "executed";
+        signal.executionResult = `Moomoo Order #${result.orderId}`;
+        addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+        await storage.createFuturesEngineTrade({
+          userId,
+          connectionId: 0,
+          broker: "moomoo",
+          symbol: signal.symbol,
+          strategy: signal.strategy,
+          direction: signal.direction === "BUY" ? "long" : "short",
+          contracts: signal.contracts,
+          entryPrice: signal.entryPrice ?? 0,
+          stopLoss: signal.stopLoss,
+          takeProfit: signal.takeProfit,
+          entryOrderId: String(result.orderId ?? ""),
+          entryReasoning: signal.reason,
+          status: "open"
+        }).catch(() => {
+        });
+      } else {
+        signal.status = "rejected";
+        signal.executionResult = result.error || "Moomoo execution failed";
+        addActivity(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
+      }
+      return;
+    } catch (err) {
+      addActivity(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
+    }
+  }
+  try {
+    const connection2 = await storage.getUserTradovateConnection(userId);
+    if (!connection2 || !connection2.isActive) {
+      addActivity(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
+      return;
+    }
+    const result = await executeFuturesSignal(connection2, {
+      action: "OPEN",
+      symbol: signal.symbol,
+      direction: signal.direction,
+      contracts: signal.contracts,
+      stopLoss: signal.stopLoss || void 0,
+      takeProfit: signal.takeProfit || void 0
+    });
+    if (result.success) {
+      signal.status = "executed";
+      signal.executionResult = `Tradovate Order #${result.orderId}`;
+      addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
+      await storage.createFuturesEngineTrade({
+        userId,
+        connectionId: connection2.id ?? 0,
+        broker: "tradovate",
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        direction: signal.direction === "BUY" ? "long" : "short",
+        contracts: signal.contracts,
+        entryPrice: signal.entryPrice ?? 0,
+        stopLoss: signal.stopLoss,
+        takeProfit: signal.takeProfit,
+        entryOrderId: String(result.orderId ?? ""),
+        entryReasoning: signal.reason,
+        status: "open"
+      }).catch(() => {
+      });
+    } else {
+      signal.status = "rejected";
+      signal.executionResult = result.error || "Execution failed";
+      addActivity(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
+    }
+  } catch (err) {
+    signal.status = "rejected";
+    signal.executionResult = err.message;
+    addActivity(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
+  }
+}
+async function scanFuturesMarkets(userId) {
+  const state = scannerStates[userId];
+  if (!state || state.status !== "running" || state.currentlyScanning) return;
+  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
+  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
+  if (!allowedDows.includes(todayDow)) return;
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 }));
+  if (!gateCheck.allowed) {
+    state.dailyLossHalted = true;
+    addActivity(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
+    return;
+  }
+  state.dailyLossHalted = false;
+  state.currentlyScanning = true;
+  state.scanCount++;
+  state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
+  const session3 = getCurrentFuturesSession();
+  try {
+    if (!marketDataService.isInitialized()) {
+      addActivity(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
+      return;
+    }
+    await monitorOpenFuturesPositions(userId, state.config).catch(
+      (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
+    );
+    const symbolDaySchedule = state.config.symbolDaySchedule || {};
+    const symbols = state.config.symbols.filter((sym) => {
+      const days = symbolDaySchedule[sym];
+      return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
+    }).slice(0, 8);
+    addActivity(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
+    const marketAnalysis = {};
+    for (const symbol of symbols) {
+      try {
+        const result = await marketDataService.fetchMarketData({ symbol, assetType: "futures", timeframe: "15m", limit: 50 });
+        if (!result.bars || result.bars.length < 20) continue;
+        const candles = convertToCandles(result.bars);
+        const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
+        const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
+        let trend = "NEUTRAL";
+        const adxData = indicators.adx;
+        if (adxData && (adxData.adx || adxData.value) > 25) {
+          trend = adxData.plusDI > adxData.minusDI ? "BULLISH" : "BEARISH";
+        }
+        state.marketSnapshot[symbol] = {
+          price: currentPrice,
+          trend,
+          rsi: Math.round(indicators.stochastic?.k || 50),
+          atr: indicators.volatilityContext?.currentATR || 0,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        marketAnalysis[symbol] = {
+          candles,
+          currentPrice,
+          trend,
+          adx: indicators.adx,
+          rsi: indicators.rsi,
+          macd: indicators.macd,
+          stochastic: indicators.stochastic,
+          supportResistance: indicators.supportResistance,
+          candlePatterns: indicators.candlePatterns,
+          volatilityContext: indicators.volatilityContext,
+          volumeProfile: indicators.volumeProfile
+        };
+        await new Promise((r) => setTimeout(r, 4e3));
+      } catch (err) {
+        addActivity(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
+      }
+    }
+    if (Object.keys(marketAnalysis).length === 0) {
+      addActivity(userId, { type: "info", message: "No futures market data available this cycle." });
+      return;
+    }
+    await runFuturesAIAnalysis(userId, marketAnalysis);
+  } catch (err) {
+    addActivity(userId, { type: "error", message: `Futures scan error: ${err.message}` });
+  } finally {
+    state.currentlyScanning = false;
+  }
+}
+function scheduleNextScan(userId) {
+  const state = scannerStates[userId];
+  if (!state || state.status !== "running") return;
+  scannerTimers[userId] = setTimeout(async () => {
+    await scanFuturesMarkets(userId);
+    scheduleNextScan(userId);
+  }, state.config.scanIntervalMs);
+}
+function startFuturesScanner(config) {
+  stopFuturesScanner(config.userId);
+  const fullConfig = {
+    userId: config.userId,
+    symbols: Array.isArray(config.symbols) && config.symbols.length > 0 ? config.symbols : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: config.scanIntervalMs || 12e4,
+    minConfidence: config.minConfidence || 70,
+    maxOpenTrades: config.maxOpenTrades || 3,
+    riskPerTrade: config.riskPerTrade || 1,
+    accountBalance: config.accountBalance || 5e4,
+    aiMode: config.aiMode || "full",
+    propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
+    enableAutoExecution: config.enableAutoExecution === true,
+    directionFilter: config.directionFilter || "both",
+    dailyLossLimit: config.dailyLossLimit ?? 3,
+    dailyProfitTarget: config.dailyProfitTarget ?? 0,
+    maxDailyTrades: config.maxDailyTrades ?? 0,
+    useKellyCriterion: config.useKellyCriterion === true,
+    brainLearningMode: config.brainLearningMode !== false,
+    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
+    trailMethod: config.trailMethod || "none",
+    trailActivationR: config.trailActivationR ?? 1,
+    trailFixedR: config.trailFixedR ?? 0.5,
+    trailStepR: config.trailStepR ?? 0.5,
+    trailProfitLockPct: config.trailProfitLockPct ?? 60,
+    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
+    trailSarMaxAF: config.trailSarMaxAF ?? 0.2,
+    breakevenBufferR: config.breakevenBufferR ?? 0.1,
+    propFirmMode: config.propFirmMode === true,
+    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
+    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
+    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
+    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
+    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
+    symbolDaySchedule: config.symbolDaySchedule || {},
+    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
+    symbolContractOverrides: config.symbolContractOverrides || {},
+    smartSymbolEscalation: config.smartSymbolEscalation === true,
+    highConfidenceOverride: config.highConfidenceOverride === true,
+    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
+    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72
+  };
+  scannerStates[config.userId] = {
+    status: "running",
+    config: fullConfig,
+    scanCount: 0,
+    lastScanAt: null,
+    currentlyScanning: false,
+    activities: [],
+    signals: [],
+    marketSnapshot: {},
+    dailyLossHalted: false,
+    dailyPnL: 0,
+    wins: 0,
+    losses: 0,
+    symbolPerformance: {}
+  };
+  addActivity(config.userId, {
+    type: "info",
+    message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
+  });
+  setTimeout(() => {
+    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
+  }, 3e3);
+  return scannerStates[config.userId];
+}
+function stopFuturesScanner(userId) {
+  if (scannerTimers[userId]) {
+    clearTimeout(scannerTimers[userId]);
+    delete scannerTimers[userId];
+  }
+  const state = scannerStates[userId];
+  if (state) {
+    state.status = "stopped";
+    addActivity(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
+  }
+}
+function getFuturesScannerState(userId) {
+  return scannerStates[userId] || null;
+}
+function getFuturesScannerActivities(userId, limit = 50) {
+  return (scannerStates[userId]?.activities || []).slice(0, limit);
+}
+function getFuturesScannerSignals(userId, limit = 20) {
+  return (scannerStates[userId]?.signals || []).slice(0, limit);
+}
+function recordFuturesTradeOutcome(userId, symbol, won, rMultiple2) {
+  recordOutcome(userId, symbol, won, rMultiple2);
+}
+function buildFuturesScanConfigFromRow(row, enableAutoExecution) {
+  return {
+    userId: row.userId,
+    symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: row.scanIntervalMs,
+    minConfidence: row.minConfidence,
+    maxOpenTrades: row.maxOpenTrades,
+    riskPerTrade: row.riskPerTrade,
+    accountBalance: row.accountBalance,
+    aiMode: row.aiMode,
+    propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
+    enableAutoExecution: row.enableAutoExecution === true && enableAutoExecution,
+    directionFilter: row.directionFilter,
+    dailyLossLimit: row.dailyLossLimit,
+    dailyProfitTarget: row.dailyProfitTarget,
+    maxDailyTrades: row.maxDailyTrades,
+    useKellyCriterion: row.useKellyCriterion,
+    brainLearningMode: row.brainLearningMode,
+    drawdownShieldThreshold: row.drawdownShieldThreshold,
+    trailMethod: row.trailMethod,
+    trailActivationR: row.trailActivationR,
+    trailFixedR: row.trailFixedR,
+    trailStepR: row.trailStepR,
+    trailProfitLockPct: row.trailProfitLockPct,
+    trailSarInitialAF: row.trailSarInitialAF,
+    trailSarMaxAF: row.trailSarMaxAF,
+    breakevenBufferR: row.breakevenBufferR,
+    propFirmMode: row.propFirmMode,
+    consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
+    consistencyMinProfitableDays: row.consistencyMinProfitableDays,
+    consistencyPeriodDays: row.consistencyPeriodDays,
+    maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
+    tradingDaysOfWeek: row.tradingDaysOfWeek || [1, 2, 3, 4, 5],
+    symbolDaySchedule: row.symbolDaySchedule || {},
+    symbolDirectionOverrides: row.symbolDirectionOverrides || {},
+    symbolContractOverrides: row.symbolContractOverrides || {},
+    smartSymbolEscalation: row.smartSymbolEscalation,
+    highConfidenceOverride: row.highConfidenceOverride,
+    enableCompositeAutonomous: row.enableCompositeAutonomous,
+    compositeMinEdgeScore: row.compositeMinEdgeScore
+  };
+}
+async function resumeActiveFuturesScanners() {
+  try {
+    const configs = await storage.getAllActiveFuturesEngineConfigs();
+    for (const row of configs) {
+      try {
+        const connection2 = await storage.getUserTradovateConnection(row.userId);
+        const config = buildFuturesScanConfigFromRow(row, !!connection2?.isActive);
+        startFuturesScanner(config);
+      } catch (e) {
+        console.error(`[futures-scanner] failed to resume scanner for user ${row.userId}:`, e.message);
+      }
+    }
+    if (configs.length > 0) {
+      console.log(`[futures-scanner] Resumed ${configs.length} active futures scanner(s) after restart.`);
+    }
+  } catch (err) {
+    console.error("[futures-scanner] resumeActiveFuturesScanners failed:", err.message);
+  }
+}
+function startFuturesEngineScanner() {
+  if (futuresResumeStarted) return;
+  futuresResumeStarted = true;
+  resumeActiveFuturesScanners().catch(
+    (e) => console.error("[futures-scanner] initial resume failed:", e.message)
+  );
+}
+var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, futuresResumeStarted;
+var init_futures_scanner = __esm({
+  "server/services/futures-scanner.ts"() {
+    "use strict";
+    init_service();
+    init_indicators();
+    init_storage();
+    init_tradovate();
+    init_futures_instruments();
+    init_markov_chain();
+    init_orderflow_strategy();
+    init_moomoo();
+    DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
+    scannerStates = {};
+    scannerTimers = {};
+    MAX_ACTIVITIES = 200;
+    MAX_SIGNALS = 100;
+    futuresSessionPeakEquity = /* @__PURE__ */ new Map();
+    futuresResumeStarted = false;
   }
 });
 
@@ -46647,321 +48369,9 @@ var vedd_token_default = router;
 
 // server/routes/tradovate.ts
 init_storage();
+init_tradovate();
+init_futures_instruments();
 import { Router as Router2 } from "express";
-
-// server/tradovate.ts
-init_tradelocker();
-var TradovateService = class {
-  baseUrl;
-  mdUrl;
-  // market data endpoint
-  accessToken = null;
-  tokenExpiresAt = null;
-  accountId = null;
-  username = "";
-  password = "";
-  onTokenRefresh = null;
-  // Contract ID cache: root symbol → { contractId, name, cachedAt }
-  contractCache = /* @__PURE__ */ new Map();
-  constructor(accountType) {
-    if (accountType === "live") {
-      this.baseUrl = "https://live.tradovateapi.com/v1";
-      this.mdUrl = "https://md.tradovateapi.com/v1";
-    } else {
-      this.baseUrl = "https://demo.tradovateapi.com/v1";
-      this.mdUrl = "https://md.tradovateapi.com/v1";
-    }
-  }
-  setCredentials(username, password) {
-    this.username = username;
-    this.password = password;
-  }
-  setToken(accessToken, expiresAt) {
-    this.accessToken = accessToken;
-    this.tokenExpiresAt = expiresAt;
-  }
-  setAccountId(id) {
-    this.accountId = id;
-  }
-  async ensureAuthenticated() {
-    const now = /* @__PURE__ */ new Date();
-    if (!this.accessToken || !this.tokenExpiresAt || this.tokenExpiresAt.getTime() - now.getTime() < 5 * 60 * 1e3) {
-      if (!this.username || !this.password) {
-        throw new Error("No credentials set for Tradovate re-authentication");
-      }
-      await this.authenticate(this.username, this.password);
-    }
-  }
-  async authenticate(username, password) {
-    this.username = username;
-    this.password = password;
-    const body = {
-      name: username,
-      password,
-      appId: process.env.TRADOVATE_APP_ID || "VEDD",
-      appVersion: "1.0",
-      cid: process.env.TRADOVATE_CID ? parseInt(process.env.TRADOVATE_CID, 10) : 0,
-      sec: process.env.TRADOVATE_SEC || ""
-    };
-    const response = await fetch(`${this.baseUrl}/auth/accesstokenrequest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-      const text2 = await response.text();
-      throw new Error(`Tradovate auth HTTP ${response.status}: ${text2}`);
-    }
-    const data = await response.json();
-    if (!data.accessToken || data.p === "error") {
-      throw new Error(data.d || "Tradovate authentication failed");
-    }
-    const expiresAt = data.expirationTime ? new Date(data.expirationTime) : new Date(Date.now() + 75 * 60 * 1e3);
-    this.accessToken = data.accessToken;
-    this.tokenExpiresAt = expiresAt;
-    if (this.onTokenRefresh) {
-      this.onTokenRefresh(data.accessToken, expiresAt);
-    }
-    return data;
-  }
-  async get(path16) {
-    await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path16}`, {
-      headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
-    });
-    if (!response.ok) {
-      const text2 = await response.text();
-      throw new Error(`Tradovate GET ${path16} failed (${response.status}): ${text2}`);
-    }
-    return response.json();
-  }
-  async post(path16, body) {
-    await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}${path16}`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${this.accessToken}`,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-      const text2 = await response.text();
-      throw new Error(`Tradovate POST ${path16} failed (${response.status}): ${text2}`);
-    }
-    return response.json();
-  }
-  async getAccounts() {
-    const accounts = await this.get("/account/list");
-    return accounts.map((a) => ({
-      id: a.id,
-      name: a.name,
-      balance: a.cashBalance ?? 0,
-      openPnL: a.openPnL ?? 0,
-      closedPnL: a.closedPnL ?? 0,
-      equity: (a.cashBalance ?? 0) + (a.openPnL ?? 0),
-      marginUsed: a.initialMargin ?? 0,
-      availableMargin: a.availableFunds ?? 0,
-      currency: "USD"
-    }));
-  }
-  async getAccount() {
-    const accounts = await this.getAccounts();
-    if (accounts.length === 0) throw new Error("No Tradovate accounts found");
-    if (this.accountId) {
-      const match = accounts.find((a) => a.id === this.accountId);
-      if (match) return match;
-    }
-    return accounts[0];
-  }
-  async getPositions() {
-    const positions = await this.get("/position/list");
-    return positions.filter((p) => p.netPos !== 0).map((p) => ({
-      id: p.id,
-      contractId: p.contractId,
-      symbol: p.contract?.name || String(p.contractId),
-      netPos: p.netPos,
-      netPrice: p.netPrice ?? 0,
-      openPnL: p.openPnL ?? 0,
-      timeEntered: p.timestamp || (/* @__PURE__ */ new Date()).toISOString()
-    }));
-  }
-  async getFills(limit = 100) {
-    const fills = await this.get("/fill/list");
-    return fills.slice(0, limit);
-  }
-  async resolveContractId(rootSymbol) {
-    const cached = this.contractCache.get(rootSymbol.toUpperCase());
-    if (cached && Date.now() - cached.cachedAt.getTime() < 10 * 60 * 1e3) {
-      return { contractId: cached.contractId, name: cached.name };
-    }
-    await this.ensureAuthenticated();
-    const response = await fetch(`${this.baseUrl}/contract/suggest?t=${rootSymbol}&l=5`, {
-      headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
-    });
-    if (!response.ok) throw new Error(`Failed to resolve contract for ${rootSymbol}`);
-    const contracts = await response.json();
-    const active = contracts.filter((c) => !c.expired && c.name).sort((a, b) => {
-      const da = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
-      const db2 = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
-      return da - db2;
-    });
-    if (active.length === 0) throw new Error(`No active contracts found for ${rootSymbol}`);
-    const frontMonth = active[0];
-    const result = { contractId: frontMonth.id, name: frontMonth.name };
-    this.contractCache.set(rootSymbol.toUpperCase(), { ...result, cachedAt: /* @__PURE__ */ new Date() });
-    return result;
-  }
-  async placeOrder(order) {
-    const body = {
-      accountId: order.accountId,
-      contractId: order.contractId,
-      action: order.action,
-      orderQty: order.orderQty,
-      orderType: order.orderType,
-      price: order.price,
-      stopPrice: order.stopPrice,
-      timeInForce: order.timeInForce || "Day",
-      isAutomated: true
-    };
-    const result = await this.post("/order/placeorder", body);
-    if (result.failureReason) {
-      throw new Error(`Order rejected: ${result.failureReason}`);
-    }
-    return {
-      orderId: result.orderId || result.id,
-      status: result.orderStatus || "Working",
-      message: result.errorMessage
-    };
-  }
-  async cancelOrder(orderId) {
-    try {
-      await this.post("/order/cancelorder", { orderId });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  async liquidatePosition(accountId, contractId) {
-    try {
-      await this.post("/order/liquidateposition", { accountId, contractId, isAutomated: true });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-};
-var serviceCache2 = /* @__PURE__ */ new Map();
-var CACHE_TTL_MS2 = 50 * 60 * 1e3;
-function getCacheKey(userId, accountType) {
-  return `${userId}:${accountType}`;
-}
-async function getOrCreateTradovateService(userId, username, encryptedPassword, accountType, accountId, cachedToken, tokenExpiresAt) {
-  const cacheKey = getCacheKey(userId, accountType);
-  const cached = serviceCache2.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt.getTime() < CACHE_TTL_MS2) {
-    return cached.service;
-  }
-  const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-  const password = decryptPassword4(encryptedPassword);
-  const svc = new TradovateService(accountType);
-  svc.setCredentials(username, password);
-  if (accountId) svc.setAccountId(parseInt(accountId, 10));
-  if (cachedToken && tokenExpiresAt && tokenExpiresAt.getTime() - Date.now() > 5 * 60 * 1e3) {
-    svc.setToken(cachedToken, tokenExpiresAt);
-  } else {
-    await svc.authenticate(username, password);
-  }
-  serviceCache2.set(cacheKey, { service: svc, cachedAt: /* @__PURE__ */ new Date() });
-  return svc;
-}
-async function executeFuturesSignal(connection2, signal) {
-  try {
-    const { decryptPassword: decryptPassword4 } = await Promise.resolve().then(() => (init_tradelocker(), tradelocker_exports));
-    const password = decryptPassword4(connection2.encryptedPassword);
-    const svc = await getOrCreateTradovateService(
-      connection2.userId || 0,
-      connection2.username,
-      connection2.encryptedPassword,
-      connection2.accountType,
-      connection2.accountId,
-      connection2.accessToken,
-      connection2.tokenExpiresAt
-    );
-    const { contractId, name: contractName } = await svc.resolveContractId(signal.symbol);
-    const account = await svc.getAccount();
-    const accountId = account.id;
-    if (signal.action === "CLOSE") {
-      const closed = await svc.liquidatePosition(accountId, contractId);
-      return { success: closed };
-    }
-    const order = {
-      accountId,
-      contractId,
-      symbol: contractName,
-      action: signal.direction === "BUY" ? "Buy" : "Sell",
-      orderQty: signal.contracts,
-      orderType: "Market",
-      timeInForce: "Day"
-    };
-    const result = await svc.placeOrder(order);
-    if (result.orderId && (signal.stopLoss || signal.takeProfit)) {
-      console.log(`[Tradovate] Order ${result.orderId} filled. SL: ${signal.stopLoss}, TP: ${signal.takeProfit} \u2014 bracket implementation in Phase 2`);
-    }
-    return { success: true, orderId: result.orderId };
-  } catch (error) {
-    console.error("[Tradovate] executeFuturesSignal error:", error);
-    return { success: false, error: error.message || "Unknown error" };
-  }
-}
-
-// server/futures-instruments.ts
-var FUTURES_INSTRUMENTS = {
-  // ── Equity Index ───────────────────────────────────────────────────────────
-  NQ: { symbol: "NQ", tickSize: 0.25, tickValue: 5, pointValue: 20, exchange: "CME", description: "E-mini NASDAQ-100", microContract: false, standardContract: null, typicalDailyRange: 200, category: "equity" },
-  MNQ: { symbol: "MNQ", tickSize: 0.25, tickValue: 0.5, pointValue: 2, exchange: "CME", description: "Micro E-mini NASDAQ-100", microContract: true, standardContract: "NQ", typicalDailyRange: 200, category: "equity" },
-  ES: { symbol: "ES", tickSize: 0.25, tickValue: 12.5, pointValue: 50, exchange: "CME", description: "E-mini S&P 500", microContract: false, standardContract: null, typicalDailyRange: 50, category: "equity" },
-  MES: { symbol: "MES", tickSize: 0.25, tickValue: 1.25, pointValue: 5, exchange: "CME", description: "Micro E-mini S&P 500", microContract: true, standardContract: "ES", typicalDailyRange: 50, category: "equity" },
-  YM: { symbol: "YM", tickSize: 1, tickValue: 5, pointValue: 5, exchange: "CBOT", description: "E-mini Dow Jones 30", microContract: false, standardContract: null, typicalDailyRange: 300, category: "equity" },
-  MYM: { symbol: "MYM", tickSize: 1, tickValue: 0.5, pointValue: 0.5, exchange: "CBOT", description: "Micro E-mini Dow Jones 30", microContract: true, standardContract: "YM", typicalDailyRange: 300, category: "equity" },
-  RTY: { symbol: "RTY", tickSize: 0.1, tickValue: 5, pointValue: 50, exchange: "CME", description: "E-mini Russell 2000", microContract: false, standardContract: null, typicalDailyRange: 20, category: "equity" },
-  M2K: { symbol: "M2K", tickSize: 0.1, tickValue: 0.5, pointValue: 5, exchange: "CME", description: "Micro E-mini Russell 2000", microContract: true, standardContract: "RTY", typicalDailyRange: 20, category: "equity" },
-  // ── Metals ─────────────────────────────────────────────────────────────────
-  GC: { symbol: "GC", tickSize: 0.1, tickValue: 10, pointValue: 100, exchange: "COMEX", description: "Gold Futures", microContract: false, standardContract: null, typicalDailyRange: 25, category: "metal" },
-  MGC: { symbol: "MGC", tickSize: 0.1, tickValue: 1, pointValue: 10, exchange: "COMEX", description: "Micro Gold Futures", microContract: true, standardContract: "GC", typicalDailyRange: 25, category: "metal" },
-  SI: { symbol: "SI", tickSize: 5e-3, tickValue: 25, pointValue: 5e3, exchange: "COMEX", description: "Silver Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "metal" },
-  SIL: { symbol: "SIL", tickSize: 5e-3, tickValue: 2.5, pointValue: 500, exchange: "COMEX", description: "Micro Silver Futures", microContract: true, standardContract: "SI", typicalDailyRange: 0.5, category: "metal" },
-  // ── Energy ─────────────────────────────────────────────────────────────────
-  CL: { symbol: "CL", tickSize: 0.01, tickValue: 10, pointValue: 1e3, exchange: "NYMEX", description: "Crude Oil Futures (WTI)", microContract: false, standardContract: null, typicalDailyRange: 2, category: "energy" },
-  MCL: { symbol: "MCL", tickSize: 0.01, tickValue: 1, pointValue: 100, exchange: "NYMEX", description: "Micro Crude Oil Futures", microContract: true, standardContract: "CL", typicalDailyRange: 2, category: "energy" },
-  NG: { symbol: "NG", tickSize: 1e-3, tickValue: 10, pointValue: 1e4, exchange: "NYMEX", description: "Natural Gas Futures", microContract: false, standardContract: null, typicalDailyRange: 0.1, category: "energy" },
-  // ── Treasury Rates ──────────────────────────────────────────────────────────
-  ZN: { symbol: "ZN", tickSize: 0.015625, tickValue: 15.625, pointValue: 1e3, exchange: "CBOT", description: "10-Year T-Note Futures", microContract: false, standardContract: null, typicalDailyRange: 0.5, category: "rates" },
-  ZB: { symbol: "ZB", tickSize: 0.03125, tickValue: 31.25, pointValue: 1e3, exchange: "CBOT", description: "30-Year T-Bond Futures", microContract: false, standardContract: null, typicalDailyRange: 1, category: "rates" }
-};
-function getInstrument(symbol) {
-  return FUTURES_INSTRUMENTS[symbol.toUpperCase()];
-}
-function calculateContractRisk(symbol, entryPrice, stopLossPrice, contracts) {
-  const inst = getInstrument(symbol);
-  if (!inst) return { ticks: 0, dollarRisk: 0, pointsRisk: 0 };
-  const priceDiff = Math.abs(entryPrice - stopLossPrice);
-  const ticks = Math.round(priceDiff / inst.tickSize);
-  const dollarRisk = ticks * inst.tickValue * contracts;
-  return { ticks, dollarRisk, pointsRisk: priceDiff };
-}
-function calculateContractSize(symbol, accountBalance, riskPercent, entryPrice, stopLossPrice) {
-  const inst = getInstrument(symbol);
-  if (!inst) return 1;
-  const riskDollars = accountBalance * (riskPercent / 100);
-  const priceDiff = Math.abs(entryPrice - stopLossPrice);
-  if (priceDiff <= 0) return 1;
-  const ticks = Math.round(priceDiff / inst.tickSize);
-  const dollarRiskPerContract = ticks * inst.tickValue;
-  if (dollarRiskPerContract <= 0) return 1;
-  return Math.max(1, Math.floor(riskDollars / dollarRiskPerContract));
-}
 
 // server/futures-prop-firms.ts
 var FUTURES_PROP_FIRM_PRESETS = {
@@ -47107,6 +48517,7 @@ function buildPresetsTableResponse() {
 }
 
 // server/ninjatrader-generators.ts
+init_futures_instruments();
 var FUTURES_PROVEN_STRATEGIES = [
   {
     name: "ICT AMD Kill Zone",
@@ -47482,1308 +48893,8 @@ namespace NinjaTrader.NinjaScript.Strategies
 `;
 }
 
-// server/services/futures-scanner.ts
-init_service();
-init_indicators();
-init_storage();
-init_markov_chain();
-init_orderflow_strategy();
-
-// server/moomoo.ts
-var FUTU_SYMBOL_MAP = {
-  NQ: "NQmain",
-  MNQ: "MNQmain",
-  ES: "ESmain",
-  MES: "MESmain",
-  YM: "YMmain",
-  MYM: "MYMmain",
-  RTY: "RTYmain",
-  M2K: "M2Kmain",
-  GC: "GCmain",
-  MGC: "MGCmain",
-  SI: "SImain",
-  CL: "CLmain",
-  MCL: "MCLmain",
-  NG: "NGmain"
-};
-function toFutuSymbol(symbol) {
-  return FUTU_SYMBOL_MAP[symbol] || symbol;
-}
-var moomooServices = /* @__PURE__ */ new Map();
-function getMoomooService(userId) {
-  return moomooServices.get(userId) || null;
-}
-function getOrCreateMoomooService(userId, connection2) {
-  const existing = moomooServices.get(userId);
-  if (existing) {
-    existing.updateConnection(connection2);
-    return existing;
-  }
-  const svc = new MoomooService(connection2);
-  moomooServices.set(userId, svc);
-  return svc;
-}
-function removeMoomooService(userId) {
-  moomooServices.delete(userId);
-}
-var MoomooService = class {
-  connection;
-  connected = false;
-  orderCounter = 1e3;
-  constructor(connection2) {
-    this.connection = connection2;
-  }
-  updateConnection(connection2) {
-    this.connection = connection2;
-  }
-  isConnected() {
-    return this.connected;
-  }
-  isPaperMode() {
-    return this.connection.isPaper || process.env.MOOMOO_PAPER_MODE === "true";
-  }
-  // Test connectivity to OpenD or enable paper mode
-  async connect() {
-    if (this.isPaperMode()) {
-      this.connected = true;
-      return { success: true, isPaper: true };
-    }
-    try {
-      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-      const res = await fetch(`${url}/v1/user/check`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(5e3)
-      });
-      if (res.ok) {
-        this.connected = true;
-        return { success: true, isPaper: false };
-      }
-      throw new Error(`OpenD returned ${res.status}`);
-    } catch (err) {
-      console.warn("[Moomoo] OpenD unreachable \u2014 switching to paper mode:", err.message);
-      this.connection.isPaper = true;
-      this.connected = true;
-      return { success: true, isPaper: true, error: `OpenD offline \u2014 paper mode active` };
-    }
-  }
-  async getAccountInfo() {
-    const isPaper = this.isPaperMode();
-    if (isPaper) {
-      return {
-        accountId: this.connection.accountId || "PAPER",
-        balance: 5e4,
-        equity: 5e4,
-        unrealizedPnl: 0,
-        marginUsed: 0,
-        availableMargin: 5e4,
-        currency: "USD",
-        isPaper: true
-      };
-    }
-    try {
-      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-      const res = await fetch(`${url}/v1/accinfo/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ acc_id: parseInt(this.connection.accountId) || 0, acc_type: 1, currency: 1 }),
-        signal: AbortSignal.timeout(8e3)
-      });
-      if (!res.ok) throw new Error(`OpenD ${res.status}`);
-      const data = await res.json();
-      const info = data?.s2c?.acc_info_list?.[0];
-      if (!info) throw new Error("No account info returned");
-      return {
-        accountId: this.connection.accountId,
-        balance: info.cash || 0,
-        equity: info.net_asset_val || 0,
-        unrealizedPnl: info.unrealized_pl || 0,
-        marginUsed: info.margin_call_margin || 0,
-        availableMargin: info.avl_withdrawal_amount || 0,
-        currency: "USD",
-        isPaper: false
-      };
-    } catch (err) {
-      throw new Error(`Moomoo account info failed: ${err.message}`);
-    }
-  }
-  async placeOrder(req) {
-    const isPaper = this.isPaperMode();
-    const futuSymbol = toFutuSymbol(req.symbol);
-    const orderId = `MM${++this.orderCounter}`;
-    if (isPaper) {
-      console.log(`[Moomoo Paper] ${req.direction} ${req.contracts} ${futuSymbol} | SL=${req.stopLoss ?? "N/A"} TP=${req.takeProfit ?? "N/A"}`);
-      return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
-    }
-    try {
-      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-      const body = {
-        header: { req_id: orderId },
-        acc_id: parseInt(this.connection.accountId) || 0,
-        sec_type: 5,
-        // futures
-        code: futuSymbol,
-        trd_side: req.direction === "BUY" ? 1 : 2,
-        order_type: 2,
-        // market order
-        qty: req.contracts,
-        price: 0,
-        // market price
-        trd_env: 1,
-        // real trading
-        remark: "VEDD_AUTO"
-      };
-      const res = await fetch(`${url}/v1/trade/place_order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(1e4)
-      });
-      if (!res.ok) throw new Error(`OpenD ${res.status}`);
-      const data = await res.json();
-      const orderNum = data?.s2c?.order_id?.toString();
-      if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
-      return { success: true, orderId: orderNum, isPaper: false };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  }
-  // Options trading via OpenD sec_type=3. Requires OpenD to already have
-  // option quote/trade permissions enabled on the connected Futu account.
-  async getOptionsChain(underlyingCode) {
-    if (this.isPaperMode()) return [];
-    const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-    const res = await fetch(`${url}/v1/qot/get_option_chain`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ owner: { market: 11, code: underlyingCode } }),
-      // market 11 = US
-      signal: AbortSignal.timeout(1e4)
-    });
-    if (!res.ok) throw new Error(`OpenD ${res.status}`);
-    const data = await res.json();
-    return data?.s2c?.optionChain || [];
-  }
-  async placeOptionsOrder(req) {
-    const isPaper = this.isPaperMode();
-    const orderId = `MMOPT${++this.orderCounter}`;
-    if (isPaper) {
-      console.log(`[Moomoo Paper] OPTIONS ${req.direction} ${req.contracts}x ${req.optionCode}`);
-      return { success: true, orderId: `${orderId}_PAPER`, isPaper: true };
-    }
-    try {
-      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-      const body = {
-        header: { req_id: orderId },
-        acc_id: parseInt(this.connection.accountId) || 0,
-        sec_type: 3,
-        // option
-        code: req.optionCode,
-        trd_side: req.direction === "BUY" ? 1 : 2,
-        order_type: req.orderType === "limit" ? 1 : 2,
-        qty: req.contracts,
-        price: req.orderType === "limit" ? req.limitPrice || 0 : 0,
-        trd_env: 1,
-        remark: "VEDD_AUTO_OPTIONS"
-      };
-      const res = await fetch(`${url}/v1/trade/place_order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(1e4)
-      });
-      if (!res.ok) throw new Error(`OpenD ${res.status}`);
-      const data = await res.json();
-      const orderNum = data?.s2c?.order_id?.toString();
-      if (!orderNum) throw new Error(data?.retMsg || "No order ID returned");
-      return { success: true, orderId: orderNum, isPaper: false };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  }
-  async cancelOrder(orderId) {
-    if (this.isPaperMode()) return { success: true };
-    try {
-      const url = this.connection.openDUrl || process.env.MOOMOO_OPEND_URL || "http://127.0.0.1:11111";
-      const res = await fetch(`${url}/v1/trade/modify_order`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: parseInt(orderId) || 0, modify_order_op: 1, trd_env: 1 }),
-        signal: AbortSignal.timeout(8e3)
-      });
-      if (!res.ok) throw new Error(`OpenD ${res.status}`);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  }
-};
-
-// server/services/futures-scanner.ts
-var DEFAULT_FUTURES_SYMBOLS = ["NQ", "ES", "GC", "CL", "MNQ", "MES"];
-var scannerStates = {};
-var scannerTimers = {};
-var MAX_ACTIVITIES = 200;
-var MAX_SIGNALS = 100;
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-function addActivity(userId, entry) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  state.activities.unshift({ id: uid(), timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry });
-  if (state.activities.length > MAX_ACTIVITIES) state.activities.length = MAX_ACTIVITIES;
-}
-function addSignal(userId, signal) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  state.signals.unshift(signal);
-  if (state.signals.length > MAX_SIGNALS) state.signals.length = MAX_SIGNALS;
-}
-function convertToCandles(bars) {
-  return bars.map((b) => ({ t: b.timestamp, o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume }));
-}
-function getCurrentFuturesSession() {
-  const hour = (/* @__PURE__ */ new Date()).getUTCHours();
-  if (hour >= 14 && hour < 21) return "CME_RTH";
-  if (hour >= 8 && hour < 10) return "LONDON_OPEN";
-  if (hour >= 21 || hour < 2) return "AFTER_HOURS";
-  return "OVERNIGHT";
-}
-function getAdjustedMinConfidence(userId, symbol) {
-  const state = scannerStates[userId];
-  if (!state) return 65;
-  const perf = state.symbolPerformance[symbol];
-  if (!perf || perf.wins + perf.losses < 3) return state.config.minConfidence;
-  const winRate2 = perf.wins / (perf.wins + perf.losses);
-  if (winRate2 < 0.35) return Math.min(90, state.config.minConfidence + 10);
-  if (winRate2 > 0.65) return Math.max(55, state.config.minConfidence - 5);
-  return state.config.minConfidence;
-}
-function recordOutcome(userId, symbol, won, rMultiple2) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  if (!state.symbolPerformance[symbol]) {
-    state.symbolPerformance[symbol] = { wins: 0, losses: 0, totalR: 0 };
-  }
-  const perf = state.symbolPerformance[symbol];
-  if (won) {
-    perf.wins++;
-    state.wins++;
-  } else {
-    perf.losses++;
-    state.losses++;
-  }
-  perf.totalR += rMultiple2;
-  addActivity(userId, {
-    type: "info",
-    symbol,
-    message: `\u{1F4CA} Learning update: ${symbol} W:${perf.wins} L:${perf.losses} | AvgR:${(perf.totalR / (perf.wins + perf.losses)).toFixed(2)} | Session W:${state.wins} L:${state.losses}`
-  });
-}
-async function computeFuturesContractSize(userId, cfg, accountBalance, riskPerTradePct, entryPrice, stopLoss, symbol, signalScore = null) {
-  const baseContracts = Math.max(1, calculateContractSize(symbol, accountBalance, riskPerTradePct, entryPrice, stopLoss));
-  if (cfg.highConfidenceOverride && (signalScore ?? 0) >= 90) {
-    const kelly = cfg.useKellyCriterion ? await storage.getFuturesEngineTradeStats(userId) : null;
-    const qty = kelly ? Math.max(baseContracts, Math.round(baseContracts * (1 + kelly.winRate / 100 * 0.25))) : baseContracts;
-    return { contracts: qty, reasoning: `\u26A1 High Confidence Override: ${signalScore}/100 bypasses Brain Learning lock.` };
-  }
-  if (cfg.brainLearningMode) {
-    const stats = await storage.getFuturesEngineTradeStats(userId);
-    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
-    if (brainLocked) {
-      return { contracts: 1, reasoning: `\u{1F9E0} Learning Mode: contracts locked at 1 (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
-    }
-    if (cfg.useKellyCriterion) {
-      const fractionalKelly = stats.winRate / 100 * 0.25;
-      const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
-      return { contracts: kellyContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
-    }
-    return { contracts: baseContracts, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
-  }
-  if (cfg.useKellyCriterion) {
-    const stats = await storage.getFuturesEngineTradeStats(userId);
-    const fractionalKelly = stats.winRate / 100 * 0.25;
-    const kellyContracts = Math.max(baseContracts, Math.round(baseContracts * (1 + fractionalKelly)));
-    return { contracts: kellyContracts, reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
-  }
-  return { contracts: baseContracts, reasoning: "" };
-}
-function computeFuturesTrailFloorR(cfg, peakR) {
-  switch (cfg.trailMethod) {
-    case "fixed_r":
-      return peakR - cfg.trailFixedR;
-    case "stepped_fixed": {
-      const steps = Math.floor(peakR / cfg.trailStepR);
-      return (steps - 1) * cfg.trailStepR;
-    }
-    case "profit_lock":
-      return peakR * (cfg.trailProfitLockPct / 100);
-    case "chandelier":
-      return peakR - cfg.trailFixedR * 1.5;
-    case "parabolic_sar": {
-      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR / 1 * cfg.trailSarInitialAF);
-      return peakR * (1 - af);
-    }
-    case "r_multiple":
-      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
-    case "swing_structure":
-      return peakR - cfg.trailFixedR * 0.75;
-    default:
-      return -Infinity;
-  }
-}
-async function monitorOpenFuturesPositions(userId, cfg) {
-  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
-  if (openTrades.length === 0 || cfg.trailMethod === "none") return;
-  for (const trade of openTrades) {
-    try {
-      const result = await marketDataService.fetchMarketData({ symbol: trade.symbol, assetType: "futures", timeframe: "1m", limit: 2 });
-      const currentPrice = result.bars?.[result.bars.length - 1]?.close;
-      if (!currentPrice || !trade.stopLoss) continue;
-      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
-      if (riskDistance <= 0) continue;
-      const isLong = trade.direction === "long";
-      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
-      const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
-      if (armed) {
-        const rawFloor = computeFuturesTrailFloorR(cfg, peakR);
-        const floor = Math.max(rawFloor, cfg.breakevenBufferR);
-        if (currentR <= floor) {
-          const connection2 = await storage.getUserTradovateConnection(userId);
-          if (connection2) {
-            await executeFuturesSignal(connection2, {
-              action: "CLOSE",
-              symbol: trade.symbol,
-              direction: isLong ? "SELL" : "BUY",
-              contracts: trade.contracts
-            }).catch(() => {
-            });
-          }
-          const realizedPnl = (isLong ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.contracts * (getInstrument(trade.symbol)?.tickValue || 1) / (getInstrument(trade.symbol)?.tickSize || 1);
-          await storage.closeFuturesEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: "trailing_stop", realizedPnl });
-          addActivity(userId, { type: "trade_open", symbol: trade.symbol, message: `\u{1F4C9} Trailing stop closed ${trade.symbol} at ${currentR.toFixed(2)}R (peak ${peakR.toFixed(2)}R).` });
-          continue;
-        }
-      }
-      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
-        await storage.updateFuturesEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
-      }
-    } catch (err) {
-      console.error(`[futures-scanner] failed to monitor trade ${trade.id}:`, err.message);
-    }
-  }
-}
-var futuresSessionPeakEquity = /* @__PURE__ */ new Map();
-async function checkFuturesSafetyGates(userId, cfg, equity) {
-  if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayFuturesEngineTradeCount(userId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
-  }
-  const openTrades = await storage.getOpenFuturesEngineTrades(userId);
-  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
-  let riskMultiplier = 1;
-  if (equity > 0) {
-    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
-    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
-    }
-    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
-      return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
-    }
-    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
-    }
-    const peak = Math.max(futuresSessionPeakEquity.get(userId) ?? equity, equity);
-    futuresSessionPeakEquity.set(userId, peak);
-    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
-    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
-    if (cfg.consistencyEnforcementEnabled && cfg.propFirmMode) {
-      const history = await storage.getFuturesEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
-      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      history[today] = todayPnl;
-      const recentKeys = Object.keys(history).sort().slice(-cfg.consistencyPeriodDays);
-      const profitableDays = recentKeys.filter((k) => (history[k] ?? 0) > 0).length;
-      const tradingDays = recentKeys.length;
-      const daysRemaining = cfg.consistencyPeriodDays - tradingDays;
-      const todayIsLosing = todayPnl < 0;
-      const daysNeeded = cfg.consistencyMinProfitableDays - profitableDays;
-      const mustWinRemaining = todayIsLosing ? daysNeeded : Math.max(0, daysNeeded - 1);
-      if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 1) riskMultiplier = Math.min(riskMultiplier, 0.25);
-      else if (mustWinRemaining > 0 && daysRemaining <= mustWinRemaining + 3) riskMultiplier = Math.min(riskMultiplier, 0.5);
-      if (cfg.maxDailyProfitPctOfTotal > 0) {
-        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-        const todayProfit = Math.max(0, todayPnl);
-        if (totalProfitAllTime > 0 && todayProfit > 0) {
-          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
-          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
-            return { allowed: false, reason: `consistency rule \u2014 today's profit is already ${todayPctOfTotal.toFixed(0)}% of total challenge profit`, riskMultiplier: 1 };
-          }
-        }
-      }
-    }
-  }
-  return { allowed: true, riskMultiplier };
-}
-function quickQuantVerdict(data, direction) {
-  let score = 0;
-  const adx = data.adx?.adx || 0;
-  const rsi3 = data.rsi?.value || 50;
-  const macdHist2 = data.macd?.histogram || 0;
-  if (adx > 25) score += 25;
-  if (direction === "BUY" ? rsi3 >= 40 && rsi3 <= 65 : rsi3 >= 35 && rsi3 <= 60) score += 20;
-  if (direction === "BUY" ? macdHist2 > 0 : macdHist2 < 0) score += 20;
-  if (data.trend === (direction === "BUY" ? "BULLISH" : "BEARISH")) score += 15;
-  const verdict = score >= 50 ? "CONFIRM" : score >= 30 ? "WATCH" : "SKIP";
-  return { verdict, score };
-}
-function pushFuturesConsensus(userId, entry) {
-  global.futuresEngineConsensus = global.futuresEngineConsensus || {};
-  const list = global.futuresEngineConsensus[userId] || [];
-  const deduped = list.filter((e) => e.symbol !== entry.symbol);
-  global.futuresEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
-}
-async function getFuturesAiConfirmation(userId, symbol, strategy, direction, data) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    const system = 'You are a disciplined futures-trading second opinion. Given a technical signal from a rules-based scanner, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string (1-2 sentences)}.';
-    const user = `Symbol: ${symbol}
-Strategy: ${strategy}
-Direction: ${direction}
-ADX: ${data.adx?.adx ?? "n/a"}
-RSI: ${data.rsi?.value ?? "n/a"}
-MACD histogram: ${data.macd?.histogram ?? "n/a"}
-Trend: ${data.trend ?? "n/a"}
-
-Would you confirm this trade?`;
-    const r = await client2.chat.completions.create({
-      model: client2.defaultModel || "gpt-4o-mini",
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      response_format: { type: "json_object" },
-      max_tokens: 300,
-      temperature: 0.3
-    });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
-    return {
-      confirmed: !!parsed.confirmed,
-      confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
-      reasoning: String(parsed.reasoning || "")
-    };
-  } catch (err) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
-  }
-}
-async function assembleFuturesConsensus(userId, symbol, strategy, direction, data, cfg, precomputedAi) {
-  const quant = quickQuantVerdict(data, direction);
-  if (cfg.aiMode === "rule_based") {
-    const tradeAllowed2 = quant.verdict !== "SKIP";
-    pushFuturesConsensus(userId, {
-      symbol,
-      strategy,
-      quantVerdict: quant.verdict,
-      quantScore: quant.score,
-      aiVerdict: "CONFIRM",
-      aiConfidence: 0,
-      consensus: quant.verdict === "CONFIRM" ? "STRONG_CONFIRM" : quant.verdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
-      tradeAllowed: tradeAllowed2,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    return tradeAllowed2;
-  }
-  const ai = precomputedAi ?? await getFuturesAiConfirmation(userId, symbol, strategy, direction, data);
-  const aiConfidence = ai.confidence;
-  const aiVerdict = precomputedAi ? aiConfidence >= 60 ? "CONFIRM" : "SKIP" : ai.confirmed ? "CONFIRM" : "SKIP";
-  let consensus;
-  if (quant.verdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
-  else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
-  else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
-  else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP";
-  pushFuturesConsensus(userId, {
-    symbol,
-    strategy,
-    quantVerdict: quant.verdict,
-    quantScore: quant.score,
-    aiVerdict,
-    aiConfidence,
-    consensus,
-    tradeAllowed,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  return tradeAllowed;
-}
-function isHighImpactNewsWindow() {
-  const now = /* @__PURE__ */ new Date();
-  const utcDay = now.getUTCDay();
-  const utcHour = now.getUTCHours();
-  const utcMin = now.getUTCMinutes();
-  const totalMin = utcHour * 60 + utcMin;
-  if (utcDay === 5 && now.getUTCDate() <= 7 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay === 3 && totalMin >= 915 && totalMin <= 945) return true;
-  if (utcDay >= 1 && utcDay <= 5 && totalMin >= 795 && totalMin <= 825) return true;
-  if (utcDay === 3 && (utcHour === 18 && utcMin >= 50 || utcHour === 19 && utcMin <= 10)) return true;
-  return false;
-}
-function computeSmartMoney(candles) {
-  const res = { orderBlockBull: false, orderBlockBear: false, fvgBull: false, fvgBear: false, liqSweepBull: false, liqSweepBear: false, score: 0 };
-  if (candles.length < 10) return res;
-  const recent = candles.slice(-12);
-  for (let i = 1; i < recent.length - 2; i++) {
-    const c = recent[i];
-    const bodyPct = Math.abs(c.c - c.o) / c.o;
-    if (bodyPct < 8e-4) continue;
-    if (c.c < c.o && recent[i + 1].c > recent[i + 1].o && recent[i + 2].c > recent[i + 2].o) res.orderBlockBull = true;
-    if (c.c > c.o && recent[i + 1].c < recent[i + 1].o && recent[i + 2].c < recent[i + 2].o) res.orderBlockBear = true;
-  }
-  for (let i = 1; i < recent.length - 1; i++) {
-    if (recent[i - 1].h < recent[i + 1].l) res.fvgBull = true;
-    if (recent[i - 1].l > recent[i + 1].h) res.fvgBear = true;
-  }
-  const swingLow = Math.min(...recent.slice(0, -1).map((c) => c.l));
-  const swingHigh = Math.max(...recent.slice(0, -1).map((c) => c.h));
-  const last = recent[recent.length - 1];
-  if (last.l < swingLow && last.c > swingLow) res.liqSweepBull = true;
-  if (last.h > swingHigh && last.c < swingHigh) res.liqSweepBear = true;
-  res.score += (res.orderBlockBull ? 1 : 0) + (res.fvgBull ? 1 : 0) + (res.liqSweepBull ? 1 : 0);
-  res.score -= (res.orderBlockBear ? 1 : 0) + (res.fvgBear ? 1 : 0) + (res.liqSweepBear ? 1 : 0);
-  return res;
-}
-function computeVolumeProfile(candles, currentPrice) {
-  const empty = { poc: 0, vah: 0, val: 0, priceNearPOC: false, priceNearVAH: false, priceNearVAL: false };
-  if (candles.length < 5) return empty;
-  const prices = candles.map((c) => (c.h + c.l + c.c) / 3);
-  const minP = Math.min(...prices), maxP = Math.max(...prices);
-  if (maxP === minP) return empty;
-  const BUCKETS = 20;
-  const bSize = (maxP - minP) / BUCKETS;
-  const volByBucket = new Array(BUCKETS).fill(0);
-  for (let i = 0; i < candles.length; i++) {
-    const idx = Math.min(BUCKETS - 1, Math.floor((prices[i] - minP) / bSize));
-    volByBucket[idx] += candles[i].v || 1;
-  }
-  const pocIdx = volByBucket.indexOf(Math.max(...volByBucket));
-  const poc = minP + (pocIdx + 0.5) * bSize;
-  const totalVol = volByBucket.reduce((s, v) => s + v, 0);
-  const target = totalVol * 0.7;
-  let lo = pocIdx, hi = pocIdx, acc = volByBucket[pocIdx];
-  while (acc < target && (lo > 0 || hi < BUCKETS - 1)) {
-    const addLo = lo > 0 ? volByBucket[lo - 1] : 0;
-    const addHi = hi < BUCKETS - 1 ? volByBucket[hi + 1] : 0;
-    if (addLo >= addHi && lo > 0) {
-      lo--;
-      acc += addLo;
-    } else if (hi < BUCKETS - 1) {
-      hi++;
-      acc += addHi;
-    } else break;
-  }
-  const val = minP + lo * bSize;
-  const vah = minP + (hi + 1) * bSize;
-  const prox = bSize * 1.5;
-  return { poc, vah, val, priceNearPOC: Math.abs(currentPrice - poc) < prox, priceNearVAH: Math.abs(currentPrice - vah) < prox, priceNearVAL: Math.abs(currentPrice - val) < prox };
-}
-function computeVolumeDelta(candles, lookback = 10) {
-  let delta = 0;
-  for (const c of candles.slice(-lookback)) {
-    const range = c.h - c.l;
-    if (range <= 0) continue;
-    const buyFrac = (c.c - c.l) / range;
-    delta += (buyFrac * 2 - 1) * (c.v || 1);
-  }
-  return delta;
-}
-async function runFuturesAIAnalysis(userId, marketAnalysis) {
-  const state = scannerStates[userId];
-  if (!state) return;
-  const config = state.config;
-  const session3 = getCurrentFuturesSession();
-  if (config.aiMode === "rule_based") {
-    const newsBlock = isHighImpactNewsWindow();
-    if (newsBlock) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 confidence penalized on all signals" });
-    for (const [symbol, data] of Object.entries(marketAnalysis)) {
-      const inst = getInstrument(symbol);
-      if (!inst) continue;
-      const adx = data.adx?.adx || 0;
-      const plusDI = data.adx?.plusDI || 0;
-      const minusDI = data.adx?.minusDI || 0;
-      const rsi3 = data.rsi?.value || 50;
-      const macdCross = data.macd?.histogram > 0;
-      const candles = data.candles || [];
-      let direction = null;
-      let confluences = [];
-      let confidence2 = 0;
-      let strategy = "rule_based";
-      if (adx > 25 && plusDI > minusDI && rsi3 < 65 && macdCross) {
-        direction = "BUY";
-        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish"];
-        confidence2 = 65;
-        strategy = "adx_macd";
-      } else if (adx > 25 && minusDI > plusDI && rsi3 > 35 && !macdCross) {
-        direction = "SELL";
-        confluences = [`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish"];
-        confidence2 = 65;
-        strategy = "adx_macd";
-      }
-      const sm = computeSmartMoney(candles);
-      if (!direction && sm.liqSweepBull) {
-        direction = "BUY";
-        confidence2 = 63;
-        strategy = "smart_money";
-        confluences = ["Liquidity sweep reversal (bull)"];
-      } else if (!direction && sm.liqSweepBear) {
-        direction = "SELL";
-        confidence2 = 63;
-        strategy = "smart_money";
-        confluences = ["Liquidity sweep reversal (bear)"];
-      }
-      if (direction) {
-        const isBull = direction === "BUY";
-        if (sm.orderBlockBull && isBull) {
-          confidence2 += 4;
-          confluences.push("Bullish order block");
-        }
-        if (sm.orderBlockBear && !isBull) {
-          confidence2 += 4;
-          confluences.push("Bearish order block");
-        }
-        if (sm.fvgBull && isBull) {
-          confidence2 += 3;
-          confluences.push("Bullish FVG");
-        }
-        if (sm.fvgBear && !isBull) {
-          confidence2 += 3;
-          confluences.push("Bearish FVG");
-        }
-        if (sm.liqSweepBull && isBull) {
-          confidence2 += 5;
-          confluences.push("Liquidity sweep (bull)");
-        }
-        if (sm.liqSweepBear && !isBull) {
-          confidence2 += 5;
-          confluences.push("Liquidity sweep (bear)");
-        }
-        const vp = computeVolumeProfile(candles, data.currentPrice);
-        if (vp.poc > 0) {
-          if (isBull && vp.priceNearVAL) {
-            confidence2 += 4;
-            confluences.push("Price at VAL (vol support)");
-          }
-          if (!isBull && vp.priceNearVAH) {
-            confidence2 += 4;
-            confluences.push("Price at VAH (vol resistance)");
-          }
-          if (vp.priceNearPOC) confluences.push(`Near POC $${vp.poc.toFixed(2)}`);
-        }
-        const delta = computeVolumeDelta(candles);
-        if (isBull && delta > 0) {
-          confidence2 += 3;
-          confluences.push(`Vol delta: buyer aggression`);
-        } else if (!isBull && delta < 0) {
-          confidence2 += 3;
-          confluences.push(`Vol delta: seller aggression`);
-        } else if (delta !== 0) {
-          confidence2 -= 4;
-          confluences.push("Vol delta opposing signal");
-        }
-        if (candles.length >= 10) {
-          const markov = getMarkovSignal(symbol, direction, candles.map((c) => ({ open: c.o, close: c.c })));
-          confidence2 += markov.confidenceAdjustment;
-          confluences.push(markov.reason);
-          if (markov.confidenceAdjustment !== 0) {
-            strategy = strategy === "rule_based" ? "markov_enhanced" : strategy + "+markov";
-          }
-        }
-        if (candles.length >= 10) {
-          const of = computeOrderFlow(candles, Math.min(30, candles.length));
-          const isBull2 = direction === "BUY";
-          if (of.direction !== "NEUTRAL") {
-            if (of.direction === direction) {
-              if (of.divergence) {
-                confidence2 += 5;
-                confluences.push(`OF delta divergence (${of.divergenceType})`);
-              }
-              if (of.absorption) {
-                confidence2 += 4;
-                confluences.push(`OF absorption (${of.absorptionType})`);
-              }
-              if (of.imbalance) {
-                confidence2 += 3;
-                confluences.push(`OF imbalance (${of.imbalanceType})`);
-              }
-              if (of.cvdTrend !== "flat") {
-                confidence2 += 2;
-                confluences.push(`CVD ${of.cvdTrend}`);
-              }
-              strategy = strategy.includes("order_flow") ? strategy : strategy + "+order_flow";
-            } else {
-              confidence2 -= 8;
-              confluences.push(`OF opposing: ${of.reason.split("|")[0].trim()}`);
-            }
-          } else if (!direction) {
-            if (of.confidence >= 65) {
-              direction = of.direction;
-              confidence2 = of.confidence;
-              strategy = "order_flow";
-              confluences = of.confluences;
-            }
-          }
-        }
-        if (newsBlock) {
-          confidence2 -= 15;
-          confluences.push("News window penalty");
-        }
-      }
-      const effectiveDirectionFilter = config.symbolDirectionOverrides[symbol] || config.directionFilter;
-      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && direction === "BUY" || effectiveDirectionFilter === "short_only" && direction === "SELL";
-      if (direction && !directionAllowed) continue;
-      if (!direction) continue;
-      let minConf = getAdjustedMinConfidence(userId, symbol);
-      if (config.smartSymbolEscalation) {
-        const recentForSymbol = (await storage.getUserFuturesEngineTrades(userId, 50)).filter((t) => t.symbol === symbol && t.status === "closed").sort((a, b) => new Date(b.closedAt ?? 0).getTime() - new Date(a.closedAt ?? 0).getTime());
-        if (recentForSymbol[0] && (recentForSymbol[0].realizedPnl ?? 0) > 0) minConf = Math.max(50, minConf - 5);
-      }
-      const compositeEligible = config.enableCompositeAutonomous && confluences.length >= 4 && confidence2 >= config.compositeMinEdgeScore;
-      const highConfidenceEligible = config.highConfidenceOverride && confidence2 >= 90;
-      if (confidence2 < minConf && !compositeEligible && !highConfidenceEligible) continue;
-      const atr2 = data.volatilityContext?.currentATR || inst.typicalDailyRange * inst.tickSize * 10;
-      const slTicks = Math.max(4, Math.round(atr2 / inst.tickSize * 0.5));
-      const tpTicks = slTicks * 2;
-      const entryPrice = data.currentPrice;
-      const sl = direction === "BUY" ? entryPrice - slTicks * inst.tickSize : entryPrice + slTicks * inst.tickSize;
-      const tp = direction === "BUY" ? entryPrice + tpTicks * inst.tickSize : entryPrice - tpTicks * inst.tickSize;
-      const maxContracts = config.symbolContractOverrides[symbol] || void 0;
-      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, entryPrice, sl, symbol, confidence2);
-      const contracts = maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts;
-      const signal = {
-        id: uid(),
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol,
-        direction,
-        contracts: Math.max(1, contracts),
-        entryPrice,
-        stopLoss: sl,
-        takeProfit: tp,
-        stopLossTicks: slTicks,
-        takeProfitTicks: tpTicks,
-        confidence: Math.min(100, Math.max(0, confidence2)),
-        reason: confluences.filter((c) => !c.startsWith("Markov")).join(" | ") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
-        strategy,
-        confluences,
-        status: "pending"
-      };
-      addActivity(userId, { type: "signal", symbol, direction, confidence: signal.confidence, message: `\u26A1 ${strategy.toUpperCase()}: ${direction} ${symbol} @ ${entryPrice} | Conf: ${signal.confidence}% | SL: ${slTicks}t TP: ${tpTicks}t | ${confluences.slice(0, 3).join(", ")}` });
-      addSignal(userId, signal);
-      const tradeAllowed = await assembleFuturesConsensus(userId, symbol, strategy, direction, data, config);
-      if (tradeAllowed) {
-        await executeSignalIfEnabled(userId, signal);
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity(userId, { type: "info", symbol, message: `${symbol}: signal confirmed by quant scan, but consensus blocked execution.` });
-      }
-    }
-    return;
-  }
-  let openai2;
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    openai2 = await getUniversalAIClientForUser2(userId);
-  } catch {
-    addActivity(userId, { type: "error", message: "No AI API key configured \u2014 futures scanner cannot analyze." });
-    return;
-  }
-  const _primaryClient = openai2;
-  const _primaryModel = openai2.defaultModel || "gpt-4o";
-  let _usingGroq = false;
-  if (config.aiMode === "economy" && process.env.GROQ_API_KEY) {
-    try {
-      const OpenAI9 = (await import("openai")).default;
-      const groq = new OpenAI9({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", maxRetries: 4, timeout: 9e4 });
-      groq.defaultModel = "openai/gpt-oss-120b";
-      openai2 = groq;
-      _usingGroq = true;
-    } catch {
-    }
-  }
-  const model = openai2.defaultModel || "gpt-4o";
-  const newsWindowActive = isHighImpactNewsWindow();
-  if (newsWindowActive) addActivity(userId, { type: "info", message: "\u{1F4F0} High-impact news window active \u2014 AI will reduce signal confidence accordingly" });
-  const marketSummary = Object.entries(marketAnalysis).map(([sym, data]) => {
-    const inst = getInstrument(sym);
-    const vol = data.volatilityContext;
-    const sr = data.supportResistance;
-    const atr2 = vol?.currentATR || 0;
-    const atrTicks = inst ? Math.round(atr2 / inst.tickSize) : 0;
-    const candles = data.candles || [];
-    const perfNote = (() => {
-      const perf = state.symbolPerformance[sym];
-      if (!perf || perf.wins + perf.losses < 2) return "";
-      const wr = (perf.wins / (perf.wins + perf.losses) * 100).toFixed(0);
-      return `, HistoricalWR=${wr}%(${perf.wins}W/${perf.losses}L)`;
-    })();
-    const smNote = (() => {
-      if (candles.length < 10) return "";
-      const sm = computeSmartMoney(candles);
-      const parts = [];
-      if (sm.orderBlockBull) parts.push("BullOB");
-      if (sm.orderBlockBear) parts.push("BearOB");
-      if (sm.fvgBull) parts.push("BullFVG");
-      if (sm.fvgBear) parts.push("BearFVG");
-      if (sm.liqSweepBull) parts.push("LiqSweepBull");
-      if (sm.liqSweepBear) parts.push("LiqSweepBear");
-      return parts.length ? `, SmartMoney=[${parts.join(",")}]` : "";
-    })();
-    const vpNote = (() => {
-      if (candles.length < 5) return "";
-      const vp = computeVolumeProfile(candles, data.currentPrice);
-      if (!vp.poc) return "";
-      return `, VolProfile(POC=${vp.poc.toFixed(2)},VAH=${vp.vah.toFixed(2)},VAL=${vp.val.toFixed(2)},NearPOC=${vp.priceNearPOC},NearVAH=${vp.priceNearVAH},NearVAL=${vp.priceNearVAL})`;
-    })();
-    const deltaNote = (() => {
-      if (candles.length < 5) return "";
-      const d = computeVolumeDelta(candles);
-      return `, VolDelta=${d > 0 ? "+" : ""}${Math.round(d)}(${d > 0 ? "buyers" : "sellers"})`;
-    })();
-    const markovNote = (() => {
-      if (candles.length < 10) return "";
-      const dir = data.trend === "BULLISH" ? "BUY" : "SELL";
-      const m = getMarkovSignal(sym, dir, candles.map((c) => ({ open: c.o, close: c.c })));
-      return `, Markov(bullP=${Math.round(m.bullishProbability * 100)}%,bearP=${Math.round(m.bearishProbability * 100)}%,adj=${m.confidenceAdjustment > 0 ? "+" : ""}${m.confidenceAdjustment})`;
-    })();
-    return `${sym}(${inst?.description || ""}): Price=${data.currentPrice}, Trend=${data.trend}, ADX=${data.adx?.adx?.toFixed(1) || "N/A"}, RSI=${data.rsi?.value?.toFixed(1) || "N/A"}, MACD_hist=${data.macd?.histogram?.toFixed(2) || "N/A"}, ATR=${atr2.toFixed(2)}(${atrTicks}ticks), TickVal=$${inst?.tickValue || "?"}/tick, Support=${sr?.supports?.[0]?.toFixed(2) || "N/A"}, Resistance=${sr?.resistances?.[0]?.toFixed(2) || "N/A"}, Patterns=[${(data.candlePatterns || []).join(",")}]${perfNote}${smNote}${vpNote}${deltaNote}${markovNote}`;
-  }).join("\n");
-  const symbolPerformanceSummary = Object.entries(state.symbolPerformance).map(([sym, p]) => `${sym}: ${p.wins}W/${p.losses}L avgR=${p.wins + p.losses > 0 ? (p.totalR / (p.wins + p.losses)).toFixed(2) : "N/A"}`).join(", ") || "No history yet";
-  const newsWarning = newsWindowActive ? "\n\u26A0\uFE0F HIGH-IMPACT NEWS WINDOW ACTIVE \u2014 reduce all signal confidence by 15 points and avoid new entries unless confidence > 85%." : "";
-  const prompt = `You are VEDD AI \u2014 an expert futures trader with deep knowledge of CME equity index, metals, and energy futures.
-
-CURRENT SESSION: ${session3} (UTC hour: ${(/* @__PURE__ */ new Date()).getUTCHours()})
-ACCOUNT BALANCE: $${config.accountBalance} | RISK PER TRADE: ${config.riskPerTrade}% | MAX OPEN: ${config.maxOpenTrades}
-CURRENT WIN/LOSS: ${state.wins}W / ${state.losses}L
-SYMBOL LEARNING: ${symbolPerformanceSummary}${newsWarning}
-
-MARKET DATA (15-minute candles, includes SmartMoney/VolProfile/Delta/Markov analysis):
-${marketSummary}
-
-STRATEGY CONFLUENCE GUIDE:
-- SmartMoney=[BullOB/BearOB]: Order block present \u2014 high-probability reversal zone
-- SmartMoney=[BullFVG/BearFVG]: Fair Value Gap \u2014 price likely fills imbalance
-- SmartMoney=[LiqSweepBull/LiqSweepBear]: Stop hunt reversal \u2014 strong fade opportunity
-- VolProfile(NearVAL=true for BUY, NearVAH=true for SELL): Volume support/resistance level
-- VolProfile(NearPOC=true): Highest traded price cluster \u2014 magnet or pivot
-- VolDelta=positive means buyers dominating; negative means sellers; confirm with direction
-- Markov(bullP/bearP): Probability of next candle being bullish/bearish; adj = confidence \xB1pts
-
-FUTURES TRADING RULES:
-- Equity futures (NQ/ES/YM/RTY and micros) are best traded during CME_RTH (14:30-21:00 UTC) and London open (08:00-10:00 UTC)
-- Energy (CL, NG) and Metals (GC, SI) trade 24h but with best volume during RTH
-- ALWAYS calculate stop loss in TICKS, not pips \u2014 each instrument has unique tick size
-- Prefer 1.5R minimum reward:risk. Scale to 2R or 3R when momentum is clear
-- During AFTER_HOURS or OVERNIGHT, only trade if ADX > 30 and patterns are clear
-- High-impact news (FOMC, NFP, CPI, EIA) creates volatility \u2014 avoid entries 15min before/after
-- Micro contracts (MNQ, MES, MYM, M2K, MGC, MCL) are appropriate for smaller accounts
-- Self-learning: if a symbol has been losing (shown in history), be MORE selective (require 80%+ confidence)
-
-Analyze the market data and decide whether to generate trade signals.
-
-Respond ONLY with valid JSON:
-{
-  "decisions": [
-    {
-      "symbol": "NQ",
-      "direction": "BUY",
-      "confidence": 78,
-      "strategy": "breakout_momentum",
-      "reason": "brief explanation",
-      "confluences": ["ADX 32 trending", "RSI 58 rising", "MACD bullish cross", "price at support"],
-      "stopLossTicks": 20,
-      "takeProfitTicks": 40,
-      "holdTime": "45-90 minutes"
-    }
-  ],
-  "marketOverview": "brief overall assessment",
-  "sessionNote": "any session-specific notes"
-}
-
-Rules for decisions array:
-- Only include signals with confidence >= ${config.minConfidence}%
-- Max ${config.maxOpenTrades} signals per cycle
-- If no good setups exist, return empty decisions array
-- stopLossTicks and takeProfitTicks must be positive integers
-- confidence is 0-100`;
-  try {
-    addActivity(userId, { type: "info", message: `\u{1F916} Futures AI analyzing ${Object.keys(marketAnalysis).length} instruments (${session3}) via ${model}...` });
-    const _mkReq = (m) => ({
-      model: m,
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
-      max_tokens: 1200,
-      temperature: 0.3
-    });
-    let response;
-    try {
-      response = await openai2.chat.completions.create(_mkReq(model));
-    } catch (aiErr) {
-      if (_usingGroq) {
-        addActivity(userId, { type: "info", message: `\u26A0\uFE0F Groq failed (${(aiErr?.message || "").slice(0, 80)}) \u2014 retrying on primary AI client` });
-        response = await _primaryClient.chat.completions.create(_mkReq(_primaryModel));
-      } else {
-        throw aiErr;
-      }
-    }
-    const raw = response.choices[0]?.message?.content || "{}";
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = {};
-    }
-    const decisions = parsed.decisions || [];
-    if (parsed.marketOverview) {
-      addActivity(userId, { type: "info", message: `\u{1F4CA} ${parsed.marketOverview}${parsed.sessionNote ? " | " + parsed.sessionNote : ""}` });
-    }
-    if (decisions.length === 0) {
-      addActivity(userId, { type: "info", message: "No futures setups this cycle \u2014 waiting for higher-quality alignment." });
-      return;
-    }
-    for (const d of decisions) {
-      if (!d.symbol || !d.direction || !d.confidence) continue;
-      const effectiveDirectionFilter = config.symbolDirectionOverrides[d.symbol] || config.directionFilter;
-      const directionAllowed = effectiveDirectionFilter === "both" || effectiveDirectionFilter === "long_only" && d.direction === "BUY" || effectiveDirectionFilter === "short_only" && d.direction === "SELL";
-      if (!directionAllowed) continue;
-      const minConf = getAdjustedMinConfidence(userId, d.symbol);
-      if (d.confidence < minConf) {
-        addActivity(userId, { type: "info", symbol: d.symbol, message: `Skipped ${d.symbol}: confidence ${d.confidence}% < adjusted threshold ${minConf}% (learning-adjusted)` });
-        continue;
-      }
-      const inst = getInstrument(d.symbol);
-      if (!inst) continue;
-      const price = marketAnalysis[d.symbol]?.currentPrice || 0;
-      const slTicks = Math.max(4, d.stopLossTicks || 20);
-      const tpTicks = Math.max(slTicks, d.takeProfitTicks || slTicks * 2);
-      const sl = d.direction === "BUY" ? price - slTicks * inst.tickSize : price + slTicks * inst.tickSize;
-      const tp = d.direction === "BUY" ? price + tpTicks * inst.tickSize : price - tpTicks * inst.tickSize;
-      const maxContracts = config.symbolContractOverrides[d.symbol] || void 0;
-      const sizing = await computeFuturesContractSize(userId, config, config.accountBalance, config.riskPerTrade, price, sl, d.symbol, d.confidence);
-      const contracts = Math.max(1, maxContracts ? Math.min(sizing.contracts, maxContracts) : sizing.contracts);
-      const signal = {
-        id: uid(),
-        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-        symbol: d.symbol,
-        direction: d.direction,
-        contracts,
-        entryPrice: price,
-        stopLoss: sl,
-        takeProfit: tp,
-        stopLossTicks: slTicks,
-        takeProfitTicks: tpTicks,
-        confidence: d.confidence,
-        reason: (d.reason || "") + (sizing.reasoning ? ` | ${sizing.reasoning}` : ""),
-        strategy: d.strategy || "ai_analysis",
-        confluences: d.confluences || [],
-        status: "pending"
-      };
-      addActivity(userId, {
-        type: "signal",
-        symbol: d.symbol,
-        direction: d.direction,
-        confidence: d.confidence,
-        message: `\u26A1 FUTURES SIGNAL: ${d.direction} ${d.symbol} @ ${price} | Conf: ${d.confidence}% | SL: ${slTicks}t ($${(slTicks * inst.tickValue * contracts).toFixed(0)} risk) | TP: ${tpTicks}t | Strategy: ${d.strategy}`,
-        details: { confluences: d.confluences, holdTime: d.holdTime }
-      });
-      addSignal(userId, signal);
-      const tradeAllowed = await assembleFuturesConsensus(userId, d.symbol, signal.strategy, d.direction, marketAnalysis[d.symbol] || {}, config, { confidence: d.confidence });
-      if (tradeAllowed) {
-        await executeSignalIfEnabled(userId, signal);
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = "Blocked by Dual-Vote Consensus";
-        addActivity(userId, { type: "info", symbol: d.symbol, message: `${d.symbol}: AI signal confirmed, but consensus (Quant Agent disagreed) blocked execution.` });
-      }
-    }
-  } catch (err) {
-    addActivity(userId, { type: "error", message: `Futures AI error: ${err.message}` });
-  }
-}
-async function executeSignalIfEnabled(userId, signal) {
-  const state = scannerStates[userId];
-  if (!state || !state.config.enableAutoExecution) return;
-  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
-  if (!gate.allowed) {
-    signal.status = "rejected";
-    signal.executionResult = gate.reason;
-    addActivity(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.` });
-    return;
-  }
-  if (gate.riskMultiplier < 1) {
-    signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
-    addActivity(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
-  }
-  const moomoo = getMoomooService(userId);
-  if (moomoo && moomoo.isConnected()) {
-    try {
-      const result = await moomoo.placeOrder({
-        symbol: signal.symbol,
-        direction: signal.direction,
-        contracts: signal.contracts,
-        stopLoss: signal.stopLoss || void 0,
-        takeProfit: signal.takeProfit || void 0
-      });
-      if (result.success) {
-        signal.status = "executed";
-        signal.executionResult = `Moomoo Order #${result.orderId}`;
-        addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 MOOMOO EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
-        await storage.createFuturesEngineTrade({
-          userId,
-          connectionId: 0,
-          broker: "moomoo",
-          symbol: signal.symbol,
-          strategy: signal.strategy,
-          direction: signal.direction === "BUY" ? "long" : "short",
-          contracts: signal.contracts,
-          entryPrice: signal.entryPrice ?? 0,
-          stopLoss: signal.stopLoss,
-          takeProfit: signal.takeProfit,
-          entryOrderId: String(result.orderId ?? ""),
-          entryReasoning: signal.reason,
-          status: "open"
-        }).catch(() => {
-        });
-      } else {
-        signal.status = "rejected";
-        signal.executionResult = result.error || "Moomoo execution failed";
-        addActivity(userId, { type: "error", symbol: signal.symbol, message: `\u274C Moomoo failed: ${signal.symbol} \u2014 ${result.error}` });
-      }
-      return;
-    } catch (err) {
-      addActivity(userId, { type: "error", symbol: signal.symbol, message: `Moomoo error: ${err.message} \u2014 falling back to Tradovate` });
-    }
-  }
-  try {
-    const connection2 = await storage.getUserTradovateConnection(userId);
-    if (!connection2 || !connection2.isActive) {
-      addActivity(userId, { type: "info", symbol: signal.symbol, message: `Signal queued (no broker connected): ${signal.direction} ${signal.symbol}` });
-      return;
-    }
-    const result = await executeFuturesSignal(connection2, {
-      action: "OPEN",
-      symbol: signal.symbol,
-      direction: signal.direction,
-      contracts: signal.contracts,
-      stopLoss: signal.stopLoss || void 0,
-      takeProfit: signal.takeProfit || void 0
-    });
-    if (result.success) {
-      signal.status = "executed";
-      signal.executionResult = `Tradovate Order #${result.orderId}`;
-      addActivity(userId, { type: "trade_open", symbol: signal.symbol, direction: signal.direction, message: `\u2705 TRADOVATE EXECUTED: ${signal.direction} ${signal.contracts} ${signal.symbol} | Order: ${result.orderId}` });
-      await storage.createFuturesEngineTrade({
-        userId,
-        connectionId: connection2.id ?? 0,
-        broker: "tradovate",
-        symbol: signal.symbol,
-        strategy: signal.strategy,
-        direction: signal.direction === "BUY" ? "long" : "short",
-        contracts: signal.contracts,
-        entryPrice: signal.entryPrice ?? 0,
-        stopLoss: signal.stopLoss,
-        takeProfit: signal.takeProfit,
-        entryOrderId: String(result.orderId ?? ""),
-        entryReasoning: signal.reason,
-        status: "open"
-      }).catch(() => {
-      });
-    } else {
-      signal.status = "rejected";
-      signal.executionResult = result.error || "Execution failed";
-      addActivity(userId, { type: "error", symbol: signal.symbol, message: `\u274C Execution failed: ${signal.symbol} \u2014 ${result.error}` });
-    }
-  } catch (err) {
-    signal.status = "rejected";
-    signal.executionResult = err.message;
-    addActivity(userId, { type: "error", symbol: signal.symbol, message: `Execution error: ${err.message}` });
-  }
-}
-async function scanFuturesMarkets(userId) {
-  const state = scannerStates[userId];
-  if (!state || state.status !== "running" || state.currentlyScanning) return;
-  const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
-  const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
-  if (!allowedDows.includes(todayDow)) return;
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 }));
-  if (!gateCheck.allowed) {
-    state.dailyLossHalted = true;
-    addActivity(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
-    return;
-  }
-  state.dailyLossHalted = false;
-  state.currentlyScanning = true;
-  state.scanCount++;
-  state.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
-  const session3 = getCurrentFuturesSession();
-  try {
-    if (!marketDataService.isInitialized()) {
-      addActivity(userId, { type: "error", message: "Market data service not initialized \u2014 check TWELVE_DATA_API_KEY." });
-      return;
-    }
-    await monitorOpenFuturesPositions(userId, state.config).catch(
-      (e) => console.error(`[futures-scanner] monitorOpenFuturesPositions failed for user ${userId}:`, e.message)
-    );
-    const symbolDaySchedule = state.config.symbolDaySchedule || {};
-    const symbols = state.config.symbols.filter((sym) => {
-      const days = symbolDaySchedule[sym];
-      return !Array.isArray(days) || days.length === 0 || days.includes(todayDow);
-    }).slice(0, 8);
-    addActivity(userId, { type: "scan", message: `\u{1F50D} Futures scan #${state.scanCount}: ${symbols.join(", ")} [${session3}]` });
-    const marketAnalysis = {};
-    for (const symbol of symbols) {
-      try {
-        const result = await marketDataService.fetchMarketData({ symbol, assetType: "futures", timeframe: "15m", limit: 50 });
-        if (!result.bars || result.bars.length < 20) continue;
-        const candles = convertToCandles(result.bars);
-        const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M15");
-        const currentPrice = result.bars[result.bars.length - 1]?.close || 0;
-        let trend = "NEUTRAL";
-        const adxData = indicators.adx;
-        if (adxData && (adxData.adx || adxData.value) > 25) {
-          trend = adxData.plusDI > adxData.minusDI ? "BULLISH" : "BEARISH";
-        }
-        state.marketSnapshot[symbol] = {
-          price: currentPrice,
-          trend,
-          rsi: Math.round(indicators.stochastic?.k || 50),
-          atr: indicators.volatilityContext?.currentATR || 0,
-          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-        };
-        marketAnalysis[symbol] = {
-          candles,
-          currentPrice,
-          trend,
-          adx: indicators.adx,
-          rsi: indicators.rsi,
-          macd: indicators.macd,
-          stochastic: indicators.stochastic,
-          supportResistance: indicators.supportResistance,
-          candlePatterns: indicators.candlePatterns,
-          volatilityContext: indicators.volatilityContext,
-          volumeProfile: indicators.volumeProfile
-        };
-        await new Promise((r) => setTimeout(r, 4e3));
-      } catch (err) {
-        addActivity(userId, { type: "error", symbol, message: `Data fetch failed: ${err.message}` });
-      }
-    }
-    if (Object.keys(marketAnalysis).length === 0) {
-      addActivity(userId, { type: "info", message: "No futures market data available this cycle." });
-      return;
-    }
-    await runFuturesAIAnalysis(userId, marketAnalysis);
-  } catch (err) {
-    addActivity(userId, { type: "error", message: `Futures scan error: ${err.message}` });
-  } finally {
-    state.currentlyScanning = false;
-  }
-}
-function scheduleNextScan(userId) {
-  const state = scannerStates[userId];
-  if (!state || state.status !== "running") return;
-  scannerTimers[userId] = setTimeout(async () => {
-    await scanFuturesMarkets(userId);
-    scheduleNextScan(userId);
-  }, state.config.scanIntervalMs);
-}
-function startFuturesScanner(config) {
-  stopFuturesScanner(config.userId);
-  const fullConfig = {
-    userId: config.userId,
-    symbols: Array.isArray(config.symbols) && config.symbols.length > 0 ? config.symbols : DEFAULT_FUTURES_SYMBOLS,
-    scanIntervalMs: config.scanIntervalMs || 12e4,
-    minConfidence: config.minConfidence || 70,
-    maxOpenTrades: config.maxOpenTrades || 3,
-    riskPerTrade: config.riskPerTrade || 1,
-    accountBalance: config.accountBalance || 5e4,
-    aiMode: config.aiMode || "full",
-    propFirmDailyDrawdownLimit: config.propFirmDailyDrawdownLimit ?? 2,
-    enableAutoExecution: config.enableAutoExecution === true,
-    directionFilter: config.directionFilter || "both",
-    dailyLossLimit: config.dailyLossLimit ?? 3,
-    dailyProfitTarget: config.dailyProfitTarget ?? 0,
-    maxDailyTrades: config.maxDailyTrades ?? 0,
-    useKellyCriterion: config.useKellyCriterion === true,
-    brainLearningMode: config.brainLearningMode !== false,
-    drawdownShieldThreshold: config.drawdownShieldThreshold ?? 3,
-    trailMethod: config.trailMethod || "none",
-    trailActivationR: config.trailActivationR ?? 1,
-    trailFixedR: config.trailFixedR ?? 0.5,
-    trailStepR: config.trailStepR ?? 0.5,
-    trailProfitLockPct: config.trailProfitLockPct ?? 60,
-    trailSarInitialAF: config.trailSarInitialAF ?? 0.02,
-    trailSarMaxAF: config.trailSarMaxAF ?? 0.2,
-    breakevenBufferR: config.breakevenBufferR ?? 0.1,
-    propFirmMode: config.propFirmMode === true,
-    consistencyEnforcementEnabled: config.consistencyEnforcementEnabled === true,
-    consistencyMinProfitableDays: config.consistencyMinProfitableDays ?? 10,
-    consistencyPeriodDays: config.consistencyPeriodDays ?? 15,
-    maxDailyProfitPctOfTotal: config.maxDailyProfitPctOfTotal ?? 0,
-    tradingDaysOfWeek: Array.isArray(config.tradingDaysOfWeek) && config.tradingDaysOfWeek.length > 0 ? config.tradingDaysOfWeek : [1, 2, 3, 4, 5],
-    symbolDaySchedule: config.symbolDaySchedule || {},
-    symbolDirectionOverrides: config.symbolDirectionOverrides || {},
-    symbolContractOverrides: config.symbolContractOverrides || {},
-    smartSymbolEscalation: config.smartSymbolEscalation === true,
-    highConfidenceOverride: config.highConfidenceOverride === true,
-    enableCompositeAutonomous: config.enableCompositeAutonomous === true,
-    compositeMinEdgeScore: config.compositeMinEdgeScore ?? 72
-  };
-  scannerStates[config.userId] = {
-    status: "running",
-    config: fullConfig,
-    scanCount: 0,
-    lastScanAt: null,
-    currentlyScanning: false,
-    activities: [],
-    signals: [],
-    marketSnapshot: {},
-    dailyLossHalted: false,
-    dailyPnL: 0,
-    wins: 0,
-    losses: 0,
-    symbolPerformance: {}
-  };
-  addActivity(config.userId, {
-    type: "info",
-    message: `\u{1F680} Futures Scanner STARTED | Instruments: ${fullConfig.symbols.join(", ")} | Interval: ${fullConfig.scanIntervalMs / 1e3}s | Min confidence: ${fullConfig.minConfidence}% | Auto-execute: ${fullConfig.enableAutoExecution ? "ON" : "OFF (signals only)"}`
-  });
-  setTimeout(() => {
-    scanFuturesMarkets(config.userId).then(() => scheduleNextScan(config.userId));
-  }, 3e3);
-  return scannerStates[config.userId];
-}
-function stopFuturesScanner(userId) {
-  if (scannerTimers[userId]) {
-    clearTimeout(scannerTimers[userId]);
-    delete scannerTimers[userId];
-  }
-  const state = scannerStates[userId];
-  if (state) {
-    state.status = "stopped";
-    addActivity(userId, { type: "info", message: "\u23F9\uFE0F Futures Scanner STOPPED." });
-  }
-}
-function getFuturesScannerState(userId) {
-  return scannerStates[userId] || null;
-}
-function getFuturesScannerActivities(userId, limit = 50) {
-  return (scannerStates[userId]?.activities || []).slice(0, limit);
-}
-function getFuturesScannerSignals(userId, limit = 20) {
-  return (scannerStates[userId]?.signals || []).slice(0, limit);
-}
-function recordFuturesTradeOutcome(userId, symbol, won, rMultiple2) {
-  recordOutcome(userId, symbol, won, rMultiple2);
-}
-
 // server/routes/tradovate.ts
+init_futures_scanner();
 var router2 = Router2();
 function requireAuth(req, res) {
   if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -49288,46 +49399,7 @@ router2.post("/tradovate/scanner/start", async (req, res) => {
       if (req.body[key] !== void 0) overrides[key] = req.body[key];
     }
     const row = await storage.upsertFuturesEngineConfig(userId, { ...overrides, isActive: true });
-    const config = {
-      userId,
-      symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols : DEFAULT_FUTURES_SYMBOLS,
-      scanIntervalMs: row.scanIntervalMs,
-      minConfidence: row.minConfidence,
-      maxOpenTrades: row.maxOpenTrades,
-      riskPerTrade: row.riskPerTrade,
-      accountBalance: row.accountBalance,
-      aiMode: row.aiMode,
-      propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
-      enableAutoExecution: row.enableAutoExecution === true && !!connection2?.isActive,
-      directionFilter: row.directionFilter,
-      dailyLossLimit: row.dailyLossLimit,
-      dailyProfitTarget: row.dailyProfitTarget,
-      maxDailyTrades: row.maxDailyTrades,
-      useKellyCriterion: row.useKellyCriterion,
-      brainLearningMode: row.brainLearningMode,
-      drawdownShieldThreshold: row.drawdownShieldThreshold,
-      trailMethod: row.trailMethod,
-      trailActivationR: row.trailActivationR,
-      trailFixedR: row.trailFixedR,
-      trailStepR: row.trailStepR,
-      trailProfitLockPct: row.trailProfitLockPct,
-      trailSarInitialAF: row.trailSarInitialAF,
-      trailSarMaxAF: row.trailSarMaxAF,
-      breakevenBufferR: row.breakevenBufferR,
-      propFirmMode: row.propFirmMode,
-      consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
-      consistencyMinProfitableDays: row.consistencyMinProfitableDays,
-      consistencyPeriodDays: row.consistencyPeriodDays,
-      maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
-      tradingDaysOfWeek: row.tradingDaysOfWeek || [1, 2, 3, 4, 5],
-      symbolDaySchedule: row.symbolDaySchedule || {},
-      symbolDirectionOverrides: row.symbolDirectionOverrides || {},
-      symbolContractOverrides: row.symbolContractOverrides || {},
-      smartSymbolEscalation: row.smartSymbolEscalation,
-      highConfidenceOverride: row.highConfidenceOverride,
-      enableCompositeAutonomous: row.enableCompositeAutonomous,
-      compositeMinEdgeScore: row.compositeMinEdgeScore
-    };
+    const config = buildFuturesScanConfigFromRow({ ...row, userId }, !!connection2?.isActive);
     const state = startFuturesScanner(config);
     res.json({ success: true, status: state.status, config: state.config });
   } catch (err) {
@@ -49383,6 +49455,7 @@ router2.post("/tradovate/scanner/outcome", (req, res) => {
 var tradovate_default = router2;
 
 // server/routes/moomoo.ts
+init_moomoo();
 import { Router as Router3 } from "express";
 var router3 = Router3();
 function requireAuth2(req, res) {
@@ -77887,6 +77960,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startPropFirmConsistencyAuditLoop2();
     const { startOptionsEngineScanner: startOptionsEngineScanner2 } = await Promise.resolve().then(() => (init_options_scanner(), options_scanner_exports));
     startOptionsEngineScanner2();
+    const { startFuturesEngineScanner: startFuturesEngineScanner2 } = await Promise.resolve().then(() => (init_futures_scanner(), futures_scanner_exports));
+    startFuturesEngineScanner2();
     const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
     startCryptocomEngineScanner2();
   })().catch((err) => {

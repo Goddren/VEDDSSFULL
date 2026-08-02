@@ -1421,6 +1421,13 @@ async function withRetry<T>(
     const { startOptionsEngineScanner } = await import('./services/options-scanner');
     startOptionsEngineScanner();
 
+    // Resume any futures scanners that were running before this restart —
+    // previously futures_engine_configs.isActive rows were never re-read at
+    // boot, so a running futures scanner silently died on every deploy with
+    // no auto-recovery until the user noticed and clicked Start again.
+    const { startFuturesEngineScanner } = await import('./services/futures-scanner');
+    startFuturesEngineScanner();
+
     // Start Crypto.com Perpetuals AI Engine scan loop
     const { startCryptocomEngineScanner } = await import('./services/cryptocom-scanner');
     startCryptocomEngineScanner();

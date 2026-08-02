@@ -507,7 +507,7 @@ export default function OptionsEnginePage() {
           <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <p className="text-xs text-amber-200/80">
             Alpaca, TastyTrade, and Crypto.com are live now. Moomoo options trading works via your existing{' '}
-            <Link href="/futures-connect" className="underline">Moomoo OpenD connection</Link>. Fidelity has no public
+            <Link href="/futures-engine" className="underline">Moomoo OpenD connection</Link>. Fidelity has no public
             trading API and cannot be automated. NinjaTrader is a futures-only platform — it doesn't support equity
             options at all, so it isn't part of this engine. Charles Schwab, Webull, and Interactive Brokers remain on
             the roadmap — each needs broker-specific developer approval before it can connect the same way.

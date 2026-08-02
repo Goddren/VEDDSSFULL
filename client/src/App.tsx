@@ -92,9 +92,8 @@ import CryptoEnginePage from "@/pages/crypto-engine";
 import AbbaBotPage from "@/pages/abba-bot";
 import PolymarketWalletPage from "@/pages/polymarket-wallet";
 import PolymarketEnginePage from "@/pages/polymarket-engine";
-import FuturesConnectPage from "@/pages/futures-connect";
+import FuturesEnginePage from "@/pages/futures-engine";
 import FuturesEaGeneratorPage from "@/pages/futures-ea-generator";
-import FuturesLiveFeedPage from "@/pages/futures-live-feed";
 import SevenEightPage from "@/pages/seven-eight";
 import GrantsFundingPage from "@/pages/grants-funding";
 import CreditBuilderPage from "@/pages/credit-builder";
@@ -337,9 +336,14 @@ function AppLayout() {
             <ProtectedRoute path="/innovation-lab" component={InnovationLabPage} />
             <ProtectedRoute path="/compliance" component={CompliancePage} />
             <ProtectedRoute path="/live-monitor" component={LiveMonitorPage} />
-            <ProtectedRoute path="/futures-connect" component={FuturesConnectPage} />
+            {/* Futures Connect + Futures Live Feed were merged into one page
+                (futures-engine.tsx) — the old routes are kept as aliases so
+                existing bookmarks/links (More menu, dashboard, user guide)
+                keep working without needing every reference hunted down. */}
+            <ProtectedRoute path="/futures-connect" component={FuturesEnginePage} />
+            <ProtectedRoute path="/futures-live-feed" component={FuturesEnginePage} />
+            <ProtectedRoute path="/futures-engine" component={FuturesEnginePage} />
             <ProtectedRoute path="/futures-ea-generator" component={FuturesEaGeneratorPage} />
-            <ProtectedRoute path="/futures-live-feed" component={FuturesLiveFeedPage} />
             <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
             <ProtectedRoute path="/activity" component={ActivityHubPage} />
             <ProtectedRoute path="/copy-trading" component={CopyTradingPage} />

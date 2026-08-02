@@ -3347,7 +3347,7 @@ const Dashboard: React.FC = () => {
                     { name: 'Abba AI Strategist', path: '/abba', desc: 'Weekly planning AI', icon: '🧠' },
                     { name: 'Copy Trading', path: '/copy-trading', desc: 'Mirror top traders', icon: '📋' },
                     { name: 'Solana Scanner', path: '/solana-scanner', desc: 'SOL token AI', icon: '◎' },
-                    { name: 'Futures Connect', path: '/futures-connect', desc: 'Futures trading', icon: '📈' },
+                    { name: 'Futures Engine', path: '/futures-engine', desc: 'Futures trading', icon: '📈' },
                   ]
                 },
                 {

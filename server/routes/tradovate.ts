@@ -10,7 +10,7 @@ import { generateNinjaScriptStrategy, getFuturesStrategiesForSymbol, FUTURES_PRO
 import {
   startFuturesScanner, stopFuturesScanner,
   getFuturesScannerState, getFuturesScannerActivities, getFuturesScannerSignals,
-  recordFuturesTradeOutcome, DEFAULT_FUTURES_SYMBOLS,
+  recordFuturesTradeOutcome, DEFAULT_FUTURES_SYMBOLS, buildFuturesScanConfigFromRow,
   type FuturesScanConfig,
 } from '../services/futures-scanner';
 
@@ -519,48 +519,7 @@ router.post('/tradovate/scanner/start', async (req: Request, res: Response) => {
       if (req.body[key] !== undefined) overrides[key] = req.body[key];
     }
     const row = await storage.upsertFuturesEngineConfig(userId, { ...overrides, isActive: true });
-
-    const config: FuturesScanConfig = {
-      userId,
-      symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols as string[] : DEFAULT_FUTURES_SYMBOLS,
-      scanIntervalMs: row.scanIntervalMs,
-      minConfidence: row.minConfidence,
-      maxOpenTrades: row.maxOpenTrades,
-      riskPerTrade: row.riskPerTrade,
-      accountBalance: row.accountBalance,
-      aiMode: row.aiMode as 'full' | 'economy' | 'rule_based',
-      propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
-      enableAutoExecution: row.enableAutoExecution === true && !!(connection?.isActive),
-      directionFilter: row.directionFilter as 'long_only' | 'short_only' | 'both',
-      dailyLossLimit: row.dailyLossLimit,
-      dailyProfitTarget: row.dailyProfitTarget,
-      maxDailyTrades: row.maxDailyTrades,
-      useKellyCriterion: row.useKellyCriterion,
-      brainLearningMode: row.brainLearningMode,
-      drawdownShieldThreshold: row.drawdownShieldThreshold,
-      trailMethod: row.trailMethod as FuturesScanConfig['trailMethod'],
-      trailActivationR: row.trailActivationR,
-      trailFixedR: row.trailFixedR,
-      trailStepR: row.trailStepR,
-      trailProfitLockPct: row.trailProfitLockPct,
-      trailSarInitialAF: row.trailSarInitialAF,
-      trailSarMaxAF: row.trailSarMaxAF,
-      breakevenBufferR: row.breakevenBufferR,
-      propFirmMode: row.propFirmMode,
-      consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
-      consistencyMinProfitableDays: row.consistencyMinProfitableDays,
-      consistencyPeriodDays: row.consistencyPeriodDays,
-      maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
-      tradingDaysOfWeek: (row.tradingDaysOfWeek as number[]) || [1, 2, 3, 4, 5],
-      symbolDaySchedule: (row.symbolDaySchedule as Record<string, number[]>) || {},
-      symbolDirectionOverrides: (row.symbolDirectionOverrides as Record<string, string>) || {},
-      symbolContractOverrides: (row.symbolContractOverrides as Record<string, number>) || {},
-      smartSymbolEscalation: row.smartSymbolEscalation,
-      highConfidenceOverride: row.highConfidenceOverride,
-      enableCompositeAutonomous: row.enableCompositeAutonomous,
-      compositeMinEdgeScore: row.compositeMinEdgeScore,
-    };
-
+    const config = buildFuturesScanConfigFromRow({ ...row, userId }, !!connection?.isActive);
     const state = startFuturesScanner(config);
     res.json({ success: true, status: state.status, config: state.config });
   } catch (err: any) {

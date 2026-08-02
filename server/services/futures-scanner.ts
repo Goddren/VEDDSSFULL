@@ -1301,3 +1301,84 @@ export function getFuturesScannerSignals(userId: number, limit = 20): FuturesSca
 export function recordFuturesTradeOutcome(userId: number, symbol: string, won: boolean, rMultiple: number): void {
   recordOutcome(userId, symbol, won, rMultiple);
 }
+
+// ── Build a full FuturesScanConfig from a durable futures_engine_configs row —
+// shared by the manual POST /api/tradovate/scanner/start route and the
+// boot-time auto-resume loop below, so both paths construct the scanner
+// config identically instead of hand-duplicating ~30 field mappings twice.
+export function buildFuturesScanConfigFromRow(row: any, enableAutoExecution: boolean): FuturesScanConfig {
+  return {
+    userId: row.userId,
+    symbols: Array.isArray(row.symbols) && row.symbols.length > 0 ? row.symbols as string[] : DEFAULT_FUTURES_SYMBOLS,
+    scanIntervalMs: row.scanIntervalMs,
+    minConfidence: row.minConfidence,
+    maxOpenTrades: row.maxOpenTrades,
+    riskPerTrade: row.riskPerTrade,
+    accountBalance: row.accountBalance,
+    aiMode: row.aiMode as 'full' | 'economy' | 'rule_based',
+    propFirmDailyDrawdownLimit: row.propFirmDailyDrawdownLimit,
+    enableAutoExecution: row.enableAutoExecution === true && enableAutoExecution,
+    directionFilter: row.directionFilter as 'long_only' | 'short_only' | 'both',
+    dailyLossLimit: row.dailyLossLimit,
+    dailyProfitTarget: row.dailyProfitTarget,
+    maxDailyTrades: row.maxDailyTrades,
+    useKellyCriterion: row.useKellyCriterion,
+    brainLearningMode: row.brainLearningMode,
+    drawdownShieldThreshold: row.drawdownShieldThreshold,
+    trailMethod: row.trailMethod as FuturesScanConfig['trailMethod'],
+    trailActivationR: row.trailActivationR,
+    trailFixedR: row.trailFixedR,
+    trailStepR: row.trailStepR,
+    trailProfitLockPct: row.trailProfitLockPct,
+    trailSarInitialAF: row.trailSarInitialAF,
+    trailSarMaxAF: row.trailSarMaxAF,
+    breakevenBufferR: row.breakevenBufferR,
+    propFirmMode: row.propFirmMode,
+    consistencyEnforcementEnabled: row.consistencyEnforcementEnabled,
+    consistencyMinProfitableDays: row.consistencyMinProfitableDays,
+    consistencyPeriodDays: row.consistencyPeriodDays,
+    maxDailyProfitPctOfTotal: row.maxDailyProfitPctOfTotal,
+    tradingDaysOfWeek: (row.tradingDaysOfWeek as number[]) || [1, 2, 3, 4, 5],
+    symbolDaySchedule: (row.symbolDaySchedule as Record<string, number[]>) || {},
+    symbolDirectionOverrides: (row.symbolDirectionOverrides as Record<string, string>) || {},
+    symbolContractOverrides: (row.symbolContractOverrides as Record<string, number>) || {},
+    smartSymbolEscalation: row.smartSymbolEscalation,
+    highConfidenceOverride: row.highConfidenceOverride,
+    enableCompositeAutonomous: row.enableCompositeAutonomous,
+    compositeMinEdgeScore: row.compositeMinEdgeScore,
+  };
+}
+
+// ── Boot-time auto-resume — mirrors options-scanner.ts's
+// startOptionsEngineScanner(). Without this, futures_engine_configs.isActive
+// rows (set by POST /api/tradovate/scanner/start) were never re-read after a
+// server restart/deploy, silently killing every running futures scanner with
+// no recovery until the user noticed and manually clicked Start again.
+let futuresResumeStarted = false;
+export async function resumeActiveFuturesScanners(): Promise<void> {
+  try {
+    const configs = await storage.getAllActiveFuturesEngineConfigs();
+    for (const row of configs) {
+      try {
+        const connection = await storage.getUserTradovateConnection(row.userId);
+        const config = buildFuturesScanConfigFromRow(row, !!connection?.isActive);
+        startFuturesScanner(config);
+      } catch (e: any) {
+        console.error(`[futures-scanner] failed to resume scanner for user ${row.userId}:`, e.message);
+      }
+    }
+    if (configs.length > 0) {
+      console.log(`[futures-scanner] Resumed ${configs.length} active futures scanner(s) after restart.`);
+    }
+  } catch (err: any) {
+    console.error('[futures-scanner] resumeActiveFuturesScanners failed:', err.message);
+  }
+}
+
+export function startFuturesEngineScanner(): void {
+  if (futuresResumeStarted) return;
+  futuresResumeStarted = true;
+  resumeActiveFuturesScanners().catch((e: any) =>
+    console.error('[futures-scanner] initial resume failed:', e.message)
+  );
+}

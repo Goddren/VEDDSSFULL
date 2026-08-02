@@ -512,7 +512,7 @@ const guideSections: GuideSection[] = [
       {
         heading: 'Connecting Your Tradovate Account',
         steps: [
-          'Go to Futures Connect from the More menu in the header (or navigate to /futures-connect)',
+          'Go to Futures Engine from the More menu in the header (or navigate to /futures-engine)',
           'Enter your Tradovate username and password — demo or live accounts are both supported',
           'Select your account type: Demo (paper trading) or Live',
           'Optionally select a Prop Firm Preset (Topstep, Apex, Bulenox, etc.) if you are trading a funded account',
@@ -583,7 +583,7 @@ const guideSections: GuideSection[] = [
       {
         heading: 'Futures AI Live Feed',
         steps: [
-          'Go to Futures Live Feed from the More menu (or navigate to /futures-live-feed)',
+          'Go to Futures Engine → Live Feed tab (or navigate to /futures-engine)',
           'Click "Start Scanner" — the AI immediately begins scanning NQ, ES, YM, GC, CL and micro equivalents every 2 minutes',
           'Live signals appear in real time showing: symbol, BUY/SELL direction, confidence %, entry price, stop loss, take profit, and the AI\'s reasoning',
           'The Activity Log shows exactly what the scanner is doing at each step',

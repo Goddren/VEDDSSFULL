@@ -25,9 +25,8 @@ const tradingItems = [
   { name: 'Historical',       path: '/historical',        icon: History,    color: '#8b5cf6' },
   { name: 'What If',          path: '/what-if',           icon: Lightbulb,  color: '#06b6d4' },
   { name: 'MT5 Charts',       path: '/mt5-chart-data',    icon: BarChart3,  color: '#06b6d4' },
-  { name: 'Futures Connect',  path: '/futures-connect',      icon: Cable,    color: '#f97316' },
+  { name: 'Futures Engine',   path: '/futures-engine',       icon: Cable,    color: '#f97316' },
   { name: 'Futures EA Gen',   path: '/futures-ea-generator', icon: Code2,    color: '#f97316' },
-  { name: 'Futures Live Feed', path: '/futures-live-feed',   icon: Activity, color: '#f97316' },
 ];
 
 const aiToolItems = [
