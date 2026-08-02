@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef, forwardRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -87,9 +87,9 @@ const TypingIndicator = () => (
   </div>
 );
 
-const MessageBubble = ({ message, onCopy }: { message: Message; onCopy: (text: string) => void }) => {
+const MessageBubble = forwardRef<HTMLDivElement, { message: Message; onCopy: (text: string) => void }>(({ message, onCopy }, ref) => {
   const [copied, setCopied] = useState(false);
-  
+
   const handleCopy = () => {
     onCopy(message.content);
     setCopied(true);
@@ -100,6 +100,7 @@ const MessageBubble = ({ message, onCopy }: { message: Message; onCopy: (text: s
 
   return (
     <motion.div
+      ref={ref}
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
@@ -161,7 +162,8 @@ const MessageBubble = ({ message, onCopy }: { message: Message; onCopy: (text: s
       </div>
     </motion.div>
   );
-};
+});
+MessageBubble.displayName = 'MessageBubble';
 
 // ── Pair detector (scans text for known trading symbols) ──────────────────────
 function detectPair(text: string): string | null {

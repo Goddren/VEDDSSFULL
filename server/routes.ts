@@ -204,9 +204,9 @@ function getFreshestMt5Account(userId: number): {
 // P&L exclude the entire current week every Sunday.
 function mondayWeekStartUTC(): Date {
   const d = new Date();
-  const day = d.getDay(); // 0=Sun..6=Sat
+  const day = d.getUTCDay(); // 0=Sun..6=Sat, computed in UTC to match setUTCHours below
   const diff = day === 0 ? 6 : day - 1; // days since Monday
-  d.setDate(d.getDate() - diff);
+  d.setUTCDate(d.getUTCDate() - diff);
   d.setUTCHours(0, 0, 0, 0);
   return d;
 }

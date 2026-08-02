@@ -456,7 +456,7 @@ const Dashboard: React.FC = () => {
 
   // Get user profile for accuracy/winRate data
   const { data: userProfile } = useQuery<{ winRate?: number; tradeGrade?: number }>({
-    queryKey: ['/api/profile', user?.id],
+    queryKey: [`/api/profile/${user?.id}`],
     enabled: !!user?.id,
     refetchInterval: 90000,   // refresh every 90s with quick stats
   });

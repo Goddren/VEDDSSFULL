@@ -73,7 +73,7 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
     const rawToday = await db.execute(sql`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
-      WHERE user_id = ${userId} AND created_at >= ${todayStart}
+      WHERE user_id = ${userId} AND created_at >= ${todayStart.toISOString()}
       GROUP BY action_type
     `);
     const todayRows: any[] = Array.isArray(rawToday) ? rawToday : (rawToday as any).rows || [];
@@ -84,7 +84,7 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
     const rawWeek = await db.execute(sql`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
-      WHERE user_id = ${userId} AND created_at >= ${weekStart}
+      WHERE user_id = ${userId} AND created_at >= ${weekStart.toISOString()}
       GROUP BY action_type
     `);
     const weekRows: any[] = Array.isArray(rawWeek) ? rawWeek : (rawWeek as any).rows || [];
@@ -125,7 +125,7 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
         AND action_type IN ('devotional_solo','devotional_group')
-        AND created_at >= ${weekStart}
+        AND created_at >= ${weekStart.toISOString()}
     `);
     const devDaysRows: any[] = Array.isArray(rawDevDays) ? rawDevDays : (rawDevDays as any).rows || [];
     const devotionalDaysThisWeek = Number(devDaysRows[0]?.days || 0);

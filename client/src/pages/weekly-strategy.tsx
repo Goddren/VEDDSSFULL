@@ -379,9 +379,9 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
                   ? <ArrowDownRight className="w-3.5 h-3.5 text-red-400" />
                   : <Minus className="w-3.5 h-3.5 text-gray-600" />}
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: cfg.color + "20", color: cfg.color }}>{cfg.label}</span>
-                {isRetest && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full animate-pulse" style={{ background: "rgba(34,197,94,0.25)", color: "#22c55e" }}>ENTRY ZONE</span>}
+                {isRetest && <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse" style={{ background: "rgba(34,197,94,0.25)", color: "#22c55e" }}>ENTRY ZONE</span>}
                 {pair.autoMode && (
-                  <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full ml-auto animate-pulse"
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full ml-auto animate-pulse"
                     style={{
                       background: pair.mt5Status === "connected" ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)",
                       color: pair.mt5Status === "connected" ? "#4ade80" : "#fbbf24",
@@ -413,7 +413,7 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
                     { l: "T1",    v: pair.target1,  c: "#22c55e" },
                   ].map(({ l, v, c }) => (
                     <div key={l} className="p-1 rounded-md" style={{ background: "rgba(255,255,255,0.03)" }}>
-                      <p className="text-[7px] uppercase" style={{ color: c }}>{l}</p>
+                      <p className="text-[9px] uppercase" style={{ color: c }}>{l}</p>
                       <p className="text-[10px] font-bold text-white">{v ? v.toFixed(2) : "—"}</p>
                     </div>
                   ))}
@@ -428,7 +428,7 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
               {(pair.preMarketBias || pair.detectedPattern) && (
                 <div className="flex items-center gap-2 flex-wrap">
                   {pair.preMarketBias && (
-                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{
                         background: pair.preMarketBias === "bullish" ? "rgba(34,197,94,0.15)" : pair.preMarketBias === "bearish" ? "rgba(239,68,68,0.15)" : "rgba(107,114,128,0.15)",
                         color: pair.preMarketBias === "bullish" ? "#4ade80" : pair.preMarketBias === "bearish" ? "#f87171" : "#9ca3af",
@@ -437,7 +437,7 @@ function ORBWeeklyPanel({ pairs }: { pairs: string[] }) {
                     </span>
                   )}
                   {pair.detectedPattern && (
-                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full"
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                       style={{ background: "rgba(245,158,11,0.15)", color: "#fbbf24" }}>
                       🕯 {pair.detectedPattern}
                     </span>
@@ -1959,7 +1959,7 @@ export default function WeeklyStrategyPage() {
 
             {/* TODAY'S DAILY METER — PRIMARY */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-y-1 mb-1.5">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   <span className="text-white font-semibold text-sm">Today's Profit</span>
@@ -2023,7 +2023,7 @@ export default function WeeklyStrategyPage() {
 
             {/* WEEKLY METER — SECONDARY */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-y-1 mb-1.5">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="w-3.5 h-3.5 text-orange-400" />
                   <span className="text-gray-300 font-medium text-xs">Weekly Goal</span>

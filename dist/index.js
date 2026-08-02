@@ -20874,7 +20874,7 @@ __export(vedd_token_service_exports, {
 });
 import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction } from "@solana/web3.js";
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
-import { eq as eq7, and as and5, sql as sql5, desc as desc2, isNull as isNull2 } from "drizzle-orm";
+import { eq as eq7, and as and5, sql as sql5, desc as desc2, isNull as isNull2, gte as gte4 } from "drizzle-orm";
 function getConnection() {
   if (!connection) {
     connection = new Connection(SOLANA_RPC_URL, "confirmed");
@@ -20962,7 +20962,7 @@ var init_vedd_token_service = __esm({
         todayStart.setHours(0, 0, 0, 0);
         const rows = await db.select({ total: sql5`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and5(
           eq7(ambassadorActionRewards.userId, userId),
-          sql5`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+          gte4(ambassadorActionRewards.createdAt, todayStart)
         ));
         return Number(rows[0]?.total || 0);
       }
@@ -20976,7 +20976,7 @@ var init_vedd_token_service = __esm({
         weekStart.setHours(0, 0, 0, 0);
         const rows = await db.select({ total: sql5`coalesce(sum(total_reward), 0)` }).from(ambassadorActionRewards).where(and5(
           eq7(ambassadorActionRewards.userId, userId),
-          sql5`${ambassadorActionRewards.createdAt} >= ${weekStart}`
+          gte4(ambassadorActionRewards.createdAt, weekStart)
         ));
         return Number(rows[0]?.total || 0);
       }
@@ -20988,7 +20988,7 @@ var init_vedd_token_service = __esm({
         const todaysRewards = await db.select({ count: sql5`count(*)` }).from(ambassadorActionRewards).where(and5(
           eq7(ambassadorActionRewards.userId, userId),
           eq7(ambassadorActionRewards.actionType, actionType),
-          sql5`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+          gte4(ambassadorActionRewards.createdAt, todayStart)
         ));
         const rewardCount = todaysRewards[0]?.count || 0;
         if (rewardCount >= config.maxDailyRewards) {
@@ -21008,7 +21008,7 @@ var init_vedd_token_service = __esm({
         const recentBurst = await db.select({ count: sql5`count(*)` }).from(ambassadorActionRewards).where(and5(
           eq7(ambassadorActionRewards.userId, userId),
           eq7(ambassadorActionRewards.actionType, actionType),
-          sql5`${ambassadorActionRewards.createdAt} >= ${tenMinsAgo}`
+          gte4(ambassadorActionRewards.createdAt, tenMinsAgo)
         ));
         const burstCount = recentBurst[0]?.count || 0;
         const securityFlag = burstCount >= 3 ? "velocity" : void 0;
@@ -46142,7 +46142,7 @@ router.get("/daily-missions", async (req, res) => {
     const rawToday = await db.execute(sql6`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
-      WHERE user_id = ${userId} AND created_at >= ${todayStart}
+      WHERE user_id = ${userId} AND created_at >= ${todayStart.toISOString()}
       GROUP BY action_type
     `);
     const todayRows = Array.isArray(rawToday) ? rawToday : rawToday.rows || [];
@@ -46151,7 +46151,7 @@ router.get("/daily-missions", async (req, res) => {
     const rawWeek = await db.execute(sql6`
       SELECT action_type, COUNT(*) as count, COALESCE(SUM(total_reward),0) as earned
       FROM ambassador_action_rewards
-      WHERE user_id = ${userId} AND created_at >= ${weekStart}
+      WHERE user_id = ${userId} AND created_at >= ${weekStart.toISOString()}
       GROUP BY action_type
     `);
     const weekRows = Array.isArray(rawWeek) ? rawWeek : rawWeek.rows || [];
@@ -46187,7 +46187,7 @@ router.get("/daily-missions", async (req, res) => {
       FROM ambassador_action_rewards
       WHERE user_id = ${userId}
         AND action_type IN ('devotional_solo','devotional_group')
-        AND created_at >= ${weekStart}
+        AND created_at >= ${weekStart.toISOString()}
     `);
     const devDaysRows = Array.isArray(rawDevDays) ? rawDevDays : rawDevDays.rows || [];
     const devotionalDaysThisWeek = Number(devDaysRows[0]?.days || 0);
@@ -50016,9 +50016,9 @@ function getFreshestMt5Account(userId) {
 }
 function mondayWeekStartUTC() {
   const d = /* @__PURE__ */ new Date();
-  const day = d.getDay();
+  const day = d.getUTCDay();
   const diff = day === 0 ? 6 : day - 1;
-  d.setDate(d.getDate() - diff);
+  d.setUTCDate(d.getUTCDate() - diff);
   d.setUTCHours(0, 0, 0, 0);
   return d;
 }
@@ -75227,8 +75227,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18, and: and9, gte: gte5, sql: dsql } = await import("drizzle-orm");
-      const rows = await db2.select().from(leads2).where(and9(eq18(leads2.status, "New"), gte5(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { eq: eq18, and: and9, gte: gte6, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and9(eq18(leads2.status, "New"), gte6(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       let engaged = 0, manualNeeded = 0;
       for (const lead of rows) {

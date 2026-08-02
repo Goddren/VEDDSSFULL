@@ -2,7 +2,7 @@ import { Connection, PublicKey, Keypair, Transaction, sendAndConfirmTransaction 
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount } from '@solana/spl-token';
 import { db } from '../db';
 import { veddPoolWallets, veddTransferJobs, users, veddRewardConfig, ambassadorActionRewards, veddWalletBlacklist } from '@shared/schema';
-import { eq, and, sql, desc, isNull } from 'drizzle-orm';
+import { eq, and, sql, desc, isNull, gte } from 'drizzle-orm';
 
 const VEDD_TOKEN_MINT = process.env.VEDD_TOKEN_MINT || '';
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -144,7 +144,7 @@ export class VeddTokenService {
       .from(ambassadorActionRewards)
       .where(and(
         eq(ambassadorActionRewards.userId, userId),
-        sql`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+        gte(ambassadorActionRewards.createdAt, todayStart)
       ));
     return Number(rows[0]?.total || 0);
   }
@@ -161,7 +161,7 @@ export class VeddTokenService {
       .from(ambassadorActionRewards)
       .where(and(
         eq(ambassadorActionRewards.userId, userId),
-        sql`${ambassadorActionRewards.createdAt} >= ${weekStart}`
+        gte(ambassadorActionRewards.createdAt, weekStart)
       ));
     return Number(rows[0]?.total || 0);
   }
@@ -179,7 +179,7 @@ export class VeddTokenService {
       .where(and(
         eq(ambassadorActionRewards.userId, userId),
         eq(ambassadorActionRewards.actionType, actionType),
-        sql`${ambassadorActionRewards.createdAt} >= ${todayStart}`
+        gte(ambassadorActionRewards.createdAt, todayStart)
       ));
 
     const rewardCount = todaysRewards[0]?.count || 0;
@@ -208,7 +208,7 @@ export class VeddTokenService {
       .where(and(
         eq(ambassadorActionRewards.userId, userId),
         eq(ambassadorActionRewards.actionType, actionType),
-        sql`${ambassadorActionRewards.createdAt} >= ${tenMinsAgo}`
+        gte(ambassadorActionRewards.createdAt, tenMinsAgo)
       ));
     const burstCount = recentBurst[0]?.count || 0;
     const securityFlag = burstCount >= 3 ? 'velocity' : undefined;
