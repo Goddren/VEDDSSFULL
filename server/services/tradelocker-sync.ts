@@ -10,6 +10,44 @@ import { storage } from '../storage';
 import { getOrCreateService as tlGetOrCreateService } from '../tradelocker';
 import { recordRealizedPnl } from './prop-firm-consistency';
 
+// ── Self-learning Brain visibility for TradeLocker trades ──────────────────
+// storage.resolveConfirmationOutcome only UPDATES an existing PENDING row
+// (created when the VEDD bot itself opened a trade) if one exists within a
+// 24h window of when it was opened. Two real classes of TradeLocker trades
+// never have such a row at all: trades the user placed manually directly in
+// TradeLocker (the bot never saw them open), and bot-opened trades held
+// longer than 24h before closing (the PENDING row ages out of the matching
+// window). Both were previously silently dropped — never touching
+// ai_confirmation_outcomes — making them structurally invisible to the Brain
+// Dashboard regardless of how much real trading happened. When
+// resolveConfirmationOutcome reports no match, this creates a resolved row
+// directly instead, using the 'ea_only' tradeSource — the same value this
+// app's own getOutcomesForListing() convention already treats as
+// TradeLocker-category (see server/storage.ts) — so these trades count
+// toward Brain Dashboard stats without needing a new source bucket anywhere.
+async function _recordOrBackfillConfirmationOutcome(
+  userId: number, symbol: string, direction: string, result: string, closeTime?: string | Date,
+): Promise<void> {
+  try {
+    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null);
+    if (resolved) return;
+    const closedAt = closeTime ? new Date(closeTime) : new Date();
+    const hour = closedAt.getUTCHours();
+    const session = hour < 7 ? 'Asian' : hour < 13 ? 'London' : hour < 20 ? 'New York' : 'Late NY';
+    await storage.createConfirmationOutcome({
+      userId,
+      symbol: symbol.toUpperCase(),
+      direction,
+      session,
+      aiDecision: 'EA_ONLY',
+      tradeSource: 'ea_only',
+      tradeOutcome: result,
+      confirmedAt: closedAt,
+      closedAt,
+    } as any);
+  } catch { /* non-critical */ }
+}
+
 // accountId -> Set of open-position ticket ids seen on the previous sync pass.
 // Used to detect closures (a ticket that was open last cycle and is gone now)
 // without needing a webhook — TradeLocker has no EA-style push, so this is
@@ -24,6 +62,19 @@ const lastOpenTickets = new Map<string, Set<string>>();
 // open. Throttled to keep it gentle on the login/API rate limit.
 const lastOutcomeReconcile = new Map<string, number>();
 const OUTCOME_RECONCILE_MS = 5 * 60 * 1000; // every 5 min per connection
+
+// Separate, much rarer pass with a far wider lookback (90 days vs. the 14-day
+// window above) — catches historical trades the regular reconciliation never
+// will (anything closed more than 14 days ago that the poll-and-diff loop
+// also missed, e.g. during downtime). This is deliberately NOT folded into
+// the 5-min loop: widening that loop's own window to 90 days made every
+// single cycle re-walk months of order history and DB writes sequentially,
+// which measured multiple minutes per connection in testing — untenable to
+// repeat every 5 minutes forever. Running the wide pass once a day per
+// connection is enough to eventually catch up on anything the cheap 14-day
+// loop misses, without paying that cost on every cycle.
+const lastDeepBackfill = new Map<string, number>();
+const DEEP_BACKFILL_MS = 24 * 60 * 60 * 1000; // once per connection per day
 
 // Throttle DB writes of the balance snapshot (don't write every 20s sync).
 const lastBalancePersist = new Map<string, { at: number; balance: number }>();
@@ -127,14 +178,10 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         } as any);
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
         await recordRealizedPnl(userId, conn.id, 'tradelocker', profit, dStr);
-        // Resolve any matching PENDING 2nd-confirmation record so the Brain
-        // Dashboard reflects real TradeLocker outcomes — previously this only
-        // happened for MT5 closed trades, so an account trading exclusively on
-        // TradeLocker (like this account) never had a single confirmation
-        // resolve to WIN/LOSS, no matter how many real trades closed.
-        try {
-          await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, result, null);
-        } catch { /* non-critical */ }
+        // Resolve any matching PENDING 2nd-confirmation record — or backfill a
+        // fresh one — so the Brain Dashboard reflects real TradeLocker outcomes
+        // instead of silently dropping trades with no bot-opened PENDING match.
+        await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
       }
     }
   }
@@ -148,7 +195,20 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
   if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
     lastOutcomeReconcile.set(cacheKey, Date.now());
     try {
-      const fromTs = Math.floor((Date.now() - 14 * 24 * 3600 * 1000) / 1000); // last 14 days
+      // Normally a cheap 14-day window (fast, runs every 5 min). Once a day
+      // per connection, widen to 90 days instead — matching getFilledOrders'
+      // own internal lookback default — to catch trades closed further back
+      // that the poll-and-diff loop also missed (server downtime, a deploy
+      // mid-trade, etc.), which would otherwise never backfill into
+      // ai_trade_results no matter how high the display-side limits were
+      // raised. Kept OUT of the regular 5-min window on purpose: measured
+      // multiple minutes per connection to walk+write 90 days of history
+      // sequentially, which is fine once a day but not every 5 minutes forever.
+      const lastDeep = lastDeepBackfill.get(cacheKey) || 0;
+      const isDeepPass = Date.now() - lastDeep >= DEEP_BACKFILL_MS;
+      if (isDeepPass) lastDeepBackfill.set(cacheKey, Date.now());
+      const lookbackDays = isDeepPass ? 90 : 14;
+      const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1000) / 1000);
       const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => [] as any[]);
       for (const o of closedTrades) {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
@@ -179,9 +239,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
             } as any).catch(() => {});
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
-              try {
-                await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);
-              } catch { /* non-critical */ }
+              await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
             }
           }
           continue;
@@ -204,9 +262,7 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
           closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
         } as any).catch(() => {});
         await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
-        try {
-          await storage.resolveConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, null);
-        } catch { /* non-critical */ }
+        await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
       }
     } catch (err: any) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);

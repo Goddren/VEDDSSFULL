@@ -12562,10 +12562,15 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
 
-    // Get all closed trade results sorted oldest-first
+    // Get all closed trade results sorted oldest-first — excludes TradeLocker-
+    // sourced rows (source 'tradelocker'/'tradelocker_auto') so this MT5-labeled,
+    // MT5-balance-anchored chart is genuinely MT5-only. Previously every trade
+    // regardless of source was pooled into this one series, silently mixing
+    // TradeLocker P&L into an MT5-anchored balance curve.
     const allTrades = await storage.getAiTradeResults(userId, 5000);
     const closed = allTrades
       .filter((t: any) => t.result && t.result !== 'PENDING' && (t.closedAt || t.createdAt))
+      .filter((t: any) => t.source !== 'tradelocker' && t.source !== 'tradelocker_auto')
       .sort((a: any, b: any) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
 
     // Supplement with cache trades (deduplicated)
@@ -12609,6 +12614,60 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       .map(([date, balance]) => ({ date, balance }));
 
     // If we have no history but have a current balance, return a single point
+    if (series.length === 0 && currentBalance > 0) {
+      series.push({ date: new Date().toISOString().substring(0, 10), balance: currentBalance });
+    }
+
+    res.json({
+      series,
+      currentBalance: Math.round(currentBalance * 100) / 100,
+      totalPnL: Math.round(totalPnL * 100) / 100,
+      totalTrades: allPoints.length,
+    });
+  });
+
+  // ── TradeLocker balance history — same shape/logic as /api/mt5/balance-history
+  // above, but scoped to TradeLocker-sourced trades and anchored to the live
+  // TradeLocker account balance instead of MT5's. Previously there was no
+  // TradeLocker-equivalent chart at all — TradeLocker P&L only ever showed up
+  // mixed into the MT5 chart (now fixed to exclude it), so it had nowhere of
+  // its own to be displayed.
+  app.get("/api/tradelocker/balance-history", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+
+    const allTrades = await storage.getAiTradeResults(userId, 5000);
+    const closed = allTrades
+      .filter((t: any) => t.result && t.result !== 'PENDING' && (t.closedAt || t.createdAt))
+      .filter((t: any) => t.source === 'tradelocker' || t.source === 'tradelocker_auto')
+      .sort((a: any, b: any) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
+
+    const allPoints = closed.map((t: any) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt }));
+
+    const { getTlAccountData } = await import('./services/tradelocker-sync');
+    const tlLive = getTlAccountData(userId);
+    const currentBalance: number = tlLive?.totalBalance || 0;
+
+    const totalPnL = allPoints.reduce((s, p) => s + p.pnl, 0);
+    const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
+
+    const dailyMap: Record<string, number> = {};
+    let running = startBalance;
+    for (const pt of allPoints) {
+      running += pt.pnl;
+      const day = new Date(pt.date).toISOString().substring(0, 10);
+      dailyMap[day] = Math.round(running * 100) / 100;
+    }
+
+    if (currentBalance > 0) {
+      const today = new Date().toISOString().substring(0, 10);
+      dailyMap[today] = Math.round(currentBalance * 100) / 100;
+    }
+
+    const series = Object.entries(dailyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, balance]) => ({ date, balance }));
+
     if (series.length === 0 && currentBalance > 0) {
       series.push({ date: new Date().toISOString().substring(0, 10), balance: currentBalance });
     }
@@ -16125,12 +16184,18 @@ Rules:
     try { await syncTradeLockerOutcomes(userId); } catch (_) {}
 
     // Bot execution logs (trades placed via VEDD engine)
-    const execLogs = await storage.getTradelockerTradeLogs(userId, 100).catch(() => []);
+    const execLogs = await storage.getTradelockerTradeLogs(userId, 300).catch(() => []);
 
-    // Closed trade outcomes synced from TL API (includes manually-placed trades)
-    const syncedResults = await storage.getAiTradeResults(userId, 200)
+    // Closed trade outcomes synced from TL API (includes manually-placed trades).
+    // 'tradelocker' = created fresh by the reconciliation pass (no PENDING match
+    // existed); 'tradelocker_auto' = the poll-and-diff loop's own PENDING-then-
+    // resolved records — this is actually the MAJORITY of real trade history
+    // (confirmed live: 118 of 169 total records), and was previously silently
+    // dropped here by only matching the 'tradelocker' source, making this
+    // endpoint show a small fraction of real trades.
+    const syncedResults = await storage.getAiTradeResults(userId, 500)
       .then((rows: any[]) => rows
-        .filter((t: any) => t.source === 'tradelocker')
+        .filter((t: any) => t.source === 'tradelocker' || t.source === 'tradelocker_auto')
         .map((t: any) => ({
           id: t.id,
           symbol: t.symbol,
@@ -16161,7 +16226,7 @@ Rules:
 
     // Sort newest first
     merged.sort((a, b) => new Date(b.createdAt || b.closedAt || 0).getTime() - new Date(a.createdAt || a.closedAt || 0).getTime());
-    res.json(merged.slice(0, 100));
+    res.json(merged.slice(0, 300));
   });
 
   app.get("/api/tradelocker/instruments", async (req: Request, res: Response) => {

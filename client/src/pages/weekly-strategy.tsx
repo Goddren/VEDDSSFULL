@@ -5621,14 +5621,21 @@ export default function WeeklyStrategyPage() {
                 </div>
               ) : (
                 <>
-                  {/* Source breakdown */}
+                  {/* Source breakdown — 'breakout'/'ea_only' are TradeLocker-executed
+                      trades under this app's own convention (see storage.ts's
+                      getOutcomesForListing: sourceCategory 'tradelocker' maps to
+                      exactly these two tradeSource values), labeled here so that's
+                      visible instead of reading as generic MT5 strategy types.
+                      Also fixed 'manual_mt5' -> 'manual': the only manual
+                      tradeSource ever written is 'manual', so this bucket
+                      previously always showed 0 trades regardless of real activity. */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-                    {(['ai_confirmation','breakout','ea_only','manual_mt5'] as const).map(src => {
+                    {(['ai_confirmation','breakout','ea_only','manual'] as const).map(src => {
                       const srcData = brainSummary.filter((r: any) => r.tradeSource === src);
                       const total = srcData.reduce((a: number, b: any) => a + b.tradeCount, 0);
                       const wins = srcData.reduce((a: number, b: any) => a + (b.wins || Math.round(b.tradeCount * b.winRate / 100)), 0);
                       const wr = total > 0 ? Math.round((wins/total)*100) : 0;
-                      const label = src === 'ai_confirmation' ? '2nd Confirm' : src === 'breakout' ? 'Breakout' : src === 'ea_only' ? 'EA Only' : 'Manual';
+                      const label = src === 'ai_confirmation' ? '2nd Confirm' : src === 'breakout' ? 'TradeLocker (Breakout)' : src === 'ea_only' ? 'TradeLocker (EA)' : 'Manual';
                       return (
                         <div key={src} className="bg-gray-800/60 rounded-xl p-3 border border-gray-700 text-center">
                           <p className="text-2xl font-bold text-white">{total}</p>
@@ -5660,7 +5667,7 @@ export default function WeeklyStrategyPage() {
                               <td className="py-2 font-medium text-white">{row.symbol}</td>
                               <td className="py-2">
                                 <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">
-                                  {row.tradeSource === 'ai_confirmation' ? 'AI' : row.tradeSource === 'breakout' ? '🔥 Breakout' : row.tradeSource === 'ea_only' ? 'EA' : 'Manual'}
+                                  {row.tradeSource === 'ai_confirmation' ? 'AI' : row.tradeSource === 'breakout' ? '🔥 TL Breakout' : row.tradeSource === 'ea_only' ? 'TL EA' : 'Manual'}
                                 </span>
                               </td>
                               <td className="py-2">

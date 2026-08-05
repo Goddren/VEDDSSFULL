@@ -2618,13 +2618,19 @@ export class DatabaseStorage implements IStorage {
 
   // Called when a trade closes: find the most recent PENDING confirmation for
   // this user + symbol + direction within the last 24 hours and mark its outcome.
+  // Returns whether a match was found and updated — false means this trade has
+  // no corresponding row in ai_confirmation_outcomes at all (e.g. it wasn't
+  // opened by the bot, or it was held longer than 24h), which callers that
+  // have their own full outcome data (like TradeLocker's reconciliation pass)
+  // can use to create a fresh row instead of the trade silently never
+  // reaching the Brain Dashboard.
   async resolveConfirmationOutcome(
     userId: number,
     symbol: string,
     direction: string,
     tradeOutcome: string,
     actualPips: number | null
-  ): Promise<void> {
+  ): Promise<boolean> {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const rows = await db
       .select()
@@ -2646,7 +2652,9 @@ export class DatabaseStorage implements IStorage {
         .update(aiConfirmationOutcomes)
         .set({ tradeOutcome, actualPips, closedAt: new Date() })
         .where(eq(aiConfirmationOutcomes.id, rows[0].id));
+      return true;
     }
+    return false;
   }
 
   async getConfirmationOutcomes(userId: number, limit = 200): Promise<AiConfirmationOutcome[]> {

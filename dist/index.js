@@ -5110,6 +5110,12 @@ var init_storage = __esm({
       }
       // Called when a trade closes: find the most recent PENDING confirmation for
       // this user + symbol + direction within the last 24 hours and mark its outcome.
+      // Returns whether a match was found and updated — false means this trade has
+      // no corresponding row in ai_confirmation_outcomes at all (e.g. it wasn't
+      // opened by the bot, or it was held longer than 24h), which callers that
+      // have their own full outcome data (like TradeLocker's reconciliation pass)
+      // can use to create a fresh row instead of the trade silently never
+      // reaching the Brain Dashboard.
       async resolveConfirmationOutcome(userId, symbol, direction, tradeOutcome, actualPips) {
         const since = new Date(Date.now() - 24 * 60 * 60 * 1e3);
         const rows = await db.select().from(aiConfirmationOutcomes).where(
@@ -5123,7 +5129,9 @@ var init_storage = __esm({
         ).orderBy(desc(aiConfirmationOutcomes.confirmedAt)).limit(1);
         if (rows.length > 0) {
           await db.update(aiConfirmationOutcomes).set({ tradeOutcome, actualPips, closedAt: /* @__PURE__ */ new Date() }).where(eq(aiConfirmationOutcomes.id, rows[0].id));
+          return true;
         }
+        return false;
       }
       async getConfirmationOutcomes(userId, limit = 200) {
         return db.select().from(aiConfirmationOutcomes).where(eq(aiConfirmationOutcomes.userId, userId)).orderBy(desc(aiConfirmationOutcomes.confirmedAt)).limit(limit);
@@ -18298,6 +18306,27 @@ __export(tradelocker_sync_exports, {
   startTradeLockerSync: () => startTradeLockerSync,
   syncUserTradeLocker: () => syncUserTradeLocker
 });
+async function _recordOrBackfillConfirmationOutcome(userId, symbol, direction, result, closeTime) {
+  try {
+    const resolved = await storage.resolveConfirmationOutcome(userId, symbol, direction, result, null);
+    if (resolved) return;
+    const closedAt = closeTime ? new Date(closeTime) : /* @__PURE__ */ new Date();
+    const hour = closedAt.getUTCHours();
+    const session3 = hour < 7 ? "Asian" : hour < 13 ? "London" : hour < 20 ? "New York" : "Late NY";
+    await storage.createConfirmationOutcome({
+      userId,
+      symbol: symbol.toUpperCase(),
+      direction,
+      session: session3,
+      aiDecision: "EA_ONLY",
+      tradeSource: "ea_only",
+      tradeOutcome: result,
+      confirmedAt: closedAt,
+      closedAt
+    });
+  } catch {
+  }
+}
 function cache2() {
   global.tlAccountData = global.tlAccountData || {};
   return global.tlAccountData;
@@ -18345,10 +18374,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         });
         const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
         await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
-        try {
-          await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, result, null);
-        } catch {
-        }
+        await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, result, match.closeTime);
       }
     }
   }
@@ -18357,7 +18383,11 @@ async function syncTradeLockerTrades(userId, conn, svc) {
   if (Date.now() - lastRecon >= OUTCOME_RECONCILE_MS) {
     lastOutcomeReconcile.set(cacheKey, Date.now());
     try {
-      const fromTs = Math.floor((Date.now() - 14 * 24 * 3600 * 1e3) / 1e3);
+      const lastDeep = lastDeepBackfill.get(cacheKey) || 0;
+      const isDeepPass = Date.now() - lastDeep >= DEEP_BACKFILL_MS;
+      if (isDeepPass) lastDeepBackfill.set(cacheKey, Date.now());
+      const lookbackDays = isDeepPass ? 90 : 14;
+      const fromTs = Math.floor((Date.now() - lookbackDays * 24 * 3600 * 1e3) / 1e3);
       const closedTrades = await svc.getClosedTradesWithPnl(fromTs).catch(() => []);
       for (const o of closedTrades) {
         const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
@@ -18381,10 +18411,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
             });
             if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
-              try {
-                await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);
-              } catch {
-              }
+              await _recordOrBackfillConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, o.closeTime);
             }
           }
           continue;
@@ -18408,10 +18435,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         }).catch(() => {
         });
         await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
-        try {
-          await storage.resolveConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, null);
-        } catch {
-        }
+        await _recordOrBackfillConfirmationOutcome(userId, reconSymbol, reconDirection, reconResult, o.closeTime);
       }
     } catch (err) {
       console.error(`[TL-sync] Outcome reconciliation failed for ${conn.accountId} (non-fatal):`, err?.message);
@@ -18568,7 +18592,7 @@ function startTradeLockerSync() {
   }, SYNC_INTERVAL_MS);
   console.log("[TL-sync] Background TradeLocker balance sync started (20s interval).");
 }
-var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
+var lastOpenTickets, lastOutcomeReconcile, OUTCOME_RECONCILE_MS, lastDeepBackfill, DEEP_BACKFILL_MS, lastBalancePersist, BALANCE_PERSIST_MS, activeUsers, ACTIVE_WINDOW_MS, SYNC_INTERVAL_MS, MIN_RESYNC_GAP_MS, lastSyncAt, inFlight, started;
 var init_tradelocker_sync = __esm({
   "server/services/tradelocker-sync.ts"() {
     "use strict";
@@ -18578,6 +18602,8 @@ var init_tradelocker_sync = __esm({
     lastOpenTickets = /* @__PURE__ */ new Map();
     lastOutcomeReconcile = /* @__PURE__ */ new Map();
     OUTCOME_RECONCILE_MS = 5 * 60 * 1e3;
+    lastDeepBackfill = /* @__PURE__ */ new Map();
+    DEEP_BACKFILL_MS = 24 * 60 * 60 * 1e3;
     lastBalancePersist = /* @__PURE__ */ new Map();
     BALANCE_PERSIST_MS = 60 * 1e3;
     activeUsers = /* @__PURE__ */ new Map();
@@ -60710,7 +60736,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const allTrades = await storage.getAiTradeResults(userId, 5e3);
-    const closed = allTrades.filter((t) => t.result && t.result !== "PENDING" && (t.closedAt || t.createdAt)).sort((a, b) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
+    const closed = allTrades.filter((t) => t.result && t.result !== "PENDING" && (t.closedAt || t.createdAt)).filter((t) => t.source !== "tradelocker" && t.source !== "tradelocker_auto").sort((a, b) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
     const cachedAll = global.mt5ClosedTrades?.[userId]?.trades || [];
     const dbTickets = new Set(closed.map((t) => t.mt5Ticket).filter(Boolean));
     const cacheExtra = cachedAll.filter((t) => !t.ticket || !dbTickets.has(t.ticket.toString())).map((t) => ({ profitLoss: t.profit || 0, closedAt: t.closeTime || t.timestamp })).filter((t) => t.closedAt).sort((a, b) => new Date(a.closedAt).getTime() - new Date(b.closedAt).getTime());
@@ -60719,6 +60745,39 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
       ...closed.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt })),
       ...cacheExtra.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt }))
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const totalPnL = allPoints.reduce((s, p) => s + p.pnl, 0);
+    const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
+    const dailyMap = {};
+    let running = startBalance;
+    for (const pt of allPoints) {
+      running += pt.pnl;
+      const day = new Date(pt.date).toISOString().substring(0, 10);
+      dailyMap[day] = Math.round(running * 100) / 100;
+    }
+    if (currentBalance > 0) {
+      const today = (/* @__PURE__ */ new Date()).toISOString().substring(0, 10);
+      dailyMap[today] = Math.round(currentBalance * 100) / 100;
+    }
+    const series = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).map(([date2, balance]) => ({ date: date2, balance }));
+    if (series.length === 0 && currentBalance > 0) {
+      series.push({ date: (/* @__PURE__ */ new Date()).toISOString().substring(0, 10), balance: currentBalance });
+    }
+    res.json({
+      series,
+      currentBalance: Math.round(currentBalance * 100) / 100,
+      totalPnL: Math.round(totalPnL * 100) / 100,
+      totalTrades: allPoints.length
+    });
+  });
+  app2.get("/api/tradelocker/balance-history", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const allTrades = await storage.getAiTradeResults(userId, 5e3);
+    const closed = allTrades.filter((t) => t.result && t.result !== "PENDING" && (t.closedAt || t.createdAt)).filter((t) => t.source === "tradelocker" || t.source === "tradelocker_auto").sort((a, b) => new Date(a.closedAt || a.createdAt).getTime() - new Date(b.closedAt || b.createdAt).getTime());
+    const allPoints = closed.map((t) => ({ pnl: t.profitLoss || 0, date: t.closedAt || t.createdAt }));
+    const { getTlAccountData: getTlAccountData2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
+    const tlLive = getTlAccountData2(userId);
+    const currentBalance = tlLive?.totalBalance || 0;
     const totalPnL = allPoints.reduce((s, p) => s + p.pnl, 0);
     const startBalance = currentBalance > 0 ? currentBalance - totalPnL : 0;
     const dailyMap = {};
@@ -63923,9 +63982,9 @@ Rules:
       await syncTradeLockerOutcomes(userId);
     } catch (_) {
     }
-    const execLogs = await storage.getTradelockerTradeLogs(userId, 100).catch(() => []);
-    const syncedResults = await storage.getAiTradeResults(userId, 200).then(
-      (rows) => rows.filter((t) => t.source === "tradelocker").map((t) => ({
+    const execLogs = await storage.getTradelockerTradeLogs(userId, 300).catch(() => []);
+    const syncedResults = await storage.getAiTradeResults(userId, 500).then(
+      (rows) => rows.filter((t) => t.source === "tradelocker" || t.source === "tradelocker_auto").map((t) => ({
         id: t.id,
         symbol: t.symbol,
         action: t.direction,
@@ -63957,7 +64016,7 @@ Rules:
       }
     }
     merged.sort((a, b) => new Date(b.createdAt || b.closedAt || 0).getTime() - new Date(a.createdAt || a.closedAt || 0).getTime());
-    res.json(merged.slice(0, 100));
+    res.json(merged.slice(0, 300));
   });
   app2.get("/api/tradelocker/instruments", async (req, res) => {
     if (!req.isAuthenticated()) {

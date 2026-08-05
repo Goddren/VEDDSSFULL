@@ -745,6 +745,17 @@ const Dashboard: React.FC = () => {
     refetchInterval: 120000,
   });
 
+  // TradeLocker balance history — separate chart/source from MT5 above, so
+  // TradeLocker P&L is never silently mixed into the MT5-anchored curve.
+  const { data: tlBalanceHistory } = useQuery<{
+    series: { date: string; balance: number }[];
+    currentBalance: number; totalPnL: number; totalTrades: number;
+  }>({
+    queryKey: ['/api/tradelocker/balance-history'],
+    enabled: !!user,
+    refetchInterval: 120000,
+  });
+
   // MT5 EA check-in status — surfaces a warning when the EA (running on a
   // VPS/terminal) has gone silent for hours/days, since nothing else makes
   // that visible: autoExecute stays "on" and the weekly plan stays "active"
@@ -1829,7 +1840,7 @@ const Dashboard: React.FC = () => {
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5">
                     <Activity className="h-3.5 w-3.5 text-violet-400" />
-                    <span className="text-xs font-semibold text-white">Account Balance</span>
+                    <span className="text-xs font-semibold text-white">MT5 Account Balance</span>
                   </div>
                   <div className="flex items-center gap-3 text-[11px]">
                     <span className={`font-bold ${(balanceHistory.totalPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -1860,6 +1871,48 @@ const Dashboard: React.FC = () => {
                 <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
                   <span>{balanceHistory.series[0]?.date ? new Date(balanceHistory.series[0].date).toLocaleDateString() : ''}</span>
                   <span>{balanceHistory.totalTrades} trades tracked</span>
+                  <span>Today</span>
+                </div>
+              </div>
+            )}
+
+            {/* ── TradeLocker Balance Chart — separate source/card from MT5 ── */}
+            {tlBalanceHistory && tlBalanceHistory.series.length >= 1 && (
+              <div className="smart-card px-3 pt-3 pb-2 mb-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <Activity className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="text-xs font-semibold text-white">TradeLocker Account Balance</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px]">
+                    <span className={`font-bold ${(tlBalanceHistory.totalPnL ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {(tlBalanceHistory.totalPnL ?? 0) >= 0 ? '+' : ''}${(tlBalanceHistory.totalPnL ?? 0).toFixed(2)} P&L
+                    </span>
+                    <span className="text-white font-bold">${(tlBalanceHistory.currentBalance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={70}>
+                  <AreaChart data={tlBalanceHistory.series} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="tlBalGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={((tlBalanceHistory.totalPnL ?? 0) >= 0) ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
+                        <stop offset="95%" stopColor={((tlBalanceHistory.totalPnL ?? 0) >= 0) ? '#10b981' : '#ef4444'} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="date" hide />
+                    <YAxis hide domain={['auto', 'auto']} />
+                    <Tooltip
+                      contentStyle={{ background: '#0d1226', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+                      labelStyle={{ color: '#9ca3af' }}
+                      formatter={(v: number) => [`$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Balance']}
+                      labelFormatter={(l: string) => new Date(l).toLocaleDateString()}
+                    />
+                    <Area type="monotone" dataKey="balance" stroke={(tlBalanceHistory.totalPnL ?? 0) >= 0 ? '#10b981' : '#ef4444'} strokeWidth={2} fill="url(#tlBalGrad)" dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+                <div className="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                  <span>{tlBalanceHistory.series[0]?.date ? new Date(tlBalanceHistory.series[0].date).toLocaleDateString() : ''}</span>
+                  <span>{tlBalanceHistory.totalTrades} trades tracked</span>
                   <span>Today</span>
                 </div>
               </div>
