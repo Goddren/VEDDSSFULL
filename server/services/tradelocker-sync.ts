@@ -100,22 +100,32 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
     if (closedTicketIds.length > 0) {
       const closed = await svc.getClosedPositions().catch(() => [] as any[]);
       // Keyed by positionId — matches the ticket format used when the position
-      // was first logged as PENDING (`tl_<accountId>_<positionId>`). Previously
-      // this was keyed by the exit order's own id, which never matched the
-      // PENDING ticket, so every close silently fell back to profit=0/BREAKEVEN.
+      // was first logged as PENDING (`tl_<accountId>_<positionId>`).
       const closedById = new Map<string, any>(closed.map((c: any) => [`tl_${conn.accountId}_${c.positionId}`, c] as [string, any]));
       for (const ticket of closedTicketIds) {
         const existing = await storage.getAiTradeResultByTicket(userId, ticket);
         if (!existing || existing.result !== 'PENDING') continue;
         const match = closedById.get(ticket);
-        const profit = match ? match.profit : 0;
+        // getClosedPositions() (backed by the order-history endpoint) doesn't
+        // always have the just-closed position available yet on this same
+        // ~20s poll tick — previously an unmatched ticket got silently marked
+        // BREAKEVEN/$0 right here, and because the throttled reconciliation
+        // pass below only ever "fixes" records still sitting at PENDING, that
+        // wrong $0 became permanent — the reconciliation pass computes the
+        // REAL profit correctly (verified live: it returns the exact real P&L,
+        // e.g. $588.70), but was never allowed to overwrite what this loop had
+        // already (wrongly) resolved. So: leave it PENDING here when there's no
+        // match, and let the reconciliation pass — which has real data — be the
+        // one that resolves it, instead of guessing breakeven.
+        if (!match) continue;
+        const profit = match.profit;
         const result = profit > 0 ? 'WIN' : profit < 0 ? 'LOSS' : 'BREAKEVEN';
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
-          closedAt: match?.closeTime ? new Date(match.closeTime) : new Date(),
+          closedAt: match.closeTime ? new Date(match.closeTime) : new Date(),
         } as any);
-        const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
+        const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : undefined;
         await recordRealizedPnl(userId, conn.id, 'tradelocker', profit, dStr);
         // Resolve any matching PENDING 2nd-confirmation record so the Brain
         // Dashboard reflects real TradeLocker outcomes — previously this only
@@ -150,14 +160,24 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
         const reconResult = p > 0 ? 'WIN' : 'LOSS';
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
-          if (existing.result === 'PENDING' || (existing as any).connectionId == null) {
+          // Self-heal: the poll-and-diff loop above used to (and, on a slow
+          // order-history propagation, still can) mark a just-closed trade
+          // BREAKEVEN/$0 when it couldn't find a match yet — and this
+          // reconciliation pass previously refused to touch anything that
+          // wasn't still PENDING, so that wrong $0 stuck permanently even
+          // though this exact query returns the real, correct profit (`p`,
+          // guaranteed non-zero by the check above). Re-resolve a stale
+          // zero-profit BREAKEVEN the same as a PENDING record.
+          const isStaleZeroBreakeven = existing.result === 'BREAKEVEN' && !(existing as any).profitLoss;
+          const needsResolve = existing.result === 'PENDING' || isStaleZeroBreakeven;
+          if (needsResolve || (existing as any).connectionId == null) {
             await storage.updateAiTradeResult(existing.id, userId, {
               result: reconResult,
               profitLoss: p,
               connectionId: conn.id,
               closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
             } as any).catch(() => {});
-            if (existing.result === 'PENDING') {
+            if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, 'tradelocker', p, reconDateStr);
               try {
                 await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);

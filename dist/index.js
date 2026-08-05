@@ -18335,14 +18335,15 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         const existing = await storage.getAiTradeResultByTicket(userId, ticket);
         if (!existing || existing.result !== "PENDING") continue;
         const match = closedById.get(ticket);
-        const profit = match ? match.profit : 0;
+        if (!match) continue;
+        const profit = match.profit;
         const result = profit > 0 ? "WIN" : profit < 0 ? "LOSS" : "BREAKEVEN";
         await storage.updateAiTradeResult(existing.id, userId, {
           result,
           profitLoss: profit,
-          closedAt: match?.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
+          closedAt: match.closeTime ? new Date(match.closeTime) : /* @__PURE__ */ new Date()
         });
-        const dStr = match?.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
+        const dStr = match.closeTime ? new Date(match.closeTime).toISOString().slice(0, 10) : void 0;
         await recordRealizedPnl(userId, conn.id, "tradelocker", profit, dStr);
         try {
           await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, result, null);
@@ -18368,7 +18369,9 @@ async function syncTradeLockerTrades(userId, conn, svc) {
         const reconResult = p > 0 ? "WIN" : "LOSS";
         const existing = await storage.getAiTradeResultByTicket(userId, tk);
         if (existing) {
-          if (existing.result === "PENDING" || existing.connectionId == null) {
+          const isStaleZeroBreakeven = existing.result === "BREAKEVEN" && !existing.profitLoss;
+          const needsResolve = existing.result === "PENDING" || isStaleZeroBreakeven;
+          if (needsResolve || existing.connectionId == null) {
             await storage.updateAiTradeResult(existing.id, userId, {
               result: reconResult,
               profitLoss: p,
@@ -18376,7 +18379,7 @@ async function syncTradeLockerTrades(userId, conn, svc) {
               closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
             }).catch(() => {
             });
-            if (existing.result === "PENDING") {
+            if (needsResolve) {
               await recordRealizedPnl(userId, conn.id, "tradelocker", p, reconDateStr);
               try {
                 await storage.resolveConfirmationOutcome(userId, existing.symbol, existing.direction, reconResult, null);
