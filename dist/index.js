@@ -33484,6 +33484,7 @@ function _persistRunState(userId, isRunning, isPaperMode) {
 }
 async function restoreEngineStateFromDb(userId) {
   try {
+    await _restorePolymarketRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
     const { eq: eq18, and: and9 } = await import("drizzle-orm");
@@ -33504,6 +33505,19 @@ async function restoreEngineStateFromDb(userId) {
     startEngine(userId);
   } catch (e) {
     console.error("[Polymarket] Failed to restore engine state:", e);
+  }
+}
+async function _restorePolymarketRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "polymarket")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[Polymarket] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 async function manualScan(userId) {
@@ -34568,6 +34582,7 @@ function _persistKalshiRunState(userId, isRunning, isPaperMode) {
 }
 async function restoreKalshiEngineStateFromDb(userId) {
   try {
+    await _restoreKalshiRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
     const { eq: eq18, and: and9 } = await import("drizzle-orm");
@@ -34580,6 +34595,19 @@ async function restoreKalshiEngineStateFromDb(userId) {
     }
   } catch (e) {
     console.error("[Kalshi] Failed to restore engine state:", e);
+  }
+}
+async function _restoreKalshiRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "kalshi")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getKalshiEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[Kalshi] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 async function _reconcileKalshiPositionsOnBoot(userId) {
@@ -35430,6 +35458,7 @@ function _persistPmUsRunState(userId, isRunning, isPaperMode) {
 }
 async function restorePmUsEngineStateFromDb(userId) {
   try {
+    await _restorePmUsRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
     const { eq: eq18, and: and9 } = await import("drizzle-orm");
@@ -35441,6 +35470,19 @@ async function restorePmUsEngineStateFromDb(userId) {
     }
   } catch (e) {
     console.error("[PolymarketUS] Failed to restore engine state:", e);
+  }
+}
+async function _restorePmUsRealizedPnl(userId) {
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "polymarket-us")));
+    const total = parseFloat(row?.total ?? "0") || 0;
+    const s = getPmUsEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e) {
+    console.error(`[PolymarketUS] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 async function manualPmUsScan(userId) {
@@ -35505,6 +35547,26 @@ async function _closeTrade(userId, id, exitCents, reason) {
     recordKalshiOutcome2(userId, `pmus:${t.signal.strategy}`, realized);
   } catch {
   }
+  Promise.resolve().then(async () => {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      await db2.insert(aiTradeResults2).values({
+        userId,
+        symbol: `PMUS:${t.marketSlug}`,
+        direction: t.signal.direction === "SELL" ? "SELL" : "BUY",
+        entryPrice: t.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "BREAKEVEN",
+        profitLoss: realized,
+        closedAt: /* @__PURE__ */ new Date(),
+        source: "polymarket-us",
+        mt5Ticket: t.id,
+        notes: `${t.signal.strategy}: ${t.title}${reason !== "manual" ? " | " + reason : ""}`
+      });
+    } catch {
+    }
+  });
   _recalc(s);
   return true;
 }

@@ -193,6 +193,13 @@ function _persistPmUsRunState(userId: number, isRunning: boolean, isPaperMode: b
 
 export async function restorePmUsEngineStateFromDb(userId: number): Promise<void> {
   try {
+    // totalRealizedPnl was purely in-memory (reset to 0 on every fresh
+    // state), and until the fix above, closed trades weren't even persisted
+    // anywhere durable — meaning every redeploy silently reset the displayed
+    // cumulative P&L to zero regardless of real trading history. Restore
+    // from the now-durable trade history unconditionally.
+    await _restorePmUsRealizedPnl(userId);
+
     const { db } = await import('../db');
     const { engineRunState } = await import('../../shared/schema');
     const { eq, and } = await import('drizzle-orm');
@@ -205,6 +212,22 @@ export async function restorePmUsEngineStateFromDb(userId: number): Promise<void
     }
   } catch (e) {
     console.error('[PolymarketUS] Failed to restore engine state:', e);
+  }
+}
+
+async function _restorePmUsRealizedPnl(userId: number): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { aiTradeResults } = await import('../../shared/schema');
+    const { eq, and, sql } = await import('drizzle-orm');
+    const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiTradeResults.profitLoss}), 0)` })
+      .from(aiTradeResults)
+      .where(and(eq(aiTradeResults.userId, userId), eq(aiTradeResults.source, 'polymarket-us')));
+    const total = parseFloat(row?.total ?? '0') || 0;
+    const s = getPmUsEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e: any) {
+    console.error(`[PolymarketUS] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 
@@ -273,6 +296,32 @@ async function _closeTrade(userId: number, id: string, exitCents: number, reason
   if (s.closedTrades.length > 50) s.closedTrades.length = 50;
   s.totalRealizedPnl = Math.round((s.totalRealizedPnl + realized) * 100) / 100;
   try { const { recordKalshiOutcome } = require('./kalshi-performance'); recordKalshiOutcome(userId, `pmus:${t.signal.strategy}`, realized); } catch {}
+
+  // Persist to aiTradeResults so the dashboard/mobile nav can display
+  // Polymarket US trades — this was missing entirely (unlike Kalshi and the
+  // Polymarket crypto engine, which both already do this), so every closed
+  // Polymarket US trade vanished with nothing but the in-memory
+  // totalRealizedPnl to show for it — reset to zero on every redeploy.
+  Promise.resolve().then(async () => {
+    try {
+      const { db } = await import('../db');
+      const { aiTradeResults } = await import('../../shared/schema');
+      await db.insert(aiTradeResults).values({
+        userId,
+        symbol: `PMUS:${t.marketSlug}`,
+        direction: t.signal.direction === 'SELL' ? 'SELL' : 'BUY',
+        entryPrice: t.entryPriceCents / 100,
+        exitPrice: exitCents / 100,
+        result: realized > 0 ? 'WIN' : realized < 0 ? 'LOSS' : 'BREAKEVEN',
+        profitLoss: realized,
+        closedAt: new Date(),
+        source: 'polymarket-us',
+        mt5Ticket: t.id,
+        notes: `${t.signal.strategy}: ${t.title}${reason !== 'manual' ? ' | ' + reason : ''}`,
+      });
+    } catch { /* non-blocking */ }
+  });
+
   _recalc(s);
   return true;
 }

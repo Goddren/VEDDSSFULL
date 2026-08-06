@@ -380,6 +380,15 @@ function _persistKalshiRunState(userId: number, isRunning: boolean, isPaperMode:
 
 export async function restoreKalshiEngineStateFromDb(userId: number): Promise<void> {
   try {
+    // totalRealizedPnl was purely in-memory, initialized to 0 on every fresh
+    // state — meaning every redeploy silently reset the displayed cumulative
+    // P&L to zero regardless of real trading history (reported as "balance
+    // not updated" in the mobile nav — the dashboard only ever reflected
+    // trades closed since the LAST restart, not the true all-time total).
+    // Restore it from the durable trade history unconditionally, whether or
+    // not the engine happens to be running right now.
+    await _restoreKalshiRealizedPnl(userId);
+
     const { db } = await import('../db');
     const { engineRunState } = await import('../../shared/schema');
     const { eq, and } = await import('drizzle-orm');
@@ -398,6 +407,22 @@ export async function restoreKalshiEngineStateFromDb(userId: number): Promise<vo
     }
   } catch (e) {
     console.error('[Kalshi] Failed to restore engine state:', e);
+  }
+}
+
+async function _restoreKalshiRealizedPnl(userId: number): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { aiTradeResults } = await import('../../shared/schema');
+    const { eq, and, sql } = await import('drizzle-orm');
+    const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiTradeResults.profitLoss}), 0)` })
+      .from(aiTradeResults)
+      .where(and(eq(aiTradeResults.userId, userId), eq(aiTradeResults.source, 'kalshi')));
+    const total = parseFloat(row?.total ?? '0') || 0;
+    const s = getKalshiEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e: any) {
+    console.error(`[Kalshi] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 

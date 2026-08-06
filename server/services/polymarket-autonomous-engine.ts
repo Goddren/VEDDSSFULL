@@ -307,6 +307,14 @@ function _persistRunState(userId: number, isRunning: boolean, isPaperMode: boole
 
 export async function restoreEngineStateFromDb(userId: number): Promise<void> {
   try {
+    // totalRealizedPnl was purely in-memory (reset to 0 on every fresh
+    // state) — every redeploy silently reset the displayed cumulative P&L to
+    // zero regardless of real trading history. Restore from the durable
+    // trade history unconditionally, whether or not the engine is currently
+    // running (checked before the early-return below, since a user may check
+    // this even while the engine is stopped).
+    await _restorePolymarketRealizedPnl(userId);
+
     const { db } = await import('../db');
     const { engineRunState } = await import('../../shared/schema');
     const { eq, and } = await import('drizzle-orm');
@@ -333,6 +341,22 @@ export async function restoreEngineStateFromDb(userId: number): Promise<void> {
     startEngine(userId);
   } catch (e) {
     console.error('[Polymarket] Failed to restore engine state:', e);
+  }
+}
+
+async function _restorePolymarketRealizedPnl(userId: number): Promise<void> {
+  try {
+    const { db } = await import('../db');
+    const { aiTradeResults } = await import('../../shared/schema');
+    const { eq, and, sql } = await import('drizzle-orm');
+    const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiTradeResults.profitLoss}), 0)` })
+      .from(aiTradeResults)
+      .where(and(eq(aiTradeResults.userId, userId), eq(aiTradeResults.source, 'polymarket')));
+    const total = parseFloat(row?.total ?? '0') || 0;
+    const s = getEngineState(userId);
+    s.totalRealizedPnl = total;
+  } catch (e: any) {
+    console.error(`[Polymarket] Failed to restore totalRealizedPnl for user ${userId}:`, e?.message);
   }
 }
 
