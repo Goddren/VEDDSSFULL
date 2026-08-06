@@ -35368,7 +35368,11 @@ function getPmUsEngineState(userId) {
   const hasCreds = hasPmUsCredentials(userId);
   const validity = _credValidity2.get(userId);
   const knownInvalid = validity?.valid === false;
-  s.isPaperMode = !hasCreds || knownInvalid;
+  const nextPaperMode = !hasCreds || knownInvalid;
+  if (s.isPaperMode !== nextPaperMode && s.isRunning) {
+    _persistPmUsRunState(userId, s.isRunning, nextPaperMode);
+  }
+  s.isPaperMode = nextPaperMode;
   s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
   return s;
 }

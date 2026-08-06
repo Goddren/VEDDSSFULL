@@ -118,7 +118,17 @@ export function getPmUsEngineState(userId: number): PmUsEngineState {
   const hasCreds = hasPmUsCredentials(userId);
   const validity = _credValidity.get(userId);
   const knownInvalid = validity?.valid === false;
-  s.isPaperMode = !hasCreds || knownInvalid;
+  const nextPaperMode = !hasCreds || knownInvalid;
+  // engine_run_state.is_paper_mode was previously only written at explicit
+  // start/stop — a credential turning out to be undecryptable mid-run (this
+  // exact scenario: a corrupted saved key) would correctly flip isPaperMode
+  // in memory right away, but the DB record stayed stale/wrong indefinitely,
+  // disagreeing with what the live engine was actually doing. Persist on
+  // any real transition, not just start/stop.
+  if (s.isPaperMode !== nextPaperMode && s.isRunning) {
+    _persistPmUsRunState(userId, s.isRunning, nextPaperMode);
+  }
+  s.isPaperMode = nextPaperMode;
   s.credentialError = knownInvalid ? (validity!.error ?? 'Credential check failed') : null;
   return s;
 }
