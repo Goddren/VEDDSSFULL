@@ -34696,7 +34696,7 @@ async function _placeKalshiYes(userId, s, p) {
   s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
   _recalcUnrealized(s);
   const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
-  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit TP ${s.config.takeProfitCents}\xA2/SL ${s.config.stopLossCents}\xA2` : "";
+  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}\xA2/-${s.config.stopLossCents}\xA2 from entry` : "";
   const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : "";
   const r = `${modeStr} ${p.label}: bought YES \xD7 ${contracts} on "${p.subtitle}" at ${p.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ""}`;
   s.lastScanResult = r;
@@ -35030,14 +35030,16 @@ async function _applyLivePriceAndCheckExits(userId, s, t, liveCents) {
   t.currentPriceCents = liveCents;
   t.currentValue = liveCents / 100 * t.count;
   t.unrealizedPnl = t.currentValue - t.stake;
-  const tp = s.config.takeProfitCents;
-  const sl = s.config.stopLossCents;
-  if (tp > 0 && liveCents >= tp) {
+  const tpOffset = s.config.takeProfitCents;
+  const slOffset = s.config.stopLossCents;
+  const tpLevel = tpOffset > 0 ? Math.min(99, t.entryPriceCents + tpOffset) : null;
+  const slLevel = slOffset > 0 ? Math.max(1, t.entryPriceCents - slOffset) : null;
+  if (tpLevel != null && liveCents >= tpLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, "take_profit");
-    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (target ${tp}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
-  } else if (sl > 0 && liveCents <= sl) {
+    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 + ${tpOffset}\xA2 target) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  } else if (slLevel != null && liveCents <= slLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
-    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (stop ${sl}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 - ${slOffset}\xA2 stop) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
   }
 }
 function _recalcUnrealized(s) {
@@ -35142,8 +35144,8 @@ var init_kalshi_engine = __esm({
       strategy: "momentum",
       autoTradeValuePicks: false,
       minValueScore: 8,
-      takeProfitCents: 90,
-      stopLossCents: 25,
+      takeProfitCents: 15,
+      stopLossCents: 8,
       compounding: false,
       riskPctPerTrade: 5,
       startingBankroll: 100,

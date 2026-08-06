@@ -1632,13 +1632,13 @@ export default function PolymarketEnginePage() {
                       />
                     </label>
                     <p className="text-[8px] text-gray-500 mb-2 leading-snug">
-                      When ON, the engine auto-buys the top edge-ranked pick (all-strategy consensus) instead of the single strategy above — and manages the exit below.
+                      When ON, the engine auto-buys the top edge-ranked pick (all-strategy consensus) instead of the single strategy above — and manages the exit below. Take-profit/stop-loss are ¢ moves relative to YOUR entry price, not fixed absolute levels — e.g. stop-loss 8 on a 10¢ entry exits around 2¢, not always at a fixed 25¢ regardless of where you bought in.
                     </p>
                     <div className="grid grid-cols-3 gap-2">
                       {([
                         { label: "Min score",   val: kalshiCfgMinScore,   set: setKalshiCfgMinScore,   ph: String(kalshiEngineState?.config.minValueScore ?? 8) },
-                        { label: "Take-profit ¢", val: kalshiCfgTakeProfit, set: setKalshiCfgTakeProfit, ph: String(kalshiEngineState?.config.takeProfitCents ?? 90) },
-                        { label: "Stop-loss ¢",  val: kalshiCfgStopLoss,   set: setKalshiCfgStopLoss,   ph: String(kalshiEngineState?.config.stopLossCents ?? 25) },
+                        { label: "Take-profit ¢ (above entry)", val: kalshiCfgTakeProfit, set: setKalshiCfgTakeProfit, ph: String(kalshiEngineState?.config.takeProfitCents ?? 15) },
+                        { label: "Stop-loss ¢ (below entry)",  val: kalshiCfgStopLoss,   set: setKalshiCfgStopLoss,   ph: String(kalshiEngineState?.config.stopLossCents ?? 8) },
                       ] as const).map(f => (
                         <div key={f.label}>
                           <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
