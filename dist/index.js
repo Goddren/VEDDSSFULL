@@ -34465,8 +34465,8 @@ function updateKalshiEngineConfig(userId, patch) {
   }
   if (clean.timeframe && clean.timeframe !== "hourly" && clean.timeframe !== "fifteen_min") delete clean.timeframe;
   if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
-  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
-  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(500, clean.takeProfitCents));
+  if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(99, clean.stopLossCents));
   if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
   s.config = { ...s.config, ...clean };
@@ -34696,7 +34696,7 @@ async function _placeKalshiYes(userId, s, p) {
   s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
   _recalcUnrealized(s);
   const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
-  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}\xA2/-${s.config.stopLossCents}\xA2 from entry` : "";
+  const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}%/-${s.config.stopLossCents}% of entry` : "";
   const compNote = s.config.compounding ? ` \xB7 compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : "";
   const r = `${modeStr} ${p.label}: bought YES \xD7 ${contracts} on "${p.subtitle}" at ${p.priceInCents}\xA2 \u2014 stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ""}`;
   s.lastScanResult = r;
@@ -35030,16 +35030,16 @@ async function _applyLivePriceAndCheckExits(userId, s, t, liveCents) {
   t.currentPriceCents = liveCents;
   t.currentValue = liveCents / 100 * t.count;
   t.unrealizedPnl = t.currentValue - t.stake;
-  const tpOffset = s.config.takeProfitCents;
-  const slOffset = s.config.stopLossCents;
-  const tpLevel = tpOffset > 0 ? Math.min(99, t.entryPriceCents + tpOffset) : null;
-  const slLevel = slOffset > 0 ? Math.max(1, t.entryPriceCents - slOffset) : null;
+  const tpPct = s.config.takeProfitCents;
+  const slPct = s.config.stopLossCents;
+  const tpLevel = tpPct > 0 ? Math.min(99, Math.round(t.entryPriceCents * (1 + tpPct / 100))) : null;
+  const slLevel = slPct > 0 ? Math.max(1, Math.round(t.entryPriceCents * (1 - slPct / 100))) : null;
   if (tpLevel != null && liveCents >= tpLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, "take_profit");
-    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 + ${tpOffset}\xA2 target) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 + ${tpPct}% target) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
   } else if (slLevel != null && liveCents <= slLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
-    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 - ${slOffset}\xA2 stop) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (entry ${t.entryPriceCents}\xA2 - ${slPct}% stop) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
   }
 }
 function _recalcUnrealized(s) {
@@ -35144,8 +35144,10 @@ var init_kalshi_engine = __esm({
       strategy: "momentum",
       autoTradeValuePicks: false,
       minValueScore: 8,
-      takeProfitCents: 15,
-      stopLossCents: 8,
+      takeProfitCents: 50,
+      // +50% of entry price
+      stopLossCents: 40,
+      // -40% of entry price
       compounding: false,
       riskPctPerTrade: 5,
       startingBankroll: 100,

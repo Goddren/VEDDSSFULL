@@ -105,13 +105,18 @@ export interface KalshiEngineConfig {
   // Auto-trade the High-Value Picks (all-strategy consensus + edge model)
   autoTradeValuePicks: boolean; // if true, the engine fires the top value pick instead of single-strategy
   minValueScore: number;        // minimum value score to auto-trade a pick (default 8)
-  // Auto-exit, in cents OFFSET FROM ENTRY PRICE (not an absolute level; 0 =
-  // disabled). Was an absolute threshold — changed after confirming live
-  // that value-pick entries (which specifically target cheap, underpriced
-  // contracts) routinely start out already past a fixed absolute floor,
-  // guaranteeing an almost-immediate stop-loss regardless of signal quality.
-  takeProfitCents: number;      // close early when price ≥ entry + this (default 15)
-  stopLossCents: number;        // close early when price ≤ entry - this (default 8)
+  // Auto-exit, as a PERCENTAGE OF ENTRY PRICE (0 = disabled). Was an absolute
+  // cents threshold — changed after confirming live that value-pick entries
+  // (which specifically target cheap, underpriced contracts) routinely
+  // start out already past a fixed absolute floor, guaranteeing an almost-
+  // immediate stop-loss regardless of signal quality. A flat-cents relative
+  // offset was tried next, but that degenerates at the extremes of Kalshi's
+  // 1-99¢ range too: a cheap entry (e.g. 6¢) with an 8¢ stop floors at 1¢ —
+  // barely any protection, since the position must fall to near-total loss
+  // before stopping. Percentage-of-entry scales correctly across the whole
+  // price range regardless of how cheap or expensive the entry was.
+  takeProfitCents: number;      // close early when price ≥ entry × (1 + this/100) (default 50 = +50%)
+  stopLossCents: number;        // close early when price ≤ entry × (1 - this/100) (default 40 = -40%)
   // Compounding — size stakes as a % of the growing bankroll instead of a fixed
   // contract count, so winners increase the next stake automatically.
   compounding: boolean;         // if true, contracts derive from bankroll % (default false)
@@ -145,8 +150,8 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   strategy:             'momentum',
   autoTradeValuePicks:  false,
   minValueScore:        8,
-  takeProfitCents:      15,
-  stopLossCents:        8,
+  takeProfitCents:      50, // +50% of entry price
+  stopLossCents:        40, // -40% of entry price
   compounding:          false,
   riskPctPerTrade:      5,
   startingBankroll:     100,
@@ -249,8 +254,12 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   if (clean.timeframe && clean.timeframe !== 'hourly' && clean.timeframe !== 'fifteen_min') delete clean.timeframe;
   // Clamp auto-trade / exit fields to sane ranges
   if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
-  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
-  if (clean.stopLossCents   != null) clean.stopLossCents   = Math.max(0, Math.min(95, clean.stopLossCents));
+  // Percentages of entry price now, not absolute/relative cents — a cheap
+  // contract can legitimately multiply several times over (10¢ -> 99¢ is a
+  // +890% move), so the take-profit upper bound is much wider than before;
+  // stop-loss is capped at 99% since you can't lose more than the entry cost.
+  if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(500, clean.takeProfitCents));
+  if (clean.stopLossCents   != null) clean.stopLossCents   = Math.max(0, Math.min(99, clean.stopLossCents));
   if (clean.riskPctPerTrade  != null) clean.riskPctPerTrade  = Math.max(1, Math.min(25, clean.riskPctPerTrade));
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1_000_000, clean.startingBankroll));
   s.config = { ...s.config, ...clean };
@@ -544,7 +553,7 @@ async function _placeKalshiYes(
 
   const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
   const exitNote = (s.config.takeProfitCents > 0 || s.config.stopLossCents > 0)
-    ? ` · auto-exit +${s.config.takeProfitCents}¢/-${s.config.stopLossCents}¢ from entry`
+    ? ` · auto-exit +${s.config.takeProfitCents}%/-${s.config.stopLossCents}% of entry`
     : '';
   const compNote = s.config.compounding ? ` · compounding ${s.config.riskPctPerTrade}% of $${kalshiBankroll(s).toFixed(0)} bankroll` : '';
   const r = `${modeStr} ${p.label}: bought YES × ${contracts} on "${p.subtitle}" at ${p.priceInCents}¢ — stake $${stakeUsd.toFixed(2)}${compNote}${exitNote}${sizingReasoning ? ` ${sizingReasoning}` : ''}`;
@@ -1098,25 +1107,23 @@ async function _applyLivePriceAndCheckExits(userId: number, s: KalshiEngineState
   t.currentValue      = (liveCents / 100) * t.count;
   t.unrealizedPnl      = t.currentValue - t.stake;
 
-  // takeProfitCents/stopLossCents are offsets FROM ENTRY, not absolute price
-  // levels. Confirmed live (5/5 real completed trades, all stop_loss): every
-  // value-pick entry price was already at or below the old absolute 25¢
-  // floor, since the value-pick strategy specifically targets cheap,
-  // underpriced contracts — meaning almost every trade started out already
-  // inside its own stop-loss zone and tripped it on the very next price
-  // check, regardless of signal quality. Levels are still clamped to
-  // Kalshi's real 1-99¢ contract price bounds.
-  const tpOffset = s.config.takeProfitCents;
-  const slOffset = s.config.stopLossCents;
-  const tpLevel = tpOffset > 0 ? Math.min(99, t.entryPriceCents + tpOffset) : null;
-  const slLevel = slOffset > 0 ? Math.max(1, t.entryPriceCents - slOffset) : null;
+  // takeProfitCents/stopLossCents are PERCENTAGES of entry price now — a
+  // flat-cents relative offset (the first fix) still degenerated at the
+  // extremes: a cheap entry (e.g. 6¢) with an 8¢-relative stop floors at 1¢,
+  // barely any real protection since the position has to fall to near-total
+  // loss before stopping. Percentage-of-entry scales correctly across the
+  // whole 1-99¢ range regardless of how cheap or expensive the entry was.
+  const tpPct = s.config.takeProfitCents;
+  const slPct = s.config.stopLossCents;
+  const tpLevel = tpPct > 0 ? Math.min(99, Math.round(t.entryPriceCents * (1 + tpPct / 100))) : null;
+  const slLevel = slPct > 0 ? Math.max(1, Math.round(t.entryPriceCents * (1 - slPct / 100))) : null;
 
   if (tpLevel != null && liveCents >= tpLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, 'take_profit');
-    if (ok) s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (entry ${t.entryPriceCents}¢ + ${tpOffset}¢ target) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (ok) s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (entry ${t.entryPriceCents}¢ + ${tpPct}% target) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
   } else if (slLevel != null && liveCents <= slLevel) {
     const ok = await closeKalshiTrade(userId, t.id, liveCents, 'stop_loss');
-    if (ok) s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (entry ${t.entryPriceCents}¢ - ${slOffset}¢ stop) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (ok) s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (entry ${t.entryPriceCents}¢ - ${slPct}% stop) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
   }
 }
 
