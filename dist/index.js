@@ -32967,6 +32967,32 @@ async function fetchCandlesWithFallback(symbol, interval, limit, coinbaseProduct
     return { candles, source: "coinbase" };
   }
 }
+async function fetchYahooCandles(yahooSymbol, limit) {
+  const url = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (VEDD-Trading-AI/1.0)" },
+    signal: AbortSignal.timeout(1e4)
+  });
+  if (!res.ok) throw new Error(`Yahoo Finance API ${res.status}: ${res.statusText}`);
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(`Yahoo Finance returned no chart data for ${yahooSymbol}`);
+  const timestamps = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0] ?? {};
+  const candles = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (q.open?.[i] == null || q.close?.[i] == null || q.high?.[i] == null || q.low?.[i] == null) continue;
+    candles.push({
+      openTime: timestamps[i] * 1e3,
+      open: q.open[i],
+      high: q.high[i],
+      low: q.low[i],
+      close: q.close[i],
+      volume: q.volume?.[i] ?? 0
+    });
+  }
+  return candles.slice(-limit);
+}
 function buildPrediction(candles, fromCache, source = "binance", binanceSymbol = "BTCUSDT", coinbaseProduct = "BTC-USD") {
   const closes = candles.map((c) => c.close);
   const volumes = candles.map((c) => c.volume);
@@ -33065,6 +33091,12 @@ async function getCryptoPrediction(coin, forceRefresh = false) {
   if (!forceRefresh && cached && now - cached.ts < CACHE_TTL_MS4) {
     return { ...cached.prediction, fromCache: true };
   }
+  if (coin === "GOLD") {
+    const candles2 = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, 100);
+    const prediction2 = buildPrediction(candles2, false, "yahoo", YAHOO_SYMBOL.GOLD, YAHOO_SYMBOL.GOLD);
+    predictionCache.set(coin, { prediction: prediction2, ts: now });
+    return prediction2;
+  }
   const { binance, coinbase } = COIN_MAP[coin];
   const { candles, source } = await fetchCandlesWithFallback(binance, "5m", 100, coinbase);
   const prediction = buildPrediction(candles, false, source, binance, coinbase);
@@ -33076,6 +33108,10 @@ function clearCryptoPredictionCache(coin) {
   else predictionCache.clear();
 }
 async function getCryptoCandles(coin, limit = 100) {
+  if (coin === "GOLD") {
+    const candles = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, limit);
+    return { candles, source: "yahoo" };
+  }
   const { binance, coinbase } = COIN_MAP[coin];
   return fetchCandlesWithFallback(binance, "5m", limit, coinbase);
 }
@@ -33088,12 +33124,13 @@ function clearBTCPredictionCache() {
 async function getBTCCandles(limit = 100) {
   return getCryptoCandles("BTC", limit);
 }
-var BINANCE_BASE, COINBASE_BASE, CACHE_TTL_MS4, COIN_MAP, predictionCache;
+var BINANCE_BASE, COINBASE_BASE, YAHOO_BASE, CACHE_TTL_MS4, COIN_MAP, YAHOO_SYMBOL, predictionCache;
 var init_btc_5min_predictor = __esm({
   "server/services/btc-5min-predictor.ts"() {
     "use strict";
     BINANCE_BASE = "https://api.binance.com";
     COINBASE_BASE = "https://api.exchange.coinbase.com";
+    YAHOO_BASE = "https://query1.finance.yahoo.com";
     CACHE_TTL_MS4 = 3e4;
     COIN_MAP = {
       BTC: { binance: "BTCUSDT", coinbase: "BTC-USD" },
@@ -33101,6 +33138,9 @@ var init_btc_5min_predictor = __esm({
       SOL: { binance: "SOLUSDT", coinbase: "SOL-USD" },
       XRP: { binance: "XRPUSDT", coinbase: "XRP-USD" },
       DOGE: { binance: "DOGEUSDT", coinbase: "DOGE-USD" }
+    };
+    YAHOO_SYMBOL = {
+      GOLD: "GC=F"
     };
     predictionCache = /* @__PURE__ */ new Map();
   }
@@ -33113,8 +33153,13 @@ __export(kalshi_exports, {
   clearKalshiCache: () => clearKalshiCache,
   getKalshiBTCEvent: () => getKalshiBTCEvent,
   getKalshiCryptoEvent: () => getKalshiCryptoEvent,
-  getKalshiMarketStatus: () => getKalshiMarketStatus
+  getKalshiMarketStatus: () => getKalshiMarketStatus,
+  isKalshiBrokerTradeable: () => isKalshiBrokerTradeable
 });
+function isKalshiBrokerTradeable(coin, timeframe) {
+  if (coin === "GOLD" && timeframe === "fifteen_min") return false;
+  return true;
+}
 function parseDollars(val) {
   if (val == null) return 0;
   const n = parseFloat(String(val));
@@ -33259,7 +33304,8 @@ var init_kalshi = __esm({
       ETH: { hourly: "KXETH", fifteenMin: "KXETH15M" },
       SOL: { hourly: "KXSOL", fifteenMin: "KXSOL15M" },
       XRP: { hourly: "KXXRP", fifteenMin: "KXXRP15M" },
-      DOGE: { hourly: "KXDOGE", fifteenMin: "KXDOGE15M" }
+      DOGE: { hourly: "KXDOGE", fifteenMin: "KXDOGE15M" },
+      GOLD: { hourly: "KXGOLDH", fifteenMin: "KXGOLD15M" }
     };
     eventCache = /* @__PURE__ */ new Map();
   }
@@ -34685,6 +34731,9 @@ async function _runKalshiScan(userId, manual = false) {
   return { fired: false, reason: combined };
 }
 async function _scanOneCoin(userId, s, coin) {
+  if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
+    return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
+  }
   if (s.config.autoTradeValuePicks) {
     try {
       const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
@@ -35070,7 +35119,7 @@ var init_kalshi_engine = __esm({
     init_kalshi_strategies();
     init_btc_5min_predictor();
     init_kalshi_performance();
-    KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE"];
+    KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"];
     _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
     _timers = /* @__PURE__ */ new Map();

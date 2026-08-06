@@ -1469,13 +1469,16 @@ export default function PolymarketEnginePage() {
                     </div>
                   </div>
 
-                  {/* Symbol selector — which coins' hourly bracket markets to scan.
+                  {/* Symbol selector — which coins/assets' bracket markets to scan.
                       Was BTC-only; SOL sometimes has no currently-open hourly event
-                      (skipped that cycle, not an error) so it's still offered. */}
+                      (skipped that cycle, not an error) so it's still offered. GOLD
+                      trades hourly only (its 15-min series isn't broker-tradeable on
+                      Kalshi's side) — switching to 15-min timeframe with GOLD
+                      selected just skips it with a clear reason each cycle. */}
                   <div className="mb-3">
-                    <label className="text-[9px] text-gray-400 block mb-1">Coins to Trade</label>
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {(["BTC", "ETH", "SOL", "XRP", "DOGE"] as const).map(coin => {
+                    <label className="text-[9px] text-gray-400 block mb-1">Coins/Assets to Trade</label>
+                    <div className="grid grid-cols-6 gap-1.5">
+                      {(["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"] as const).map(coin => {
                         const current = kalshiCfgSymbols.length ? kalshiCfgSymbols : (kalshiEngineState?.config.symbols ?? ["BTC"]);
                         const active = current.includes(coin);
                         return (

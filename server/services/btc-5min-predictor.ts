@@ -13,18 +13,32 @@ const BINANCE_BASE = 'https://api.binance.com';
 // Coinbase Exchange is US-hosted and NOT geo-blocked — used as a fallback when
 // Binance returns HTTP 451 (Binance blocks US server IPs like Render/Oregon).
 const COINBASE_BASE = 'https://api.exchange.coinbase.com';
+// Yahoo Finance's unofficial chart API — free, no key, no geo-block — used for
+// GOLD since it isn't a crypto asset and has no Binance/Coinbase listing.
+// Futures price (GC=F), not Kalshi's own "Pyth - Gold" settlement source —
+// same category of approximation this file already accepts for crypto
+// (Binance/Coinbase spot vs. Kalshi's "CF Benchmarks" settlement); highly
+// correlated short-term movement, good enough for directional signal generation.
+const YAHOO_BASE = 'https://query1.finance.yahoo.com';
 const CACHE_TTL_MS = 30_000; // 30 seconds
 
 // Coin → {Binance symbol, Coinbase product} — added to extend this predictor
 // (originally BTC-only) to the other coins Kalshi lists hourly/15-min range
 // events for. Coinbase product codes confirmed against their public API.
-export type CryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE';
-const COIN_MAP: Record<CryptoCoin, { binance: string; coinbase: string }> = {
+// 'GOLD' added for Kalshi's KXGOLDH commodities market (confirmed live:
+// only Gold's HOURLY series has available_on_brokers:true — Oil's hourly/
+// 15-min and Gold's own 15-min are all broker-unavailable on Kalshi's side,
+// so they're intentionally not wired up as tradeable here yet).
+export type CryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE' | 'GOLD';
+const COIN_MAP: Record<Exclude<CryptoCoin, 'GOLD'>, { binance: string; coinbase: string }> = {
   BTC:  { binance: 'BTCUSDT',  coinbase: 'BTC-USD' },
   ETH:  { binance: 'ETHUSDT',  coinbase: 'ETH-USD' },
   SOL:  { binance: 'SOLUSDT',  coinbase: 'SOL-USD' },
   XRP:  { binance: 'XRPUSDT',  coinbase: 'XRP-USD' },
   DOGE: { binance: 'DOGEUSDT', coinbase: 'DOGE-USD' },
+};
+const YAHOO_SYMBOL: Record<'GOLD', string> = {
+  GOLD: 'GC=F',
 };
 
 export interface BTC5MinCandle {
@@ -166,6 +180,36 @@ async function fetchCandlesWithFallback(symbol: string, interval: string, limit:
   }
 }
 
+// ── Yahoo Finance fetcher (GOLD) ──────────────────────────────────────────────
+
+async function fetchYahooCandles(yahooSymbol: string, limit: number): Promise<BTC5MinCandle[]> {
+  const url = `${YAHOO_BASE}/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=5m&range=1d`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0 (VEDD-Trading-AI/1.0)' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`Yahoo Finance API ${res.status}: ${res.statusText}`);
+  const data = await res.json() as any;
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error(`Yahoo Finance returned no chart data for ${yahooSymbol}`);
+  const timestamps: number[] = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0] ?? {};
+  const candles: BTC5MinCandle[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    // Yahoo leaves gaps as null during closed sessions/thin liquidity — skip incomplete bars.
+    if (q.open?.[i] == null || q.close?.[i] == null || q.high?.[i] == null || q.low?.[i] == null) continue;
+    candles.push({
+      openTime: timestamps[i] * 1000,
+      open:  q.open[i],
+      high:  q.high[i],
+      low:   q.low[i],
+      close: q.close[i],
+      volume: q.volume?.[i] ?? 0,
+    });
+  }
+  return candles.slice(-limit);
+}
+
 // ── Prediction builder ────────────────────────────────────────────────────────
 
 function buildPrediction(candles: BTC5MinCandle[], fromCache: boolean, source = 'binance', binanceSymbol = 'BTCUSDT', coinbaseProduct = 'BTC-USD'): BTC5MinPrediction {
@@ -304,6 +348,13 @@ export async function getCryptoPrediction(coin: CryptoCoin, forceRefresh = false
     return { ...cached.prediction, fromCache: true };
   }
 
+  if (coin === 'GOLD') {
+    const candles = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, 100);
+    const prediction = buildPrediction(candles, false, 'yahoo', YAHOO_SYMBOL.GOLD, YAHOO_SYMBOL.GOLD);
+    predictionCache.set(coin, { prediction, ts: now });
+    return prediction;
+  }
+
   const { binance, coinbase } = COIN_MAP[coin];
   const { candles, source } = await fetchCandlesWithFallback(binance, '5m', 100, coinbase);
   const prediction = buildPrediction(candles, false, source, binance, coinbase);
@@ -316,8 +367,13 @@ export function clearCryptoPredictionCache(coin?: CryptoCoin): void {
   else predictionCache.clear();
 }
 
-/** Raw 5-min candles (Binance → Coinbase fallback) for any supported coin. */
+/** Raw 5-min candles for any supported coin (Binance → Coinbase fallback for
+ * crypto; Yahoo Finance futures data for GOLD, which has no crypto-exchange listing). */
 export async function getCryptoCandles(coin: CryptoCoin, limit = 100): Promise<{ candles: BTC5MinCandle[]; source: string }> {
+  if (coin === 'GOLD') {
+    const candles = await fetchYahooCandles(YAHOO_SYMBOL.GOLD, limit);
+    return { candles, source: 'yahoo' };
+  }
   const { binance, coinbase } = COIN_MAP[coin];
   return fetchCandlesWithFallback(binance, '5m', limit, coinbase);
 }

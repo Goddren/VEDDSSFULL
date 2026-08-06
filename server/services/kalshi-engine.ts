@@ -13,7 +13,7 @@
  * at current AMM ask price, tracks virtual P&L).
  */
 
-import { getKalshiCryptoEvent, getKalshiMarketStatus, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
+import { getKalshiCryptoEvent, getKalshiMarketStatus, isKalshiBrokerTradeable, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
 import {
   placeKalshiOrder, getKalshiBalance, loadKalshiCredentials, getKalshiPositions,
   getKalshiOrders, cancelKalshiOrder,
@@ -23,14 +23,16 @@ import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStra
 import { getCryptoCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
 
-// Coins with a real, currently-tradeable hourly bracket market (same product
+// Coins/assets with a real, currently-tradeable bracket market (same product
 // structure as the original KXBTC). Verified live against Kalshi's API before
 // adding: SOL sometimes has zero currently-open hourly events (handled as a
 // per-symbol skip in the scan loop, not a hard error) — still listed since it
-// comes and goes. 15-minute markets (KXBTC15M etc.) are a DIFFERENT product
-// (single directional yes/no bet vs. multi-bracket price range) and are
-// intentionally NOT included here — they'd need separate handling.
-export const KALSHI_TRADEABLE_COINS: KalshiCryptoCoin[] = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE'];
+// comes and goes. GOLD added for Kalshi's Commodities category (hourly only —
+// see isKalshiBrokerTradeable in kalshi.ts for why 15-min is excluded). Oil is
+// NOT included: confirmed live that neither its hourly nor 15-min series is
+// broker/API-tradeable on Kalshi's side at all, so there's no working
+// timeframe to wire up for it right now.
+export const KALSHI_TRADEABLE_COINS: KalshiCryptoCoin[] = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'GOLD'];
 
 // Session peak-bankroll tracker for Drawdown Shield — same in-memory,
 // session-scoped pattern used by futures-scanner.ts/cryptocom-scanner.ts.
@@ -589,6 +591,15 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
 }
 
 async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCryptoCoin): Promise<{ fired: boolean; reason: string }> {
+  // Some (coin, timeframe) pairs are real, readable Kalshi markets but NOT
+  // broker/API order-placeable (confirmed live — e.g. Gold's 15-min series).
+  // Check this BEFORE spending a scan on signal generation so it fails with
+  // a clear reason instead of only surfacing when an order attempt itself
+  // inexplicably fails.
+  if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
+    return { fired: false, reason: `${coin}: ${s.config.timeframe === 'fifteen_min' ? '15-min' : 'hourly'} market exists but isn't broker/API-tradeable on Kalshi's side — skipping` };
+  }
+
   // ── Auto-trade the top High-Value Pick (all-strategy consensus + edge model) ──
   if (s.config.autoTradeValuePicks) {
     try {

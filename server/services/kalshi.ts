@@ -23,14 +23,35 @@ const CACHE_TTL_MS = 60_000; // 60 s
 // verified the /markets response shape matches exactly: floor_strike/cap_strike/
 // yes_ask_dollars/strike_type). '15m' variants fire every 15 minutes instead of
 // hourly — the closest thing to "continuous" trading Kalshi actually offers.
-export type KalshiCryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE';
+// GOLD added for Kalshi's Commodities category (KXGOLDH/KXGOLD15M) — same
+// bracket mechanics, confirmed live. IMPORTANT: Kalshi's own event metadata
+// marks KXGOLD15M as available_on_brokers:false (real ticker, readable, but
+// NOT tradeable via the broker/API order-placement path) — see
+// KALSHI_BROKER_TRADEABLE below, which gates the engine from ever attempting
+// a real order there. Oil (KXWTIH/KXWTI15M) is excluded entirely: BOTH its
+// hourly and 15-min series are broker-unavailable, so there's no tradeable
+// timeframe for it at all right now.
+export type KalshiCryptoCoin = 'BTC' | 'ETH' | 'SOL' | 'XRP' | 'DOGE' | 'GOLD';
 export const KALSHI_SERIES_MAP: Record<KalshiCryptoCoin, { hourly: string; fifteenMin: string }> = {
   BTC:  { hourly: 'KXBTC',  fifteenMin: 'KXBTC15M' },
   ETH:  { hourly: 'KXETH',  fifteenMin: 'KXETH15M' },
   SOL:  { hourly: 'KXSOL',  fifteenMin: 'KXSOL15M' },
   XRP:  { hourly: 'KXXRP',  fifteenMin: 'KXXRP15M' },
   DOGE: { hourly: 'KXDOGE', fifteenMin: 'KXDOGE15M' },
+  GOLD: { hourly: 'KXGOLDH', fifteenMin: 'KXGOLD15M' },
 };
+
+// Confirmed live against Kalshi's /events endpoint (available_on_brokers
+// field) — only these (coin, timeframe) pairs can actually have real orders
+// placed on them via the broker/API path. Every crypto hourly+15min pair
+// checked was true; Gold's hourly is true but its 15-min is false. Checked
+// explicitly rather than assumed, since a silent order-placement failure on
+// an "available" market that isn't really broker-tradeable is exactly the
+// kind of trap this session's bug scan kept finding elsewhere.
+export function isKalshiBrokerTradeable(coin: KalshiCryptoCoin, timeframe: 'hourly' | 'fifteen_min'): boolean {
+  if (coin === 'GOLD' && timeframe === 'fifteen_min') return false;
+  return true;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
