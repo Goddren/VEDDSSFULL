@@ -13,9 +13,10 @@
  * at current AMM ask price, tracks virtual P&L).
  */
 
-import { getKalshiCryptoEvent, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
+import { getKalshiCryptoEvent, getKalshiMarketStatus, KALSHI_SERIES_MAP, type KalshiBTCBracket, type KalshiCryptoCoin } from './kalshi';
 import {
-  placeKalshiOrder, getKalshiBalance, loadKalshiCredentials,
+  placeKalshiOrder, getKalshiBalance, loadKalshiCredentials, getKalshiPositions,
+  getKalshiOrders, cancelKalshiOrder,
   type KalshiOrderResult,
 } from './kalshi-trading';
 import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
@@ -65,6 +66,11 @@ export interface KalshiTradeRecord {
 export interface KalshiEngineState {
   isRunning: boolean;
   isPaperMode: boolean;
+  /** Set when isPaperMode is true because a real credential check FAILED
+   * (not merely "no credentials saved") — lets the UI distinguish "never
+   * connected" from "connected but broken" instead of collapsing both into
+   * the same generic paper-mode badge. */
+  credentialError: string | null;
   lastScanAt: string | null;
   lastScanResult: string | null;
   lastTradeAt: string | null;
@@ -151,12 +157,37 @@ const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
 // settings survive a Render redeploy instead of resetting to BTC-only.
 const _persistedConfigOverrides = new Map<number, Partial<KalshiEngineConfig>>();
 
+// Cached credential-validity check. isPaperMode previously only checked
+// whether a credential FILE existed, never whether it actually authenticates
+// — an expired/revoked key or a dead password-auth credential (Kalshi
+// removed email/password login entirely) would show "LIVE" while every real
+// order silently failed each cooldown cycle. A real check is an API round
+// trip, too slow/rate-limit-risky to run on every getKalshiEngineState()
+// call (read very frequently) — so it's cached and refreshed at the top of
+// each scan cycle (every 5 min) instead. Only a POSITIVELY CONFIRMED auth
+// failure forces paper mode; a transient check error (network blip) leaves
+// the previous result in place rather than flipping the badge on a hiccup.
+const _credValidity = new Map<number, { valid: boolean; error?: string; checkedAt: number }>();
+const CRED_VALIDITY_TTL_MS = 10 * 60 * 1000;
+
+export async function refreshKalshiCredValidity(userId: number): Promise<void> {
+  if (!loadKalshiCredentials(userId)) { _credValidity.delete(userId); return; }
+  const cached = _credValidity.get(userId);
+  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS) return;
+  try {
+    const { testKalshiCredentials } = await import('./kalshi-trading');
+    const result = await testKalshiCredentials(userId);
+    _credValidity.set(userId, { valid: result.valid, error: result.error, checkedAt: Date.now() });
+  } catch { /* transient failure — keep previous cached result, if any */ }
+}
+
 export function getKalshiEngineState(userId: number): KalshiEngineState {
   if (!_states.has(userId)) {
     const override = _persistedConfigOverrides.get(userId);
     _states.set(userId, {
       isRunning:          false,
       isPaperMode:        !loadKalshiCredentials(userId),
+      credentialError:    null,
       lastScanAt:         null,
       lastScanResult:     null,
       lastTradeAt:        null,
@@ -169,7 +200,11 @@ export function getKalshiEngineState(userId: number): KalshiEngineState {
   }
   // Re-check paper mode each time (creds may have been added since start)
   const s = _states.get(userId)!;
-  s.isPaperMode = !loadKalshiCredentials(userId);
+  const hasCreds = !!loadKalshiCredentials(userId);
+  const validity = _credValidity.get(userId);
+  const knownInvalid = validity?.valid === false;
+  s.isPaperMode = !hasCreds || knownInvalid;
+  s.credentialError = knownInvalid ? (validity!.error ?? 'Credential check failed') : null;
   return s;
 }
 
@@ -315,10 +350,70 @@ export async function restoreKalshiEngineStateFromDb(userId: number): Promise<vo
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
+      // In-memory openTrades is wiped by this restart (nothing durable tracks
+      // it) — reconcile against Kalshi's real account before resuming the
+      // scan loop, or a fresh restart can place brand-new real orders on top
+      // of real positions still resting on Kalshi from before the restart,
+      // with no cap enforcement against actual exposure.
+      await _reconcileKalshiPositionsOnBoot(userId);
       startKalshiEngine(userId);
     }
   } catch (e) {
     console.error('[Kalshi] Failed to restore engine state:', e);
+  }
+}
+
+// Best-effort reconstruction of real Kalshi positions this process has no
+// memory of (server restart/redeploy wiped s.openTrades). We can't recover
+// the original signal/strategy metadata — Kalshi's API doesn't store it —
+// so these are tagged strategy:'reconciled' and given an approximate entry
+// price derived from market_exposure. The goal isn't perfect P&L attribution
+// for these; it's making sure maxOpenTrades/exposure accounting and the
+// settlement-detection loop in _updateOpenTradePrices see them at all,
+// instead of the engine silently placing new orders on top of forgotten
+// real exposure.
+async function _reconcileKalshiPositionsOnBoot(userId: number): Promise<void> {
+  if (!loadKalshiCredentials(userId)) return; // paper mode — nothing real to reconcile
+  const s = getKalshiEngineState(userId);
+  try {
+    const positions = await getKalshiPositions(userId);
+    const trackedTickers = new Set(s.openTrades.map(t => t.ticker));
+    let untracked = 0;
+    for (const p of positions) {
+      const netContracts = Number(p.position ?? 0);
+      if (!netContracts || netContracts <= 0) continue; // this engine only ever buys YES (long); skip flat/NO/short
+      if (trackedTickers.has(p.ticker)) continue;
+      untracked++;
+      const count = Math.round(Math.abs(netContracts));
+      const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
+      const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
+      const coin = (KALSHI_TRADEABLE_COINS.find(c => p.ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) ?? 'BTC') as KalshiCryptoCoin;
+      s.openTrades.push({
+        id:                `kalshi-reconciled-${p.ticker}-${Date.now()}`,
+        coin,
+        ticker:            p.ticker,
+        subtitle:          p.ticker,
+        side:              'yes',
+        action:            'buy',
+        count,
+        entryPriceCents:   avgEntryCents,
+        currentPriceCents: avgEntryCents,
+        stake:             (avgEntryCents / 100) * count,
+        currentValue:      (avgEntryCents / 100) * count,
+        unrealizedPnl:     0,
+        signal:            { direction: 'BUY', confidence: 0, btcPrice: 0 },
+        strategy:          'reconciled',
+        openedAt:          new Date().toISOString(),
+        status:            'open',
+        paper:             false,
+      });
+    }
+    if (untracked > 0) {
+      console.warn(`[Kalshi] Boot reconciliation: found ${untracked} real open position(s) for user ${userId} with no local record (server restart wiped it) — re-added as tracked trades so exposure/exit logic sees them.`);
+      _recalcUnrealized(s);
+    }
+  } catch (e: any) {
+    console.error(`[Kalshi] Boot position reconciliation failed for user ${userId} (continuing without it):`, e?.message);
   }
 }
 
@@ -327,6 +422,30 @@ export async function manualKalshiScan(userId: number): Promise<{ fired: boolean
 }
 
 // ── Shared order placement ──────────────────────────────────────────────────────
+
+/** A limit order accepted by Kalshi (HTTP 200) is not necessarily FILLED —
+ * it can rest unmatched if the book moves before it's processed. Previously
+ * an accepted order was recorded as an opened trade at the quoted price
+ * unconditionally. Give it a brief moment to match, then check whether it's
+ * still resting; if so, cancel it and treat this as a non-fill rather than
+ * booking a position that was never actually established. */
+async function _verifyKalshiFill(userId: number, orderId: string): Promise<boolean> {
+  await new Promise(res => setTimeout(res, 1500));
+  try {
+    const resting = await getKalshiOrders(userId, 'resting');
+    const stillResting = resting.some((o: any) => (o.order_id ?? o.id) === orderId);
+    if (stillResting) {
+      await cancelKalshiOrder(userId, orderId);
+      return false;
+    }
+    return true;
+  } catch {
+    // Couldn't verify (transient API issue) — don't block on an unverifiable
+    // check; assume it filled rather than silently dropping a real trade
+    // record for a position that (most likely) did get established.
+    return true;
+  }
+}
 
 async function _placeKalshiYes(
   userId: number,
@@ -345,6 +464,12 @@ async function _placeKalshiYes(
         userId, p.ticker, 'yes', 'buy', contracts, p.priceInCents,
       );
       kalshiOrderId = result.orderId;
+      const filled = await _verifyKalshiFill(userId, result.orderId);
+      if (!filled) {
+        const r = `Order for "${p.subtitle}" didn't fill (price moved) — canceled, no position opened.`;
+        s.lastScanResult = r;
+        return { fired: false, reason: r };
+      }
     } catch (err: any) {
       const r = `Order failed: ${err.message}`;
       s.lastScanResult = r;
@@ -394,6 +519,7 @@ async function _placeKalshiYes(
 // just parameterized by `coin` throughout instead of assuming BTC.
 
 async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: boolean; reason: string }> {
+  await refreshKalshiCredValidity(userId);
   const s = getKalshiEngineState(userId);
   s.lastScanAt = new Date().toISOString();
 
@@ -852,46 +978,75 @@ async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Pro
 
   for (const t of [...s.openTrades]) {
     const brackets = bracketsByCoin.get(t.coin || 'BTC');
-    if (!brackets) continue;
-    const b = brackets.find(x => x.ticker === t.ticker);
-    if (!b) continue;
-    // Sell-side value = yes bid (fallback to probability/last)
-    const liveCents = b.yesBid > 0 ? b.yesBid : (b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents);
-    t.currentPriceCents = liveCents;
-    t.currentValue      = (liveCents / 100) * t.count;
-    t.unrealizedPnl     = t.currentValue - t.stake;
+    const b = brackets?.find(x => x.ticker === t.ticker);
 
-    // ── Auto-exit: take-profit / stop-loss on the contract price ──
-    const tp = s.config.takeProfitCents;
-    const sl = s.config.stopLossCents;
-    if (tp > 0 && liveCents >= tp) {
-      closeKalshiTrade(userId, t.id, liveCents, 'take_profit');
-      s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (target ${tp}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
-    } else if (sl > 0 && liveCents <= sl) {
-      closeKalshiTrade(userId, t.id, liveCents, 'stop_loss');
-      s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (stop ${sl}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    if (b) {
+      // Sell-side value = yes bid (fallback to probability/last)
+      const liveCents = b.yesBid > 0 ? b.yesBid : (b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents);
+      await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      continue;
+    }
+
+    // Not in the "nearest" event's bracket list anymore. This used to mean
+    // the trade was silently skipped forever (its event rolled off the
+    // nearest-event window well before actually settling) — frozen "open"
+    // with stale P&L and permanently occupying a maxOpenTrades slot, with no
+    // path back since 'settlement' was never wired up anywhere. Fetch this
+    // specific ticker's status directly instead of relying on it still being
+    // "nearest": either it settled (close it out for real) or it's just
+    // further out (keep pricing it from its own market, not the wrong event).
+    try {
+      const market = await getKalshiMarketStatus(t.ticker);
+      if (!market) continue; // transient fetch failure — retry next cycle
+      if (market.status === 'finalized' || market.status === 'settled' || market.result) {
+        const settledCents = market.result === 'yes' ? 100 : market.result === 'no' ? 0
+          : (market.lastPrice || t.currentPriceCents);
+        await _settleKalshiTrade(userId, s, t, settledCents);
+      } else {
+        const liveCents = market.yesBid > 0 ? market.yesBid : (market.lastPrice > 0 ? market.lastPrice : t.currentPriceCents);
+        await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      }
+    } catch {
+      // Leave untouched this cycle — will retry on the next scan.
     }
   }
   _recalcUnrealized(s);
+}
+
+/** Refresh one open trade's live price/unrealized P&L and fire TP/SL if crossed. */
+async function _applyLivePriceAndCheckExits(userId: number, s: KalshiEngineState, t: KalshiTradeRecord, liveCents: number): Promise<void> {
+  t.currentPriceCents = liveCents;
+  t.currentValue      = (liveCents / 100) * t.count;
+  t.unrealizedPnl      = t.currentValue - t.stake;
+
+  const tp = s.config.takeProfitCents;
+  const sl = s.config.stopLossCents;
+  if (tp > 0 && liveCents >= tp) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, 'take_profit');
+    if (ok) s.lastScanResult = `✅ Take-profit: closed "${t.subtitle}" at ${liveCents}¢ (target ${tp}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  } else if (sl > 0 && liveCents <= sl) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, 'stop_loss');
+    if (ok) s.lastScanResult = `🛑 Stop-loss: closed "${t.subtitle}" at ${liveCents}¢ (stop ${sl}¢) — P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  }
 }
 
 function _recalcUnrealized(s: KalshiEngineState): void {
   s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
 }
 
-export function closeKalshiTrade(
+/** Shared finalize step: move a trade from open→closed, book P&L, feed the
+ * learning loop, and persist to aiTradeResults. Does NOT touch the real
+ * Kalshi order book — callers are responsible for actually exiting the
+ * position first (or confirming it already settled) before calling this. */
+function _finalizeKalshiClose(
   userId: number,
-  tradeId: string,
-  exitPriceCents?: number,
-  exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'settlement' = 'manual',
+  s: KalshiEngineState,
+  idx: number,
+  exitCents: number,
+  exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'settlement',
 ): boolean {
-  const s = getKalshiEngineState(userId);
-  const idx = s.openTrades.findIndex(t => t.id === tradeId);
-  if (idx === -1) return false;
-
   const trade = s.openTrades[idx];
-  const exitCents = exitPriceCents ?? trade.currentPriceCents;
-  // Each contract pays $1 if YES wins; we bought at entry price
+  if (!trade) return false;
   const exitValue   = (exitCents / 100) * trade.count;
   const realizedPnl = exitValue - trade.stake;
 
@@ -938,9 +1093,55 @@ export function closeKalshiTrade(
   return true;
 }
 
-export function closeAllKalshiTrades(userId: number): number {
+/** Real settlement detected (market resolved YES/NO) — nothing to sell, the
+ * exchange already paid out (or the contract expired worthless). Just book it. */
+async function _settleKalshiTrade(userId: number, s: KalshiEngineState, t: KalshiTradeRecord, settledCents: number): Promise<void> {
+  const idx = s.openTrades.findIndex(x => x.id === t.id);
+  if (idx === -1) return;
+  _finalizeKalshiClose(userId, s, idx, settledCents, 'settlement');
+}
+
+export async function closeKalshiTrade(
+  userId: number,
+  tradeId: string,
+  exitPriceCents?: number,
+  exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'settlement' = 'manual',
+): Promise<boolean> {
+  const s = getKalshiEngineState(userId);
+  const idx = s.openTrades.findIndex(t => t.id === tradeId);
+  if (idx === -1) return false;
+  const trade = s.openTrades[idx];
+  const exitCents = exitPriceCents ?? trade.currentPriceCents;
+
+  if (!trade.paper) {
+    // Real position — must actually sell it back on Kalshi. Previously this
+    // function only ever updated VEDD's own ledger: TP/SL and manual/
+    // close-all all marked the trade "closed" with a fabricated realized P&L
+    // while the real YES contracts stayed resting on Kalshi's books,
+    // unmanaged, indefinitely.
+    try {
+      await placeKalshiOrder(userId, trade.ticker, 'yes', 'sell', trade.count, exitCents);
+    } catch (err: any) {
+      // Don't fabricate a close on a real position we couldn't actually
+      // exit — leave it open. If the real cause is that it already settled
+      // (event closed between our last price check and now), the next
+      // scan's _updateOpenTradePrices → getKalshiMarketStatus path will
+      // detect that and settle it correctly instead.
+      console.error(`[Kalshi] Sell order failed for ${trade.ticker} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `⚠️ Could not close "${trade.subtitle}": ${err.message}`;
+      return false;
+    }
+  }
+
+  return _finalizeKalshiClose(userId, s, idx, exitCents, exitReason);
+}
+
+export async function closeAllKalshiTrades(userId: number): Promise<number> {
   const s = getKalshiEngineState(userId);
   const ids = s.openTrades.map(t => t.id);
-  ids.forEach(id => closeKalshiTrade(userId, id));
-  return ids.length;
+  let closed = 0;
+  for (const id of ids) {
+    if (await closeKalshiTrade(userId, id)) closed++;
+  }
+  return closed;
 }

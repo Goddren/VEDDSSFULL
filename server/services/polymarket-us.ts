@@ -32,7 +32,12 @@ export interface PmUsCredentials {
 function loadAll(): Record<string, PmUsCredentials> {
   try {
     if (fs.existsSync(FILE)) return JSON.parse(fs.readFileSync(FILE, 'utf-8'));
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    // A corrupted file previously looked identical to "no credentials saved"
+    // — every Polymarket US feature would silently report paper mode/not-
+    // connected with no indication anything was actually wrong.
+    console.error('[PolymarketUS] Credential store is unreadable (corrupted JSON?) — treating as empty:', e?.message);
+  }
   return {};
 }
 function saveAll(map: Record<string, PmUsCredentials>): void {
@@ -140,7 +145,8 @@ export async function placePmUsOrder(userId: number, order: {
 }
 
 // ── Public market data (gateway.polymarket.us — no auth) ─────────────────────
-const _toNum = (x: any): number => (x && typeof x === 'object' ? parseFloat(x.value) : parseFloat(x)) || 0;
+export const toPmUsNum = (x: any): number => (x && typeof x === 'object' ? parseFloat(x.value) : parseFloat(x)) || 0;
+const _toNum = toPmUsNum;
 
 export async function getPmUsMarkets(params: Record<string, string | number> = {}): Promise<any[]> {
   const qs = new URLSearchParams({ active: 'true', closed: 'false', limit: '200', ...(params as any) }).toString();

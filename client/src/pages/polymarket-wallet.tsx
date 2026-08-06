@@ -59,6 +59,7 @@ export default function PolymarketWalletPage() {
   const [walletType, setWalletType]               = useState<"metamask"|"coinbase"|"manual"|null>(null);
   const [balances, setBalances]                   = useState<{ matic: number; usdc: number; usdce: number } | null>(null);
   const [loadingBalances, setLoadingBalances]     = useState(false);
+  const [balancesError, setBalancesError]         = useState<string>("");
   const [copied, setCopied]                       = useState(false);
   const [connecting, setConnecting]               = useState(false);
   const [error, setError]                         = useState<string>("");
@@ -97,6 +98,18 @@ export default function PolymarketWalletPage() {
     },
   });
 
+  // Disconnect must actually clear the saved server-side record — previously
+  // this only cleared local React state, so the wallet silently reappeared
+  // as "connected" the next time /api/user/polymarket-wallet refetched (on
+  // window focus, remount, or simply going stale), with no user action.
+  const deleteWalletMutation = useMutation({
+    mutationFn: async () => (await apiRequest("DELETE", "/api/user/polymarket-wallet")).json(),
+    onSuccess: () => {
+      queryClient.setQueryData(["/api/user/polymarket-wallet"], null);
+      queryClient.invalidateQueries({ queryKey: ["/api/user/polymarket-wallet"] });
+    },
+  });
+
   // ── Load saved wallet on mount ───────────────────────────────────────────
   useEffect(() => {
     if (savedWallet?.address) {
@@ -109,6 +122,7 @@ export default function PolymarketWalletPage() {
   const fetchBalances = useCallback(async (addr: string) => {
     if (!addr || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
     setLoadingBalances(true);
+    setBalancesError("");
     try {
       const [matic, usdc, usdce] = await Promise.all([
         getMaticBalance(addr),
@@ -116,8 +130,13 @@ export default function PolymarketWalletPage() {
         getUsdcBalance(addr, USDC_BRIDGED),
       ]);
       setBalances({ matic, usdc, usdce });
-    } catch (e) {
+    } catch (e: any) {
+      // Previously this only logged to console — loadingBalances still reset
+      // to false with balances still null, which the render logic couldn't
+      // distinguish from "still in flight", so the UI got stuck showing
+      // "Fetching balances..." forever with no indication anything failed.
       console.error("Balance fetch error:", e);
+      setBalancesError("Couldn't fetch balances (RPC unavailable or rate-limited) — retry below.");
     } finally {
       setLoadingBalances(false);
     }
@@ -192,6 +211,7 @@ export default function PolymarketWalletPage() {
     setBalances(null);
     setWalletType(null);
     setOnPolygon(false);
+    deleteWalletMutation.mutate();
   };
 
   const copyAddress = () => {
@@ -351,6 +371,11 @@ export default function PolymarketWalletPage() {
                       <p className="text-[9px] text-gray-500">USDC.e</p>
                       <p className="text-xs font-bold text-cyan-300">${fmt(balances.usdce)}</p>
                     </div>
+                  </div>
+                ) : balancesError ? (
+                  <div className="text-center py-1 space-y-1">
+                    <p className="text-[10px] text-amber-400">{balancesError}</p>
+                    <button onClick={() => fetchBalances(connectedAddress)} className="text-[9px] text-gray-400 hover:text-white underline">Retry</button>
                   </div>
                 ) : (
                   <p className="text-[10px] text-gray-600 text-center py-1">Fetching balances...</p>

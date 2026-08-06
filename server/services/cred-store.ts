@@ -13,10 +13,13 @@ import { pool } from '../db';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
-// Files that must survive deploys (credential sidecars).
+// Files that must survive deploys (credential sidecars + learning state).
 const DURABLE_FILES = [
   'kalshi_credentials.json',
   'polymarket_us.json',
+  'polymarket_keys.json',    // Polygon private key for live Polymarket (CLOB) trading
+  'polymarket_wallets.json', // saved Polygon deposit address (public, lower severity, but still lost on deploy otherwise)
+  'kalshi_performance.json', // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
 ];
 
 let tableReady: Promise<void> | null = null;

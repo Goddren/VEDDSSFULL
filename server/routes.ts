@@ -67,6 +67,7 @@ import { getTLRisk } from "./services/tl-risk-settings";
 import { AlpacaService, encryptApiSecret } from "./alpaca";
 import { TastyTradeService, encryptPassword as encryptTastytradePassword } from "./tastytrade";
 import { CryptoComService, encryptApiSecret as encryptCryptocomSecret } from "./cryptocom";
+import { backupDurableFile } from "./services/cred-store";
 
 /**
  * Balance-scaled max-lot ceiling. A fixed 0.10 cap chokes large accounts — a
@@ -19039,7 +19040,9 @@ Respond with ONLY valid JSON:
     try {
       const dir = path.join(process.cwd(), 'data');
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const content = JSON.stringify(map, null, 2);
+      fs.writeFileSync(_polyWalletsFile, content);
+      backupDurableFile('polymarket_wallets.json', content); // durable DB mirror (survives deploys)
     } catch { /* ignore */ }
   };
 
@@ -19078,22 +19081,35 @@ Respond with ONLY valid JSON:
     res.json({ success: true });
   });
 
-  // POST /api/trading/kill-all — master kill switch: stops forex engine + Polymarket engine
+  // POST /api/trading/kill-all — master kill switch: stops ALL trading engines
+  // (forex/MT5, Polymarket crypto, Polymarket US, Kalshi). Used to only stop
+  // forex + the Polymarket crypto engine while claiming "All trading engines
+  // stopped" — Kalshi and Polymarket US kept placing real orders.
   app.post("/api/trading/kill-all", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     try {
       // Stop forex live engine (emergency stop queues MT5 CLOSE_ALL signal)
       const forexState = emergencyStopEngine(userId);
-      // Stop Polymarket engine
+      // Stop Polymarket (crypto/CLOB) engine
       const { stopEngine: stopPolyEngine, getEngineState: getPolyState } = await import('./services/polymarket-autonomous-engine');
       stopPolyEngine(userId);
       const polyState = getPolyState(userId);
+      // Stop Polymarket US engine
+      const { stopPmUsEngine, getPmUsEngineState } = await import('./services/polymarket-us-engine');
+      stopPmUsEngine(userId);
+      const pmUsState = getPmUsEngineState(userId);
+      // Stop Kalshi engine
+      const { stopKalshiEngine, getKalshiEngineState } = await import('./services/kalshi-engine');
+      stopKalshiEngine(userId);
+      const kalshiState = getKalshiEngineState(userId);
       res.json({
         success: true,
-        message: 'All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll.',
+        message: 'All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll. Kalshi/Polymarket engines stopped opening new positions — existing open positions are NOT auto-closed by kill-all; close them from their respective panels.',
         forex: { isRunning: forexState?.isRunning ?? false },
         polymarket: { isRunning: polyState.isRunning },
+        polymarketUs: { isRunning: pmUsState.isRunning },
+        kalshi: { isRunning: kalshiState.isRunning },
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'Kill-all failed' });
@@ -19198,7 +19214,7 @@ Respond with ONLY valid JSON:
   app.post("/api/polymarket-us-engine/trades/:id/close", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { closePmUsTrade, getPmUsEngineState } = await import('./services/polymarket-us-engine');
-    const ok = closePmUsTrade((req.user as User).id, req.params.id);
+    const ok = await closePmUsTrade((req.user as User).id, req.params.id);
     res.json({ success: ok, state: getPmUsEngineState((req.user as User).id) });
   });
 
@@ -19257,10 +19273,10 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const posId = req.params.id;
-    import('./services/polymarket-autonomous-engine').then(({ getEngineState, closePosition }) => {
+    import('./services/polymarket-autonomous-engine').then(async ({ getEngineState, closePosition }) => {
       const state = getEngineState(userId);
-      const ok = closePosition(state, posId, undefined, userId);
-      if (!ok) return res.status(404).json({ error: "Position not found" });
+      const ok = await closePosition(state, posId, undefined, userId);
+      if (!ok) return res.status(404).json({ error: "Position not found (or the real CLOB sell order failed — check engine status for the reason)" });
       res.json({ success: true, state });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
@@ -19269,8 +19285,8 @@ Respond with ONLY valid JSON:
   app.post("/api/polymarket-engine/positions/close-all", (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    import('./services/polymarket-autonomous-engine').then(({ closeAllPositions, getEngineState }) => {
-      const closed = closeAllPositions(userId);
+    import('./services/polymarket-autonomous-engine').then(async ({ closeAllPositions, getEngineState }) => {
+      const closed = await closeAllPositions(userId);
       res.json({ success: true, closed, state: getEngineState(userId) });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
@@ -19652,8 +19668,8 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const { closeKalshiTrade, getKalshiEngineState } = await import('./services/kalshi-engine');
-    const ok = closeKalshiTrade(userId, req.params.id);
-    if (!ok) return res.status(404).json({ error: "Trade not found" });
+    const ok = await closeKalshiTrade(userId, req.params.id);
+    if (!ok) return res.status(404).json({ error: "Trade not found (or the real Kalshi sell order failed — check engine status for the reason)" });
     res.json({ success: true, state: getKalshiEngineState(userId) });
   });
 
@@ -19662,11 +19678,15 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const { closeAllKalshiTrades, getKalshiEngineState } = await import('./services/kalshi-engine');
-    const closed = closeAllKalshiTrades(userId);
+    const closed = await closeAllKalshiTrades(userId);
     res.json({ success: true, closed, state: getKalshiEngineState(userId) });
   });
 
   // ── Polymarket live private-key storage ───────────────────────────────────
+  // Stored ENCRYPTED at rest (was plaintext — a real wallet key, unlike its
+  // sibling Polymarket-US secret which was already encrypted) and mirrored to
+  // the durable_files Postgres table (was the only credential sidecar of the
+  // four that bypassed cred-store's mirror entirely — lost on every deploy).
   const _polyKeysFile = path.join(process.cwd(), 'data', 'polymarket_keys.json');
   const _loadPolyKeys = (): Record<string, string> => {
     try { if (fs.existsSync(_polyKeysFile)) return JSON.parse(fs.readFileSync(_polyKeysFile, 'utf-8')); }
@@ -19677,7 +19697,9 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     try {
       const dir = path.join(process.cwd(), 'data');
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const content = JSON.stringify(map, null, 2);
+      fs.writeFileSync(_polyKeysFile, content);
+      backupDurableFile('polymarket_keys.json', content); // durable DB mirror (survives deploys)
     } catch { /* ignore */ }
   };
 
@@ -19690,7 +19712,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const clean = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
     if (!/^0x[0-9a-fA-F]{64}$/.test(clean)) return res.status(400).json({ error: "Invalid private key format (must be 32-byte hex)" });
     const map = _loadPolyKeys();
-    map[String(userId)] = clean;
+    map[String(userId)] = encryptPassword(clean);
     _savePolyKeys(map);
     res.json({ success: true });
   });
@@ -19700,17 +19722,28 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const map = _loadPolyKeys();
-    const key = map[String(userId)];
-    res.json({ saved: !!key, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null });
+    const encKey = map[String(userId)];
+    let key: string | null = null;
+    let corrupted = false;
+    if (encKey) {
+      try { key = decryptPassword(encKey); } catch { corrupted = true; }
+    }
+    res.json({ saved: !!encKey, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null, corrupted });
   });
 
   // DELETE /api/user/polymarket-private-key
-  app.delete("/api/user/polymarket-private-key", (req: Request, res: Response) => {
+  app.delete("/api/user/polymarket-private-key", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     const map = _loadPolyKeys();
     delete map[String(userId)];
     _savePolyKeys(map);
+    // Deleting the key must actually stop live trading — previously this only
+    // removed the file; the engine's cached in-memory key and isPaperMode
+    // flag were untouched, so the bot kept signing and submitting real
+    // orders every scan cycle until the process restarted.
+    const { setPolymarketLiveMode } = await import('./services/polymarket-autonomous-engine');
+    setPolymarketLiveMode(userId, false, null);
     res.json({ success: true });
   });
 
@@ -19720,12 +19753,17 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const userId = (req.user as User).id;
     const { enabled } = req.body;
     const map = _loadPolyKeys();
-    const hasKey = !!map[String(userId)];
-    if (enabled && !hasKey) {
+    const encKey = map[String(userId)];
+    if (enabled && !encKey) {
       return res.status(400).json({ error: "Save your Polygon private key before enabling live mode" });
     }
+    let plainKey: string | null = null;
+    if (encKey) {
+      try { plainKey = decryptPassword(encKey); }
+      catch { return res.status(400).json({ error: "Saved private key is unreadable (corrupted or encryption key changed) — please re-save it" }); }
+    }
     const { setPolymarketLiveMode, getEngineState } = await import('./services/polymarket-autonomous-engine');
-    setPolymarketLiveMode(userId, !!enabled, map[String(userId)] ?? null);
+    setPolymarketLiveMode(userId, !!enabled, plainKey);
     res.json({ success: true, liveMode: !!enabled, state: getEngineState(userId) });
   });
 

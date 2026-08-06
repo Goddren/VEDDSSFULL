@@ -13,6 +13,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { backupDurableFile } from './cred-store';
 
 const FILE = path.join(process.cwd(), 'data', 'kalshi_performance.json');
 
@@ -41,7 +42,9 @@ function emptyStat(strategy: string): KalshiStrategyStat {
 function loadAll(): Store {
   try {
     if (fs.existsSync(FILE)) return JSON.parse(fs.readFileSync(FILE, 'utf-8'));
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    console.error('[Kalshi] Performance store is unreadable (corrupted JSON?) — treating as empty (win-rate history for this read will look reset):', e?.message);
+  }
   return {};
 }
 
@@ -49,7 +52,9 @@ function saveAll(store: Store): void {
   try {
     const dir = path.dirname(FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(store, null, 2));
+    const content = JSON.stringify(store, null, 2);
+    fs.writeFileSync(FILE, content);
+    backupDurableFile('kalshi_performance.json', content); // durable DB mirror (survives deploys) — this file's header comment claimed that guarantee already; it was never actually wired up
   } catch { /* ignore */ }
 }
 

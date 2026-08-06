@@ -20685,9 +20685,9 @@ var init_tastytrade = __esm({
         }
         await this.login();
       }
-      async request(path16, init = {}, attempt = 0) {
+      async request(path17, init = {}, attempt = 0) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path16}`, {
+        const response = await fetch(`${this.baseUrl}${path17}`, {
           ...init,
           headers: {
             "Authorization": this.sessionToken || "",
@@ -20698,7 +20698,7 @@ var init_tastytrade = __esm({
         });
         if (!response.ok && RETRYABLE_STATUSES3.has(response.status) && attempt < RETRY_DELAYS3.length) {
           await new Promise((r) => setTimeout(r, RETRY_DELAYS3[attempt]));
-          return this.request(path16, init, attempt + 1);
+          return this.request(path17, init, attempt + 1);
         }
         return response;
       }
@@ -20955,6 +20955,75 @@ var init_cryptocom = __esm({
         return t ? parseFloat(t.a ?? t.l ?? "0") || null : null;
       }
     };
+  }
+});
+
+// server/services/cred-store.ts
+var cred_store_exports = {};
+__export(cred_store_exports, {
+  backupDurableFile: () => backupDurableFile,
+  restoreDurableFiles: () => restoreDurableFiles
+});
+import * as fs4 from "fs";
+import * as path4 from "path";
+function ensureTable() {
+  if (!tableReady) {
+    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
+        name        text PRIMARY KEY,
+        content     text NOT NULL,
+        updated_at  timestamptz NOT NULL DEFAULT now()
+      )`).then(() => void 0).catch((e) => {
+      console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
+      tableReady = null;
+    });
+  }
+  return tableReady;
+}
+async function restoreDurableFiles() {
+  try {
+    await ensureTable();
+    if (!fs4.existsSync(DATA_DIR)) fs4.mkdirSync(DATA_DIR, { recursive: true });
+    const { rows } = await pool.query("SELECT name, content FROM durable_files");
+    for (const r of rows) {
+      if (!DURABLE_FILES.includes(r.name)) continue;
+      const fp = path4.join(DATA_DIR, r.name);
+      const existing = fs4.existsSync(fp) ? fs4.readFileSync(fp, "utf-8").trim() : "";
+      if (!existing || existing === "{}") {
+        fs4.writeFileSync(fp, r.content);
+        console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
+      }
+    }
+  } catch (e) {
+    console.error("[cred-store] restore failed (non-fatal):", e?.message);
+  }
+}
+function backupDurableFile(name, content) {
+  ensureTable().then(
+    () => pool.query(
+      `INSERT INTO durable_files (name, content, updated_at)
+         VALUES ($1, $2, now())
+         ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
+      [name, content]
+    )
+  ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
+}
+var DATA_DIR, DURABLE_FILES, tableReady;
+var init_cred_store = __esm({
+  "server/services/cred-store.ts"() {
+    "use strict";
+    init_db();
+    DATA_DIR = path4.join(process.cwd(), "data");
+    DURABLE_FILES = [
+      "kalshi_credentials.json",
+      "polymarket_us.json",
+      "polymarket_keys.json",
+      // Polygon private key for live Polymarket (CLOB) trading
+      "polymarket_wallets.json",
+      // saved Polygon deposit address (public, lower severity, but still lost on deploy otherwise)
+      "kalshi_performance.json"
+      // per-strategy win-rate history feeding Brain Learning Mode / Kelly sizing
+    ];
+    tableReady = null;
   }
 });
 
@@ -21630,20 +21699,20 @@ var init_tradovate = __esm({
         }
         return data;
       }
-      async get(path16) {
+      async get(path17) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path16}`, {
+        const response = await fetch(`${this.baseUrl}${path17}`, {
           headers: { "Authorization": `Bearer ${this.accessToken}`, "Accept": "application/json" }
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate GET ${path16} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate GET ${path17} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
-      async post(path16, body) {
+      async post(path17, body) {
         await this.ensureAuthenticated();
-        const response = await fetch(`${this.baseUrl}${path16}`, {
+        const response = await fetch(`${this.baseUrl}${path17}`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${this.accessToken}`,
@@ -21654,7 +21723,7 @@ var init_tradovate = __esm({
         });
         if (!response.ok) {
           const text2 = await response.text();
-          throw new Error(`Tradovate POST ${path16} failed (${response.status}): ${text2}`);
+          throw new Error(`Tradovate POST ${path17} failed (${response.status}): ${text2}`);
         }
         return response.json();
       }
@@ -25080,8 +25149,8 @@ __export(futures_brain_exports, {
   loadPersistedFuturesBrain: () => loadPersistedFuturesBrain,
   runFuturesBrainLearning: () => runFuturesBrainLearning
 });
-import * as fs4 from "fs";
-import * as path4 from "path";
+import * as fs5 from "fs";
+import * as path5 from "path";
 function rMultiple(t) {
   if (!t.exitPrice || !t.stopLoss) return 0;
   const riskDist = Math.abs(t.entryPrice - t.stopLoss);
@@ -25200,9 +25269,9 @@ async function computeFuturesBrain(userId) {
   global.veddFuturesBrain = global.veddFuturesBrain || {};
   global.veddFuturesBrain[userId] = brain;
   try {
-    const brainDir = path4.join(process.cwd(), "data", "brains");
-    if (!fs4.existsSync(brainDir)) fs4.mkdirSync(brainDir, { recursive: true });
-    fs4.writeFileSync(path4.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
+    const brainDir = path5.join(process.cwd(), "data", "brains");
+    if (!fs5.existsSync(brainDir)) fs5.mkdirSync(brainDir, { recursive: true });
+    fs5.writeFileSync(path5.join(brainDir, `futures_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[futures-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} symbols for user ${userId}`);
@@ -25213,9 +25282,9 @@ async function runFuturesBrainLearning(userId) {
 }
 function loadPersistedFuturesBrain(userId) {
   try {
-    const p = path4.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
-    if (!fs4.existsSync(p)) return null;
-    const brain = JSON.parse(fs4.readFileSync(p, "utf-8"));
+    const p = path5.join(process.cwd(), "data", "brains", `futures_brain_${userId}.json`);
+    if (!fs5.existsSync(p)) return null;
+    const brain = JSON.parse(fs5.readFileSync(p, "utf-8"));
     global.veddFuturesBrain = global.veddFuturesBrain || {};
     global.veddFuturesBrain[userId] = brain;
     return brain;
@@ -26035,8 +26104,8 @@ var share_card_service_exports = {};
 __export(share_card_service_exports, {
   generateShareCard: () => generateShareCard
 });
-import path5 from "path";
-import fs5 from "fs";
+import path6 from "path";
+import fs6 from "fs";
 async function generateShareCard(data) {
   let createCanvas, loadImage;
   try {
@@ -26057,8 +26126,8 @@ async function generateShareCard(data) {
   ctx.fillStyle = headerGradient;
   ctx.fillRect(0, 0, CARD_WIDTH, 180);
   try {
-    const logoPath = path5.join(process.cwd(), "attached_assets", "IMG_3645.png");
-    if (fs5.existsSync(logoPath)) {
+    const logoPath = path6.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    if (fs6.existsSync(logoPath)) {
       const logo = await loadImage(logoPath);
       const logoHeight = 80;
       const logoWidth = logo.width / logo.height * logoHeight;
@@ -26094,8 +26163,8 @@ async function generateShareCard(data) {
       if (imagePath.startsWith("/")) {
         imagePath = imagePath.substring(1);
       }
-      const fullImagePath = path5.join(process.cwd(), imagePath);
-      if (fs5.existsSync(fullImagePath)) {
+      const fullImagePath = path6.join(process.cwd(), imagePath);
+      if (fs6.existsSync(fullImagePath)) {
         const chartImage = await loadImage(fullImagePath);
         const maxWidth = CARD_WIDTH - PADDING * 2;
         const maxHeight = 350;
@@ -26208,8 +26277,8 @@ async function generateShareCard(data) {
         if (imgPath.startsWith("/")) {
           imgPath = imgPath.substring(1);
         }
-        const fullPath = path5.join(process.cwd(), imgPath);
-        if (fs5.existsSync(fullPath)) {
+        const fullPath = path6.join(process.cwd(), imgPath);
+        if (fs6.existsSync(fullPath)) {
           chartImage = await loadImage(fullPath);
           const maxChartWidth = CARD_WIDTH - PADDING * 2 - 40;
           const maxChartHeight = 200;
@@ -32471,8 +32540,8 @@ __export(options_brain_exports, {
   loadPersistedOptionsBrain: () => loadPersistedOptionsBrain,
   runOptionsBrainLearning: () => runOptionsBrainLearning
 });
-import * as fs6 from "fs";
-import * as path6 from "path";
+import * as fs7 from "fs";
+import * as path7 from "path";
 function pctReturn(t) {
   if (!t.exitPrice || !t.entryPrice) return 0;
   return (t.exitPrice - t.entryPrice) / t.entryPrice * 100;
@@ -32608,9 +32677,9 @@ async function computeOptionsBrain(userId) {
   global.veddOptionsBrain = global.veddOptionsBrain || {};
   global.veddOptionsBrain[userId] = brain;
   try {
-    const brainDir = path6.join(process.cwd(), "data", "brains");
-    if (!fs6.existsSync(brainDir)) fs6.mkdirSync(brainDir, { recursive: true });
-    fs6.writeFileSync(path6.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
+    const brainDir = path7.join(process.cwd(), "data", "brains");
+    if (!fs7.existsSync(brainDir)) fs7.mkdirSync(brainDir, { recursive: true });
+    fs7.writeFileSync(path7.join(brainDir, `options_brain_${userId}.json`), JSON.stringify(brain));
   } catch {
   }
   console.log(`[options-brain] Learned from ${closed.length} trades across ${uniqueSymbols.length} underlyings for user ${userId}`);
@@ -32621,9 +32690,9 @@ async function runOptionsBrainLearning(userId) {
 }
 function loadPersistedOptionsBrain(userId) {
   try {
-    const p = path6.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
-    if (!fs6.existsSync(p)) return null;
-    const brain = JSON.parse(fs6.readFileSync(p, "utf-8"));
+    const p = path7.join(process.cwd(), "data", "brains", `options_brain_${userId}.json`);
+    if (!fs7.existsSync(p)) return null;
+    const brain = JSON.parse(fs7.readFileSync(p, "utf-8"));
     global.veddOptionsBrain = global.veddOptionsBrain || {};
     global.veddOptionsBrain[userId] = brain;
     return brain;
@@ -33043,7 +33112,8 @@ __export(kalshi_exports, {
   KALSHI_SERIES_MAP: () => KALSHI_SERIES_MAP,
   clearKalshiCache: () => clearKalshiCache,
   getKalshiBTCEvent: () => getKalshiBTCEvent,
-  getKalshiCryptoEvent: () => getKalshiCryptoEvent
+  getKalshiCryptoEvent: () => getKalshiCryptoEvent,
+  getKalshiMarketStatus: () => getKalshiMarketStatus
 });
 function parseDollars(val) {
   if (val == null) return 0;
@@ -33155,6 +33225,25 @@ async function getKalshiCryptoEvent(seriesTicker, currentPrice, forceRefresh = f
 async function getKalshiBTCEvent(currentBTCPrice, forceRefresh = false) {
   return getKalshiCryptoEvent("KXBTC", currentBTCPrice, forceRefresh);
 }
+async function getKalshiMarketStatus(ticker) {
+  const url = `${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`;
+  const res = await fetch(url, {
+    headers: { "Accept": "application/json", "User-Agent": "VEDD-Trading-AI/1.0" },
+    signal: AbortSignal.timeout(8e3)
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const m = data.market;
+  if (!m) return null;
+  return {
+    ticker: m.ticker,
+    status: m.status ?? "",
+    result: m.result === "yes" || m.result === "no" ? m.result : "",
+    yesBid: parseDollars(m.yes_bid_dollars),
+    yesAsk: parseDollars(m.yes_ask_dollars),
+    lastPrice: parseDollars(m.last_price_dollars)
+  };
+}
 function clearKalshiCache(seriesTicker) {
   if (seriesTicker) eventCache.delete(seriesTicker);
   else eventCache.clear();
@@ -33189,15 +33278,26 @@ __export(polymarket_autonomous_engine_exports, {
   stopEngine: () => stopEngine,
   updateEngineConfig: () => updateEngineConfig
 });
-async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
+import * as fs8 from "fs";
+import * as path8 from "path";
+function _loadPolymarketPrivateKey(userId) {
+  try {
+    const fp = path8.join(process.cwd(), "data", "polymarket_keys.json");
+    if (!fs8.existsSync(fp)) return null;
+    const map = JSON.parse(fs8.readFileSync(fp, "utf-8"));
+    const enc = map[String(userId)];
+    return enc ? decryptPassword(enc) : null;
+  } catch {
+    return null;
+  }
+}
+async function _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt) {
   try {
     const { ethers } = await import("ethers");
     const wallet = new ethers.Wallet(privateKey);
     const salt = BigInt(Math.floor(Math.random() * 1e15));
     const now = BigInt(Math.floor(Date.now() / 1e3));
     const expiry = now + BigInt(3600);
-    const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));
-    const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
     const domain = {
       name: "Polymarket CTF Exchange",
       version: "1",
@@ -33269,8 +33369,17 @@ async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
     return { success: false, error: err.message };
   }
 }
+async function placeClobOrder(privateKey, tokenId, side, priceFloat, sizeUsdc) {
+  const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));
+  const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt);
+}
+async function sellClobPosition(privateKey, tokenId, priceFloat, shares) {
+  const makerAmt = BigInt(Math.round(shares * 1e6));
+  const takerAmt = BigInt(Math.round(shares * priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, "SELL", makerAmt, takerAmt);
+}
 function setPolymarketLiveMode(userId, enabled, privateKey) {
-  _liveModes.set(userId, enabled);
   if (privateKey) _privateKeys.set(userId, privateKey);
   else _privateKeys.delete(userId);
   const s = getEngineState(userId);
@@ -33334,10 +33443,19 @@ async function restoreEngineStateFromDb(userId) {
     const { eq: eq18, and: and9 } = await import("drizzle-orm");
     const rows = await db2.select().from(engineRunState2).where(and9(eq18(engineRunState2.userId, userId), eq18(engineRunState2.engine, "polymarket")));
     const row = rows[0];
-    if (row?.isRunning) {
-      console.log(`[Polymarket] Restoring engine for user ${userId}`);
-      startEngine(userId);
+    if (!row?.isRunning) return;
+    console.log(`[Polymarket] Restoring engine for user ${userId}`);
+    if (row.isPaperMode === false) {
+      const pk = _loadPolymarketPrivateKey(userId);
+      if (pk) {
+        setPolymarketLiveMode(userId, true, pk);
+        console.log(`[Polymarket] Restored LIVE mode for user ${userId} (private key loaded from durable storage)`);
+      } else {
+        console.warn(`[Polymarket] User ${userId} was in LIVE mode before this restart but no private key is available to restore it \u2014 resuming in PAPER mode instead. Re-enable live mode from the UI to resume live trading.`);
+        _persistRunState(userId, true, true);
+      }
     }
+    startEngine(userId);
   } catch (e) {
     console.error("[Polymarket] Failed to restore engine state:", e);
   }
@@ -33433,6 +33551,7 @@ async function _openPosition(s, sentiment, direction, userId) {
         return { fired: false, reason: `CLOB order failed: ${result.error}` };
       }
       liveOrderId = result.orderId;
+      position.tokenId = best.yesTokenId;
     }
   }
   position.clobOrderId = liveOrderId;
@@ -33459,19 +33578,36 @@ async function _refreshPositionPrices(s, userId) {
       pos.unrealizedPnl = pos.currentValue - pos.stake;
       pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
       if (market.closed) {
-        closePosition(s, pos.id, currentProb, userId);
+        await closePosition(s, pos.id, currentProb, userId, true);
       }
     }
     s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
   } catch {
   }
 }
-function closePosition(s, positionId, exitProb, userId) {
+async function closePosition(s, positionId, exitProb, userId, viaMarketResolution = false) {
   const idx = s.openPositions.findIndex((p) => p.id === positionId);
   if (idx === -1) return false;
   const pos = s.openPositions[idx];
   const ep = exitProb ?? pos.currentProbability;
   const shares = pos.stake * 100 / pos.entryProbability;
+  if (pos.clobOrderId && !viaMarketResolution) {
+    if (!pos.tokenId) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no tokenId recorded to sell.`);
+      return false;
+    }
+    const pk = userId != null ? _privateKeys.get(userId) : void 0;
+    if (!pk) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} \u2014 no private key cached (was it deleted or the process restarted?).`);
+      return false;
+    }
+    const sellPrice = Math.max(0.01, Math.min(0.99, ep / 100));
+    const result = await sellClobPosition(pk, pos.tokenId, sellPrice, shares);
+    if (!result.success) {
+      console.error(`[Polymarket] Sell order failed for position ${pos.id} (leaving position open, will retry): ${result.error}`);
+      return false;
+    }
+  }
   const exitValue = shares * (ep / 100);
   const realizedPnl = exitValue - pos.stake;
   pos.status = ep >= 99 ? "resolved" : "closed";
@@ -33509,21 +33645,24 @@ function closePosition(s, positionId, exitProb, userId) {
   }
   return true;
 }
-function closeAllPositions(userId) {
+async function closeAllPositions(userId) {
   const s = getEngineState(userId);
   const ids = s.openPositions.map((p) => p.id);
-  ids.forEach((id) => closePosition(s, id, void 0, userId));
-  return ids.length;
+  let closed = 0;
+  for (const id of ids) {
+    if (await closePosition(s, id, void 0, userId)) closed++;
+  }
+  return closed;
 }
-var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _liveModes, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
+var CLOB_BASE2, POLY_CHAIN, CTF_ADDRESS, _privateKeys, _states, _intervals, DEFAULT_CONFIG;
 var init_polymarket_autonomous_engine = __esm({
   "server/services/polymarket-autonomous-engine.ts"() {
     "use strict";
     init_polymarket();
+    init_tradelocker();
     CLOB_BASE2 = "https://clob.polymarket.com";
     POLY_CHAIN = 137;
     CTF_ADDRESS = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E";
-    _liveModes = /* @__PURE__ */ new Map();
     _privateKeys = /* @__PURE__ */ new Map();
     _states = /* @__PURE__ */ new Map();
     _intervals = /* @__PURE__ */ new Map();
@@ -33534,221 +33673,6 @@ var init_polymarket_autonomous_engine = __esm({
       maxOpenPositions: 3,
       cooldownMinutes: 30
     };
-  }
-});
-
-// server/services/cred-store.ts
-var cred_store_exports = {};
-__export(cred_store_exports, {
-  backupDurableFile: () => backupDurableFile,
-  restoreDurableFiles: () => restoreDurableFiles
-});
-import * as fs7 from "fs";
-import * as path7 from "path";
-function ensureTable() {
-  if (!tableReady) {
-    tableReady = pool.query(`CREATE TABLE IF NOT EXISTS durable_files (
-        name        text PRIMARY KEY,
-        content     text NOT NULL,
-        updated_at  timestamptz NOT NULL DEFAULT now()
-      )`).then(() => void 0).catch((e) => {
-      console.error("[cred-store] ensureTable failed (non-fatal):", e?.message);
-      tableReady = null;
-    });
-  }
-  return tableReady;
-}
-async function restoreDurableFiles() {
-  try {
-    await ensureTable();
-    if (!fs7.existsSync(DATA_DIR)) fs7.mkdirSync(DATA_DIR, { recursive: true });
-    const { rows } = await pool.query("SELECT name, content FROM durable_files");
-    for (const r of rows) {
-      if (!DURABLE_FILES.includes(r.name)) continue;
-      const fp = path7.join(DATA_DIR, r.name);
-      const existing = fs7.existsSync(fp) ? fs7.readFileSync(fp, "utf-8").trim() : "";
-      if (!existing || existing === "{}") {
-        fs7.writeFileSync(fp, r.content);
-        console.log(`[cred-store] restored ${r.name} from DB (${r.content.length} bytes)`);
-      }
-    }
-  } catch (e) {
-    console.error("[cred-store] restore failed (non-fatal):", e?.message);
-  }
-}
-function backupDurableFile(name, content) {
-  ensureTable().then(
-    () => pool.query(
-      `INSERT INTO durable_files (name, content, updated_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content, updated_at = now()`,
-      [name, content]
-    )
-  ).catch((e) => console.error(`[cred-store] backup ${name} failed (non-fatal):`, e?.message));
-}
-var DATA_DIR, DURABLE_FILES, tableReady;
-var init_cred_store = __esm({
-  "server/services/cred-store.ts"() {
-    "use strict";
-    init_db();
-    DATA_DIR = path7.join(process.cwd(), "data");
-    DURABLE_FILES = [
-      "kalshi_credentials.json",
-      "polymarket_us.json"
-    ];
-    tableReady = null;
-  }
-});
-
-// server/services/polymarket-us.ts
-var polymarket_us_exports = {};
-__export(polymarket_us_exports, {
-  deletePmUsCredentials: () => deletePmUsCredentials,
-  findPmUsCryptoMarket: () => findPmUsCryptoMarket,
-  getPmUsBbo: () => getPmUsBbo,
-  getPmUsMarkets: () => getPmUsMarkets,
-  getPmUsPositions: () => getPmUsPositions,
-  hasPmUsCredentials: () => hasPmUsCredentials,
-  loadPmUsCredentials: () => loadPmUsCredentials,
-  placePmUsOrder: () => placePmUsOrder,
-  pmUsRequest: () => pmUsRequest,
-  savePmUsCredentials: () => savePmUsCredentials,
-  testPmUsConnection: () => testPmUsConnection
-});
-import * as fs8 from "fs";
-import * as path8 from "path";
-import * as crypto8 from "crypto";
-function loadAll2() {
-  try {
-    if (fs8.existsSync(FILE2)) return JSON.parse(fs8.readFileSync(FILE2, "utf-8"));
-  } catch {
-  }
-  return {};
-}
-function saveAll2(map) {
-  try {
-    const dir = path8.dirname(FILE2);
-    if (!fs8.existsSync(dir)) fs8.mkdirSync(dir, { recursive: true });
-    const content = JSON.stringify(map, null, 2);
-    fs8.writeFileSync(FILE2, content);
-    backupDurableFile("polymarket_us.json", content);
-  } catch {
-  }
-}
-function savePmUsCredentials(userId, keyId, secretKey) {
-  const map = loadAll2();
-  map[String(userId)] = { keyId: keyId.trim(), secretEnc: encryptPassword(secretKey.trim()), savedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  saveAll2(map);
-}
-function loadPmUsCredentials(userId) {
-  const c = loadAll2()[String(userId)];
-  if (!c) return null;
-  try {
-    return { keyId: c.keyId, secret: decryptPassword(c.secretEnc) };
-  } catch {
-    return null;
-  }
-}
-function hasPmUsCredentials(userId) {
-  return !!loadAll2()[String(userId)];
-}
-function deletePmUsCredentials(userId) {
-  const map = loadAll2();
-  delete map[String(userId)];
-  saveAll2(map);
-}
-function ed25519KeyFromSecret(secretKeyB64) {
-  const raw = Buffer.from(secretKeyB64, "base64");
-  const seed = raw.subarray(0, 32);
-  const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto8.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
-}
-function signHeaders(keyId, secret, method, reqPath) {
-  const timestamp2 = Date.now().toString();
-  const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
-  const key = ed25519KeyFromSecret(secret);
-  const signature = crypto8.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
-  return {
-    "X-PM-Access-Key": keyId,
-    "X-PM-Timestamp": timestamp2,
-    "X-PM-Signature": signature,
-    "Content-Type": "application/json"
-  };
-}
-async function pmUsRequest(userId, method, reqPath, body) {
-  const creds = loadPmUsCredentials(userId);
-  if (!creds) return { ok: false, status: 0, data: { error: "No Polymarket US credentials saved" } };
-  const headers = signHeaders(creds.keyId, creds.secret, method, reqPath);
-  const init = { method: method.toUpperCase(), headers, signal: AbortSignal.timeout(2e4) };
-  if (body !== void 0) init.body = JSON.stringify(body);
-  try {
-    const res = await fetch(`${BASE_URL}${reqPath}`, init);
-    const text2 = await res.text();
-    let data;
-    try {
-      data = text2 ? JSON.parse(text2) : {};
-    } catch {
-      data = { raw: text2 };
-    }
-    return { ok: res.ok, status: res.status, data };
-  } catch (e) {
-    return { ok: false, status: 0, data: { error: e?.message || String(e) } };
-  }
-}
-async function testPmUsConnection(userId) {
-  const r = await pmUsRequest(userId, "GET", "/v1/portfolio/positions");
-  return { connected: r.ok, status: r.status, detail: r.data };
-}
-async function getPmUsPositions(userId) {
-  return pmUsRequest(userId, "GET", "/v1/portfolio/positions");
-}
-async function placePmUsOrder(userId, order) {
-  return pmUsRequest(userId, "POST", "/v1/orders", order);
-}
-async function getPmUsMarkets(params = {}) {
-  const qs = new URLSearchParams({ active: "true", closed: "false", limit: "200", ...params }).toString();
-  try {
-    const res = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15e3) });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data) ? data : data.markets || [];
-  } catch {
-    return [];
-  }
-}
-async function findPmUsCryptoMarket(asset = "bitcoin") {
-  const terms = asset === "bitcoin" ? ["bitcoin", "btc"] : asset === "ethereum" ? ["ethereum", "eth"] : [asset.toLowerCase()];
-  const markets = await getPmUsMarkets({ limit: 500 });
-  const candidates = markets.filter((m) => {
-    if (!m.active || m.closed) return false;
-    const hay = `${m.title || ""} ${m.question || ""} ${m.slug || ""} ${m.category || ""}`.toLowerCase();
-    return terms.some((t) => hay.includes(t));
-  });
-  candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
-  return candidates[0] || null;
-}
-async function getPmUsBbo(slug) {
-  try {
-    const res = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12e3) });
-    if (!res.ok) return null;
-    const d = await res.json();
-    const md = d.marketData || d;
-    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
-  } catch {
-    return null;
-  }
-}
-var BASE_URL, GATEWAY_URL, FILE2, PKCS8_ED25519_PREFIX, _toNum;
-var init_polymarket_us = __esm({
-  "server/services/polymarket-us.ts"() {
-    "use strict";
-    init_tradelocker();
-    init_cred_store();
-    BASE_URL = "https://api.polymarket.us";
-    GATEWAY_URL = "https://gateway.polymarket.us";
-    FILE2 = path8.join(process.cwd(), "data", "polymarket_us.json");
-    PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
-    _toNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
   }
 });
 
@@ -34102,11 +34026,12 @@ __export(kalshi_trading_exports, {
 });
 import * as fs9 from "fs";
 import * as path9 from "path";
-import * as crypto9 from "crypto";
+import * as crypto8 from "crypto";
 function loadAllCreds() {
   try {
     if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
-  } catch {
+  } catch (e) {
+    console.error("[Kalshi] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
   }
   return {};
 }
@@ -34144,7 +34069,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto9.createPrivateKey(pem);
+    crypto8.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -34193,14 +34118,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto9.createSign("sha256");
+  const sign3 = crypto8.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto9.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto9.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto8.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto8.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -34341,23 +34266,26 @@ function emptyStat(strategy) {
     lastClosedAt: null
   };
 }
-function loadAll3() {
+function loadAll2() {
   try {
-    if (fs10.existsSync(FILE3)) return JSON.parse(fs10.readFileSync(FILE3, "utf-8"));
-  } catch {
+    if (fs10.existsSync(FILE2)) return JSON.parse(fs10.readFileSync(FILE2, "utf-8"));
+  } catch (e) {
+    console.error("[Kalshi] Performance store is unreadable (corrupted JSON?) \u2014 treating as empty (win-rate history for this read will look reset):", e?.message);
   }
   return {};
 }
-function saveAll3(store) {
+function saveAll2(store) {
   try {
-    const dir = path10.dirname(FILE3);
+    const dir = path10.dirname(FILE2);
     if (!fs10.existsSync(dir)) fs10.mkdirSync(dir, { recursive: true });
-    fs10.writeFileSync(FILE3, JSON.stringify(store, null, 2));
+    const content = JSON.stringify(store, null, 2);
+    fs10.writeFileSync(FILE2, content);
+    backupDurableFile("kalshi_performance.json", content);
   } catch {
   }
 }
 function recordKalshiOutcome(userId, strategy, realizedPnl) {
-  const store = loadAll3();
+  const store = loadAll2();
   const uKey = String(userId);
   store[uKey] = store[uKey] || {};
   const stat = store[uKey][strategy] ?? emptyStat(strategy);
@@ -34377,10 +34305,10 @@ function recordKalshiOutcome(userId, strategy, realizedPnl) {
   stat.worstPnl = Math.min(stat.worstPnl, Math.round(realizedPnl * 100) / 100);
   stat.lastClosedAt = (/* @__PURE__ */ new Date()).toISOString();
   store[uKey][strategy] = stat;
-  saveAll3(store);
+  saveAll2(store);
 }
 function getKalshiPerformance(userId) {
-  const map = loadAll3()[String(userId)] ?? {};
+  const map = loadAll2()[String(userId)] ?? {};
   const byStrategy = Object.values(map).map((s) => {
     const decided2 = s.wins + s.losses;
     return { ...s, winRate: decided2 > 0 ? Math.round(s.wins / decided2 * 100) : 0 };
@@ -34399,11 +34327,12 @@ function getKalshiPerformance(userId) {
   totals.winRate = decided > 0 ? Math.round(totals.wins / decided * 100) : 0;
   return { byStrategy, totals };
 }
-var FILE3;
+var FILE2;
 var init_kalshi_performance = __esm({
   "server/services/kalshi-performance.ts"() {
     "use strict";
-    FILE3 = path10.join(process.cwd(), "data", "kalshi_performance.json");
+    init_cred_store();
+    FILE2 = path10.join(process.cwd(), "data", "kalshi_performance.json");
   }
 });
 
@@ -34418,6 +34347,7 @@ __export(kalshi_engine_exports, {
   kalshiBankroll: () => kalshiBankroll,
   kalshiContractsFor: () => kalshiContractsFor,
   manualKalshiScan: () => manualKalshiScan,
+  refreshKalshiCredValidity: () => refreshKalshiCredValidity,
   restoreKalshiEngineStateFromDb: () => restoreKalshiEngineStateFromDb,
   scanAllKalshiStrategies: () => scanAllKalshiStrategies,
   scanKalshiValuePicks: () => scanKalshiValuePicks,
@@ -34425,12 +34355,27 @@ __export(kalshi_engine_exports, {
   stopKalshiEngine: () => stopKalshiEngine,
   updateKalshiEngineConfig: () => updateKalshiEngineConfig
 });
+async function refreshKalshiCredValidity(userId) {
+  if (!loadKalshiCredentials(userId)) {
+    _credValidity.delete(userId);
+    return;
+  }
+  const cached = _credValidity.get(userId);
+  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS) return;
+  try {
+    const { testKalshiCredentials: testKalshiCredentials2 } = await Promise.resolve().then(() => (init_kalshi_trading(), kalshi_trading_exports));
+    const result = await testKalshiCredentials2(userId);
+    _credValidity.set(userId, { valid: result.valid, error: result.error, checkedAt: Date.now() });
+  } catch {
+  }
+}
 function getKalshiEngineState(userId) {
   if (!_states2.has(userId)) {
     const override = _persistedConfigOverrides.get(userId);
     _states2.set(userId, {
       isRunning: false,
       isPaperMode: !loadKalshiCredentials(userId),
+      credentialError: null,
       lastScanAt: null,
       lastScanResult: null,
       lastTradeAt: null,
@@ -34442,7 +34387,11 @@ function getKalshiEngineState(userId) {
     });
   }
   const s = _states2.get(userId);
-  s.isPaperMode = !loadKalshiCredentials(userId);
+  const hasCreds = !!loadKalshiCredentials(userId);
+  const validity = _credValidity.get(userId);
+  const knownInvalid = validity?.valid === false;
+  s.isPaperMode = !hasCreds || knownInvalid;
+  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
   return s;
 }
 function updateKalshiEngineConfig(userId, patch) {
@@ -34564,14 +34513,73 @@ async function restoreKalshiEngineStateFromDb(userId) {
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
+      await _reconcileKalshiPositionsOnBoot(userId);
       startKalshiEngine(userId);
     }
   } catch (e) {
     console.error("[Kalshi] Failed to restore engine state:", e);
   }
 }
+async function _reconcileKalshiPositionsOnBoot(userId) {
+  if (!loadKalshiCredentials(userId)) return;
+  const s = getKalshiEngineState(userId);
+  try {
+    const positions = await getKalshiPositions(userId);
+    const trackedTickers = new Set(s.openTrades.map((t) => t.ticker));
+    let untracked = 0;
+    for (const p of positions) {
+      const netContracts = Number(p.position ?? 0);
+      if (!netContracts || netContracts <= 0) continue;
+      if (trackedTickers.has(p.ticker)) continue;
+      untracked++;
+      const count = Math.round(Math.abs(netContracts));
+      const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
+      const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
+      const coin = KALSHI_TRADEABLE_COINS.find((c) => p.ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) ?? "BTC";
+      s.openTrades.push({
+        id: `kalshi-reconciled-${p.ticker}-${Date.now()}`,
+        coin,
+        ticker: p.ticker,
+        subtitle: p.ticker,
+        side: "yes",
+        action: "buy",
+        count,
+        entryPriceCents: avgEntryCents,
+        currentPriceCents: avgEntryCents,
+        stake: avgEntryCents / 100 * count,
+        currentValue: avgEntryCents / 100 * count,
+        unrealizedPnl: 0,
+        signal: { direction: "BUY", confidence: 0, btcPrice: 0 },
+        strategy: "reconciled",
+        openedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        status: "open",
+        paper: false
+      });
+    }
+    if (untracked > 0) {
+      console.warn(`[Kalshi] Boot reconciliation: found ${untracked} real open position(s) for user ${userId} with no local record (server restart wiped it) \u2014 re-added as tracked trades so exposure/exit logic sees them.`);
+      _recalcUnrealized(s);
+    }
+  } catch (e) {
+    console.error(`[Kalshi] Boot position reconciliation failed for user ${userId} (continuing without it):`, e?.message);
+  }
+}
 async function manualKalshiScan(userId) {
   return _runKalshiScan(userId, true);
+}
+async function _verifyKalshiFill(userId, orderId) {
+  await new Promise((res) => setTimeout(res, 1500));
+  try {
+    const resting = await getKalshiOrders(userId, "resting");
+    const stillResting = resting.some((o) => (o.order_id ?? o.id) === orderId);
+    if (stillResting) {
+      await cancelKalshiOrder(userId, orderId);
+      return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
 }
 async function _placeKalshiYes(userId, s, p) {
   const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p.priceInCents);
@@ -34588,6 +34596,12 @@ async function _placeKalshiYes(userId, s, p) {
         p.priceInCents
       );
       kalshiOrderId = result.orderId;
+      const filled = await _verifyKalshiFill(userId, result.orderId);
+      if (!filled) {
+        const r2 = `Order for "${p.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
+        s.lastScanResult = r2;
+        return { fired: false, reason: r2 };
+      }
     } catch (err) {
       const r2 = `Order failed: ${err.message}`;
       s.lastScanResult = r2;
@@ -34625,6 +34639,7 @@ async function _placeKalshiYes(userId, s, p) {
   return { fired: true, reason: r };
 }
 async function _runKalshiScan(userId, manual = false) {
+  await refreshKalshiCredValidity(userId);
   const s = getKalshiEngineState(userId);
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
   await _updateOpenTradePrices(userId, s);
@@ -34918,34 +34933,47 @@ async function _updateOpenTradePrices(userId, s) {
   }
   for (const t of [...s.openTrades]) {
     const brackets = bracketsByCoin.get(t.coin || "BTC");
-    if (!brackets) continue;
-    const b = brackets.find((x) => x.ticker === t.ticker);
-    if (!b) continue;
-    const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
-    t.currentPriceCents = liveCents;
-    t.currentValue = liveCents / 100 * t.count;
-    t.unrealizedPnl = t.currentValue - t.stake;
-    const tp = s.config.takeProfitCents;
-    const sl = s.config.stopLossCents;
-    if (tp > 0 && liveCents >= tp) {
-      closeKalshiTrade(userId, t.id, liveCents, "take_profit");
-      s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (target ${tp}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
-    } else if (sl > 0 && liveCents <= sl) {
-      closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
-      s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (stop ${sl}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+    const b = brackets?.find((x) => x.ticker === t.ticker);
+    if (b) {
+      const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
+      await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      continue;
+    }
+    try {
+      const market = await getKalshiMarketStatus(t.ticker);
+      if (!market) continue;
+      if (market.status === "finalized" || market.status === "settled" || market.result) {
+        const settledCents = market.result === "yes" ? 100 : market.result === "no" ? 0 : market.lastPrice || t.currentPriceCents;
+        await _settleKalshiTrade(userId, s, t, settledCents);
+      } else {
+        const liveCents = market.yesBid > 0 ? market.yesBid : market.lastPrice > 0 ? market.lastPrice : t.currentPriceCents;
+        await _applyLivePriceAndCheckExits(userId, s, t, liveCents);
+      }
+    } catch {
     }
   }
   _recalcUnrealized(s);
 }
+async function _applyLivePriceAndCheckExits(userId, s, t, liveCents) {
+  t.currentPriceCents = liveCents;
+  t.currentValue = liveCents / 100 * t.count;
+  t.unrealizedPnl = t.currentValue - t.stake;
+  const tp = s.config.takeProfitCents;
+  const sl = s.config.stopLossCents;
+  if (tp > 0 && liveCents >= tp) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, "take_profit");
+    if (ok) s.lastScanResult = `\u2705 Take-profit: closed "${t.subtitle}" at ${liveCents}\xA2 (target ${tp}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  } else if (sl > 0 && liveCents <= sl) {
+    const ok = await closeKalshiTrade(userId, t.id, liveCents, "stop_loss");
+    if (ok) s.lastScanResult = `\u{1F6D1} Stop-loss: closed "${t.subtitle}" at ${liveCents}\xA2 (stop ${sl}\xA2) \u2014 P&L $${((liveCents / 100 - t.entryPriceCents / 100) * t.count).toFixed(2)}`;
+  }
+}
 function _recalcUnrealized(s) {
   s.totalUnrealizedPnl = s.openTrades.reduce((sum, t) => sum + t.unrealizedPnl, 0);
 }
-function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual") {
-  const s = getKalshiEngineState(userId);
-  const idx = s.openTrades.findIndex((t) => t.id === tradeId);
-  if (idx === -1) return false;
+function _finalizeKalshiClose(userId, s, idx, exitCents, exitReason) {
   const trade = s.openTrades[idx];
-  const exitCents = exitPriceCents ?? trade.currentPriceCents;
+  if (!trade) return false;
   const exitValue = exitCents / 100 * trade.count;
   const realizedPnl = exitValue - trade.stake;
   trade.status = "closed";
@@ -34985,13 +35013,38 @@ function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual"
   });
   return true;
 }
-function closeAllKalshiTrades(userId) {
+async function _settleKalshiTrade(userId, s, t, settledCents) {
+  const idx = s.openTrades.findIndex((x) => x.id === t.id);
+  if (idx === -1) return;
+  _finalizeKalshiClose(userId, s, idx, settledCents, "settlement");
+}
+async function closeKalshiTrade(userId, tradeId, exitPriceCents, exitReason = "manual") {
+  const s = getKalshiEngineState(userId);
+  const idx = s.openTrades.findIndex((t) => t.id === tradeId);
+  if (idx === -1) return false;
+  const trade = s.openTrades[idx];
+  const exitCents = exitPriceCents ?? trade.currentPriceCents;
+  if (!trade.paper) {
+    try {
+      await placeKalshiOrder(userId, trade.ticker, "yes", "sell", trade.count, exitCents);
+    } catch (err) {
+      console.error(`[Kalshi] Sell order failed for ${trade.ticker} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `\u26A0\uFE0F Could not close "${trade.subtitle}": ${err.message}`;
+      return false;
+    }
+  }
+  return _finalizeKalshiClose(userId, s, idx, exitCents, exitReason);
+}
+async function closeAllKalshiTrades(userId) {
   const s = getKalshiEngineState(userId);
   const ids = s.openTrades.map((t) => t.id);
-  ids.forEach((id) => closeKalshiTrade(userId, id));
-  return ids.length;
+  let closed = 0;
+  for (const id of ids) {
+    if (await closeKalshiTrade(userId, id)) closed++;
+  }
+  return closed;
 }
-var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides;
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -35035,6 +35088,163 @@ var init_kalshi_engine = __esm({
       auto: "Auto (Best)"
     };
     _persistedConfigOverrides = /* @__PURE__ */ new Map();
+    _credValidity = /* @__PURE__ */ new Map();
+    CRED_VALIDITY_TTL_MS = 10 * 60 * 1e3;
+  }
+});
+
+// server/services/polymarket-us.ts
+var polymarket_us_exports = {};
+__export(polymarket_us_exports, {
+  deletePmUsCredentials: () => deletePmUsCredentials,
+  findPmUsCryptoMarket: () => findPmUsCryptoMarket,
+  getPmUsBbo: () => getPmUsBbo,
+  getPmUsMarkets: () => getPmUsMarkets,
+  getPmUsPositions: () => getPmUsPositions,
+  hasPmUsCredentials: () => hasPmUsCredentials,
+  loadPmUsCredentials: () => loadPmUsCredentials,
+  placePmUsOrder: () => placePmUsOrder,
+  pmUsRequest: () => pmUsRequest,
+  savePmUsCredentials: () => savePmUsCredentials,
+  testPmUsConnection: () => testPmUsConnection,
+  toPmUsNum: () => toPmUsNum
+});
+import * as fs11 from "fs";
+import * as path11 from "path";
+import * as crypto9 from "crypto";
+function loadAll3() {
+  try {
+    if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
+  } catch (e) {
+    console.error("[PolymarketUS] Credential store is unreadable (corrupted JSON?) \u2014 treating as empty:", e?.message);
+  }
+  return {};
+}
+function saveAll3(map) {
+  try {
+    const dir = path11.dirname(FILE3);
+    if (!fs11.existsSync(dir)) fs11.mkdirSync(dir, { recursive: true });
+    const content = JSON.stringify(map, null, 2);
+    fs11.writeFileSync(FILE3, content);
+    backupDurableFile("polymarket_us.json", content);
+  } catch {
+  }
+}
+function savePmUsCredentials(userId, keyId, secretKey) {
+  const map = loadAll3();
+  map[String(userId)] = { keyId: keyId.trim(), secretEnc: encryptPassword(secretKey.trim()), savedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  saveAll3(map);
+}
+function loadPmUsCredentials(userId) {
+  const c = loadAll3()[String(userId)];
+  if (!c) return null;
+  try {
+    return { keyId: c.keyId, secret: decryptPassword(c.secretEnc) };
+  } catch {
+    return null;
+  }
+}
+function hasPmUsCredentials(userId) {
+  return !!loadAll3()[String(userId)];
+}
+function deletePmUsCredentials(userId) {
+  const map = loadAll3();
+  delete map[String(userId)];
+  saveAll3(map);
+}
+function ed25519KeyFromSecret(secretKeyB64) {
+  const raw = Buffer.from(secretKeyB64, "base64");
+  const seed = raw.subarray(0, 32);
+  const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
+  return crypto9.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+}
+function signHeaders(keyId, secret, method, reqPath) {
+  const timestamp2 = Date.now().toString();
+  const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
+  const key = ed25519KeyFromSecret(secret);
+  const signature = crypto9.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  return {
+    "X-PM-Access-Key": keyId,
+    "X-PM-Timestamp": timestamp2,
+    "X-PM-Signature": signature,
+    "Content-Type": "application/json"
+  };
+}
+async function pmUsRequest(userId, method, reqPath, body) {
+  const creds = loadPmUsCredentials(userId);
+  if (!creds) return { ok: false, status: 0, data: { error: "No Polymarket US credentials saved" } };
+  const headers = signHeaders(creds.keyId, creds.secret, method, reqPath);
+  const init = { method: method.toUpperCase(), headers, signal: AbortSignal.timeout(2e4) };
+  if (body !== void 0) init.body = JSON.stringify(body);
+  try {
+    const res = await fetch(`${BASE_URL}${reqPath}`, init);
+    const text2 = await res.text();
+    let data;
+    try {
+      data = text2 ? JSON.parse(text2) : {};
+    } catch {
+      data = { raw: text2 };
+    }
+    return { ok: res.ok, status: res.status, data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: e?.message || String(e) } };
+  }
+}
+async function testPmUsConnection(userId) {
+  const r = await pmUsRequest(userId, "GET", "/v1/portfolio/positions");
+  return { connected: r.ok, status: r.status, detail: r.data };
+}
+async function getPmUsPositions(userId) {
+  return pmUsRequest(userId, "GET", "/v1/portfolio/positions");
+}
+async function placePmUsOrder(userId, order) {
+  return pmUsRequest(userId, "POST", "/v1/orders", order);
+}
+async function getPmUsMarkets(params = {}) {
+  const qs = new URLSearchParams({ active: "true", closed: "false", limit: "200", ...params }).toString();
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets?${qs}`, { signal: AbortSignal.timeout(15e3) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.markets || [];
+  } catch {
+    return [];
+  }
+}
+async function findPmUsCryptoMarket(asset = "bitcoin") {
+  const terms = asset === "bitcoin" ? ["bitcoin", "btc"] : asset === "ethereum" ? ["ethereum", "eth"] : [asset.toLowerCase()];
+  const markets = await getPmUsMarkets({ limit: 500 });
+  const candidates = markets.filter((m) => {
+    if (!m.active || m.closed) return false;
+    const hay = `${m.title || ""} ${m.question || ""} ${m.slug || ""} ${m.category || ""}`.toLowerCase();
+    return terms.some((t) => hay.includes(t));
+  });
+  candidates.sort((a, b) => new Date(a.endDate || 0).getTime() - new Date(b.endDate || 0).getTime());
+  return candidates[0] || null;
+}
+async function getPmUsBbo(slug) {
+  try {
+    const res = await fetch(`${GATEWAY_URL}/v1/markets/${encodeURIComponent(slug)}/bbo`, { signal: AbortSignal.timeout(12e3) });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const md = d.marketData || d;
+    return { bestBid: _toNum(md.bestBid), bestAsk: _toNum(md.bestAsk), currentPx: _toNum(md.currentPx ?? md.lastTradePx ?? md.bestAsk) };
+  } catch {
+    return null;
+  }
+}
+var BASE_URL, GATEWAY_URL, FILE3, PKCS8_ED25519_PREFIX, toPmUsNum, _toNum;
+var init_polymarket_us = __esm({
+  "server/services/polymarket-us.ts"() {
+    "use strict";
+    init_tradelocker();
+    init_cred_store();
+    BASE_URL = "https://api.polymarket.us";
+    GATEWAY_URL = "https://gateway.polymarket.us";
+    FILE3 = path11.join(process.cwd(), "data", "polymarket_us.json");
+    PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+    toPmUsNum = (x) => (x && typeof x === "object" ? parseFloat(x.value) : parseFloat(x)) || 0;
+    _toNum = toPmUsNum;
   }
 });
 
@@ -35046,16 +35256,31 @@ __export(polymarket_us_engine_exports, {
   manualPmUsScan: () => manualPmUsScan,
   pmUsBankroll: () => pmUsBankroll,
   pmUsContractsFor: () => pmUsContractsFor,
+  refreshPmUsCredValidity: () => refreshPmUsCredValidity,
   restorePmUsEngineStateFromDb: () => restorePmUsEngineStateFromDb,
   startPmUsEngine: () => startPmUsEngine,
   stopPmUsEngine: () => stopPmUsEngine,
   updatePmUsEngineConfig: () => updatePmUsEngineConfig
 });
+async function refreshPmUsCredValidity(userId) {
+  if (!hasPmUsCredentials(userId)) {
+    _credValidity2.delete(userId);
+    return;
+  }
+  const cached = _credValidity2.get(userId);
+  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS2) return;
+  try {
+    const result = await testPmUsConnection(userId);
+    _credValidity2.set(userId, { valid: result.connected, error: result.connected ? void 0 : JSON.stringify(result.detail).slice(0, 200), checkedAt: Date.now() });
+  } catch {
+  }
+}
 function getPmUsEngineState(userId) {
   if (!_states3.has(userId)) {
     _states3.set(userId, {
       isRunning: false,
       isPaperMode: !hasPmUsCredentials(userId),
+      credentialError: null,
       lastScanAt: null,
       lastScanResult: null,
       lastTradeAt: null,
@@ -35067,7 +35292,11 @@ function getPmUsEngineState(userId) {
     });
   }
   const s = _states3.get(userId);
-  s.isPaperMode = !hasPmUsCredentials(userId);
+  const hasCreds = hasPmUsCredentials(userId);
+  const validity = _credValidity2.get(userId);
+  const knownInvalid = validity?.valid === false;
+  s.isPaperMode = !hasCreds || knownInvalid;
+  s.credentialError = knownInvalid ? validity.error ?? "Credential check failed" : null;
   return s;
 }
 function updatePmUsEngineConfig(userId, patch) {
@@ -35143,21 +35372,43 @@ async function _updateOpenTrades(userId, s) {
   for (const t of [...s.openTrades]) {
     const bbo = await getPmUsBbo(t.marketSlug);
     if (!bbo) continue;
-    const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
-    if (!liveCents) continue;
+    const rawYesCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+    if (!rawYesCents) continue;
+    const liveCents = t.side === "yes" ? rawYesCents : Math.max(1, Math.min(99, 100 - rawYesCents));
     t.currentPriceCents = liveCents;
     t.unrealizedPnl = Math.round((liveCents / 100 * t.count - t.stake) * 100) / 100;
     const tp = s.config.takeProfitCents, sl = s.config.stopLossCents;
-    if (tp > 0 && liveCents >= tp) _closeTrade(userId, t.id, liveCents, "take_profit");
-    else if (sl > 0 && liveCents <= sl) _closeTrade(userId, t.id, liveCents, "stop_loss");
+    if (tp > 0 && liveCents >= tp) await _closeTrade(userId, t.id, liveCents, "take_profit");
+    else if (sl > 0 && liveCents <= sl) await _closeTrade(userId, t.id, liveCents, "stop_loss");
   }
   _recalc(s);
 }
-function _closeTrade(userId, id, exitCents, reason) {
+async function _closeTrade(userId, id, exitCents, reason) {
   const s = getPmUsEngineState(userId);
   const idx = s.openTrades.findIndex((t2) => t2.id === id);
   if (idx === -1) return false;
   const t = s.openTrades[idx];
+  if (!t.paper) {
+    const intent = t.side === "yes" ? "ORDER_INTENT_SELL_LONG" : "ORDER_INTENT_SELL_SHORT";
+    try {
+      const r = await placePmUsOrder(userId, {
+        marketSlug: t.marketSlug,
+        intent,
+        type: "ORDER_TYPE_MARKET",
+        quantity: t.count
+      });
+      if (!r.ok) {
+        const msg = `Could not close "${t.title}": HTTP ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`;
+        console.error(`[PolymarketUS] ${msg} \u2014 leaving position open, will retry next cycle.`);
+        s.lastScanResult = `\u26A0\uFE0F ${msg}`;
+        return false;
+      }
+    } catch (err) {
+      console.error(`[PolymarketUS] Sell order threw for ${t.marketSlug} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `\u26A0\uFE0F Could not close "${t.title}": ${err.message}`;
+      return false;
+    }
+  }
   const realized = Math.round((exitCents / 100 * t.count - t.stake) * 100) / 100;
   t.status = "closed";
   t.closedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -35176,12 +35427,13 @@ function _closeTrade(userId, id, exitCents, reason) {
   _recalc(s);
   return true;
 }
-function closePmUsTrade(userId, id) {
+async function closePmUsTrade(userId, id) {
   const s = getPmUsEngineState(userId);
   const t = s.openTrades.find((x) => x.id === id);
   return t ? _closeTrade(userId, id, t.currentPriceCents, "manual") : false;
 }
 async function _runScan2(userId, manual = false) {
+  await refreshPmUsCredValidity(userId);
   const s = getPmUsEngineState(userId);
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
   await _updateOpenTrades(userId, s);
@@ -35248,7 +35500,11 @@ async function _runScan2(userId, manual = false) {
       return { fired: false, reason: r2 };
     }
     const bbo = await getPmUsBbo(market.slug);
-    const askCents = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : market.bestAsk ? Math.round(market.bestAsk * 100) : 0;
+    const rawYesAsk = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : Math.round(toPmUsNum(market.bestAsk) * 100);
+    const rawYesBid = bbo && bbo.bestBid > 0 ? Math.round(bbo.bestBid * 100) : Math.round(toPmUsNum(market.bestBid) * 100);
+    const side = pred.direction === "BUY" ? "yes" : "no";
+    const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
+    const askCents = side === "yes" ? rawYesAsk : rawYesBid > 0 ? 100 - rawYesBid : 0;
     if (!askCents || askCents >= 97) {
       const r2 = `${market.slug}: no/expensive price (${askCents}\xA2)`;
       s.lastScanResult = r2;
@@ -35259,8 +35515,6 @@ async function _runScan2(userId, manual = false) {
       s.lastScanResult = r2;
       return { fired: false, reason: r2 };
     }
-    const side = pred.direction === "BUY" ? "yes" : "no";
-    const intent = pred.direction === "BUY" ? "ORDER_INTENT_BUY_LONG" : "ORDER_INTENT_BUY_SHORT";
     const contracts = pmUsContractsFor(s, askCents);
     const stake = askCents / 100 * contracts;
     if (!s.isPaperMode) {
@@ -35304,7 +35558,7 @@ async function _runScan2(userId, manual = false) {
     return { fired: false, reason: r };
   }
 }
-var DEFAULT_CONFIG3, STRATEGY_LABELS2, _states3, _timers2;
+var DEFAULT_CONFIG3, STRATEGY_LABELS2, _states3, _timers2, _credValidity2, CRED_VALIDITY_TTL_MS2;
 var init_polymarket_us_engine = __esm({
   "server/services/polymarket-us-engine.ts"() {
     "use strict";
@@ -35338,6 +35592,8 @@ var init_polymarket_us_engine = __esm({
     };
     _states3 = /* @__PURE__ */ new Map();
     _timers2 = /* @__PURE__ */ new Map();
+    _credValidity2 = /* @__PURE__ */ new Map();
+    CRED_VALIDITY_TTL_MS2 = 10 * 60 * 1e3;
   }
 });
 
@@ -40202,8 +40458,8 @@ __export(slide_flattener_exports, {
   flattenSlideImage: () => flattenSlideImage
 });
 import sharp from "sharp";
-import * as path11 from "path";
-import * as fs11 from "fs";
+import * as path12 from "path";
+import * as fs12 from "fs";
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -40268,7 +40524,7 @@ async function flattenSlideImage(opts) {
   const composites = [
     { input: Buffer.from(overlaySvg), top: 0, left: 0 }
   ];
-  if (opts.includeLogo && fs11.existsSync(LOGO_PATH)) {
+  if (opts.includeLogo && fs12.existsSync(LOGO_PATH)) {
     const logoWidth = Math.round(CANVAS_SIZE * 0.22);
     const logoBuffer = await sharp(LOGO_PATH).resize(logoWidth, null, { fit: "inside" }).ensureAlpha().png().toBuffer();
     const logoMeta = await sharp(logoBuffer).metadata();
@@ -40286,7 +40542,7 @@ var init_slide_flattener = __esm({
   "server/services/slide-flattener.ts"() {
     "use strict";
     CANVAS_SIZE = 1080;
-    LOGO_PATH = path11.join(process.cwd(), "attached_assets", "IMG_3645.png");
+    LOGO_PATH = path12.join(process.cwd(), "attached_assets", "IMG_3645.png");
   }
 });
 
@@ -40733,8 +40989,8 @@ function teamsMatchMarket(homeTeam, awayTeam, question) {
   return (q.includes(h) || q.includes(hFull)) && (q.includes(a) || q.includes(aFull));
 }
 async function fetchScoreboard(sport) {
-  const path16 = SPORT_PATHS[sport];
-  const data = await safeGet(`${ESPN_BASE}/${path16}/scoreboard`);
+  const path17 = SPORT_PATHS[sport];
+  const data = await safeGet(`${ESPN_BASE}/${path17}/scoreboard`);
   return data?.events ?? [];
 }
 function injuryAdjustment(injuries, sport) {
@@ -46439,8 +46695,8 @@ import { eq as eq15, and as and8, sql as sql10, desc as desc9 } from "drizzle-or
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
-import * as fs12 from "fs";
-import * as path12 from "path";
+import * as fs13 from "fs";
+import * as path13 from "path";
 
 // server/trading-coach.ts
 init_openai();
@@ -47957,6 +48213,7 @@ init_tl_risk_settings();
 init_alpaca();
 init_tastytrade();
 init_cryptocom();
+init_cred_store();
 
 // server/routes/vedd-token.ts
 init_vedd_token_service();
@@ -50936,9 +51193,9 @@ var mediaUpload = multer({
     cb(null, true);
   }
 });
-var uploadsDir2 = path12.join(process.cwd(), "uploads");
-if (!fs12.existsSync(uploadsDir2)) {
-  fs12.mkdirSync(uploadsDir2, { recursive: true });
+var uploadsDir2 = path13.join(process.cwd(), "uploads");
+if (!fs13.existsSync(uploadsDir2)) {
+  fs13.mkdirSync(uploadsDir2, { recursive: true });
 }
 function getCurrentTradingSession() {
   const hour = (/* @__PURE__ */ new Date()).getUTCHours();
@@ -51287,11 +51544,11 @@ async function registerRoutes(app2, existingServer) {
         return res.status(400).json({ message: "No file uploaded" });
       }
       const fileName = `${uuidv42()}.${req.file.mimetype.split("/")[1]}`;
-      const filePath = path12.join(uploadsDir2, fileName);
+      const filePath = path13.join(uploadsDir2, fileName);
       console.log("Generated filename:", fileName);
       console.log("Full file path:", filePath);
       try {
-        await fs12.promises.writeFile(filePath, req.file.buffer);
+        await fs13.promises.writeFile(filePath, req.file.buffer);
         console.log("File saved successfully to disk");
       } catch (writeError) {
         console.error("Error writing file to disk:", writeError);
@@ -51317,14 +51574,14 @@ async function registerRoutes(app2, existingServer) {
       if (!allowedTypes.includes(req.file.mimetype)) {
         return res.status(400).json({ message: "Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed." });
       }
-      const avatarsDir = path12.join(process.cwd(), "uploads", "avatars");
-      if (!fs12.existsSync(avatarsDir)) {
-        fs12.mkdirSync(avatarsDir, { recursive: true });
+      const avatarsDir = path13.join(process.cwd(), "uploads", "avatars");
+      if (!fs13.existsSync(avatarsDir)) {
+        fs13.mkdirSync(avatarsDir, { recursive: true });
       }
       const ext = req.file.mimetype.split("/")[1];
       const fileName = `avatar-${req.user.id}-${Date.now()}.${ext}`;
-      const filePath = path12.join(avatarsDir, fileName);
-      await fs12.promises.writeFile(filePath, req.file.buffer);
+      const filePath = path13.join(avatarsDir, fileName);
+      await fs13.promises.writeFile(filePath, req.file.buffer);
       const avatarUrl = `/uploads/avatars/${fileName}`;
       res.json({ avatarUrl });
     } catch (error) {
@@ -51419,11 +51676,11 @@ async function registerRoutes(app2, existingServer) {
       }
       const extension = filename?.split(".").pop() || "png";
       const generatedFilename = `${uuidv42()}.${extension}`;
-      const filePath = path12.join(uploadsDir2, generatedFilename);
+      const filePath = path13.join(uploadsDir2, generatedFilename);
       const imageUrl = `/uploads/${generatedFilename}`;
       try {
         const imageBuffer = Buffer.from(cleanBase64, "base64");
-        await fs12.promises.writeFile(filePath, imageBuffer);
+        await fs13.promises.writeFile(filePath, imageBuffer);
         console.log("Saved image to", filePath);
       } catch (writeError) {
         console.error("Error saving image to disk:", writeError);
@@ -51556,9 +51813,9 @@ async function registerRoutes(app2, existingServer) {
           const detectedSymbol = analyses.length > 0 ? analyses[analyses.length - 1].symbol : void 0;
           const analysis = await analyzeChartImage(frame.base64, detectedSymbol, req.user?.id);
           const frameFileName = `video_frame_${groupId}_${i + 1}.jpg`;
-          const framePath = path12.join(uploadsDir2, frameFileName);
+          const framePath = path13.join(uploadsDir2, frameFileName);
           const frameBuffer = Buffer.from(frame.base64, "base64");
-          await fs12.promises.writeFile(framePath, frameBuffer);
+          await fs13.promises.writeFile(framePath, frameBuffer);
           const imageUrl = `/uploads/${frameFileName}`;
           await storage.createChartAnalysis({
             userId,
@@ -51958,12 +52215,12 @@ Respond ONLY in valid JSON format with these exact keys:
       if (!imageUrl) {
         return res.status(400).json({ message: "No image URL provided" });
       }
-      const filePath = path12.join(process.cwd(), imageUrl.replace(/^\//, ""));
+      const filePath = path13.join(process.cwd(), imageUrl.replace(/^\//, ""));
       console.log("Attempting to analyze image at path:", filePath);
-      if (!fs12.existsSync(filePath)) {
-        const alternativePath = path12.join(uploadsDir2, path12.basename(imageUrl));
+      if (!fs13.existsSync(filePath)) {
+        const alternativePath = path13.join(uploadsDir2, path13.basename(imageUrl));
         console.log("Image not found, trying alternative path:", alternativePath);
-        if (!fs12.existsSync(alternativePath)) {
+        if (!fs13.existsSync(alternativePath)) {
           return res.status(404).json({ message: "Image file not found" });
         }
         console.log("Found image at alternative path");
@@ -51972,7 +52229,7 @@ Respond ONLY in valid JSON format with these exact keys:
           error: "Direct file analysis is deprecated"
         });
       }
-      const imageBuffer = await fs12.promises.readFile(filePath);
+      const imageBuffer = await fs13.promises.readFile(filePath);
       const base64Image = imageBuffer.toString("base64");
       const knownSymbol = req.body.symbol || void 0;
       const analysis = await analyzeChartImage(base64Image, knownSymbol, req.user?.id);
@@ -52147,11 +52404,11 @@ Respond ONLY in valid JSON format with these exact keys:
         const originalImageUrl = analysis.imageUrl;
         console.log("Original image URL:", originalImageUrl);
         const imagePath = originalImageUrl.startsWith("/") ? originalImageUrl.substring(1) : originalImageUrl;
-        const basename2 = path12.basename(imagePath);
+        const basename2 = path13.basename(imagePath);
         console.log("Image basename:", basename2);
-        const originalImagePath = path12.join(process.cwd(), "uploads", basename2);
+        const originalImagePath = path13.join(process.cwd(), "uploads", basename2);
         console.log("Full image path:", originalImagePath);
-        if (!fs12.existsSync(originalImagePath)) {
+        if (!fs13.existsSync(originalImagePath)) {
           console.error("Original image not found at path:", originalImagePath);
           throw new Error(`Original image not found: ${originalImagePath}`);
         }
@@ -52248,13 +52505,13 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/shared-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path12.basename(filename);
-      const sharedPath = path12.join(process.cwd(), "uploads", "shared", sanitizedFilename);
-      if (fs12.existsSync(sharedPath)) {
+      const sanitizedFilename = path13.basename(filename);
+      const sharedPath = path13.join(process.cwd(), "uploads", "shared", sanitizedFilename);
+      if (fs13.existsSync(sharedPath)) {
         return res.sendFile(sharedPath);
       }
-      const regularPath = path12.join(process.cwd(), "uploads", sanitizedFilename);
-      if (fs12.existsSync(regularPath)) {
+      const regularPath = path13.join(process.cwd(), "uploads", sanitizedFilename);
+      if (fs13.existsSync(regularPath)) {
         return res.sendFile(regularPath);
       }
       return res.status(404).json({ message: "Image not found" });
@@ -52266,9 +52523,9 @@ Respond ONLY in valid JSON format with these exact keys:
   app2.get("/api/annotated-image/:filename", (req, res) => {
     try {
       const filename = req.params.filename;
-      const sanitizedFilename = path12.basename(filename);
-      const annotatedPath = path12.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
-      if (fs12.existsSync(annotatedPath)) {
+      const sanitizedFilename = path13.basename(filename);
+      const annotatedPath = path13.join(process.cwd(), "uploads", "annotated", sanitizedFilename);
+      if (fs13.existsSync(annotatedPath)) {
         return res.sendFile(annotatedPath);
       }
       return res.status(404).json({ message: "Annotated image not found" });
@@ -55975,12 +56232,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       });
       const shareId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
       const shareCardFileName = `share-card-${shareId}.png`;
-      const shareCardPath = path12.join(process.cwd(), "uploads", "share-cards");
-      if (!fs12.existsSync(shareCardPath)) {
-        fs12.mkdirSync(shareCardPath, { recursive: true });
+      const shareCardPath = path13.join(process.cwd(), "uploads", "share-cards");
+      if (!fs13.existsSync(shareCardPath)) {
+        fs13.mkdirSync(shareCardPath, { recursive: true });
       }
-      const fullPath = path12.join(shareCardPath, shareCardFileName);
-      fs12.writeFileSync(fullPath, shareCardBuffer);
+      const fullPath = path13.join(shareCardPath, shareCardFileName);
+      fs13.writeFileSync(fullPath, shareCardBuffer);
       const shareCardUrl = `/uploads/share-cards/${shareCardFileName}`;
       const shareUrl = `share-${shareId}`;
       const devotion = getDailyScripture2();
@@ -62306,8 +62563,8 @@ Return this EXACT JSON (no markdown, no commentary):
     if (!strat?.plan) return res.status(404).json({ error: "No active VEDD SS AI plan" });
     try {
       const { createCanvas, loadImage } = await import("canvas");
-      const path16 = await import("path");
-      const fs14 = await import("fs");
+      const path17 = await import("path");
+      const fs15 = await import("fs");
       const { getLiveEngineState: getLiveEngineState3 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
       const engineState = getLiveEngineState3(userId);
       const engineRunning = engineState?.status === "running";
@@ -62393,8 +62650,8 @@ Return this EXACT JSON (no markdown, no commentary):
       ctx.closePath();
       ctx.fill();
       try {
-        const logoPath = path16.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
-        if (fs14.default.existsSync(logoPath)) {
+        const logoPath = path17.default.join(process.cwd(), "attached_assets", "IMG_3645.png");
+        if (fs15.default.existsSync(logoPath)) {
           const logo = await loadImage(logoPath);
           const lh = 64, lw = logo.width / logo.height * lh;
           ctx.drawImage(logo, 44, 26, lw, lh);
@@ -62655,10 +62912,10 @@ Return this EXACT JSON (no markdown, no commentary):
       }
       const buffer = canvas.toBuffer("image/png");
       const fileName = `vedd-ss-ai-progress-${userId}-${Date.now()}.png`;
-      const outDir = path16.default.join(process.cwd(), "uploads", "share-cards");
-      if (!fs14.default.existsSync(outDir)) fs14.default.mkdirSync(outDir, { recursive: true });
-      const filePath = path16.default.join(outDir, fileName);
-      fs14.default.writeFileSync(filePath, buffer);
+      const outDir = path17.default.join(process.cwd(), "uploads", "share-cards");
+      if (!fs15.default.existsSync(outDir)) fs15.default.mkdirSync(outDir, { recursive: true });
+      const filePath = path17.default.join(outDir, fileName);
+      fs15.default.writeFileSync(filePath, buffer);
       res.json({
         success: true,
         imageUrl: `/uploads/share-cards/${fileName}`,
@@ -64698,9 +64955,9 @@ Format each recommendation as a clear, concise action item.`;
     }
     global.veddAIBrain[userId] = brain;
     try {
-      const brainDir = path12.join(process.cwd(), "data", "brains");
-      if (!fs12.existsSync(brainDir)) fs12.mkdirSync(brainDir, { recursive: true });
-      fs12.writeFileSync(path12.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
+      const brainDir = path13.join(process.cwd(), "data", "brains");
+      if (!fs13.existsSync(brainDir)) fs13.mkdirSync(brainDir, { recursive: true });
+      fs13.writeFileSync(path13.join(brainDir, `brain_${userId}.json`), JSON.stringify(brain));
     } catch (_brainSaveErr) {
     }
     console.log(`[VEDD Brain] Learned from ${combinedTrades.length} trades across ${uniqueSymbols.length} pairs for user ${userId}`);
@@ -64709,9 +64966,9 @@ Format each recommendation as a clear, concise action item.`;
   global.runBrainLearning = runBrainLearning;
   global.loadPersistedBrain = (userId) => {
     try {
-      const p = path12.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-      if (!fs12.existsSync(p)) return null;
-      const brain = JSON.parse(fs12.readFileSync(p, "utf-8"));
+      const p = path13.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+      if (!fs13.existsSync(p)) return null;
+      const brain = JSON.parse(fs13.readFileSync(p, "utf-8"));
       global.veddAIBrain = global.veddAIBrain || {};
       global.veddAIBrain[userId] = brain;
       return brain;
@@ -64828,9 +65085,9 @@ Format each recommendation as a clear, concise action item.`;
     let brain = g.veddAIBrain[userId];
     if (!brain) {
       try {
-        const p = path12.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
-        if (fs12.existsSync(p)) {
-          brain = JSON.parse(fs12.readFileSync(p, "utf-8"));
+        const p = path13.join(process.cwd(), "data", "brains", `brain_${userId}.json`);
+        if (fs13.existsSync(p)) {
+          brain = JSON.parse(fs13.readFileSync(p, "utf-8"));
           g.veddAIBrain[userId] = brain;
         }
       } catch (_) {
@@ -65777,9 +66034,9 @@ Respond with ONLY valid JSON:
         global.veddAIBrain[userId].lastWeeklyScan = scan;
         global.veddAIBrain[userId].weeklyScanInsights = scan.scanInsights;
         try {
-          const brainDir = path12.join(process.cwd(), "data", "brains");
-          if (!fs12.existsSync(brainDir)) fs12.mkdirSync(brainDir, { recursive: true });
-          fs12.writeFileSync(path12.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
+          const brainDir = path13.join(process.cwd(), "data", "brains");
+          if (!fs13.existsSync(brainDir)) fs13.mkdirSync(brainDir, { recursive: true });
+          fs13.writeFileSync(path13.join(brainDir, `brain_${userId}.json`), JSON.stringify(global.veddAIBrain[userId]));
         } catch (_) {
         }
       }
@@ -66416,19 +66673,21 @@ Respond with ONLY valid JSON:
       });
     }
   });
-  const _polyWalletsFile = path12.join(process.cwd(), "data", "polymarket_wallets.json");
+  const _polyWalletsFile = path13.join(process.cwd(), "data", "polymarket_wallets.json");
   const _loadPolyWallets = () => {
     try {
-      if (fs12.existsSync(_polyWalletsFile)) return JSON.parse(fs12.readFileSync(_polyWalletsFile, "utf-8"));
+      if (fs13.existsSync(_polyWalletsFile)) return JSON.parse(fs13.readFileSync(_polyWalletsFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyWallets = (map) => {
     try {
-      const dir = path12.join(process.cwd(), "data");
-      if (!fs12.existsSync(dir)) fs12.mkdirSync(dir, { recursive: true });
-      fs12.writeFileSync(_polyWalletsFile, JSON.stringify(map, null, 2));
+      const dir = path13.join(process.cwd(), "data");
+      if (!fs13.existsSync(dir)) fs13.mkdirSync(dir, { recursive: true });
+      const content = JSON.stringify(map, null, 2);
+      fs13.writeFileSync(_polyWalletsFile, content);
+      backupDurableFile("polymarket_wallets.json", content);
     } catch {
     }
   };
@@ -66469,11 +66728,19 @@ Respond with ONLY valid JSON:
       const { stopEngine: stopPolyEngine, getEngineState: getPolyState } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       stopPolyEngine(userId);
       const polyState = getPolyState(userId);
+      const { stopPmUsEngine: stopPmUsEngine2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+      stopPmUsEngine2(userId);
+      const pmUsState = getPmUsEngineState2(userId);
+      const { stopKalshiEngine: stopKalshiEngine2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      stopKalshiEngine2(userId);
+      const kalshiState = getKalshiEngineState2(userId);
       res.json({
         success: true,
-        message: "All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll.",
+        message: "All trading engines stopped. MT5 EA will receive CLOSE_ALL signal on next poll. Kalshi/Polymarket engines stopped opening new positions \u2014 existing open positions are NOT auto-closed by kill-all; close them from their respective panels.",
         forex: { isRunning: forexState?.isRunning ?? false },
-        polymarket: { isRunning: polyState.isRunning }
+        polymarket: { isRunning: polyState.isRunning },
+        polymarketUs: { isRunning: pmUsState.isRunning },
+        kalshi: { isRunning: kalshiState.isRunning }
       });
     } catch (err) {
       res.status(500).json({ error: err?.message ?? "Kill-all failed" });
@@ -66564,7 +66831,7 @@ Respond with ONLY valid JSON:
   app2.post("/api/polymarket-us-engine/trades/:id/close", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const { closePmUsTrade: closePmUsTrade2, getPmUsEngineState: getPmUsEngineState2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
-    const ok = closePmUsTrade2(req.user.id, req.params.id);
+    const ok = await closePmUsTrade2(req.user.id, req.params.id);
     res.json({ success: ok, state: getPmUsEngineState2(req.user.id) });
   });
   app2.post("/api/polymarket-engine/start", (req, res) => {
@@ -66613,18 +66880,18 @@ Respond with ONLY valid JSON:
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const posId = req.params.id;
-    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ getEngineState: getEngineState2, closePosition: closePosition3 }) => {
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(async ({ getEngineState: getEngineState2, closePosition: closePosition3 }) => {
       const state = getEngineState2(userId);
-      const ok = closePosition3(state, posId, void 0, userId);
-      if (!ok) return res.status(404).json({ error: "Position not found" });
+      const ok = await closePosition3(state, posId, void 0, userId);
+      if (!ok) return res.status(404).json({ error: "Position not found (or the real CLOB sell order failed \u2014 check engine status for the reason)" });
       res.json({ success: true, state });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
   app2.post("/api/polymarket-engine/positions/close-all", (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(({ closeAllPositions: closeAllPositions2, getEngineState: getEngineState2 }) => {
-      const closed = closeAllPositions2(userId);
+    Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports)).then(async ({ closeAllPositions: closeAllPositions2, getEngineState: getEngineState2 }) => {
+      const closed = await closeAllPositions2(userId);
       res.json({ success: true, closed, state: getEngineState2(userId) });
     }).catch(() => res.status(500).json({ error: "Engine unavailable" }));
   });
@@ -66941,30 +67208,32 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const { closeKalshiTrade: closeKalshiTrade2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
-    const ok = closeKalshiTrade2(userId, req.params.id);
-    if (!ok) return res.status(404).json({ error: "Trade not found" });
+    const ok = await closeKalshiTrade2(userId, req.params.id);
+    if (!ok) return res.status(404).json({ error: "Trade not found (or the real Kalshi sell order failed \u2014 check engine status for the reason)" });
     res.json({ success: true, state: getKalshiEngineState2(userId) });
   });
   app2.post("/api/kalshi/engine/trades/close-all", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const { closeAllKalshiTrades: closeAllKalshiTrades2, getKalshiEngineState: getKalshiEngineState2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
-    const closed = closeAllKalshiTrades2(userId);
+    const closed = await closeAllKalshiTrades2(userId);
     res.json({ success: true, closed, state: getKalshiEngineState2(userId) });
   });
-  const _polyKeysFile = path12.join(process.cwd(), "data", "polymarket_keys.json");
+  const _polyKeysFile = path13.join(process.cwd(), "data", "polymarket_keys.json");
   const _loadPolyKeys = () => {
     try {
-      if (fs12.existsSync(_polyKeysFile)) return JSON.parse(fs12.readFileSync(_polyKeysFile, "utf-8"));
+      if (fs13.existsSync(_polyKeysFile)) return JSON.parse(fs13.readFileSync(_polyKeysFile, "utf-8"));
     } catch {
     }
     return {};
   };
   const _savePolyKeys = (map) => {
     try {
-      const dir = path12.join(process.cwd(), "data");
-      if (!fs12.existsSync(dir)) fs12.mkdirSync(dir, { recursive: true });
-      fs12.writeFileSync(_polyKeysFile, JSON.stringify(map, null, 2));
+      const dir = path13.join(process.cwd(), "data");
+      if (!fs13.existsSync(dir)) fs13.mkdirSync(dir, { recursive: true });
+      const content = JSON.stringify(map, null, 2);
+      fs13.writeFileSync(_polyKeysFile, content);
+      backupDurableFile("polymarket_keys.json", content);
     } catch {
     }
   };
@@ -66976,7 +67245,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const clean = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
     if (!/^0x[0-9a-fA-F]{64}$/.test(clean)) return res.status(400).json({ error: "Invalid private key format (must be 32-byte hex)" });
     const map = _loadPolyKeys();
-    map[String(userId)] = clean;
+    map[String(userId)] = encryptPassword(clean);
     _savePolyKeys(map);
     res.json({ success: true });
   });
@@ -66984,15 +67253,26 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const map = _loadPolyKeys();
-    const key = map[String(userId)];
-    res.json({ saved: !!key, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null });
+    const encKey = map[String(userId)];
+    let key = null;
+    let corrupted = false;
+    if (encKey) {
+      try {
+        key = decryptPassword(encKey);
+      } catch {
+        corrupted = true;
+      }
+    }
+    res.json({ saved: !!encKey, maskedKey: key ? `${key.slice(0, 6)}...${key.slice(-4)}` : null, corrupted });
   });
-  app2.delete("/api/user/polymarket-private-key", (req, res) => {
+  app2.delete("/api/user/polymarket-private-key", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     const map = _loadPolyKeys();
     delete map[String(userId)];
     _savePolyKeys(map);
+    const { setPolymarketLiveMode: setPolymarketLiveMode2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+    setPolymarketLiveMode2(userId, false, null);
     res.json({ success: true });
   });
   app2.post("/api/polymarket-engine/live-mode", async (req, res) => {
@@ -67000,12 +67280,20 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const userId = req.user.id;
     const { enabled } = req.body;
     const map = _loadPolyKeys();
-    const hasKey = !!map[String(userId)];
-    if (enabled && !hasKey) {
+    const encKey = map[String(userId)];
+    if (enabled && !encKey) {
       return res.status(400).json({ error: "Save your Polygon private key before enabling live mode" });
     }
+    let plainKey = null;
+    if (encKey) {
+      try {
+        plainKey = decryptPassword(encKey);
+      } catch {
+        return res.status(400).json({ error: "Saved private key is unreadable (corrupted or encryption key changed) \u2014 please re-save it" });
+      }
+    }
     const { setPolymarketLiveMode: setPolymarketLiveMode2, getEngineState: getEngineState2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
-    setPolymarketLiveMode2(userId, !!enabled, map[String(userId)] ?? null);
+    setPolymarketLiveMode2(userId, !!enabled, plainKey);
     res.json({ success: true, liveMode: !!enabled, state: getEngineState2(userId) });
   });
   app2.post("/api/abba/generate-ea", async (req, res) => {
@@ -68193,11 +68481,11 @@ Format your response as JSON with exactly these keys:
       let mediaUrl = null;
       let mediaType = null;
       if (req.file && req.file.buffer) {
-        const fs14 = await import("fs/promises");
-        const path16 = await import("path");
-        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path16.extname(req.file.originalname)}`;
-        const uploadPath = path16.join(process.cwd(), "uploads", filename);
-        await fs14.writeFile(uploadPath, req.file.buffer);
+        const fs15 = await import("fs/promises");
+        const path17 = await import("path");
+        const filename = `content-${userId}-day${dayNumber}-${Date.now()}${path17.extname(req.file.originalname)}`;
+        const uploadPath = path17.join(process.cwd(), "uploads", filename);
+        await fs15.writeFile(uploadPath, req.file.buffer);
         mediaUrl = `/uploads/${filename}`;
         mediaType = req.file.mimetype.startsWith("video/") ? "video" : "image";
       }
@@ -69000,8 +69288,8 @@ Generate a JSON object with:
       }
       const id = parseInt(streamId);
       const filename = `stream-recording-${streamType}-${id}-${Date.now()}.webm`;
-      const filePath = path12.join(uploadsDir2, filename);
-      fs12.writeFileSync(filePath, file.buffer);
+      const filePath = path13.join(uploadsDir2, filename);
+      fs13.writeFileSync(filePath, file.buffer);
       const recordingUrl = `/uploads/${filename}`;
       if (streamType === "schedule") {
         const schedule = await storage.getSchedule(id);
@@ -74130,10 +74418,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Admin access required" });
     }
     try {
-      const dataFile = path12.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path13.join(process.cwd(), "data", "curricula.json");
       let curricula = [];
       try {
-        curricula = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
+        curricula = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const entry = {
@@ -74143,8 +74431,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ...req.body
       };
       curricula.push(entry);
-      fs12.mkdirSync(path12.join(process.cwd(), "data"), { recursive: true });
-      fs12.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
+      fs13.mkdirSync(path13.join(process.cwd(), "data"), { recursive: true });
+      fs13.writeFileSync(dataFile, JSON.stringify(curricula, null, 2));
       res.json({ success: true, id: entry.id, message: "Curriculum saved to Academy" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -74153,10 +74441,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/workforce/modules", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const dataFile = path12.join(process.cwd(), "data", "curricula.json");
+      const dataFile = path13.join(process.cwd(), "data", "curricula.json");
       let saved = [];
       try {
-        saved = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
+        saved = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       res.json({ modules: saved, total: saved.length + 12 });
@@ -74245,10 +74533,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   });
   app2.get("/api/verify/:certId", async (req, res) => {
     try {
-      const dataFile = path12.join(process.cwd(), "data", "certificates.json");
+      const dataFile = path13.join(process.cwd(), "data", "certificates.json");
       let certs = [];
       try {
-        certs = JSON.parse(fs12.readFileSync(dataFile, "utf-8"));
+        certs = JSON.parse(fs13.readFileSync(dataFile, "utf-8"));
       } catch {
       }
       const cert = certs.find((c) => c.certId === req.params.certId);
@@ -75699,14 +75987,14 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
 
 // server/vite.ts
 import express from "express";
-import fs13 from "fs";
-import path14 from "path";
+import fs14 from "fs";
+import path15 from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 
 // vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import path13 from "path";
+import path14 from "path";
 var isReplit = process.env.REPL_ID !== void 0;
 var replitPlugins = isReplit ? [
   (await import("@replit/vite-plugin-shadcn-theme-json")).default(),
@@ -75725,14 +76013,14 @@ var vite_config_default = defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path13.resolve(import.meta.dirname, "client", "src"),
-      "@shared": path13.resolve(import.meta.dirname, "shared"),
-      "@assets": path13.resolve(import.meta.dirname, "attached_assets")
+      "@": path14.resolve(import.meta.dirname, "client", "src"),
+      "@shared": path14.resolve(import.meta.dirname, "shared"),
+      "@assets": path14.resolve(import.meta.dirname, "attached_assets")
     }
   },
-  root: path13.resolve(import.meta.dirname, "client"),
+  root: path14.resolve(import.meta.dirname, "client"),
   build: {
-    outDir: path13.resolve(import.meta.dirname, "dist/public"),
+    outDir: path14.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4e3,
     rollupOptions: {
@@ -75855,13 +76143,13 @@ async function setupVite(app2, server) {
       return res.status(404).json({ error: "Not found", path: url });
     }
     try {
-      const clientTemplate = path14.resolve(
+      const clientTemplate = path15.resolve(
         import.meta.dirname,
         "..",
         "client",
         "index.html"
       );
-      let template = await fs13.promises.readFile(clientTemplate, "utf-8");
+      let template = await fs14.promises.readFile(clientTemplate, "utf-8");
       template = template.replace(
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${TEMPLATE_VERSION}"`
@@ -75881,9 +76169,9 @@ async function setupVite(app2, server) {
   });
 }
 function serveStatic(app2) {
-  const distPath = path14.resolve(import.meta.dirname, "..", "dist", "public");
-  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs13.existsSync(distPath)}`);
-  if (!fs13.existsSync(distPath)) {
+  const distPath = path15.resolve(import.meta.dirname, "..", "dist", "public");
+  console.log(`[serveStatic] Looking for dist at: ${distPath} \u2014 exists: ${fs14.existsSync(distPath)}`);
+  if (!fs14.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`
     );
@@ -75904,7 +76192,7 @@ function serveStatic(app2) {
       }
     }
   }));
-  const indexPath = path14.resolve(distPath, "index.html");
+  const indexPath = path15.resolve(distPath, "index.html");
   const versionScript = `<script>
 (function(){
   try{
@@ -75940,7 +76228,7 @@ function serveStatic(app2) {
         "Expires": "0",
         "Content-Type": "text/html; charset=utf-8"
       });
-      let html = await fs13.promises.readFile(indexPath, "utf-8");
+      let html = await fs14.promises.readFile(indexPath, "utf-8");
       html = await injectBlogSeoMeta(html, req.originalUrl);
       html = html.replace("<head>", "<head>" + versionScript);
       res.send(html);
@@ -75951,7 +76239,7 @@ function serveStatic(app2) {
 }
 
 // server/index.ts
-import path15 from "path";
+import path16 from "path";
 
 // server/auth.ts
 init_storage();
@@ -76877,19 +77165,19 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   log(`serving on port ${PORT}`);
 });
 setupAuth(app);
-app.use("/uploads", express2.static(path15.join(process.cwd(), "uploads")));
-app.use("/ea-templates", express2.static(path15.join(process.cwd(), "public/ea-templates")));
-app.use("/downloads", express2.static(path15.join(process.cwd(), "public/downloads"), {
+app.use("/uploads", express2.static(path16.join(process.cwd(), "uploads")));
+app.use("/ea-templates", express2.static(path16.join(process.cwd(), "public/ea-templates")));
+app.use("/downloads", express2.static(path16.join(process.cwd(), "public/downloads"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".mq5")) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Content-Disposition", 'attachment; filename="' + path15.basename(filePath) + '"');
+      res.setHeader("Content-Disposition", 'attachment; filename="' + path16.basename(filePath) + '"');
     }
   }
 }));
 app.use((req, res, next) => {
   const start = Date.now();
-  const path16 = req.path;
+  const path17 = req.path;
   let capturedJsonResponse = void 0;
   const originalResJson = res.json;
   res.json = function(bodyJson, ...args) {
@@ -76898,8 +77186,8 @@ app.use((req, res, next) => {
   };
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path16.startsWith("/api")) {
-      let logLine = `${req.method} ${path16} ${res.statusCode} in ${duration}ms`;
+    if (path17.startsWith("/api")) {
+      let logLine = `${req.method} ${path17} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }

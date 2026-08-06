@@ -233,6 +233,45 @@ export async function getKalshiBTCEvent(
   return getKalshiCryptoEvent('KXBTC', currentBTCPrice, forceRefresh);
 }
 
+// ── Single-market status (by ticker) ─────────────────────────────────────────
+// Needed because an open trade's event stops being the "nearest" one (and so
+// drops out of getKalshiCryptoEvent's bracket list) well before it actually
+// settles — relying only on the nearest-event bracket list to track/exit open
+// positions left them frozen "open" forever once their event rolled off.
+// Fetching the specific ticker directly lets the engine keep pricing it (for
+// TP/SL) and detect real settlement (status/result) regardless of whether
+// it's still the "nearest" event. Public/unauthenticated, like the rest of
+// this file's market-data reads.
+
+export interface KalshiMarketStatus {
+  ticker: string;
+  status: string;             // 'active' | 'closed' | 'finalized' | ...
+  result: 'yes' | 'no' | '';  // set once settled
+  yesBid: number;
+  yesAsk: number;
+  lastPrice: number;
+}
+
+export async function getKalshiMarketStatus(ticker: string): Promise<KalshiMarketStatus | null> {
+  const url = `${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json', 'User-Agent': 'VEDD-Trading-AI/1.0' },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return null;
+  const data = await res.json() as { market?: any };
+  const m = data.market;
+  if (!m) return null;
+  return {
+    ticker:    m.ticker,
+    status:    m.status ?? '',
+    result:    (m.result === 'yes' || m.result === 'no') ? m.result : '',
+    yesBid:    parseDollars(m.yes_bid_dollars),
+    yesAsk:    parseDollars(m.yes_ask_dollars),
+    lastPrice: parseDollars(m.last_price_dollars),
+  };
+}
+
 export function clearKalshiCache(seriesTicker?: string): void {
   if (seriesTicker) eventCache.delete(seriesTicker);
   else eventCache.clear();

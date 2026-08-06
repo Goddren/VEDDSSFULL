@@ -12,7 +12,24 @@
  * P&L model: shares = stake / (entryProb / 100), value = shares × (currentProb / 100).
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { getPolymarketBTCSentiment, type PolymarketMarket, type PolymarketBTCSentiment } from './polymarket';
+import { decryptPassword } from '../tradelocker';
+
+// Reads the same encrypted-at-rest data/polymarket_keys.json sidecar that
+// routes.ts's private-key endpoints write to (that file lives behind a
+// closure in routes.ts, not exported, so this is a small read-only mirror of
+// the same load+decrypt logic — needed to restore live mode on boot below).
+function _loadPolymarketPrivateKey(userId: number): string | null {
+  try {
+    const fp = path.join(process.cwd(), 'data', 'polymarket_keys.json');
+    if (!fs.existsSync(fp)) return null;
+    const map = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    const enc = map[String(userId)];
+    return enc ? decryptPassword(enc) : null;
+  } catch { return null; }
+}
 
 // ── Live CLOB order placement ─────────────────────────────────────────────────
 
@@ -20,23 +37,23 @@ const CLOB_BASE   = 'https://clob.polymarket.com';
 const POLY_CHAIN  = 137; // Polygon
 const CTF_ADDRESS = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
 
-async function placeClobOrder(
+/** Sign and submit a CLOB EIP-712 order. makerAmt/takerAmt must already be
+ * computed correctly for the side (BUY: maker=USDC, taker=shares; SELL:
+ * maker=shares, taker=USDC) — this just handles signing + submission. */
+async function _signAndSubmitClobOrder(
   privateKey: string,
   tokenId: string,
   side: 'BUY' | 'SELL',
-  priceFloat: number,  // 0.0–1.0
-  sizeUsdc: number,    // USDC (6 decimals internally)
+  makerAmt: bigint,
+  takerAmt: bigint,
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
     const { ethers } = await import('ethers');
     const wallet = new ethers.Wallet(privateKey);
 
-    // Build CLOB EIP-712 order
-    const salt     = BigInt(Math.floor(Math.random() * 1e15));
-    const now      = BigInt(Math.floor(Date.now() / 1000));
-    const expiry   = now + BigInt(3600); // 1 h TTL
-    const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));         // USDC 6 dp
-    const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+    const salt   = BigInt(Math.floor(Math.random() * 1e15));
+    const now    = BigInt(Math.floor(Date.now() / 1000));
+    const expiry = now + BigInt(3600); // 1 h TTL
 
     const domain = {
       name:              'Polymarket CTF Exchange',
@@ -114,12 +131,42 @@ async function placeClobOrder(
   }
 }
 
+async function placeClobOrder(
+  privateKey: string,
+  tokenId: string,
+  side: 'BUY' | 'SELL',
+  priceFloat: number,  // 0.0–1.0
+  sizeUsdc: number,    // USDC (6 decimals internally) — unchanged BUY-path semantics
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const makerAmt = BigInt(Math.round(sizeUsdc * 1e6));         // USDC 6 dp
+  const takerAmt = BigInt(Math.round(sizeUsdc / priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt);
+}
+
+/** Sell an existing outcome-token position back on the CLOB. Distinct from
+ * placeClobOrder because a SELL's maker/taker amounts are the opposite shape
+ * (maker gives up `shares` tokens, taker gives back shares×price USDC) —
+ * this was never wired up anywhere before, so closePosition only ever
+ * mutated in-memory state while the real CLOB tokens stayed held. */
+async function sellClobPosition(
+  privateKey: string,
+  tokenId: string,
+  priceFloat: number, // 0.0–1.0 limit price to sell at
+  shares: number,     // outcome-token quantity to sell
+): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  const makerAmt = BigInt(Math.round(shares * 1e6));
+  const takerAmt = BigInt(Math.round(shares * priceFloat * 1e6));
+  return _signAndSubmitClobOrder(privateKey, tokenId, 'SELL', makerAmt, takerAmt);
+}
+
 // ── Live-mode per-user store ──────────────────────────────────────────────────
-const _liveModes   = new Map<number, boolean>();
+// The actual live/paper gate is s.isPaperMode on the engine state below —
+// that's the only thing ever read. (A previous _liveModes map duplicated
+// this as a second, never-read source of truth — removed to avoid it being
+// mistaken for authoritative by future code.)
 const _privateKeys = new Map<number, string>();
 
 export function setPolymarketLiveMode(userId: number, enabled: boolean, privateKey: string | null): void {
-  _liveModes.set(userId, enabled);
   if (privateKey) _privateKeys.set(userId, privateKey);
   else            _privateKeys.delete(userId);
   // Reset paper flag on the engine state
@@ -154,6 +201,10 @@ export interface PolymarketPosition {
   closedAt?: string;
   closedProbability?: number;
   realizedPnl?: number;
+  /** Set only for a real live-mode order — the CLOB token ID needed to sell
+   * this position back before it can be considered actually closed. */
+  tokenId?: string;
+  clobOrderId?: string;
 }
 
 export interface PolymarketEngineConfig {
@@ -262,10 +313,24 @@ export async function restoreEngineStateFromDb(userId: number): Promise<void> {
     const rows = await db.select().from(engineRunState)
       .where(and(eq(engineRunState.userId, userId), eq(engineRunState.engine, 'polymarket')));
     const row = rows[0];
-    if (row?.isRunning) {
-      console.log(`[Polymarket] Restoring engine for user ${userId}`);
-      startEngine(userId);
+    if (!row?.isRunning) return;
+
+    console.log(`[Polymarket] Restoring engine for user ${userId}`);
+    // Restore live mode too — this used to only restore isRunning, silently
+    // forcing back to paper mode on every restart even when the persisted
+    // engineRunState row said isPaperMode:false, disagreeing with the DB's
+    // own record with no indication to the user.
+    if (row.isPaperMode === false) {
+      const pk = _loadPolymarketPrivateKey(userId);
+      if (pk) {
+        setPolymarketLiveMode(userId, true, pk);
+        console.log(`[Polymarket] Restored LIVE mode for user ${userId} (private key loaded from durable storage)`);
+      } else {
+        console.warn(`[Polymarket] User ${userId} was in LIVE mode before this restart but no private key is available to restore it — resuming in PAPER mode instead. Re-enable live mode from the UI to resume live trading.`);
+        _persistRunState(userId, true, true); // correct the DB record to match reality instead of leaving a stale "live" row
+      }
     }
+    startEngine(userId);
   } catch (e) {
     console.error('[Polymarket] Failed to restore engine state:', e);
   }
@@ -388,10 +453,11 @@ async function _openPosition(
         return { fired: false, reason: `CLOB order failed: ${result.error}` };
       }
       liveOrderId = result.orderId;
+      position.tokenId = best.yesTokenId; // needed later to actually sell this position back
     }
   }
 
-  (position as any).clobOrderId = liveOrderId;
+  position.clobOrderId = liveOrderId;
   s.openPositions.push(position);
   s.lastTradeAt = new Date().toISOString();
   s.tradesOpened++;
@@ -425,7 +491,10 @@ async function _refreshPositionPrices(s: PolymarketEngineState, userId?: number)
       pos.unrealizedPnlPct = (pos.unrealizedPnl / pos.stake) * 100;
 
       if (market.closed) {
-        closePosition(s, pos.id, currentProb, userId);
+        // Market already resolved on Polymarket — nothing left to sell on
+        // the CLOB (trading is closed); the outcome tokens redeem
+        // automatically. viaMarketResolution=true skips the sell-order step.
+        await closePosition(s, pos.id, currentProb, userId, true);
       }
     }
 
@@ -435,14 +504,42 @@ async function _refreshPositionPrices(s: PolymarketEngineState, userId?: number)
 
 // ── Close position ────────────────────────────────────────────────────────────
 
-export function closePosition(s: PolymarketEngineState, positionId: string, exitProb?: number, userId?: number): boolean {
+export async function closePosition(
+  s: PolymarketEngineState,
+  positionId: string,
+  exitProb?: number,
+  userId?: number,
+  viaMarketResolution = false,
+): Promise<boolean> {
   const idx = s.openPositions.findIndex(p => p.id === positionId);
   if (idx === -1) return false;
 
   const pos = s.openPositions[idx];
   const ep = exitProb ?? pos.currentProbability;
-
   const shares = (pos.stake * 100) / pos.entryProbability;
+
+  if (pos.clobOrderId && !viaMarketResolution) {
+    // A real live position, still tradeable — must actually sell it on the
+    // CLOB before we can call it closed. Previously this only ever mutated
+    // in-memory state: manual/close-all reported "closed, realized $X" while
+    // the real outcome tokens stayed held in the wallet on-chain.
+    if (!pos.tokenId) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} — no tokenId recorded to sell.`);
+      return false;
+    }
+    const pk = userId != null ? _privateKeys.get(userId) : undefined;
+    if (!pk) {
+      console.error(`[Polymarket] Cannot close live position ${pos.id} — no private key cached (was it deleted or the process restarted?).`);
+      return false;
+    }
+    const sellPrice = Math.max(0.01, Math.min(0.99, ep / 100));
+    const result = await sellClobPosition(pk, pos.tokenId, sellPrice, shares);
+    if (!result.success) {
+      console.error(`[Polymarket] Sell order failed for position ${pos.id} (leaving position open, will retry): ${result.error}`);
+      return false;
+    }
+  }
+
   const exitValue = shares * (ep / 100);
   const realizedPnl = exitValue - pos.stake;
 
@@ -486,9 +583,12 @@ export function closePosition(s: PolymarketEngineState, positionId: string, exit
   return true;
 }
 
-export function closeAllPositions(userId: number): number {
+export async function closeAllPositions(userId: number): Promise<number> {
   const s = getEngineState(userId);
   const ids = s.openPositions.map(p => p.id);
-  ids.forEach(id => closePosition(s, id, undefined, userId));
-  return ids.length;
+  let closed = 0;
+  for (const id of ids) {
+    if (await closePosition(s, id, undefined, userId)) closed++;
+  }
+  return closed;
 }

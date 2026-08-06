@@ -57,7 +57,12 @@ export interface KalshiBalance {
 function loadAllCreds(): Record<string, KalshiCredentials> {
   try {
     if (fs.existsSync(CREDS_FILE)) return JSON.parse(fs.readFileSync(CREDS_FILE, 'utf-8'));
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    // A corrupted file (partial write, etc.) previously looked identical to
+    // "no credentials saved" — every Kalshi feature would silently report
+    // paper mode/not-connected with no indication anything was actually wrong.
+    console.error('[Kalshi] Credential store is unreadable (corrupted JSON?) — treating as empty:', e?.message);
+  }
   return {};
 }
 

@@ -11,7 +11,7 @@
 import { getKalshiSignal, getKalshiConsensus, type KalshiStrategy, type TradeSignal } from './kalshi-strategies';
 import { scanAllKalshiStrategies } from './kalshi-engine';
 import {
-  hasPmUsCredentials, findPmUsCryptoMarket, getPmUsBbo, placePmUsOrder,
+  hasPmUsCredentials, findPmUsCryptoMarket, getPmUsBbo, placePmUsOrder, testPmUsConnection, toPmUsNum,
 } from './polymarket-us';
 
 export interface PmUsEngineConfig {
@@ -55,6 +55,10 @@ export interface PmUsTrade {
 export interface PmUsEngineState {
   isRunning: boolean;
   isPaperMode: boolean;
+  /** Set when isPaperMode is true because a real credential check FAILED
+   * (not merely "no credentials saved") — distinguishes "never connected"
+   * from "connected but broken" for the UI. */
+  credentialError: string | null;
   lastScanAt: string | null;
   lastScanResult: string | null;
   lastTradeAt: string | null;
@@ -81,17 +85,41 @@ const STRATEGY_LABELS: Record<string, string> = {
 const _states = new Map<number, PmUsEngineState>();
 const _timers = new Map<number, ReturnType<typeof setInterval>>();
 
+// Cached credential-validity check — same rationale as kalshi-engine.ts's
+// refreshKalshiCredValidity: hasPmUsCredentials() only checked file
+// presence, never whether the key actually authenticates (a corrupted file
+// or a rotated encryption key makes loadPmUsCredentials silently return
+// null while hasPmUsCredentials still returns true) — so the LIVE badge
+// could disagree with reality indefinitely. Cached + refreshed once per
+// scan cycle rather than on every state read (real API round trip).
+const _credValidity = new Map<number, { valid: boolean; error?: string; checkedAt: number }>();
+const CRED_VALIDITY_TTL_MS = 10 * 60 * 1000;
+
+export async function refreshPmUsCredValidity(userId: number): Promise<void> {
+  if (!hasPmUsCredentials(userId)) { _credValidity.delete(userId); return; }
+  const cached = _credValidity.get(userId);
+  if (cached && Date.now() - cached.checkedAt < CRED_VALIDITY_TTL_MS) return;
+  try {
+    const result = await testPmUsConnection(userId);
+    _credValidity.set(userId, { valid: result.connected, error: result.connected ? undefined : JSON.stringify(result.detail).slice(0, 200), checkedAt: Date.now() });
+  } catch { /* transient failure — keep previous cached result, if any */ }
+}
+
 export function getPmUsEngineState(userId: number): PmUsEngineState {
   if (!_states.has(userId)) {
     _states.set(userId, {
-      isRunning: false, isPaperMode: !hasPmUsCredentials(userId),
+      isRunning: false, isPaperMode: !hasPmUsCredentials(userId), credentialError: null,
       lastScanAt: null, lastScanResult: null, lastTradeAt: null,
       openTrades: [], closedTrades: [], totalRealizedPnl: 0, totalUnrealizedPnl: 0,
       config: { ...DEFAULT_CONFIG },
     });
   }
   const s = _states.get(userId)!;
-  s.isPaperMode = !hasPmUsCredentials(userId);
+  const hasCreds = hasPmUsCredentials(userId);
+  const validity = _credValidity.get(userId);
+  const knownInvalid = validity?.valid === false;
+  s.isPaperMode = !hasCreds || knownInvalid;
+  s.credentialError = knownInvalid ? (validity!.error ?? 'Credential check failed') : null;
   return s;
 }
 
@@ -180,22 +208,53 @@ async function _updateOpenTrades(userId: number, s: PmUsEngineState): Promise<vo
   for (const t of [...s.openTrades]) {
     const bbo = await getPmUsBbo(t.marketSlug);
     if (!bbo) continue;
-    const liveCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
-    if (!liveCents) continue;
+    const rawYesCents = Math.round((bbo.bestBid > 0 ? bbo.bestBid : bbo.currentPx) * 100);
+    if (!rawYesCents) continue;
+    // getPmUsBbo quotes the YES side. A 'no' position profits as the YES
+    // price FALLS, so its effective price is the complement (100 - yes),
+    // not the raw YES quote. Previously this used the raw YES quote for
+    // both sides, so every SELL/NO trade's P&L and TP/SL comparisons were
+    // tracked against the wrong side of the market entirely.
+    const liveCents = t.side === 'yes' ? rawYesCents : Math.max(1, Math.min(99, 100 - rawYesCents));
     t.currentPriceCents = liveCents;
     t.unrealizedPnl = Math.round(((liveCents / 100) * t.count - t.stake) * 100) / 100;
     const tp = s.config.takeProfitCents, sl = s.config.stopLossCents;
-    if (tp > 0 && liveCents >= tp) _closeTrade(userId, t.id, liveCents, 'take_profit');
-    else if (sl > 0 && liveCents <= sl) _closeTrade(userId, t.id, liveCents, 'stop_loss');
+    if (tp > 0 && liveCents >= tp) await _closeTrade(userId, t.id, liveCents, 'take_profit');
+    else if (sl > 0 && liveCents <= sl) await _closeTrade(userId, t.id, liveCents, 'stop_loss');
   }
   _recalc(s);
 }
 
-function _closeTrade(userId: number, id: string, exitCents: number, reason: PmUsTrade['exitReason']): boolean {
+async function _closeTrade(userId: number, id: string, exitCents: number, reason: PmUsTrade['exitReason']): Promise<boolean> {
   const s = getPmUsEngineState(userId);
   const idx = s.openTrades.findIndex(t => t.id === id);
   if (idx === -1) return false;
   const t = s.openTrades[idx];
+
+  if (!t.paper) {
+    // Real position — must actually sell it back before we can call it
+    // closed. This previously only ever mutated in-memory/DB state: TP/SL and
+    // manual close all reported "closed, realized $X" while the real
+    // position stayed open on Polymarket US indefinitely (ORDER_INTENT_
+    // SELL_LONG/SELL_SHORT were declared but never used anywhere).
+    const intent = t.side === 'yes' ? 'ORDER_INTENT_SELL_LONG' : 'ORDER_INTENT_SELL_SHORT';
+    try {
+      const r = await placePmUsOrder(userId, {
+        marketSlug: t.marketSlug, intent: intent as any, type: 'ORDER_TYPE_MARKET', quantity: t.count,
+      });
+      if (!r.ok) {
+        const msg = `Could not close "${t.title}": HTTP ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`;
+        console.error(`[PolymarketUS] ${msg} — leaving position open, will retry next cycle.`);
+        s.lastScanResult = `⚠️ ${msg}`;
+        return false;
+      }
+    } catch (err: any) {
+      console.error(`[PolymarketUS] Sell order threw for ${t.marketSlug} (leaving position open, will retry next cycle): ${err.message}`);
+      s.lastScanResult = `⚠️ Could not close "${t.title}": ${err.message}`;
+      return false;
+    }
+  }
+
   const realized = Math.round(((exitCents / 100) * t.count - t.stake) * 100) / 100;
   t.status = 'closed'; t.closedAt = new Date().toISOString(); t.realizedPnl = realized;
   t.exitReason = reason; t.unrealizedPnl = 0;
@@ -208,13 +267,14 @@ function _closeTrade(userId: number, id: string, exitCents: number, reason: PmUs
   return true;
 }
 
-export function closePmUsTrade(userId: number, id: string): boolean {
+export async function closePmUsTrade(userId: number, id: string): Promise<boolean> {
   const s = getPmUsEngineState(userId);
   const t = s.openTrades.find(x => x.id === id);
   return t ? _closeTrade(userId, id, t.currentPriceCents, 'manual') : false;
 }
 
 async function _runScan(userId: number, manual = false): Promise<{ fired: boolean; reason: string }> {
+  await refreshPmUsCredValidity(userId);
   const s = getPmUsEngineState(userId);
   s.lastScanAt = new Date().toISOString();
   await _updateOpenTrades(userId, s);
@@ -259,15 +319,26 @@ async function _runScan(userId: number, manual = false): Promise<{ fired: boolea
       s.lastScanResult = r; return { fired: false, reason: r };
     }
     const bbo = await getPmUsBbo(market.slug);
-    const askCents = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : (market.bestAsk ? Math.round(market.bestAsk * 100) : 0);
-    if (!askCents || askCents >= 97) { const r = `${market.slug}: no/expensive price (${askCents}¢)`; s.lastScanResult = r; return { fired: false, reason: r }; }
-
-    // Expected-value gate: don't pay more than the signal's implied probability
-    if (askCents > pred.confidence - 5) { const r = `No edge: ${askCents}¢ vs ~${pred.confidence}% — skip`; s.lastScanResult = r; return { fired: false, reason: r }; }
+    // market.bestAsk/bestBid can be a raw number OR a { value, currency }
+    // object depending on the listing shape — multiplying a structured price
+    // object directly produced a silent NaN (always skipped that market with
+    // no error) whenever getPmUsBbo failed and this fallback kicked in.
+    const rawYesAsk = bbo && bbo.bestAsk > 0 ? Math.round(bbo.bestAsk * 100) : Math.round(toPmUsNum(market.bestAsk) * 100);
+    const rawYesBid = bbo && bbo.bestBid > 0 ? Math.round(bbo.bestBid * 100) : Math.round(toPmUsNum(market.bestBid) * 100);
 
     // Map direction → outcome: BUY → buy YES (long), SELL → buy NO (short)
     const side: 'yes' | 'no' = pred.direction === 'BUY' ? 'yes' : 'no';
     const intent = pred.direction === 'BUY' ? 'ORDER_INTENT_BUY_LONG' : 'ORDER_INTENT_BUY_SHORT';
+    // getPmUsBbo quotes the YES side only. The cost to buy NO is the
+    // complement of the YES bid (100 - yesBid), not the raw YES ask —
+    // previously this used the raw YES ask for BOTH sides, so every SELL
+    // signal's entry price (and therefore stake, EV gate, and every P&L
+    // calc downstream) was priced against the wrong side of the market.
+    const askCents = side === 'yes' ? rawYesAsk : (rawYesBid > 0 ? 100 - rawYesBid : 0);
+    if (!askCents || askCents >= 97) { const r = `${market.slug}: no/expensive price (${askCents}¢)`; s.lastScanResult = r; return { fired: false, reason: r }; }
+
+    // Expected-value gate: don't pay more than the signal's implied probability
+    if (askCents > pred.confidence - 5) { const r = `No edge: ${askCents}¢ vs ~${pred.confidence}% — skip`; s.lastScanResult = r; return { fired: false, reason: r }; }
     const contracts = pmUsContractsFor(s, askCents);
     const stake = (askCents / 100) * contracts;
 

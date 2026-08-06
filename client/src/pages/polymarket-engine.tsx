@@ -1286,7 +1286,28 @@ export default function PolymarketEnginePage() {
           {/* Credential setup */}
           {!kalshiAccount?.connected ? (
             <div>
-              {!showKalshiSetup ? (
+              {kalshiAccount?.error && !showKalshiSetup ? (
+                // Credentials ARE saved but the check failed — a network blip,
+                // rate limit, or Kalshi outage looks identical at the API layer
+                // to bad credentials. Previously this collapsed into the same
+                // "Connect Kalshi Account" onboarding screen as never-having-
+                // connected at all, discarding the real error and making a
+                // fully-connected user think their account was disconnected.
+                // Show the actual error with a retry instead of implying they
+                // need to re-enter keys.
+                <div className="bg-amber-950/30 border border-amber-700/40 rounded-xl p-3 space-y-2">
+                  <p className="text-[10px] font-bold text-amber-300 flex items-center gap-1.5">
+                    <KeyRound className="w-3 h-3" /> Kalshi check failed — account may still be connected
+                  </p>
+                  <p className="text-[9px] text-amber-400/80 leading-relaxed break-words">{kalshiAccount.error}</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => refetchKalshiAccount()} className="flex-1 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/40 text-amber-200 text-xs font-bold rounded-lg py-2">
+                      Retry check
+                    </button>
+                    <button onClick={() => setShowKalshiSetup(true)} className="text-xs text-gray-500 px-3">Re-enter key instead</button>
+                  </div>
+                </div>
+              ) : !showKalshiSetup ? (
                 <button
                   onClick={() => setShowKalshiSetup(true)}
                   className="w-full flex items-center gap-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-dashed border-indigo-600/40 text-indigo-300 text-xs rounded-xl px-4 py-3"
@@ -1640,263 +1661,6 @@ export default function PolymarketEnginePage() {
           )}
         </div>
 
-        {/* ── RETIRED: international Polymarket (Polygon/VPN) — superseded by Polymarket US engine above ── */}
-        {false && (<>
-        {/* ── Polymarket Live Mode (VPN) ────────────────────────────────────── */}
-        <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Info className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm font-bold text-white">Polymarket Live Mode</h2>
-            <span className="text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">VPN Required (US)</span>
-            {!(state?.isRunning) ? null : (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded ml-auto ${!(state as any)?.isPaperMode ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-gray-700 text-gray-400"}`}>
-                {!(state as any)?.isPaperMode ? "LIVE" : "PAPER"}
-              </span>
-            )}
-          </div>
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3">
-            <p className="text-[9px] text-amber-200/80 leading-snug">
-              Polymarket is geo-blocked for US IPs. Use a <strong className="text-amber-300">VPN</strong> connecting outside the US before enabling live mode.
-              Your Polygon private key signs CLOB orders directly — never shared, stored on-server only.
-            </p>
-          </div>
-
-          {/* Private key setup */}
-          {!polyKeyStatus?.saved ? (
-            !showPolyKeySetup ? (
-              <button onClick={() => setShowPolyKeySetup(true)}
-                className="w-full flex items-center gap-2 bg-gray-800/60 hover:bg-gray-800 border border-dashed border-gray-700 text-gray-400 text-xs rounded-xl px-4 py-2.5">
-                <KeyRound className="w-4 h-4 shrink-0" />
-                <div className="text-left">
-                  <p className="font-semibold text-gray-300">Save Polygon Private Key</p>
-                  <p className="text-[9px] text-gray-600">Required to sign live CLOB orders on Polymarket</p>
-                </div>
-              </button>
-            ) : (
-              <div className="space-y-2 bg-black/20 rounded-xl p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                  <p className="text-[9px] text-amber-300/80">Private key stored on VEDD server. Use a dedicated trading-only wallet with limited USDC.</p>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPolyKey ? "text" : "password"}
-                    placeholder="0x... (64-char hex private key)"
-                    value={polyPrivateKey}
-                    onChange={e => setPolyPrivateKey(e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg text-xs text-white px-3 py-2 pr-9 font-mono focus:outline-none focus:border-amber-500"
-                  />
-                  <button onClick={() => setShowPolyKey(v => !v)} className="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300">
-                    {showPolyKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => savePolyKeyMutation.mutate(polyPrivateKey)}
-                    disabled={savePolyKeyMutation.isPending || !polyPrivateKey}
-                    className="flex-1 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-bold rounded-lg py-2 disabled:opacity-50"
-                  >
-                    {savePolyKeyMutation.isPending ? "Saving…" : "Save Key"}
-                  </button>
-                  <button onClick={() => setShowPolyKeySetup(false)} className="text-xs text-gray-500 px-3">Cancel</button>
-                </div>
-              </div>
-            )
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between bg-gray-800/40 border border-gray-700/40 rounded-xl px-3 py-2">
-                <div>
-                  <p className="text-[9px] text-gray-500">Private key saved</p>
-                  <p className="text-[10px] text-gray-300 font-mono">{polyKeyStatus.maskedKey}</p>
-                </div>
-                <button onClick={() => deletePolyKeyMutation.mutate()} className="text-[9px] text-red-400/70 hover:text-red-400">Remove</button>
-              </div>
-              <button
-                onClick={() => toggleLiveModeMutation.mutate(!(state as any)?.isPaperMode === false)}
-                disabled={toggleLiveModeMutation.isPending}
-                className={`w-full text-xs font-bold rounded-xl py-2.5 border transition-colors ${
-                  !(state as any)?.isPaperMode
-                    ? "bg-emerald-500/20 border-emerald-500/30 text-emerald-400 hover:bg-red-500/20 hover:border-red-500/30 hover:text-red-400"
-                    : "bg-gray-800/40 border-gray-700 text-gray-400 hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400"
-                }`}
-              >
-                {!(state as any)?.isPaperMode ? "Live Mode ON — click to disable" : "Enable Live Mode (VPN required)"}
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── Wallet ───────────────────────────────────────────────────────── */}
-        {savedWallet?.address ? (
-          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-4 py-3">
-            <Wallet className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-emerald-300">Polygon Wallet Connected</p>
-              <p className="text-[10px] text-gray-400 font-mono truncate">{savedWallet.address.slice(0, 8)}…{savedWallet.address.slice(-6)}</p>
-            </div>
-            <Link href="/polymarket-wallet">
-              <button className="flex items-center gap-1 text-[10px] text-emerald-400 shrink-0">
-                Manage <ExternalLink className="w-3 h-3" />
-              </button>
-            </Link>
-          </div>
-        ) : (
-          <Link href="/polymarket-wallet">
-            <button className="w-full flex items-center gap-3 bg-purple-500/10 border border-purple-500/30 border-dashed rounded-xl px-4 py-3 hover:bg-purple-500/15 transition-colors">
-              <Wallet className="w-4 h-4 text-purple-400 shrink-0" />
-              <div className="flex-1 text-left">
-                <p className="text-xs font-bold text-purple-300">Connect Polygon Wallet</p>
-                <p className="text-[10px] text-gray-500">Required for Polymarket live execution — USDC on Polygon</p>
-              </div>
-              <ExternalLink className="w-4 h-4 text-purple-400 shrink-0" />
-            </button>
-          </Link>
-        )}
-
-        {/* ── Engine Controls ───────────────────────────────────────────────── */}
-        <div className={`bg-gray-900/60 border rounded-xl p-4 ${isRunning ? "border-emerald-700/40" : "border-gray-800"}`}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-base">🤖</span>
-              <h2 className="text-sm font-bold text-white">Prediction Engine</h2>
-              <span className="text-[9px] text-gray-500 bg-gray-800/60 px-1.5 py-0.5 rounded">Polymarket</span>
-            </div>
-            <button
-              onClick={openConfigPanel}
-              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-gray-800/60 rounded-lg"
-            >
-              <Settings className="w-3 h-3" />Config
-              {showConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mb-3">
-            <div className="bg-black/30 rounded-lg p-2 text-center">
-              <p className="text-[9px] text-gray-500">Open</p>
-              <p className="text-sm font-bold text-white">{openCount}</p>
-            </div>
-            <div className="bg-black/30 rounded-lg p-2 text-center">
-              <p className="text-[9px] text-gray-500">Closed</p>
-              <p className="text-sm font-bold text-white">{closedCount}</p>
-            </div>
-            <div className={`rounded-lg p-2 text-center border ${pnlBg(totalPnl)}`}>
-              <p className="text-[9px] text-gray-500">P&L</p>
-              <p className={`text-sm font-bold ${pnlColor(totalPnl)}`}>{totalPnl >= 0 ? "+" : ""}{fmt(totalPnl)}</p>
-            </div>
-          </div>
-
-          <div className="flex gap-2 mb-3">
-            {isRunning ? (
-              <button onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 text-xs font-bold rounded-lg py-2.5">
-                <Square className="w-3.5 h-3.5" />Stop Engine
-              </button>
-            ) : (
-              <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-lg py-2.5">
-                <Play className="w-3.5 h-3.5" />Start Engine
-              </button>
-            )}
-            <button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}
-              className="flex items-center gap-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg px-3 py-2.5">
-              <RefreshCw className={`w-3.5 h-3.5 ${scanMutation.isPending ? "animate-spin" : ""}`} />Scan Now
-            </button>
-          </div>
-
-          {state?.lastScanAt && (
-            <div className="bg-black/20 rounded-lg px-3 py-2">
-              <p className="text-[9px] text-gray-500">Last scan: {timeAgo(state.lastScanAt)}</p>
-              {state.lastScanResult && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{state.lastScanResult}</p>}
-            </div>
-          )}
-
-          {showConfig && (
-            <div className="mt-3 bg-black/30 rounded-xl p-3 border border-gray-700/40">
-              <p className="text-[10px] font-bold text-gray-300 mb-3">Engine Config</p>
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  { label: "Min Bullish %", val: cfgBullish, set: setCfgBullish },
-                  { label: "Min Bearish %", val: cfgBearish, set: setCfgBearish },
-                  { label: "Stake ($)", val: cfgStake, set: setCfgStake },
-                  { label: "Max positions", val: cfgMaxPos, set: setCfgMaxPos },
-                  { label: "Cooldown (min)", val: cfgCooldown, set: setCfgCooldown },
-                ] as const).map(f => (
-                  <div key={f.label}>
-                    <label className="text-[9px] text-gray-400 block mb-0.5">{f.label}</label>
-                    <input type="number" value={f.val} onChange={e => (f.set as any)(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg text-xs text-white px-2 py-1.5" />
-                  </div>
-                ))}
-              </div>
-              <button onClick={saveConfig} disabled={configMutation.isPending}
-                className="w-full mt-3 bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-300 text-xs font-bold rounded-lg py-2">
-                Save Config
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* ── Open Positions ────────────────────────────────────────────────── */}
-        {openCount > 0 && (
-          <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-purple-400" />
-                <h2 className="text-sm font-bold text-white">Open Positions</h2>
-                <Badge className="text-[9px] bg-purple-500/20 text-purple-300 border-purple-500/30">{openCount}</Badge>
-              </div>
-              <button onClick={() => closeAllMutation.mutate()} disabled={closeAllMutation.isPending}
-                className="text-[10px] text-red-400/70 hover:text-red-400">Close all</button>
-            </div>
-            <div className="space-y-2">
-              {state!.openPositions.map(pos => (
-                <div key={pos.id} className={`border rounded-xl p-3 ${pnlBg(pos.unrealizedPnl)}`}>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <p className="text-[10px] text-gray-300 leading-tight line-clamp-2 flex-1">{pos.market.question}</p>
-                    <button onClick={() => closePosMutation.mutate(pos.id)} className="shrink-0 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400"><X className="w-3 h-3" /></button>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    <div><p className="text-[8px] text-gray-500">Side</p><p className={`text-[10px] font-bold ${pos.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{pos.side}</p></div>
-                    <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] font-bold text-white">{pos.entryProbability}%</p></div>
-                    <div><p className="text-[8px] text-gray-500">Now</p><p className={`text-[10px] font-bold ${pos.currentProbability > pos.entryProbability ? "text-emerald-400" : "text-red-400"}`}>{pos.currentProbability}%</p></div>
-                    <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${pnlColor(pos.unrealizedPnl)}`}>{pos.unrealizedPnl >= 0 ? "+" : ""}{fmt(pos.unrealizedPnl)}</p></div>
-                  </div>
-                  <p className="text-[8px] text-gray-600 mt-1.5">Stake ${fmt(pos.stake)} · {timeAgo(pos.openedAt)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Closed Positions ─────────────────────────────────────────────── */}
-        {closedCount > 0 && (
-          <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingDown className="w-4 h-4 text-gray-400" />
-              <h2 className="text-sm font-bold text-white">Position History</h2>
-              <Badge className="text-[9px] bg-gray-700 text-gray-400">{closedCount}</Badge>
-              <span className={`ml-auto text-xs font-bold ${pnlColor(state!.totalRealizedPnl)}`}>
-                Realized: {state!.totalRealizedPnl >= 0 ? "+" : ""}{fmt(state!.totalRealizedPnl)}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {state!.closedPositions.slice(0, 10).map(pos => (
-                <div key={pos.id} className="bg-black/20 border border-gray-800/60 rounded-xl p-3">
-                  <p className="text-[10px] text-gray-300 mb-2 line-clamp-1">{pos.market.question}</p>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    <div><p className="text-[8px] text-gray-500">Side</p><p className={`text-[10px] font-bold ${pos.direction === "BUY" ? "text-emerald-400" : "text-red-400"}`}>{pos.side}</p></div>
-                    <div><p className="text-[8px] text-gray-500">Entry</p><p className="text-[10px] text-gray-300">{pos.entryProbability}%</p></div>
-                    <div><p className="text-[8px] text-gray-500">Exit</p><p className="text-[10px] text-gray-300">{pos.closedProbability}%</p></div>
-                    <div><p className="text-[8px] text-gray-500">P&L</p><p className={`text-[10px] font-bold ${pnlColor(pos.realizedPnl ?? 0)}`}>{(pos.realizedPnl ?? 0) >= 0 ? "+" : ""}{fmt(pos.realizedPnl ?? 0)}</p></div>
-                  </div>
-                  <p className="text-[8px] text-gray-600 mt-1.5">{pos.status === "resolved" ? "✅ Resolved" : "Closed"} {pos.closedAt ? timeAgo(pos.closedAt) : ""}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        </>)}
-        {/* ── end retired Polygon block ── */}
 
         {/* ── Polymarket near-term markets (supplemental, collapsible) ──────── */}
         <div className="bg-gray-900/40 border border-gray-800/60 rounded-xl overflow-hidden">
