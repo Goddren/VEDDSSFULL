@@ -405,12 +405,18 @@ async function _reconcileKalshiPositionsOnBoot(userId: number): Promise<void> {
     const trackedTickers = new Set(s.openTrades.map(t => t.ticker));
     let untracked = 0;
     for (const p of positions) {
-      const netContracts = Number(p.position ?? 0);
+      // Kalshi's V2 position schema renamed these to fixed-point decimal
+      // STRINGS (position_fp, market_exposure_dollars) — confirmed against
+      // the live OpenAPI spec. Old numeric position/market_exposure (cents)
+      // kept as a fallback in case an older account/shard still serves them.
+      const netContracts = p.position_fp != null ? parseFloat(p.position_fp) : Number(p.position ?? 0);
       if (!netContracts || netContracts <= 0) continue; // this engine only ever buys YES (long); skip flat/NO/short
       if (trackedTickers.has(p.ticker)) continue;
       untracked++;
       const count = Math.round(Math.abs(netContracts));
-      const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
+      const exposureCents = p.market_exposure_dollars != null
+        ? Math.abs(parseFloat(p.market_exposure_dollars)) * 100
+        : Math.abs(Number(p.market_exposure ?? 0));
       const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
       const { coin, timeframe } = _coinAndTimeframeFromTicker(p.ticker);
       s.openTrades.push({
@@ -490,7 +496,10 @@ async function _placeKalshiYes(
         userId, p.ticker, 'yes', 'buy', contracts, p.priceInCents,
       );
       kalshiOrderId = result.orderId;
-      const filled = await _verifyKalshiFill(userId, result.orderId);
+      // The V2 create-order response already reports how many contracts
+      // filled immediately — skip the extra polling round-trip when that
+      // already confirms a full fill; only poll when it's uncertain.
+      const filled = result.status === 'executed' ? true : await _verifyKalshiFill(userId, result.orderId);
       if (!filled) {
         const r = `Order for "${p.subtitle}" didn't fill (price moved) — canceled, no position opened.`;
         s.lastScanResult = r;

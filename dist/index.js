@@ -34236,25 +34236,31 @@ async function getKalshiBalance(userId) {
   };
 }
 async function placeKalshiOrder(userId, ticker, side, action, count, priceInCents) {
+  if (side === "no") {
+    throw new Error("placeKalshiOrder: NO-side orders are not supported (this engine only trades YES; the V2 API expresses NO as selling YES at 1-price, not implemented since it is never used)");
+  }
+  const bookSide = action === "buy" ? "bid" : "ask";
   const payload2 = {
     ticker,
-    action,
-    side,
-    count,
-    type: "limit",
-    ...side === "yes" ? { yes_price: priceInCents } : { no_price: priceInCents }
+    side: bookSide,
+    count: String(count),
+    price: (priceInCents / 100).toFixed(2),
+    time_in_force: "good_till_canceled",
+    self_trade_prevention_type: "taker_at_cross"
   };
-  const data = await kalshiPost(userId, "/portfolio/orders", payload2);
-  const order = data.order ?? data;
+  const data = await kalshiPost(userId, "/portfolio/events/orders", payload2);
+  const fillCount = parseFloat(data.fill_count ?? "0") || 0;
+  const remainingCount = parseFloat(data.remaining_count ?? String(count)) || 0;
   return {
-    orderId: order.order_id ?? order.id ?? "unknown",
-    ticker: order.ticker ?? ticker,
-    side: order.side ?? side,
-    action: order.action ?? action,
-    count: order.count ?? count,
+    orderId: data.order_id ?? "unknown",
+    ticker,
+    side,
+    action,
+    count: Math.round(fillCount + remainingCount),
     priceInCents,
-    status: order.status ?? "resting",
-    createdAt: order.created_time ?? (/* @__PURE__ */ new Date()).toISOString()
+    status: remainingCount === 0 ? "executed" : "resting",
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    filledCount: fillCount
   };
 }
 async function getKalshiPositions(userId) {
@@ -34267,8 +34273,8 @@ async function getKalshiOrders(userId, status = "resting") {
 }
 async function cancelKalshiOrder(userId, orderId) {
   try {
-    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/orders/${orderId}`);
-    await fetch(`${KALSHI_BASE2}/portfolio/orders/${orderId}`, {
+    const headers = await getAuthHeaders(userId, "DELETE", `/portfolio/events/orders/${orderId}`);
+    await fetch(`${KALSHI_BASE2}/portfolio/events/orders/${orderId}`, {
       method: "DELETE",
       headers,
       signal: AbortSignal.timeout(8e3)
@@ -34584,12 +34590,12 @@ async function _reconcileKalshiPositionsOnBoot(userId) {
     const trackedTickers = new Set(s.openTrades.map((t) => t.ticker));
     let untracked = 0;
     for (const p of positions) {
-      const netContracts = Number(p.position ?? 0);
+      const netContracts = p.position_fp != null ? parseFloat(p.position_fp) : Number(p.position ?? 0);
       if (!netContracts || netContracts <= 0) continue;
       if (trackedTickers.has(p.ticker)) continue;
       untracked++;
       const count = Math.round(Math.abs(netContracts));
-      const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
+      const exposureCents = p.market_exposure_dollars != null ? Math.abs(parseFloat(p.market_exposure_dollars)) * 100 : Math.abs(Number(p.market_exposure ?? 0));
       const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
       const { coin, timeframe } = _coinAndTimeframeFromTicker(p.ticker);
       s.openTrades.push({
@@ -34653,7 +34659,7 @@ async function _placeKalshiYes(userId, s, p) {
         p.priceInCents
       );
       kalshiOrderId = result.orderId;
-      const filled = await _verifyKalshiFill(userId, result.orderId);
+      const filled = result.status === "executed" ? true : await _verifyKalshiFill(userId, result.orderId);
       if (!filled) {
         const r2 = `Order for "${p.subtitle}" didn't fill (price moved) \u2014 canceled, no position opened.`;
         s.lastScanResult = r2;

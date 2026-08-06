@@ -45,6 +45,10 @@ export interface KalshiOrderResult {
   priceInCents: number;
   status: string;
   createdAt: string;
+  /** From the V2 create-order response — how many contracts filled
+   * immediately on placement. Lets callers skip an extra fill-check
+   * round-trip when this already confirms a full/partial fill. */
+  filledCount?: number;
 }
 
 export interface KalshiBalance {
@@ -273,6 +277,22 @@ export async function getKalshiBalance(userId: number): Promise<KalshiBalance> {
   };
 }
 
+/**
+ * Kalshi deprecated POST /portfolio/orders (confirmed live: returns HTTP 410
+ * "deprecated_v1_order_endpoint" for every order — this was silently failing
+ * every real live-mode order attempt). The replacement, POST
+ * /portfolio/events/orders ("Create Order V2"), is a structurally different
+ * API, confirmed against Kalshi's live OpenAPI spec (docs.kalshi.com/openapi.yaml):
+ *  - No more separate side('yes'|'no') + action('buy'|'sell'): a single
+ *    YES-perspective book, side is just 'bid' (buy YES) or 'ask' (sell YES).
+ *    Selling YES ≡ buying NO at (1-price), but the API always quotes YES.
+ *  - count/price are now fixed-point DECIMAL STRINGS, not integers — count
+ *    like "5", price in DOLLARS like "0.56" (not 56 cents).
+ *  - time_in_force and self_trade_prevention_type are now required fields
+ *    with no implicit default.
+ * This engine only ever trades the YES side (never opens a NO position) —
+ * side='no' is rejected rather than silently mistranslated.
+ */
 export async function placeKalshiOrder(
   userId: number,
   ticker: string,
@@ -281,27 +301,33 @@ export async function placeKalshiOrder(
   count: number,
   priceInCents: number,
 ): Promise<KalshiOrderResult> {
+  if (side === 'no') {
+    throw new Error('placeKalshiOrder: NO-side orders are not supported (this engine only trades YES; the V2 API expresses NO as selling YES at 1-price, not implemented since it is never used)');
+  }
+  const bookSide: 'bid' | 'ask' = action === 'buy' ? 'bid' : 'ask';
   const payload = {
     ticker,
-    action,
-    side,
-    count,
-    type: 'limit',
-    ...(side === 'yes' ? { yes_price: priceInCents } : { no_price: priceInCents }),
+    side: bookSide,
+    count: String(count),
+    price: (priceInCents / 100).toFixed(2),
+    time_in_force: 'good_till_canceled',
+    self_trade_prevention_type: 'taker_at_cross',
   };
 
-  const data = await kalshiPost<any>(userId, '/portfolio/orders', payload);
-  const order = data.order ?? data;
+  const data = await kalshiPost<any>(userId, '/portfolio/events/orders', payload);
+  const fillCount = parseFloat(data.fill_count ?? '0') || 0;
+  const remainingCount = parseFloat(data.remaining_count ?? String(count)) || 0;
 
   return {
-    orderId:     order.order_id ?? order.id ?? 'unknown',
-    ticker:      order.ticker ?? ticker,
-    side:        order.side ?? side,
-    action:      order.action ?? action,
-    count:       order.count ?? count,
+    orderId:      data.order_id ?? 'unknown',
+    ticker,
+    side,
+    action,
+    count:        Math.round(fillCount + remainingCount),
     priceInCents: priceInCents,
-    status:      order.status ?? 'resting',
-    createdAt:   order.created_time ?? new Date().toISOString(),
+    status:       remainingCount === 0 ? 'executed' : 'resting',
+    createdAt:    new Date().toISOString(),
+    filledCount:  fillCount,
   };
 }
 
@@ -316,9 +342,12 @@ export async function getKalshiOrders(userId: number, status = 'resting'): Promi
 }
 
 export async function cancelKalshiOrder(userId: number, orderId: string): Promise<boolean> {
+  // DELETE /portfolio/orders/{id} was also retired alongside order creation —
+  // confirmed against the live spec, cancellation now only exists at
+  // /portfolio/events/orders/{id} ("Cancel Order V2").
   try {
-    const headers = await getAuthHeaders(userId, 'DELETE', `/portfolio/orders/${orderId}`);
-    await fetch(`${KALSHI_BASE}/portfolio/orders/${orderId}`, {
+    const headers = await getAuthHeaders(userId, 'DELETE', `/portfolio/events/orders/${orderId}`);
+    await fetch(`${KALSHI_BASE}/portfolio/events/orders/${orderId}`, {
       method: 'DELETE',
       headers,
       signal: AbortSignal.timeout(8000),
