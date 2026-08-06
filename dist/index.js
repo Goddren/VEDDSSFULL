@@ -34355,6 +34355,15 @@ __export(kalshi_engine_exports, {
   stopKalshiEngine: () => stopKalshiEngine,
   updateKalshiEngineConfig: () => updateKalshiEngineConfig
 });
+function _coinAndTimeframeFromTicker(ticker) {
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].fifteenMin)) return { coin: c, timeframe: "fifteen_min" };
+  }
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) return { coin: c, timeframe: "hourly" };
+  }
+  return { coin: "BTC", timeframe: "hourly" };
+}
 async function refreshKalshiCredValidity(userId) {
   if (!loadKalshiCredentials(userId)) {
     _credValidity.delete(userId);
@@ -34402,6 +34411,7 @@ function updateKalshiEngineConfig(userId, patch) {
     const deduped = Array.from(new Set(clean.symbols)).filter((c) => KALSHI_TRADEABLE_COINS.includes(c));
     clean.symbols = deduped.length ? deduped : ["BTC"];
   }
+  if (clean.timeframe && clean.timeframe !== "hourly" && clean.timeframe !== "fifteen_min") delete clean.timeframe;
   if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
   if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(95, clean.stopLossCents));
@@ -34535,10 +34545,11 @@ async function _reconcileKalshiPositionsOnBoot(userId) {
       const count = Math.round(Math.abs(netContracts));
       const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
       const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
-      const coin = KALSHI_TRADEABLE_COINS.find((c) => p.ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) ?? "BTC";
+      const { coin, timeframe } = _coinAndTimeframeFromTicker(p.ticker);
       s.openTrades.push({
         id: `kalshi-reconciled-${p.ticker}-${Date.now()}`,
         coin,
+        timeframe,
         ticker: p.ticker,
         subtitle: p.ticker,
         side: "yes",
@@ -34611,6 +34622,7 @@ async function _placeKalshiYes(userId, s, p) {
   const trade = {
     id: `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     coin: p.coin,
+    timeframe: p.timeframe,
     ticker: p.ticker,
     subtitle: p.subtitle,
     side: "yes",
@@ -34659,22 +34671,23 @@ async function _runKalshiScan(userId, manual = false) {
     }
   }
   const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
-  let lastReason = "No qualifying signal this cycle";
+  const perSymbolReasons = [];
   for (const coin of symbols) {
     const result = await _scanOneCoin(userId, s, coin);
     if (result.fired) {
       s.lastScanResult = result.reason;
       return result;
     }
-    lastReason = result.reason;
+    perSymbolReasons.push(result.reason);
   }
-  s.lastScanResult = lastReason;
-  return { fired: false, reason: lastReason };
+  const combined = perSymbolReasons.join(" \xB7 ");
+  s.lastScanResult = combined;
+  return { fired: false, reason: combined };
 }
 async function _scanOneCoin(userId, s, coin) {
   if (s.config.autoTradeValuePicks) {
     try {
-      const vp = await scanKalshiValuePicks(userId, 1, coin);
+      const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
       const top = vp.picks[0];
       if (!top) {
         return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
@@ -34684,6 +34697,7 @@ async function _scanOneCoin(userId, s, coin) {
       }
       return await _placeKalshiYes(userId, s, {
         coin,
+        timeframe: s.config.timeframe,
         ticker: top.ticker,
         subtitle: top.subtitle,
         priceInCents: top.marketAskCents,
@@ -34732,13 +34746,14 @@ async function _scanOneCoin(userId, s, coin) {
         return { fired: false, reason: `${stratLabel}: Confluence fail: says ${pred.direction} but consensus is ${consensus.direction} @ ${Math.round(consensus.agreement * 100)}% agree (need \u226560% agreeing)` };
       }
     }
-    const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+    const seriesTicker = s.config.timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
     const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
     if (!event.brackets.length) {
       return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
     }
-    if (event.msUntilClose < 15 * 60 * 1e3) {
-      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <15 min \u2014 waiting for next event` };
+    const minCloseBufferMs = s.config.timeframe === "fifteen_min" ? 3 * 60 * 1e3 : 15 * 60 * 1e3;
+    if (event.msUntilClose < minCloseBufferMs) {
+      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <${Math.round(minCloseBufferMs / 6e4)}min \u2014 waiting for next event` };
     }
     const bracket = _selectBracket(event.brackets, pred);
     if (!bracket) {
@@ -34753,6 +34768,7 @@ async function _scanOneCoin(userId, s, coin) {
     }
     return await _placeKalshiYes(userId, s, {
       coin,
+      timeframe: s.config.timeframe,
       ticker: bracket.ticker,
       subtitle: bracket.subtitle,
       priceInCents,
@@ -34769,7 +34785,7 @@ async function _scanOneCoin(userId, s, coin) {
 function _selectBracket(brackets, pred) {
   const btcPrice = pred.currentPrice;
   if (pred.direction === "BUY") {
-    const greaterBrackets = brackets.filter((b) => b.strikeType === "greater");
+    const greaterBrackets = brackets.filter((b) => b.strikeType === "greater" || b.strikeType === "greater_or_equal");
     if (greaterBrackets.length) {
       return greaterBrackets.sort((a, b) => {
         const da = btcPrice - (a.floorStrike ?? 0);
@@ -34780,7 +34796,7 @@ function _selectBracket(brackets, pred) {
     return _findNearestBetween(brackets, btcPrice);
   }
   if (pred.direction === "SELL") {
-    const lessBrackets = brackets.filter((b) => b.strikeType === "less");
+    const lessBrackets = brackets.filter((b) => b.strikeType === "less" || b.strikeType === "less_or_equal");
     if (lessBrackets.length) {
       return lessBrackets.sort((a, b) => {
         const da = (a.capStrike ?? btcPrice) - btcPrice;
@@ -34845,10 +34861,10 @@ function normalCdf(x) {
 function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
   if (sigmaPrice <= 0) sigmaPrice = btcPrice * 4e-3;
   const expected = btcPrice + driftPrice;
-  if (b.strikeType === "greater" && b.floorStrike != null) {
+  if ((b.strikeType === "greater" || b.strikeType === "greater_or_equal") && b.floorStrike != null) {
     return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
   }
-  if (b.strikeType === "less" && b.capStrike != null) {
+  if ((b.strikeType === "less" || b.strikeType === "less_or_equal") && b.capStrike != null) {
     return normalCdf((b.capStrike - expected) / sigmaPrice);
   }
   if (b.strikeType === "between" && b.floorStrike != null && b.capStrike != null) {
@@ -34856,7 +34872,7 @@ function _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice) {
   }
   return 0;
 }
-async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC") {
+async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe = "hourly") {
   const scannedAt = (/* @__PURE__ */ new Date()).toISOString();
   const consensus = await getKalshiConsensus(coin);
   const btcPrice = consensus.currentPrice;
@@ -34869,14 +34885,14 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC") {
     scannedAt
   };
   if (!btcPrice) return base;
-  const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+  const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
   const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
   if (!event || !event.brackets.length) return base;
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 6e4);
   const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] }));
   const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
-  const hoursLeft = Math.max(0.1, event.msUntilClose / 36e5);
+  const hoursLeft = Math.max(0.02, event.msUntilClose / 36e5);
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
   const dirSign = consensus.direction === "BUY" ? 1 : consensus.direction === "SELL" ? -1 : 0;
   const driftFrac = consensus.agreement >= 0.6 ? dirSign * (consensus.confidence / 100) * consensus.agreement * 0.35 : 0;
@@ -34921,18 +34937,19 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC") {
 }
 async function _updateOpenTradePrices(userId, s) {
   if (!s.openTrades.length) return;
-  const coinsInPlay = Array.from(new Set(s.openTrades.map((t) => t.coin || "BTC")));
-  const bracketsByCoin = /* @__PURE__ */ new Map();
-  for (const coin of coinsInPlay) {
+  const keysInPlay = Array.from(new Set(s.openTrades.map((t) => `${t.coin || "BTC"}:${t.timeframe || "hourly"}`)));
+  const bracketsByKey = /* @__PURE__ */ new Map();
+  for (const key of keysInPlay) {
+    const [coin, timeframe] = key.split(":");
     try {
-      const seriesTicker = KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
+      const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin]?.fifteenMin ?? "KXBTC15M" : KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
       const event = await getKalshiCryptoEvent(seriesTicker, void 0, true);
-      bracketsByCoin.set(coin, event.brackets);
+      bracketsByKey.set(key, event.brackets);
     } catch {
     }
   }
   for (const t of [...s.openTrades]) {
-    const brackets = bracketsByCoin.get(t.coin || "BTC");
+    const brackets = bracketsByKey.get(`${t.coin || "BTC"}:${t.timeframe || "hourly"}`);
     const b = brackets?.find((x) => x.ticker === t.ticker);
     if (b) {
       const liveCents = b.yesBid > 0 ? b.yesBid : b.yesProbability > 0 ? b.yesProbability : t.currentPriceCents;
@@ -35060,6 +35077,7 @@ var init_kalshi_engine = __esm({
     DEFAULT_CONFIG2 = {
       symbols: ["BTC"],
       // preserves existing behavior for accounts that never touch this setting
+      timeframe: "hourly",
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,

@@ -117,6 +117,7 @@ interface KalshiEngineState {
   totalUnrealizedPnl: number;
   config: {
     symbols: string[];
+    timeframe?: "hourly" | "fifteen_min";
     contractsPerTrade: number;
     maxOpenTrades: number;
     cooldownMinutes: number;
@@ -326,6 +327,7 @@ export default function PolymarketEnginePage() {
   // Which coins' hourly bracket markets to scan (was BTC-only) — empty array
   // means "untouched this session", falls back to the saved server config.
   const [kalshiCfgSymbols, setKalshiCfgSymbols] = useState<string[]>([]);
+  const [kalshiCfgTimeframe, setKalshiCfgTimeframe] = useState<"" | "hourly" | "fifteen_min">("");
   const [kalshiCfgContracts, setKalshiCfgContracts] = useState("");
   const [kalshiCfgMaxTrades, setKalshiCfgMaxTrades] = useState("");
   const [kalshiCfgCooldown, setKalshiCfgCooldown]   = useState("");
@@ -638,6 +640,7 @@ export default function PolymarketEnginePage() {
   const saveKalshiConfig = () => {
     const patch: any = {};
     if (kalshiCfgSymbols.length) patch.symbols = kalshiCfgSymbols;
+    if (kalshiCfgTimeframe) patch.timeframe = kalshiCfgTimeframe;
     if (kalshiCfgContracts)  patch.contractsPerTrade = Number(kalshiCfgContracts);
     if (kalshiCfgMaxTrades)  patch.maxOpenTrades     = Number(kalshiCfgMaxTrades);
     if (kalshiCfgCooldown)   patch.cooldownMinutes   = Number(kalshiCfgCooldown);
@@ -1490,7 +1493,31 @@ export default function PolymarketEnginePage() {
                         );
                       })}
                     </div>
-                    <p className="text-[8px] text-gray-500 leading-snug mt-1">Engine scans each selected coin's hourly bracket market every cycle and trades the first one that clears every gate.</p>
+                    <p className="text-[8px] text-gray-500 leading-snug mt-1">Engine scans each selected coin's bracket market every cycle and trades the first one that clears every gate.</p>
+                  </div>
+
+                  {/* Timeframe selector — hourly multi-bracket vs 15-min single-market events */}
+                  <div className="mb-3">
+                    <label className="text-[9px] text-gray-400 block mb-1">Market Cadence</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {([
+                        { key: "hourly" as const, label: "Hourly", sub: "multi-bracket price range" },
+                        { key: "fifteen_min" as const, label: "15-Minute", sub: "single up/down bet · faster cycle" },
+                      ]).map(opt => {
+                        const active = (kalshiCfgTimeframe || kalshiEngineState?.config.timeframe || "hourly") === opt.key;
+                        return (
+                          <button
+                            key={opt.key}
+                            onClick={() => setKalshiCfgTimeframe(opt.key)}
+                            className={`rounded-lg px-1.5 py-2 text-center border transition-colors ${active ? "bg-cyan-600/40 border-cyan-500/50 text-cyan-200" : "bg-gray-800/60 border-gray-700/60 text-gray-400 hover:text-gray-200"}`}
+                          >
+                            <span className="block text-[10px] font-bold leading-tight">{opt.label}</span>
+                            <span className="block text-[8px] text-gray-500 leading-tight mt-0.5">{opt.sub}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[8px] text-gray-500 leading-snug mt-1">15-min markets are a single "will price stay above $X" bet per window — only BUY-direction signals trade them (there's no separate bracket to buy for a bearish view). Hourly markets support both directions across multiple price brackets.</p>
                   </div>
 
                   {/* Confluence requirement */}

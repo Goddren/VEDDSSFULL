@@ -41,6 +41,7 @@ const _sessionPeakBankroll = new Map<number, number>();
 export interface KalshiTradeRecord {
   id: string;
   coin: KalshiCryptoCoin;  // which series/event this trade belongs to — added for multi-coin support
+  timeframe: 'hourly' | 'fifteen_min'; // which bracket-event product this ticker belongs to — needed to know which series to re-query for live pricing regardless of later config changes
   ticker: string;
   subtitle: string;
   side: 'yes' | 'no';
@@ -82,11 +83,16 @@ export interface KalshiEngineState {
 }
 
 export interface KalshiEngineConfig {
-  // Which coins' hourly bracket markets to scan each cycle (was hardcoded to
+  // Which coins' bracket markets to scan each cycle (was hardcoded to
   // BTC-only). The engine tries each in order and fires on the first one that
   // clears every gate that cycle — see KALSHI_TRADEABLE_COINS for what's
-  // actually available (15-min markets are a different product, not covered).
+  // actually available.
   symbols: KalshiCryptoCoin[];
+  // Which bracket-event product to trade: Kalshi posts both an hourly and a
+  // fifteen-minute event for each coin (KXBTC vs KXBTC15M, etc — confirmed
+  // live against Kalshi's real series listing). Same mechanics, much faster
+  // cycle time. Default 'hourly' preserves existing behavior.
+  timeframe: 'hourly' | 'fifteen_min';
   contractsPerTrade: number;   // number of Kalshi contracts per order
   maxOpenTrades: number;
   cooldownMinutes: number;
@@ -123,6 +129,7 @@ const _timers  = new Map<number, ReturnType<typeof setInterval>>();
 
 const DEFAULT_CONFIG: KalshiEngineConfig = {
   symbols:              ['BTC'], // preserves existing behavior for accounts that never touch this setting
+  timeframe:            'hourly',
   contractsPerTrade:    5,
   maxOpenTrades:        3,
   cooldownMinutes:      20,
@@ -141,6 +148,21 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   brainLearningMode:       true,
   drawdownShieldThreshold: 0, // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
 };
+
+/** Identify which coin + timeframe a ticker belongs to from its series
+ * prefix. Fifteen-min series prefixes (e.g. "KXBTC15M") share a root with
+ * their hourly counterpart ("KXBTC"), so the more specific fifteen-min
+ * prefix must be checked FIRST — checking hourly first would misclassify
+ * every 15-min ticker as hourly (KXBTC is itself a string-prefix of KXBTC15M). */
+function _coinAndTimeframeFromTicker(ticker: string): { coin: KalshiCryptoCoin; timeframe: 'hourly' | 'fifteen_min' } {
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].fifteenMin)) return { coin: c, timeframe: 'fifteen_min' };
+  }
+  for (const c of KALSHI_TRADEABLE_COINS) {
+    if (ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) return { coin: c, timeframe: 'hourly' };
+  }
+  return { coin: 'BTC', timeframe: 'hourly' };
+}
 
 const STRATEGY_LABELS: Record<KalshiStrategy | 'auto', string> = {
   momentum:       'Momentum',
@@ -218,6 +240,7 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
     const deduped = Array.from(new Set(clean.symbols)).filter(c => KALSHI_TRADEABLE_COINS.includes(c));
     clean.symbols = deduped.length ? deduped : ['BTC'];
   }
+  if (clean.timeframe && clean.timeframe !== 'hourly' && clean.timeframe !== 'fifteen_min') delete clean.timeframe;
   // Clamp auto-trade / exit fields to sane ranges
   if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(99, clean.takeProfitCents));
@@ -387,10 +410,11 @@ async function _reconcileKalshiPositionsOnBoot(userId: number): Promise<void> {
       const count = Math.round(Math.abs(netContracts));
       const exposureCents = Math.abs(Number(p.market_exposure ?? 0));
       const avgEntryCents = count > 0 && exposureCents > 0 ? Math.round(exposureCents / count) : 50;
-      const coin = (KALSHI_TRADEABLE_COINS.find(c => p.ticker.startsWith(KALSHI_SERIES_MAP[c].hourly)) ?? 'BTC') as KalshiCryptoCoin;
+      const { coin, timeframe } = _coinAndTimeframeFromTicker(p.ticker);
       s.openTrades.push({
         id:                `kalshi-reconciled-${p.ticker}-${Date.now()}`,
         coin,
+        timeframe,
         ticker:            p.ticker,
         subtitle:          p.ticker,
         side:              'yes',
@@ -450,7 +474,7 @@ async function _verifyKalshiFill(userId: number, orderId: string): Promise<boole
 async function _placeKalshiYes(
   userId: number,
   s: KalshiEngineState,
-  p: { coin: KalshiCryptoCoin; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
+  p: { coin: KalshiCryptoCoin; timeframe: 'hourly' | 'fifteen_min'; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
 ): Promise<{ fired: boolean; reason: string }> {
   // Compounding mode sizes the stake from the growing bankroll; otherwise fixed
   // count — then Brain Learning Mode / Kelly / Drawdown Shield adjust it further.
@@ -480,6 +504,7 @@ async function _placeKalshiYes(
   const trade: KalshiTradeRecord = {
     id:                `kalshi-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     coin:              p.coin,
+    timeframe:         p.timeframe,
     ticker:            p.ticker,
     subtitle:          p.subtitle,
     side:              'yes',
@@ -544,24 +569,30 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   }
 
   const symbols = s.config.symbols?.length ? s.config.symbols : (['BTC'] as KalshiCryptoCoin[]);
-  let lastReason = 'No qualifying signal this cycle';
+  // Previously only the LAST symbol's block reason was kept — e.g. if BTC was
+  // blocked by a broken credential and DOGE just had no signal that cycle,
+  // the dashboard only ever showed DOGE's benign reason, silently masking a
+  // real problem with every other symbol. Collect every symbol's reason so
+  // nothing is hidden.
+  const perSymbolReasons: string[] = [];
   for (const coin of symbols) {
     const result = await _scanOneCoin(userId, s, coin);
     if (result.fired) {
       s.lastScanResult = result.reason;
       return result;
     }
-    lastReason = result.reason;
+    perSymbolReasons.push(result.reason);
   }
-  s.lastScanResult = lastReason;
-  return { fired: false, reason: lastReason };
+  const combined = perSymbolReasons.join(' · ');
+  s.lastScanResult = combined;
+  return { fired: false, reason: combined };
 }
 
 async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCryptoCoin): Promise<{ fired: boolean; reason: string }> {
   // ── Auto-trade the top High-Value Pick (all-strategy consensus + edge model) ──
   if (s.config.autoTradeValuePicks) {
     try {
-      const vp = await scanKalshiValuePicks(userId, 1, coin);
+      const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
       const top = vp.picks[0];
       if (!top) {
         return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
@@ -571,6 +602,7 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
       }
       return await _placeKalshiYes(userId, s, {
         coin,
+        timeframe: s.config.timeframe,
         ticker: top.ticker,
         subtitle: top.subtitle,
         priceInCents: top.marketAskCents,
@@ -634,16 +666,21 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
       }
     }
 
-    // 2. Get the coin's hourly bracket market event
-    const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+    // 2. Get the coin's bracket market event (hourly or fifteen-min, per config)
+    const seriesTicker = s.config.timeframe === 'fifteen_min' ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
     const event = await getKalshiCryptoEvent(seriesTicker, pred.currentPrice);
     if (!event.brackets.length) {
       return { fired: false, reason: `${coin}: No active ${seriesTicker} brackets available` };
     }
 
-    // Skip if event closes in < 15 min (not enough time for trade to resolve meaningfully)
-    if (event.msUntilClose < 15 * 60 * 1000) {
-      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <15 min — waiting for next event` };
+    // Skip if the event closes too soon to meaningfully resolve a trade —
+    // scaled to the event's own cycle length: an hourly event needs the same
+    // 15-min buffer as before, but that threshold would eat almost the ENTIRE
+    // cycle of a 15-min event (which only ever has 0-15 min left to begin
+    // with), so it uses a proportionally smaller buffer instead.
+    const minCloseBufferMs = s.config.timeframe === 'fifteen_min' ? 3 * 60 * 1000 : 15 * 60 * 1000;
+    if (event.msUntilClose < minCloseBufferMs) {
+      return { fired: false, reason: `${coin}: Nearest ${seriesTicker} event closes in <${Math.round(minCloseBufferMs / 60000)}min — waiting for next event` };
     }
 
     // 3. Select bracket
@@ -668,6 +705,7 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
     // 5. Place the order via shared helper
     return await _placeKalshiYes(userId, s, {
       coin,
+      timeframe: s.config.timeframe,
       ticker: bracket.ticker,
       subtitle: bracket.subtitle,
       priceInCents,
@@ -689,8 +727,12 @@ function _selectBracket(brackets: KalshiBTCBracket[], pred: TradeSignal): Kalshi
   const btcPrice = pred.currentPrice;
 
   if (pred.direction === 'BUY') {
-    // Prefer the "greater" (above $X) tail bracket — wins if BTC stays above that level
-    const greaterBrackets = brackets.filter(b => b.strikeType === 'greater');
+    // Prefer the "greater" (above $X) tail bracket — wins if BTC stays above
+    // that level. 'greater_or_equal' is the 15-min single-market product's
+    // equivalent (confirmed live: KXBTC15M has exactly one market per event,
+    // strike_type 'greater_or_equal') — same "bet price stays up" bet, buy
+    // YES the same way.
+    const greaterBrackets = brackets.filter(b => b.strikeType === 'greater' || b.strikeType === 'greater_or_equal');
     if (greaterBrackets.length) {
       // Pick the one with floorStrike closest to and below current BTC price
       return greaterBrackets.sort((a, b) => {
@@ -704,8 +746,13 @@ function _selectBracket(brackets: KalshiBTCBracket[], pred: TradeSignal): Kalshi
   }
 
   if (pred.direction === 'SELL') {
-    // Prefer "less" tail bracket, or a between bracket below current price
-    const lessBrackets = brackets.filter(b => b.strikeType === 'less');
+    // Prefer "less" tail bracket, or a between bracket below current price.
+    // A single-market 'greater_or_equal' 15-min event has no matching "bet
+    // price falls" bracket to buy YES on — that would require buying NO on
+    // the same market instead, which this engine doesn't do (YES-only, by
+    // design, same as every other coin/timeframe here) — so SELL signals
+    // simply don't trade 15-min markets rather than fabricate a NO order.
+    const lessBrackets = brackets.filter(b => b.strikeType === 'less' || b.strikeType === 'less_or_equal');
     if (lessBrackets.length) {
       return lessBrackets.sort((a, b) => {
         const da = (a.capStrike ?? btcPrice) - btcPrice;
@@ -815,7 +862,7 @@ export async function scanAllKalshiStrategies(userId: number, coin: KalshiCrypto
 export interface KalshiValuePick {
   ticker: string;
   subtitle: string;
-  strikeType: 'greater' | 'less' | 'between';
+  strikeType: 'greater' | 'less' | 'between' | 'greater_or_equal' | 'less_or_equal';
   marketAskCents: number;     // what it costs to buy YES now
   modelProbPct: number;       // our estimated probability it resolves YES
   edgePct: number;            // modelProb − marketAsk (the value)
@@ -853,11 +900,14 @@ function _bracketModelProb(
 ): number {
   if (sigmaPrice <= 0) sigmaPrice = btcPrice * 0.004;
   const expected = btcPrice + driftPrice;
-  if (b.strikeType === 'greater' && b.floorStrike != null) {
+  // 'greater_or_equal'/'less_or_equal' are the 15-min single-market
+  // product's strike types (confirmed live) — same tail-probability math as
+  // 'greater'/'less', just a different label from Kalshi's API.
+  if ((b.strikeType === 'greater' || b.strikeType === 'greater_or_equal') && b.floorStrike != null) {
     // P(close > floor) = 1 − CDF((floor − expected)/sigma)
     return 1 - normalCdf((b.floorStrike - expected) / sigmaPrice);
   }
-  if (b.strikeType === 'less' && b.capStrike != null) {
+  if ((b.strikeType === 'less' || b.strikeType === 'less_or_equal') && b.capStrike != null) {
     // P(close < cap) = CDF((cap − expected)/sigma)
     return normalCdf((b.capStrike - expected) / sigmaPrice);
   }
@@ -867,7 +917,7 @@ function _bracketModelProb(
   return 0;
 }
 
-export async function scanKalshiValuePicks(userId: number, limit = 5, coin: KalshiCryptoCoin = 'BTC'): Promise<KalshiValueScanResult> {
+export async function scanKalshiValuePicks(userId: number, limit = 5, coin: KalshiCryptoCoin = 'BTC', timeframe: 'hourly' | 'fifteen_min' = 'hourly'): Promise<KalshiValueScanResult> {
   const scannedAt = new Date().toISOString();
   const consensus: KalshiConsensus = await getKalshiConsensus(coin);
   const btcPrice = consensus.currentPrice;
@@ -878,16 +928,19 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
   };
   if (!btcPrice) return base;
 
-  const seriesTicker = KALSHI_SERIES_MAP[coin].hourly;
+  const seriesTicker = timeframe === 'fifteen_min' ? KALSHI_SERIES_MAP[coin].fifteenMin : KALSHI_SERIES_MAP[coin].hourly;
   const event = await getKalshiCryptoEvent(seriesTicker, btcPrice).catch(() => null);
   if (!event || !event.brackets.length) return base;
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 60000);
 
-  // Volatility scaled to the remaining time until the event closes
+  // Volatility scaled to the remaining time until the event closes. The vol
+  // estimate itself (estimateHourlyVol) is still per-hour — sigmaPrice below
+  // already scales it to whatever window is actually left (hoursLeft), so a
+  // 15-min event correctly gets a much smaller sigma than an hourly one.
   const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] as any[] }));
   const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 0.004;
-  const hoursLeft = Math.max(0.1, event.msUntilClose / 3600000);
+  const hoursLeft = Math.max(0.02, event.msUntilClose / 3600000);
   const sigmaPrice = btcPrice * hourlyVolFrac * Math.sqrt(hoursLeft);
 
   // Consensus drift: push the expected close in the consensus direction, scaled by
@@ -959,25 +1012,27 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
 async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Promise<void> {
   if (!s.openTrades.length) return;
 
-  // Pull each coin's latest event once (open trades can now span multiple
-  // coins) and match each open trade by ticker to refresh its current YES
-  // price (we value a YES position at the bid — what we can sell at).
-  // Trades opened before this expansion (or `coin` missing for any reason)
-  // fall back to BTC, matching the original single-coin behavior.
-  const coinsInPlay = Array.from(new Set(s.openTrades.map(t => t.coin || 'BTC')));
-  const bracketsByCoin = new Map<KalshiCryptoCoin, KalshiBTCBracket[]>();
-  for (const coin of coinsInPlay) {
+  // Pull each (coin, timeframe) pair's latest event once (open trades can
+  // now span multiple coins AND both hourly/15-min products) and match each
+  // open trade by ticker to refresh its current YES price (we value a YES
+  // position at the bid — what we can sell at). Trades opened before the
+  // 15-min expansion have no `timeframe` field — treat as hourly, matching
+  // original behavior.
+  const keysInPlay = Array.from(new Set(s.openTrades.map(t => `${t.coin || 'BTC'}:${t.timeframe || 'hourly'}`)));
+  const bracketsByKey = new Map<string, KalshiBTCBracket[]>();
+  for (const key of keysInPlay) {
+    const [coin, timeframe] = key.split(':') as [KalshiCryptoCoin, 'hourly' | 'fifteen_min'];
     try {
-      const seriesTicker = KALSHI_SERIES_MAP[coin]?.hourly ?? 'KXBTC';
+      const seriesTicker = timeframe === 'fifteen_min' ? (KALSHI_SERIES_MAP[coin]?.fifteenMin ?? 'KXBTC15M') : (KALSHI_SERIES_MAP[coin]?.hourly ?? 'KXBTC');
       const event = await getKalshiCryptoEvent(seriesTicker, undefined, true);
-      bracketsByCoin.set(coin, event.brackets);
+      bracketsByKey.set(key, event.brackets);
     } catch {
-      // Can't refresh this coin's prices this cycle — leave its positions untouched.
+      // Can't refresh this coin/timeframe's prices this cycle — leave its positions untouched.
     }
   }
 
   for (const t of [...s.openTrades]) {
-    const brackets = bracketsByCoin.get(t.coin || 'BTC');
+    const brackets = bracketsByKey.get(`${t.coin || 'BTC'}:${t.timeframe || 'hourly'}`);
     const b = brackets?.find(x => x.ticker === t.ticker);
 
     if (b) {

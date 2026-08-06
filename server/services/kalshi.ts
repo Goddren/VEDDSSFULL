@@ -37,7 +37,12 @@ export const KALSHI_SERIES_MAP: Record<KalshiCryptoCoin, { hourly: string; fifte
 export interface KalshiBTCBracket {
   ticker: string;
   subtitle: string;          // e.g. "$103,000 to 103,249.99"
-  strikeType: 'greater' | 'less' | 'between';
+  // Hourly multi-bracket events use 'greater'/'less'/'between'. 15-minute
+  // events (KXBTC15M etc.) are a genuinely different product — a single
+  // market per window with strike_type 'greater_or_equal' (confirmed live:
+  // one market per KXBTC15M event, no 'between' brackets at all) — added
+  // when wiring up 15-min support.
+  strikeType: 'greater' | 'less' | 'between' | 'greater_or_equal' | 'less_or_equal';
   floorStrike: number | null;
   capStrike: number | null;
   yesProbability: number;    // 0–100 (from yes_bid or last_price)
