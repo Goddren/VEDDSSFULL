@@ -618,6 +618,22 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   }
 
   const symbols = s.config.symbols?.length ? s.config.symbols : (['BTC'] as KalshiCryptoCoin[]);
+
+  // In value-pick mode, evaluate ALL configured symbols and fire on the
+  // single highest-scoring qualifying pick across all of them — NOT the
+  // first one that merely clears the bar. The old first-past-the-post loop
+  // (still used below for single-strategy mode) meant whichever coin came
+  // first in the symbols array won by default every cycle it had ANY
+  // qualifying pick, regardless of whether another coin had a stronger one
+  // that same cycle. Confirmed live: BTC — first in the list and Kalshi's
+  // deepest, most liquid 15-min market — took 30 of 60 trades in a day with
+  // by far the worst win rate (23% vs ETH's 46%), because it almost always
+  // clears even a low threshold first and the loop never got to compare it
+  // against what the other coins were offering that same cycle.
+  if (s.config.autoTradeValuePicks) {
+    return await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+  }
+
   // Previously only the LAST symbol's block reason was kept — e.g. if BTC was
   // blocked by a broken credential and DOGE just had no signal that cycle,
   // the dashboard only ever showed DOGE's benign reason, silently masking a
@@ -637,6 +653,59 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   return { fired: false, reason: combined };
 }
 
+async function _scanBestValuePickAcrossSymbols(
+  userId: number,
+  s: KalshiEngineState,
+  symbols: KalshiCryptoCoin[],
+): Promise<{ fired: boolean; reason: string }> {
+  const perSymbolReasons: string[] = [];
+  let best: { coin: KalshiCryptoCoin; top: KalshiValuePick; vp: KalshiValueScanResult } | null = null;
+
+  for (const coin of symbols) {
+    if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
+      perSymbolReasons.push(`${coin}: ${s.config.timeframe === 'fifteen_min' ? '15-min' : 'hourly'} market exists but isn't broker/API-tradeable — skipping`);
+      continue;
+    }
+    try {
+      const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
+      const top = vp.picks[0];
+      if (!top) {
+        perSymbolReasons.push(`${coin}: no positive-edge bracket right now (${vp.consensus.direction} consensus)`);
+        continue;
+      }
+      if (top.valueScore < s.config.minValueScore) {
+        perSymbolReasons.push(`${coin}: best score ${top.valueScore} below threshold (${s.config.minValueScore}) — "${top.subtitle}"`);
+        continue;
+      }
+      perSymbolReasons.push(`${coin}: qualifying pick, score ${top.valueScore} — "${top.subtitle}"`);
+      if (!best || top.valueScore > best.top.valueScore) best = { coin, top, vp };
+    } catch (err: any) {
+      perSymbolReasons.push(`${coin}: value-pick scan error: ${err.message}`);
+    }
+  }
+
+  if (!best) {
+    const combined = perSymbolReasons.join(' · ');
+    s.lastScanResult = combined;
+    return { fired: false, reason: combined };
+  }
+
+  const { coin, top, vp } = best;
+  const result = await _placeKalshiYes(userId, s, {
+    coin,
+    timeframe: s.config.timeframe,
+    ticker: top.ticker,
+    subtitle: top.subtitle,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: vp.btcPrice,
+    direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
+    label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}¢ edge) [best of ${symbols.length}]`,
+    strategy: 'consensus',
+  });
+  return result;
+}
+
 async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCryptoCoin): Promise<{ fired: boolean; reason: string }> {
   // Some (coin, timeframe) pairs are real, readable Kalshi markets but NOT
   // broker/API order-placeable (confirmed live — e.g. Gold's 15-min series).
@@ -647,33 +716,10 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
     return { fired: false, reason: `${coin}: ${s.config.timeframe === 'fifteen_min' ? '15-min' : 'hourly'} market exists but isn't broker/API-tradeable on Kalshi's side — skipping` };
   }
 
-  // ── Auto-trade the top High-Value Pick (all-strategy consensus + edge model) ──
-  if (s.config.autoTradeValuePicks) {
-    try {
-      const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
-      const top = vp.picks[0];
-      if (!top) {
-        return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
-      }
-      if (top.valueScore < s.config.minValueScore) {
-        return { fired: false, reason: `${coin}: Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) — "${top.subtitle}"` };
-      }
-      return await _placeKalshiYes(userId, s, {
-        coin,
-        timeframe: s.config.timeframe,
-        ticker: top.ticker,
-        subtitle: top.subtitle,
-        priceInCents: top.marketAskCents,
-        confidence: top.confidence,
-        btcPrice: vp.btcPrice,
-        direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
-        label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}¢ edge)`,
-        strategy: 'consensus',
-      });
-    } catch (err: any) {
-      return { fired: false, reason: `${coin}: Value-pick scan error: ${err.message}` };
-    }
-  }
+  // Note: autoTradeValuePicks mode is handled entirely by
+  // _scanBestValuePickAcrossSymbols (called directly from _runKalshiScan,
+  // evaluating all symbols before firing) — this function is only reached
+  // for single-strategy mode now.
 
   try {
     // 0. Resolve strategy — 'auto' scans all strategies and picks the best

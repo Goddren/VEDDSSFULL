@@ -34751,6 +34751,9 @@ async function _runKalshiScan(userId, manual = false) {
     }
   }
   const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
+  if (s.config.autoTradeValuePicks) {
+    return await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+  }
   const perSymbolReasons = [];
   for (const coin of symbols) {
     const result = await _scanOneCoin(userId, s, coin);
@@ -34764,35 +34767,54 @@ async function _runKalshiScan(userId, manual = false) {
   s.lastScanResult = combined;
   return { fired: false, reason: combined };
 }
+async function _scanBestValuePickAcrossSymbols(userId, s, symbols) {
+  const perSymbolReasons = [];
+  let best = null;
+  for (const coin2 of symbols) {
+    if (!isKalshiBrokerTradeable(coin2, s.config.timeframe)) {
+      perSymbolReasons.push(`${coin2}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable \u2014 skipping`);
+      continue;
+    }
+    try {
+      const vp2 = await scanKalshiValuePicks(userId, 1, coin2, s.config.timeframe);
+      const top2 = vp2.picks[0];
+      if (!top2) {
+        perSymbolReasons.push(`${coin2}: no positive-edge bracket right now (${vp2.consensus.direction} consensus)`);
+        continue;
+      }
+      if (top2.valueScore < s.config.minValueScore) {
+        perSymbolReasons.push(`${coin2}: best score ${top2.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top2.subtitle}"`);
+        continue;
+      }
+      perSymbolReasons.push(`${coin2}: qualifying pick, score ${top2.valueScore} \u2014 "${top2.subtitle}"`);
+      if (!best || top2.valueScore > best.top.valueScore) best = { coin: coin2, top: top2, vp: vp2 };
+    } catch (err) {
+      perSymbolReasons.push(`${coin2}: value-pick scan error: ${err.message}`);
+    }
+  }
+  if (!best) {
+    const combined = perSymbolReasons.join(" \xB7 ");
+    s.lastScanResult = combined;
+    return { fired: false, reason: combined };
+  }
+  const { coin, top, vp } = best;
+  const result = await _placeKalshiYes(userId, s, {
+    coin,
+    timeframe: s.config.timeframe,
+    ticker: top.ticker,
+    subtitle: top.subtitle,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: vp.btcPrice,
+    direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
+    label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge) [best of ${symbols.length}]`,
+    strategy: "consensus"
+  });
+  return result;
+}
 async function _scanOneCoin(userId, s, coin) {
   if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
     return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
-  }
-  if (s.config.autoTradeValuePicks) {
-    try {
-      const vp = await scanKalshiValuePicks(userId, 1, coin, s.config.timeframe);
-      const top = vp.picks[0];
-      if (!top) {
-        return { fired: false, reason: `${coin}: Value picks: no positive-edge bracket right now (${vp.consensus.direction} consensus)` };
-      }
-      if (top.valueScore < s.config.minValueScore) {
-        return { fired: false, reason: `${coin}: Value picks: best score ${top.valueScore} below threshold (${s.config.minValueScore}) \u2014 "${top.subtitle}"` };
-      }
-      return await _placeKalshiYes(userId, s, {
-        coin,
-        timeframe: s.config.timeframe,
-        ticker: top.ticker,
-        subtitle: top.subtitle,
-        priceInCents: top.marketAskCents,
-        confidence: top.confidence,
-        btcPrice: vp.btcPrice,
-        direction: vp.consensus.direction === "SELL" ? "SELL" : "BUY",
-        label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}\xA2 edge)`,
-        strategy: "consensus"
-      });
-    } catch (err) {
-      return { fired: false, reason: `${coin}: Value-pick scan error: ${err.message}` };
-    }
   }
   try {
     let effectiveStrategy;
