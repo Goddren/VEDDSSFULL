@@ -1069,19 +1069,50 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
     winRateWeight = Math.round((0.7 + (consStat.winRate / 100) * 0.6) * 100) / 100;
   }
 
+  // ── Trade-quality filters (favorite-longshot bias + exit cost) ──────────────
+  // These narrow the scanner to genuinely BETTER trades, not more of them. Two
+  // well-established effects make the naive "edge = model − ask" surface too
+  // many losers at the cheap end:
+  //   1. Favorite-longshot bias: the crowd systematically OVERPAYS for cheap,
+  //      low-probability "longshot" brackets and UNDERPAYS for near-the-money
+  //      favorites. So an apparent edge on a cheap bracket is far more likely to
+  //      be model error + structural overpricing than a real bargain.
+  //   2. Exit cost: an open YES is valued at the BID (see _updateOpenTradePrices),
+  //      so a wide bid/ask spread — or no bid at all — is a guaranteed loss the
+  //      moment we're filled. Theoretical edge a wide book eats on the way out.
+  const LONGSHOT_FLOOR_CENTS = 15; // below this, YES is a structural trap — skip outright
+  const SPREAD_MAX_CENTS     = 6;  // wider book (or no bid) → edge is eaten on exit — skip
+  const EDGE_MIN_CENTS       = 4;  // real edge floor, now applied AFTER the longshot haircut
+
   const picks: KalshiValuePick[] = [];
   for (const b of event.brackets) {
     if (!b.hasLiquidity) continue;
     const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
     if (ask <= 1 || ask >= 97) continue; // skip illiquid / already-decided
 
+    // Favorite-longshot filter: reject the cheap longshots the crowd overprices.
+    if (ask < LONGSHOT_FLOOR_CENTS) continue;
+
+    // Exit-cost filter: no bid means we can't sell at all; a wide spread means we
+    // sell back well below what we paid regardless of how the event resolves.
+    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
+    if (spread > SPREAD_MAX_CENTS) continue;
+
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
-    const edgePct = modelProbPct - ask;
-    if (edgePct < 4) continue; // require a real ≥4¢ edge, not a marginal positive
+    const rawEdgePct = modelProbPct - ask;
 
-    // Value score: edge weighted by how strongly the strategies agree & their confidence,
-    // lightly penalized for very long-shot picks, and scaled by the learned win rate.
+    // Longshot edge haircut: the normal-CDF model is least reliable at the tails
+    // (crypto returns are fat-tailed) and that is exactly where the overpricing
+    // bias bites — so discount edge on cheaper brackets and trust it in full
+    // only near the money. Full weight by ~40¢, tapering to 0.6× at the 15¢ floor.
+    const longshotFactor = Math.min(1, 0.6 + (ask - LONGSHOT_FLOOR_CENTS) / 60);
+    const edgePct = Math.round(rawEdgePct * longshotFactor);
+    if (edgePct < EDGE_MIN_CENTS) continue; // real edge AFTER the haircut, not a longshot mirage
+
+    // Value score: haircut edge weighted by how strongly the strategies agree &
+    // their confidence, tilted toward more-likely (favorite) outcomes, and
+    // scaled by the learned win rate.
     const agreementW = 0.5 + consensus.agreement * 0.5;       // 0.5–1.0
     const confW      = 0.5 + (consensus.confidence / 100) * 0.5; // 0.5–1.0
     const probW      = 0.6 + modelProb * 0.4;                  // favor more-likely outcomes
@@ -1089,6 +1120,9 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
 
     const learnNote = winRateWeight !== 1.0
       ? ` Learned ${winRateWeight}× (consensus WR ${consStat!.winRate}% over ${consStat!.wins + consStat!.losses}).`
+      : '';
+    const haircutNote = longshotFactor < 1
+      ? ` Longshot haircut ${Math.round(longshotFactor * 100)}% (raw +${rawEdgePct}¢).`
       : '';
 
     picks.push({
@@ -1102,7 +1136,7 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
       confidence: consensus.confidence,
       agreement: consensus.agreement,
       winRateWeight,
-      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.${learnNote}`,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.${haircutNote}${learnNote}`,
     });
   }
 

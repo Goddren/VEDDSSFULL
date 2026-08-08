@@ -35008,20 +35008,29 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   if (consStat && consStat.wins + consStat.losses >= 5) {
     winRateWeight = Math.round((0.7 + consStat.winRate / 100 * 0.6) * 100) / 100;
   }
+  const LONGSHOT_FLOOR_CENTS = 15;
+  const SPREAD_MAX_CENTS = 6;
+  const EDGE_MIN_CENTS = 4;
   const picks = [];
   for (const b of event.brackets) {
     if (!b.hasLiquidity) continue;
     const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
     if (ask <= 1 || ask >= 97) continue;
+    if (ask < LONGSHOT_FLOOR_CENTS) continue;
+    const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
+    if (spread > SPREAD_MAX_CENTS) continue;
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
-    const edgePct = modelProbPct - ask;
-    if (edgePct < 4) continue;
+    const rawEdgePct = modelProbPct - ask;
+    const longshotFactor = Math.min(1, 0.6 + (ask - LONGSHOT_FLOOR_CENTS) / 60);
+    const edgePct = Math.round(rawEdgePct * longshotFactor);
+    if (edgePct < EDGE_MIN_CENTS) continue;
     const agreementW = 0.5 + consensus.agreement * 0.5;
     const confW = 0.5 + consensus.confidence / 100 * 0.5;
     const probW = 0.6 + modelProb * 0.4;
     const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * 10) / 10;
     const learnNote = winRateWeight !== 1 ? ` Learned ${winRateWeight}\xD7 (consensus WR ${consStat.winRate}% over ${consStat.wins + consStat.losses}).` : "";
+    const haircutNote = longshotFactor < 1 ? ` Longshot haircut ${Math.round(longshotFactor * 100)}% (raw +${rawEdgePct}\xA2).` : "";
     picks.push({
       ticker: b.ticker,
       subtitle: b.subtitle,
@@ -35033,7 +35042,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
       confidence: consensus.confidence,
       agreement: consensus.agreement,
       winRateWeight,
-      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge.${learnNote}`
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge.${haircutNote}${learnNote}`
     });
   }
   picks.sort((a, b) => b.valueScore - a.valueScore);
