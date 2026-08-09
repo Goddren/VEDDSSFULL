@@ -213,10 +213,32 @@ export class VeddTokenService {
     const burstCount = recentBurst[0]?.count || 0;
     const securityFlag = burstCount >= 3 ? 'velocity' : undefined;
 
-    // Clamp reward so we don't bust the daily cap
-    const baseReward = Math.min(config.baseAmount, DAILY_VEDD_CAP - dailyTotal);
-    const bonusReward = 0;
-    const totalReward = baseReward + bonusReward;
+    const remaining = DAILY_VEDD_CAP - dailyTotal;
+    const baseReward = Math.min(config.baseAmount, remaining);
+
+    // Streak bonus (previously dead — bonusReward was hardcoded to 0, so the
+    // seeded streakMultiplier values never applied). Apply the configured
+    // multiplier when the user performed this action on the PRIOR UTC day.
+    const mult = config.streakMultiplier ?? 1.0;
+    let bonusReward = 0;
+    if (mult > 1.0 && baseReward > 0) {
+      const now = new Date();
+      const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1000);
+      const [prev] = await db.select({ c: sql<number>`count(*)` })
+        .from(ambassadorActionRewards)
+        .where(and(
+          eq(ambassadorActionRewards.userId, userId),
+          eq(ambassadorActionRewards.actionType, actionType),
+          gte(ambassadorActionRewards.createdAt, startYesterday),
+          sql`${ambassadorActionRewards.createdAt} < ${startToday}`,
+        ));
+      if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
+    }
+
+    // Keep the total within the remaining daily cap; report the clamped bonus.
+    const totalReward = Math.min(baseReward + bonusReward, remaining);
+    bonusReward = Math.max(0, totalReward - baseReward);
 
     return { baseReward, bonusReward, totalReward, securityFlag };
   }

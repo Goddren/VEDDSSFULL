@@ -21280,9 +21280,24 @@ var init_vedd_token_service = __esm({
         ));
         const burstCount = recentBurst[0]?.count || 0;
         const securityFlag = burstCount >= 3 ? "velocity" : void 0;
-        const baseReward = Math.min(config.baseAmount, DAILY_VEDD_CAP2 - dailyTotal);
-        const bonusReward = 0;
-        const totalReward = baseReward + bonusReward;
+        const remaining = DAILY_VEDD_CAP2 - dailyTotal;
+        const baseReward = Math.min(config.baseAmount, remaining);
+        const mult = config.streakMultiplier ?? 1;
+        let bonusReward = 0;
+        if (mult > 1 && baseReward > 0) {
+          const now = /* @__PURE__ */ new Date();
+          const startToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+          const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1e3);
+          const [prev] = await db.select({ c: sql6`count(*)` }).from(ambassadorActionRewards).where(and6(
+            eq8(ambassadorActionRewards.userId, userId),
+            eq8(ambassadorActionRewards.actionType, actionType),
+            gte5(ambassadorActionRewards.createdAt, startYesterday),
+            sql6`${ambassadorActionRewards.createdAt} < ${startToday}`
+          ));
+          if ((prev?.c || 0) > 0) bonusReward = Math.round(baseReward * (mult - 1));
+        }
+        const totalReward = Math.min(baseReward + bonusReward, remaining);
+        bonusReward = Math.max(0, totalReward - baseReward);
         return { baseReward, bonusReward, totalReward, securityFlag };
       }
       async enqueueReward(userId, actionType, actionId, metadata) {
@@ -73002,8 +73017,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         status: "pending",
         imageUrl: imageUrl || null
       }).returning();
-      await creditWalletWithCap(userId, rewardAmount, "wear_to_earn", true);
-      res.json({ success: true, rewardAmount, claimId: claim.id });
+      const cap = await creditWalletWithCap(userId, rewardAmount, "wear_to_earn", true);
+      res.json({ success: true, rewardAmount: cap.credited, capped: cap.capped, claimId: claim.id });
     });
     app2.get("/api/wear-to-earn/claims", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -73094,8 +73109,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         VALUES (${userId}, ${today}, ${reward}, ${newStreak})
         ON CONFLICT (user_id, day_string) DO NOTHING
       `);
-      await creditWalletWithCap(userId, reward, "checkin", false);
-      res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
+      const cap = await creditWalletWithCap(userId, reward, "checkin", false);
+      res.json({ success: true, reward: cap.credited, capped: cap.capped, newStreak, streakBonus: reward - CHECKIN_REWARD });
     });
     const DAILY_TRADING_COURSES = [
       { id: 3, title: "Trading Fundamentals", lessons: 7 },
@@ -73323,8 +73338,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: ACTIVATION_BONUS,
         dayString: today
       }).onConflictDoNothing();
-      await creditWalletWithCap(userId, ACTIVATION_BONUS, "nfc_activation", false);
-      res.json({ success: true, activation, rewardAmount: ACTIVATION_BONUS, isFirstActivation: true });
+      const cap = await creditWalletWithCap(userId, ACTIVATION_BONUS, "nfc_activation", false);
+      res.json({ success: true, activation, rewardAmount: cap.credited, capped: cap.capped, isFirstActivation: true });
     });
     app2.post("/api/nfc/daily-tap", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
@@ -73366,10 +73381,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         currentStreak: newStreak,
         bestStreak: newBest
       }).where(eq21(nfcActivations2.id, activation.id));
-      await creditWalletWithCap(userId, reward, "nfc_tap", false);
+      const cap = await creditWalletWithCap(userId, reward, "nfc_tap", false);
       res.json({
         success: true,
-        rewardAmount: reward,
+        rewardAmount: cap.credited,
+        capped: cap.capped,
         newStreak,
         bestStreak: newBest,
         streakBonus: reward - DAILY_REWARD,
@@ -73546,11 +73562,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           best_streak = ${newBest}
         WHERE id = ${activation.id}
       `);
-      await creditWalletWithCap(userId, reward, "nfc_tap", false);
+      const cap = await creditWalletWithCap(userId, reward, "nfc_tap", false);
       const [insertedEvent] = await db.execute(sql12`
         INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
         VALUES (
-          ${userId}, 'nfc_tap', ${reward},
+          ${userId}, 'nfc_tap', ${cap.credited},
           ${`${activation.garment_name} \u2014 ${emoji} ${tier}`},
           ${activation.id},
           ${tapLat}, ${tapLon}, ${distanceMiles}
@@ -73570,7 +73586,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }
       res.json({
         success: true,
-        tokensEarned: reward,
+        tokensEarned: cap.credited,
+        capped: cap.capped,
         tier,
         emoji,
         distanceMiles,

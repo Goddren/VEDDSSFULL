@@ -25506,8 +25506,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         imageUrl: imageUrl || null,
       }).returning();
       // Credit VEDD to internal wallet immediately (optimistic), capped daily/weekly
-      await creditWalletWithCap(userId, rewardAmount, 'wear_to_earn', true);
-      res.json({ success: true, rewardAmount, claimId: claim.id });
+      const cap = await creditWalletWithCap(userId, rewardAmount, 'wear_to_earn', true);
+      res.json({ success: true, rewardAmount: cap.credited, capped: cap.capped, claimId: claim.id });
     });
 
     app.get("/api/wear-to-earn/claims", async (req: Request, res: Response) => {
@@ -25622,9 +25622,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       `);
 
       // Credit directly to spendable VEDD balance (capped daily/weekly)
-      await creditWalletWithCap(userId, reward, 'checkin', false);
+      const cap = await creditWalletWithCap(userId, reward, 'checkin', false);
 
-      res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
+      res.json({ success: true, reward: cap.credited, capped: cap.capped, newStreak, streakBonus: reward - CHECKIN_REWARD });
     });
 
     // ============= DAILY TO-DO CHECKLIST (dashboard) =============
@@ -25912,9 +25912,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }).onConflictDoNothing();
 
       // Credit VEDD directly to spendable balance (chip is the proof), capped daily/weekly
-      await creditWalletWithCap(userId, ACTIVATION_BONUS, 'nfc_activation', false);
+      const cap = await creditWalletWithCap(userId, ACTIVATION_BONUS, 'nfc_activation', false);
 
-      res.json({ success: true, activation, rewardAmount: ACTIVATION_BONUS, isFirstActivation: true });
+      res.json({ success: true, activation, rewardAmount: cap.credited, capped: cap.capped, isFirstActivation: true });
     });
 
     // ── POST /api/nfc/daily-tap — daily reward (15 VEDD/tap, once per chip per day)
@@ -25971,11 +25971,12 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       }).where(eq(nfcActivations.id, activation.id));
 
       // Credit VEDD to spendable balance (capped daily/weekly)
-      await creditWalletWithCap(userId, reward, 'nfc_tap', false);
+      const cap = await creditWalletWithCap(userId, reward, 'nfc_tap', false);
 
       res.json({
         success: true,
-        rewardAmount: reward,
+        rewardAmount: cap.credited,
+        capped: cap.capped,
         newStreak,
         bestStreak: newBest,
         streakBonus: reward - DAILY_REWARD,
@@ -26195,13 +26196,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       `);
 
       // Credit wallet (capped daily/weekly)
-      await creditWalletWithCap(userId, reward, 'nfc_tap', false);
+      const cap = await creditWalletWithCap(userId, reward, 'nfc_tap', false);
 
       // Insert earn_event with GPS + distance (city resolved async below)
       const [insertedEvent] = await db.execute(sql`
         INSERT INTO vedd_earn_events(user_id, type, amount, label, garment_id, lat, lon, distance_miles)
         VALUES (
-          ${userId}, 'nfc_tap', ${reward},
+          ${userId}, 'nfc_tap', ${cap.credited},
           ${`${activation.garment_name} — ${emoji} ${tier}`},
           ${activation.id},
           ${tapLat}, ${tapLon}, ${distanceMiles}
@@ -26223,7 +26224,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
       res.json({
         success: true,
-        tokensEarned: reward,
+        tokensEarned: cap.credited,
+        capped: cap.capped,
         tier,
         emoji,
         distanceMiles,
