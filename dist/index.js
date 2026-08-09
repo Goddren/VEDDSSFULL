@@ -6276,7 +6276,17 @@ var init_storage = __esm({
 });
 
 // shared/token-rewards.ts
-var TOKEN_REWARDS, SUBSCRIPTION_PRICE_CENTS;
+function resolveAmbassadorTier(referralCount) {
+  let current = null;
+  for (const t of AMBASSADOR_TIERS) if (referralCount >= t.minReferrals) current = t;
+  return current;
+}
+function tierCommissionCredits(referralCount, planPriceCents) {
+  const tier = resolveAmbassadorTier(referralCount);
+  if (!tier || !tier.commissionPct) return 0;
+  return Math.round(planPriceCents * (tier.commissionPct / 100));
+}
+var TOKEN_REWARDS, SUBSCRIPTION_PRICE_CENTS, AMBASSADOR_TIERS, REFERRAL_SUBSCRIPTION_BASE_CREDITS;
 var init_token_rewards = __esm({
   "shared/token-rewards.ts"() {
     "use strict";
@@ -6294,7 +6304,18 @@ var init_token_rewards = __esm({
       journey_completion_bonus: 960,
       // raised so a full 44-day journey reaches JOURNEY_FREE_MONTH_TOKENS
       referral_profit_share: 5,
-      wear_to_earn: 50
+      wear_to_earn: 50,
+      // Daily-missions catalog actions (were advertised in the UI but had no config,
+      // so they paid 0). Now real, at their advertised amounts.
+      devotional_solo: 73,
+      devotional_group: 148,
+      strategy_review: 15,
+      analysis_view: 10,
+      live_monitor_check: 5,
+      blog_share: 20,
+      grant_apply: 25,
+      training_module: 50,
+      devotional_streak_bonus: 200
     };
     SUBSCRIPTION_PRICE_CENTS = {
       starter: 4995,
@@ -6304,6 +6325,13 @@ var init_token_rewards = __esm({
       yearly: 99999
       // $999.99 / yr
     };
+    AMBASSADOR_TIERS = [
+      { name: "Bronze", minReferrals: 10, monthlyCredits: 5e3, commissionPct: 0 },
+      { name: "Silver", minReferrals: 30, monthlyCredits: 15e3, commissionPct: 5 },
+      { name: "Gold", minReferrals: 60, monthlyCredits: 3e4, commissionPct: 10 },
+      { name: "Platinum", minReferrals: 100, monthlyCredits: 5e4, commissionPct: 15 }
+    ];
+    REFERRAL_SUBSCRIPTION_BASE_CREDITS = 200;
   }
 });
 
@@ -21314,6 +21342,11 @@ var init_vedd_token_service = __esm({
             error: "Token transfer system not configured. Reward is pending - tokens will be sent once configuration is complete."
           };
         }
+        const [poolWallet] = await db.select().from(veddPoolWallets).where(and5(eq7(veddPoolWallets.walletType, "rewards"), eq7(veddPoolWallets.status, "active"))).limit(1);
+        if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
+          await db.update(veddTransferJobs).set({ status: "pending", errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} \u2014 held until the pool is refilled.` }).where(eq7(veddTransferJobs.id, jobId));
+          return { success: false, error: "Insufficient pool balance \u2014 reward held pending." };
+        }
         await db.update(veddTransferJobs).set({ status: "processing" }).where(eq7(veddTransferJobs.id, jobId));
         try {
           const keypair = getPoolKeypair();
@@ -21351,6 +21384,7 @@ var init_vedd_token_service = __esm({
           await db.update(users).set({
             veddTokenBalance: sql5`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
           }).where(eq7(users.id, job.userId));
+          await db.update(veddPoolWallets).set({ tokenBalance: sql5`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` }).where(and5(eq7(veddPoolWallets.walletType, "rewards"), eq7(veddPoolWallets.status, "active")));
           return { success: true, transactionSig: signature };
         } catch (error) {
           const retryCount = (job.retryCount || 0) + 1;
@@ -33576,8 +33610,8 @@ async function _restorePolymarketRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq20, and: and11, sql: sql14 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql14`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "polymarket")));
+    const { eq: eq20, and: and11, sql: sql15 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql15`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "polymarket")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getEngineState(userId);
     s.totalRealizedPnl = total;
@@ -34875,8 +34909,8 @@ async function _restoreKalshiRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq20, and: and11, sql: sql14 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql14`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "kalshi")));
+    const { eq: eq20, and: and11, sql: sql15 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql15`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "kalshi")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getKalshiEngineState(userId);
     s.totalRealizedPnl = total;
@@ -35020,8 +35054,8 @@ async function ruinGuardStatus(userId, s) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { and: and11, eq: eq20, gte: gte6, sql: sql14 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql14`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(
+    const { and: and11, eq: eq20, gte: gte6, sql: sql15 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql15`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(
       eq20(aiTradeResults2.userId, userId),
       eq20(aiTradeResults2.source, "kalshi"),
       gte6(aiTradeResults2.closedAt, startOfDayUtc)
@@ -35890,8 +35924,8 @@ async function _restorePmUsRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq20, and: and11, sql: sql14 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql14`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "polymarket-us")));
+    const { eq: eq20, and: and11, sql: sql15 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql15`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and11(eq20(aiTradeResults2.userId, userId), eq20(aiTradeResults2.source, "polymarket-us")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getPmUsEngineState(userId);
     s.totalRealizedPnl = total;
@@ -41590,13 +41624,13 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
     return;
   }
   try {
-    const { sql: sql14 } = await import("drizzle-orm");
-    const acctRows = await db.execute(sql14`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
+    const { sql: sql15 } = await import("drizzle-orm");
+    const acctRows = await db.execute(sql15`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
     const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
     if (!acct) {
-      await db.execute(sql14`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
+      await db.execute(sql15`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
     }
-    const tradeRows = await db.execute(sql14`
+    const tradeRows = await db.execute(sql15`
       INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, source, status, opened_at)
       VALUES (${rel.copier_id}, ${source.pair}, ${source.direction}, ${source.entryPrice}, ${source.stopLoss}, ${source.takeProfit}, ${mirrorLot}, 'copy_trade', 'open', now())
       RETURNING id
@@ -41635,12 +41669,12 @@ async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sour
   }
   if (log2.copierFxTradeId) {
     try {
-      const { sql: sql14 } = await import("drizzle-orm");
-      await db.execute(sql14`
+      const { sql: sql15 } = await import("drizzle-orm");
+      await db.execute(sql15`
         UPDATE fx_paper_trades SET status='closed', exit_price=${sourceExitPrice}, pnl=${copierPnl}, closed_at=now()
         WHERE id=${log2.copierFxTradeId}
       `);
-      await db.execute(sql14`
+      await db.execute(sql15`
         UPDATE fx_paper_accounts SET balance=balance+${copierPnl}, updated_at=now() WHERE user_id=${rel.copier_id}
       `);
     } catch (e) {
@@ -43033,7 +43067,7 @@ async function outreachLead(dbLead) {
   };
 }
 function startLeadHunterScheduler() {
-  const scheduleNext = () => {
+  const scheduleNext2 = () => {
     const now = /* @__PURE__ */ new Date();
     const next = /* @__PURE__ */ new Date();
     next.setUTCHours(8, 0, 0, 0);
@@ -43046,10 +43080,10 @@ function startLeadHunterScheduler() {
       } catch (e) {
         console.error("[LeadHunter] Scheduled run error:", e.message);
       }
-      scheduleNext();
+      scheduleNext2();
     }, delay);
   };
-  scheduleNext();
+  scheduleNext2();
 }
 var DIGEST_TO, DIGEST_CC, FROM2, TWITTER_USER_ID, SKIP_USERNAMES, AI_SCORE_LIMIT;
 var init_lead_hunter = __esm({
@@ -44118,7 +44152,7 @@ function escHtml(s) {
   return (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 function startAmbassadorPrimeScheduler() {
-  function scheduleNext() {
+  function scheduleNext2() {
     const now = /* @__PURE__ */ new Date();
     const next = /* @__PURE__ */ new Date();
     next.setUTCHours(9, 0, 0, 0);
@@ -44131,10 +44165,10 @@ function startAmbassadorPrimeScheduler() {
       } catch (e) {
         console.error("[ambassador-prime] Scheduler run error:", e.message);
       }
-      scheduleNext();
+      scheduleNext2();
     }, delay);
   }
-  scheduleNext();
+  scheduleNext2();
 }
 var REFERRAL_LINK, REPORT_EMAIL, LINKEDIN_AUTHOR_URN, WEEKLY_THEMES;
 var init_ambassador_prime = __esm({
@@ -44532,7 +44566,7 @@ async function runPersonaContentEngine(trigger = "manual") {
   }
 }
 function startPersonaContentScheduler() {
-  function scheduleNext() {
+  function scheduleNext2() {
     const now = /* @__PURE__ */ new Date();
     const next = /* @__PURE__ */ new Date();
     next.setUTCHours(10, 0, 0, 0);
@@ -44548,10 +44582,10 @@ function startPersonaContentScheduler() {
       } catch (e) {
         console.error("[persona-content] Scheduler run error:", e.message);
       }
-      scheduleNext();
+      scheduleNext2();
     }, delay);
   }
-  scheduleNext();
+  scheduleNext2();
 }
 var REFERRAL_LINK2, REPORT_EMAIL2, ARC_STAGES, PLATFORMS, BANNED_PHRASES, BRAND_DNA, PLATFORM_RULES, TARGET_UTC_DAYS;
 var init_persona_content_engine = __esm({
@@ -44715,23 +44749,12 @@ async function ensureTokenomicsMigration() {
       WHERE action_type = 'referral_subscribes'
         AND NOT EXISTS (SELECT 1 FROM vedd_reward_config WHERE action_type = 'referral_subscription')
     `);
-    const canonical = [
-      ["daily_post", TOKEN_REWARDS.daily_post],
-      ["daily_comment", TOKEN_REWARDS.daily_comment],
-      ["referral_signup", TOKEN_REWARDS.referral_signup],
-      ["referral_subscription", TOKEN_REWARDS.referral_subscription],
-      ["challenge_completion", TOKEN_REWARDS.challenge_completion],
-      ["event_hosting", TOKEN_REWARDS.event_hosting],
-      ["event_attendance", TOKEN_REWARDS.event_attendance],
-      ["journey_day_complete", TOKEN_REWARDS.journey_day_complete],
-      ["journey_completion_bonus", TOKEN_REWARDS.journey_completion_bonus],
-      ["referral_profit_share", TOKEN_REWARDS.referral_profit_share],
-      ["wear_to_earn", TOKEN_REWARDS.wear_to_earn]
-    ];
-    for (const [action, amount] of canonical) {
+    for (const [action, amount] of Object.entries(TOKEN_REWARDS)) {
       await pool.query(
-        `UPDATE vedd_reward_config SET base_amount = $1, updated_at = now() WHERE action_type = $2 AND base_amount <> $1`,
-        [amount, action]
+        `INSERT INTO vedd_reward_config (action_type, base_amount, is_active)
+         VALUES ($1, $2, true)
+         ON CONFLICT (action_type) DO UPDATE SET base_amount = EXCLUDED.base_amount, updated_at = now()`,
+        [action, amount]
       );
     }
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 5000`, [SUBSCRIPTION_PRICE_CENTS.starter]);
@@ -45893,7 +45916,7 @@ async function runScheduledBlogPost() {
   }
 }
 function startBlogPostScheduler() {
-  function scheduleNext() {
+  function scheduleNext2() {
     const now = /* @__PURE__ */ new Date();
     const next = /* @__PURE__ */ new Date();
     next.setUTCHours(RUN_HOUR_UTC, 0, 0, 0);
@@ -45905,10 +45928,10 @@ function startBlogPostScheduler() {
     console.log(`[blog-scheduler] Next auto blog post at ${next.toISOString()} (in ${Math.round(delay / 6e4)} min)`);
     setTimeout(async () => {
       await runScheduledBlogPost();
-      scheduleNext();
+      scheduleNext2();
     }, delay);
   }
-  scheduleNext();
+  scheduleNext2();
 }
 var TARGET_UTC_DAYS2, RUN_HOUR_UTC;
 var init_blog_scheduler = __esm({
@@ -45919,6 +45942,77 @@ var init_blog_scheduler = __esm({
     init_content_asset_store();
     TARGET_UTC_DAYS2 = [3, 5];
     RUN_HOUR_UTC = 13;
+  }
+});
+
+// server/services/tier-credit-scheduler.ts
+var tier_credit_scheduler_exports = {};
+__export(tier_credit_scheduler_exports, {
+  startTierCreditScheduler: () => startTierCreditScheduler
+});
+import { sql as sql13 } from "drizzle-orm";
+async function ensureMarkerTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tier_grant_log (
+      month text PRIMARY KEY,
+      granted_at timestamp NOT NULL DEFAULT now(),
+      ambassadors_credited integer NOT NULL DEFAULT 0
+    )
+  `);
+}
+async function grantMonthlyTierCreditsOncePerMonth() {
+  const now = /* @__PURE__ */ new Date();
+  const monthKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const claim = await pool.query(
+    `INSERT INTO tier_grant_log(month) VALUES($1) ON CONFLICT (month) DO NOTHING RETURNING month`,
+    [monthKey]
+  );
+  if (claim.rowCount === 0) return;
+  try {
+    const rows = await db.select({ referrerId: referrals2.referrerId, cnt: sql13`count(*)` }).from(referrals2).where(sql13`${referrals2.status} in ('completed','credited')`).groupBy(referrals2.referrerId);
+    let credited = 0;
+    for (const r of rows) {
+      const tier = resolveAmbassadorTier(Number(r.cnt));
+      if (tier && tier.monthlyCredits > 0 && r.referrerId != null) {
+        await storage.addReferralCredits(r.referrerId, tier.monthlyCredits);
+        credited++;
+      }
+    }
+    await pool.query(`UPDATE tier_grant_log SET ambassadors_credited = $1 WHERE month = $2`, [credited, monthKey]);
+    console.log(`[TierCredits] ${monthKey}: granted monthly tier credits to ${credited} ambassador(s).`);
+  } catch (e) {
+    console.error("[TierCredits] monthly grant failed:", e?.message ?? e);
+  }
+}
+function scheduleNext() {
+  if (_timer) clearTimeout(_timer);
+  _timer = setTimeout(async () => {
+    await grantMonthlyTierCreditsOncePerMonth().catch(() => {
+    });
+    scheduleNext();
+  }, TICK_MS);
+}
+async function startTierCreditScheduler() {
+  try {
+    await ensureMarkerTable();
+    await grantMonthlyTierCreditsOncePerMonth().catch(() => {
+    });
+    scheduleNext();
+    console.log("[TierCredits] Monthly tier-credit scheduler started (daily tick, once-per-month grant).");
+  } catch (e) {
+    console.error("[TierCredits] scheduler start failed (non-fatal):", e?.message ?? e);
+  }
+}
+var _timer, TICK_MS;
+var init_tier_credit_scheduler = __esm({
+  "server/services/tier-credit-scheduler.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_storage();
+    init_token_rewards();
+    _timer = null;
+    TICK_MS = 24 * 60 * 60 * 1e3;
   }
 });
 
@@ -49185,7 +49279,8 @@ router.get("/daily-missions", async (req, res) => {
       const map = t.category === "daily" ? todayMap : weekMap;
       const done = map[t.actionType]?.count || 0;
       const earned = map[t.actionType]?.earned || 0;
-      return { ...t, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
+      const veddReward = TOKEN_REWARDS[t.actionType] ?? t.veddReward;
+      return { ...t, veddReward, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
     const rawDevDays = await db.execute(sql6`
       SELECT COUNT(DISTINCT DATE(created_at)) as days
@@ -54025,9 +54120,16 @@ Respond ONLY in valid JSON format with these exact keys:
         const referrerId = subscribingUser?.referredBy;
         if (referrerId) {
           await storage.markReferralSubscribed(userId);
-          await storage.addReferralCredits(referrerId, 200);
-          console.log(`[Referral] Awarded 200 credits to user ${referrerId} \u2014 referred user ${userId} subscribed`);
-          veddTokenService.enqueueReferralReward(referrerId, "referral_subscription", 200).catch(() => {
+          const refs = await storage.getReferrals(referrerId).catch(() => []);
+          const completed = refs.filter((r) => r.status === "completed" || r.status === "credited").length;
+          const [plan] = await db.select({ price: subscriptionPlans.price }).from(subscriptionPlans).where(eq17(subscriptionPlans.id, planId)).limit(1);
+          const planPriceCents = plan?.price ?? 0;
+          const commission = tierCommissionCredits(completed, planPriceCents);
+          const totalCredits = REFERRAL_SUBSCRIPTION_BASE_CREDITS + commission;
+          await storage.addReferralCredits(referrerId, totalCredits);
+          const tierName = resolveAmbassadorTier(completed)?.name ?? "none";
+          console.log(`[Referral] Awarded ${totalCredits} credits (base ${REFERRAL_SUBSCRIPTION_BASE_CREDITS} + ${commission} ${tierName} commission) to user ${referrerId} \u2014 referral ${userId} subscribed`);
+          veddTokenService.enqueueReferralReward(referrerId, "referral_subscription", REFERRAL_SUBSCRIPTION_BASE_CREDITS).catch(() => {
           });
         }
       } catch (refSubErr) {
@@ -73362,7 +73464,11 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       if (tapLat !== null && tapLon !== null && userRow?.home_lat != null && userRow?.home_lon != null) {
         distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
       }
-      const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
+      const { tier, emoji } = distanceReward(distanceMiles);
+      const _yStr = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+      const _wasYesterday = activation.last_tap_at && new Date(activation.last_tap_at).toISOString().slice(0, 10) === _yStr;
+      const _streakForReward = _wasYesterday ? activation.current_streak + 1 : 1;
+      const reward = 15 + (_streakForReward >= 30 ? 10 : _streakForReward >= 7 ? 5 : 0);
       await db.execute(sql11`
         INSERT INTO nfc_daily_taps(user_id, chip_uid, reward_amount, day_string)
         VALUES (${userId}, ${activation.chip_uid}, ${reward}, ${today})
@@ -77948,7 +78054,17 @@ async function seedVeddRewardConfig() {
     { actionType: "journey_day_complete", baseAmount: 10, streakMultiplier: 1.05, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Completed a day in the 44-day free path journey" },
     { actionType: "journey_completion_bonus", baseAmount: 960, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Completed the full 44-day ambassador journey (raised so a full run = 2000 tokens)" },
     { actionType: "referral_profit_share", baseAmount: 5, streakMultiplier: 1, maxDailyRewards: 10, requiresVerification: false, isActive: true, description: "5% share of referral trade profit" },
-    { actionType: "wear_to_earn", baseAmount: 50, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Scanned VEDD clothing QR code" }
+    { actionType: "wear_to_earn", baseAmount: 50, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Scanned VEDD clothing QR code" },
+    // Daily-missions catalog actions (previously advertised but unconfigured → paid 0).
+    { actionType: "devotional_solo", baseAmount: 73, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Completed the daily devotional (solo)" },
+    { actionType: "devotional_group", baseAmount: 148, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Completed a group devotional session" },
+    { actionType: "strategy_review", baseAmount: 15, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Reviewed the weekly strategy" },
+    { actionType: "analysis_view", baseAmount: 10, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Viewed an AI chart analysis" },
+    { actionType: "live_monitor_check", baseAmount: 5, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Checked the live trading monitor" },
+    { actionType: "blog_share", baseAmount: 20, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Shared a blog article" },
+    { actionType: "grant_apply", baseAmount: 25, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Applied for a grant" },
+    { actionType: "training_module", baseAmount: 50, streakMultiplier: 1, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: "Completed an ambassador training module" },
+    { actionType: "devotional_streak_bonus", baseAmount: 200, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "5-day devotional streak bonus" }
   ];
   for (const config of configs) {
     await db.insert(veddRewardConfig).values(config);
@@ -78080,7 +78196,7 @@ async function seedBlogPosts() {
 init_market_data();
 init_db();
 import { execSync } from "child_process";
-import { sql as sql13 } from "drizzle-orm";
+import { sql as sql14 } from "drizzle-orm";
 (() => {
   const ALIASES = [
     "OPENROUTER_API_KEY",
@@ -78502,14 +78618,14 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         )`
       ];
       for (const m of migrations) {
-        await db.execute(sql13.raw(m));
+        await db.execute(sql14.raw(m));
       }
       console.log("[startup] Schema check complete.");
     } catch (err) {
       console.error("[startup] Schema migration check failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13.raw(`
+      await db.execute(sql14.raw(`
         CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
@@ -78529,7 +78645,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] ai_model_configs table creation failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13.raw(`
+      await db.execute(sql14.raw(`
         CREATE TABLE IF NOT EXISTS stop_orders (
           id              SERIAL PRIMARY KEY,
           user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -78548,7 +78664,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `));
-      await db.execute(sql13.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      await db.execute(sql14.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
       console.log("[startup] stop_orders table ready.");
     } catch (err) {
       console.error("[startup] stop_orders table creation failed (non-fatal):", err.message);
@@ -78561,23 +78677,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Full schema sync failed (non-fatal, critical columns already added above):", err.message?.slice(0, 200));
     }
     try {
-      await db.execute(sql13`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
-      await db.execute(sql13`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
-      await db.execute(sql13`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
-      await db.execute(sql13`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
+      await db.execute(sql14`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+      await db.execute(sql14`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql14`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql14`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error("[startup] Lifetime\u2192Yearly migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
     } catch (err) {
       console.error("[startup] AI settings columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS referral_visits (
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS referral_visits (
         id serial PRIMARY KEY,
         referral_code text NOT NULL,
         referrer_id integer REFERENCES users(id),
@@ -78592,7 +78708,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reminder_sent boolean DEFAULT false,
         reminder_sent_at timestamp
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS dm_keywords (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS dm_keywords (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         keyword text NOT NULL,
@@ -78609,7 +78725,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Referral/DM tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS investment_pools (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS investment_pools (
         id serial PRIMARY KEY,
         name text NOT NULL,
         slug text NOT NULL UNIQUE,
@@ -78629,7 +78745,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS token_investments (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS token_investments (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         pool_id integer REFERENCES investment_pools(id) NOT NULL,
@@ -78649,7 +78765,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Investment pool tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS grants (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -78671,7 +78787,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS grant_applications (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS grant_applications (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id),
         grant_id integer REFERENCES grants(id),
@@ -78688,7 +78804,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
         id serial PRIMARY KEY,
         triggered_by integer REFERENCES users(id),
         scan_type text NOT NULL,
@@ -78705,7 +78821,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Grants tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
@@ -78721,7 +78837,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS quiz_leads (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS quiz_leads (
         id SERIAL PRIMARY KEY,
         quiz_id INTEGER REFERENCES landing_page_quizzes(id),
         ambassador_id INTEGER REFERENCES users(id) NOT NULL,
@@ -78743,7 +78859,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS social_lead_scans (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS social_lead_scans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         platform TEXT NOT NULL,
@@ -78758,7 +78874,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador lead generation tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS leads (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS leads (
         id VARCHAR(500) PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         platform VARCHAR(50) NOT NULL,
@@ -78779,7 +78895,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         engagement_type VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
         id SERIAL PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         status VARCHAR(50) DEFAULT 'running',
@@ -78797,27 +78913,27 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Lead Hunter tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
-      await db.execute(sql13`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
-      await db.execute(sql13`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
+      await db.execute(sql14`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
+      await db.execute(sql14`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
+      await db.execute(sql14`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
       console.log("[startup] Copy trading VEDD columns verified.");
     } catch (err) {
     }
     try {
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
-      await db.execute(sql13`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
-      await db.execute(sql13`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
+      await db.execute(sql14`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
+      await db.execute(sql14`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
       console.log("[startup] Prop-firm linkage + balance-snapshot columns verified.");
     } catch (err) {
       console.error("[startup] Prop-firm linkage migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS blog_posts (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -78852,7 +78968,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         `published_at TIMESTAMP`,
         `updated_at TIMESTAMP DEFAULT NOW()`
       ]) {
-        await db.execute(sql13.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
+        await db.execute(sql14.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
         });
       }
       console.log("[startup] blog_posts table created/verified.");
@@ -78860,7 +78976,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS ambassador_journey (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS ambassador_journey (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
         current_day INTEGER DEFAULT 1 NOT NULL,
@@ -78881,7 +78997,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         day INTEGER NOT NULL,
@@ -78898,7 +79014,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador journey tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         public_key TEXT NOT NULL UNIQUE,
@@ -78909,7 +79025,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         last_sync_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_reward_config (
         id SERIAL PRIMARY KEY,
         action_type TEXT NOT NULL UNIQUE,
         base_amount REAL NOT NULL DEFAULT 0,
@@ -78921,7 +79037,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         action_type TEXT NOT NULL,
@@ -78937,7 +79053,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         security_flag TEXT,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
@@ -78954,7 +79070,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         processed_at TIMESTAMP
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
@@ -78968,7 +79084,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] VEDD token tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS devotionals (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS devotionals (
         id SERIAL PRIMARY KEY,
         date TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
@@ -78984,7 +79100,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         is_published BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS devotional_groups (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS devotional_groups (
         id SERIAL PRIMARY KEY,
         devotional_id INTEGER REFERENCES devotionals(id),
         created_by INTEGER REFERENCES users(id),
@@ -78995,7 +79111,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         completed_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS devotional_sessions (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS devotional_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
@@ -79009,7 +79125,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reward_amount INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql13`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+      await db.execute(sql14`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
           ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
           ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
@@ -79027,7 +79143,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Devotional tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS sol_engine_settings (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         active_strategy text DEFAULT 'momentum_surfer',
@@ -79046,7 +79162,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         token_address text NOT NULL,
@@ -79067,7 +79183,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS account_growth_plans (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS account_growth_plans (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         starting_balance real NOT NULL DEFAULT 0,
@@ -79082,7 +79198,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS growth_plan_trades (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         plan_id integer REFERENCES account_growth_plans(id),
@@ -79106,7 +79222,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Account Growth Plan tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS nfc_activations (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS nfc_activations (
         id serial PRIMARY KEY,
         chip_uid text NOT NULL UNIQUE,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -79118,7 +79234,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         current_streak integer NOT NULL DEFAULT 0,
         best_streak integer NOT NULL DEFAULT 0
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         chip_uid text NOT NULL,
@@ -79126,18 +79242,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         tapped_at timestamp DEFAULT now() NOT NULL,
         day_string text NOT NULL
       )`);
-      await db.execute(sql13`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
-      await db.execute(sql13`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
-      await db.execute(sql13`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
-      await db.execute(sql13`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
-      await db.execute(sql13`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
-      await db.execute(sql13`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
+      await db.execute(sql14`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql14`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql14`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql14`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql14`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql14`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_earn_events (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         type text NOT NULL,
@@ -79150,26 +79266,26 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
-      await db.execute(sql13`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
-      await db.execute(sql13`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
-      await db.execute(sql13`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+      await db.execute(sql14`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql14`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql14`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
+      await db.execute(sql14`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         sequence_index integer NOT NULL,
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
-      await db.execute(sql13`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql14`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
     } catch (err) {
       console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS daily_checkins (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS daily_checkins (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -79183,7 +79299,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily check-in table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS daily_task_completions (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS daily_task_completions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -79196,7 +79312,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily task completions table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS workforce_modules (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS workforce_modules (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -79213,7 +79329,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS workforce_certificates (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS workforce_certificates (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         module_id integer REFERENCES workforce_modules(id),
@@ -79229,32 +79345,32 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] workforce_modules/workforce_certificates table creation (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
-      await db.execute(sql13`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
-      await db.execute(sql13`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
-      await db.execute(sql13`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
-      await db.execute(sql13`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
-      await db.execute(sql13`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
-      await db.execute(sql13`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
-      await db.execute(sql13`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
+      await db.execute(sql14`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
+      await db.execute(sql14`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
+      await db.execute(sql14`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
+      await db.execute(sql14`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
+      await db.execute(sql14`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
+      await db.execute(sql14`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
+      await db.execute(sql14`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
+      await db.execute(sql14`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
       console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter/includes_manual_trades columns verified.");
     } catch (err) {
       console.error("[startup] Workforce certificate/city columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS ai_confirmation_logs (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS ai_confirmation_logs (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         entry jsonb NOT NULL,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql13`CREATE INDEX IF NOT EXISTS idx_ai_confirmation_logs_user ON ai_confirmation_logs(user_id, id DESC)`);
+      await db.execute(sql14`CREATE INDEX IF NOT EXISTS idx_ai_confirmation_logs_user ON ai_confirmation_logs(user_id, id DESC)`);
       console.log("[startup] ai_confirmation_logs table verified.");
     } catch (err) {
       console.error("[startup] ai_confirmation_logs table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql13`CREATE TABLE IF NOT EXISTS engine_run_state (
+      await db.execute(sql14`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         engine text NOT NULL,
@@ -79270,9 +79386,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");
     try {
-      const existing = await db.execute(sql13`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      const existing = await db.execute(sql14`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
       if ((existing.rows ?? existing).length === 0) {
-        await db.execute(sql13`
+        await db.execute(sql14`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
         `);
@@ -79295,6 +79411,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startPersonaContentScheduler2();
     const { startBlogPostScheduler: startBlogPostScheduler2 } = await Promise.resolve().then(() => (init_blog_scheduler(), blog_scheduler_exports));
     startBlogPostScheduler2();
+    const { startTierCreditScheduler: startTierCreditScheduler2 } = await Promise.resolve().then(() => (init_tier_credit_scheduler(), tier_credit_scheduler_exports));
+    startTierCreditScheduler2();
     const { startTradeLockerSync: startTradeLockerSync2 } = await Promise.resolve().then(() => (init_tradelocker_sync(), tradelocker_sync_exports));
     startTradeLockerSync2();
     const { startPaperTradeResolverLoop: startPaperTradeResolverLoop2 } = await Promise.resolve().then(() => (init_paper_trade_resolver_loop(), paper_trade_resolver_loop_exports));

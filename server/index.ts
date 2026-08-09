@@ -1408,6 +1408,9 @@ async function withRetry<T>(
     const { startBlogPostScheduler } = await import('./services/blog-scheduler');
     startBlogPostScheduler();
 
+    const { startTierCreditScheduler } = await import('./services/tier-credit-scheduler');
+    startTierCreditScheduler();
+
     // Start live TradeLocker balance sync (keeps balances fresh like MT5)
     const { startTradeLockerSync } = await import('./services/tradelocker-sync');
     startTradeLockerSync();

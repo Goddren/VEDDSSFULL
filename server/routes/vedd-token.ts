@@ -117,7 +117,10 @@ router.get('/daily-missions', async (req: Request, res: Response) => {
       const map = t.category === 'daily' ? todayMap : weekMap;
       const done = map[t.actionType]?.count || 0;
       const earned = map[t.actionType]?.earned || 0;
-      return { ...t, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
+      // Display the amount from the single source of truth so the catalog can
+      // never again advertise a number the payout config doesn't honor.
+      const veddReward = (TOKEN_REWARDS as Record<string, number>)[t.actionType] ?? t.veddReward;
+      return { ...t, veddReward, completedCount: done, earnedVedd: earned, completed: done >= t.maxCount };
     });
 
     // Weekly devotional streak check (how many unique days this week had a devotional)

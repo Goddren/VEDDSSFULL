@@ -19,24 +19,15 @@ export async function ensureTokenomicsMigration(): Promise<void> {
         AND NOT EXISTS (SELECT 1 FROM vedd_reward_config WHERE action_type = 'referral_subscription')
     `);
 
-    // 2. Realign base_amount for every canonical action (only updates existing rows).
-    const canonical: [string, number][] = [
-      ['daily_post', TOKEN_REWARDS.daily_post],
-      ['daily_comment', TOKEN_REWARDS.daily_comment],
-      ['referral_signup', TOKEN_REWARDS.referral_signup],
-      ['referral_subscription', TOKEN_REWARDS.referral_subscription],
-      ['challenge_completion', TOKEN_REWARDS.challenge_completion],
-      ['event_hosting', TOKEN_REWARDS.event_hosting],
-      ['event_attendance', TOKEN_REWARDS.event_attendance],
-      ['journey_day_complete', TOKEN_REWARDS.journey_day_complete],
-      ['journey_completion_bonus', TOKEN_REWARDS.journey_completion_bonus],
-      ['referral_profit_share', TOKEN_REWARDS.referral_profit_share],
-      ['wear_to_earn', TOKEN_REWARDS.wear_to_earn],
-    ];
-    for (const [action, amount] of canonical) {
+    // 2. Upsert every canonical action from the source of truth: realign existing
+    //    base_amounts AND create rows that were advertised but never configured
+    //    (devotional/training/etc. that previously paid 0).
+    for (const [action, amount] of Object.entries(TOKEN_REWARDS)) {
       await pool.query(
-        `UPDATE vedd_reward_config SET base_amount = $1, updated_at = now() WHERE action_type = $2 AND base_amount <> $1`,
-        [amount, action],
+        `INSERT INTO vedd_reward_config (action_type, base_amount, is_active)
+         VALUES ($1, $2, true)
+         ON CONFLICT (action_type) DO UPDATE SET base_amount = EXCLUDED.base_amount, updated_at = now()`,
+        [action, amount],
       );
     }
 

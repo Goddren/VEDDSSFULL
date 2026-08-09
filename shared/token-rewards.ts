@@ -20,6 +20,17 @@ export const TOKEN_REWARDS = {
   journey_completion_bonus: 960,    // raised so a full 44-day journey reaches JOURNEY_FREE_MONTH_TOKENS
   referral_profit_share: 5,
   wear_to_earn: 50,
+  // Daily-missions catalog actions (were advertised in the UI but had no config,
+  // so they paid 0). Now real, at their advertised amounts.
+  devotional_solo: 73,
+  devotional_group: 148,
+  strategy_review: 15,
+  analysis_view: 10,
+  live_monitor_check: 5,
+  blog_share: 20,
+  grant_apply: 25,
+  training_module: 50,
+  devotional_streak_bonus: 200,
 } as const;
 
 export type TokenRewardAction = keyof typeof TOKEN_REWARDS;
@@ -46,3 +57,23 @@ export const AMBASSADOR_TIERS = [
   { name: 'Gold',     minReferrals: 60,  monthlyCredits: 30000, commissionPct: 10 },
   { name: 'Platinum', minReferrals: 100, monthlyCredits: 50000, commissionPct: 15 },
 ] as const;
+
+export type AmbassadorTier = (typeof AMBASSADOR_TIERS)[number];
+
+/** Flat in-app credits to a referrer when their referral subscribes (before tier commission). */
+export const REFERRAL_SUBSCRIPTION_BASE_CREDITS = 200;
+
+/** Highest tier reached for a completed-referral count, or null if below Bronze. */
+export function resolveAmbassadorTier(referralCount: number): AmbassadorTier | null {
+  let current: AmbassadorTier | null = null;
+  for (const t of AMBASSADOR_TIERS) if (referralCount >= t.minReferrals) current = t;
+  return current;
+}
+
+/** Commission (in credits) a referrer earns when a referral subscribes, from the
+ *  referrer's tier and the plan price (in cents/credits). 0 below Silver. */
+export function tierCommissionCredits(referralCount: number, planPriceCents: number): number {
+  const tier = resolveAmbassadorTier(referralCount);
+  if (!tier || !tier.commissionPct) return 0;
+  return Math.round(planPriceCents * (tier.commissionPct / 100));
+}

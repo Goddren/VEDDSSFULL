@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
 import { User, userApiKeys, users, subscriptionPlans, optionsEngineTrades } from "@shared/schema";
-import { TOKEN_REWARDS } from "@shared/token-rewards";
+import { TOKEN_REWARDS, REFERRAL_SUBSCRIPTION_BASE_CREDITS, tierCommissionCredits, resolveAmbassadorTier } from "@shared/token-rewards";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
@@ -3356,11 +3356,18 @@ Respond ONLY in valid JSON format with these exact keys:
         const referrerId = (subscribingUser as any)?.referredBy;
         if (referrerId) {
           await storage.markReferralSubscribed(userId);
-          // Award +200 in-app credits
-          await storage.addReferralCredits(referrerId, 200);
-          console.log(`[Referral] Awarded 200 credits to user ${referrerId} — referred user ${userId} subscribed`);
-          // Fire on-chain VEDD token transfer in background (200 VEDD)
-          veddTokenService.enqueueReferralReward(referrerId, 'referral_subscription', 200).catch(() => {});
+          // Base credits + tier commission (% of the plan price, by the referrer's tier).
+          const refs = await storage.getReferrals(referrerId).catch(() => [] as any[]);
+          const completed = (refs as any[]).filter(r => r.status === 'completed' || r.status === 'credited').length;
+          const [plan] = await db.select({ price: subscriptionPlans.price }).from(subscriptionPlans).where(eq(subscriptionPlans.id, planId)).limit(1);
+          const planPriceCents = plan?.price ?? 0;
+          const commission = tierCommissionCredits(completed, planPriceCents);
+          const totalCredits = REFERRAL_SUBSCRIPTION_BASE_CREDITS + commission;
+          await storage.addReferralCredits(referrerId, totalCredits);
+          const tierName = resolveAmbassadorTier(completed)?.name ?? 'none';
+          console.log(`[Referral] Awarded ${totalCredits} credits (base ${REFERRAL_SUBSCRIPTION_BASE_CREDITS} + ${commission} ${tierName} commission) to user ${referrerId} — referral ${userId} subscribed`);
+          // Fire on-chain VEDD token transfer in background (base reward).
+          veddTokenService.enqueueReferralReward(referrerId, 'referral_subscription', REFERRAL_SUBSCRIPTION_BASE_CREDITS).catch(() => {});
         }
       } catch (refSubErr) {
         console.error('[Referral] Subscription credit award failed (non-fatal):', refSubErr);
@@ -26152,7 +26159,15 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         distanceMiles = Math.round(haversine(userRow.home_lat, userRow.home_lon, tapLat, tapLon) * 10) / 10;
       }
 
-      const { amount: reward, tier, emoji } = distanceReward(distanceMiles);
+      // Reward is FLAT + streak, identical to the canonical /api/nfc/daily-tap
+      // engine, so the same tap can never pay different users different amounts
+      // based on GPS-spoofable distance. distance/tier/emoji are kept for display
+      // and the earn-event map only — they no longer affect the payout.
+      const { tier, emoji } = distanceReward(distanceMiles);
+      const _yStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+      const _wasYesterday = activation.last_tap_at && new Date(activation.last_tap_at).toISOString().slice(0, 10) === _yStr;
+      const _streakForReward = _wasYesterday ? (activation.current_streak + 1) : 1;
+      const reward = 15 + (_streakForReward >= 30 ? 10 : _streakForReward >= 7 ? 5 : 0); // DAILY_REWARD + streak bonus
       // ─────────────────────────────────────────────────────────────────────
 
       // Insert daily tap record

@@ -303,6 +303,16 @@ export async function seedVeddRewardConfig() {
     { actionType: 'journey_completion_bonus', baseAmount: 960, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Completed the full 44-day ambassador journey (raised so a full run = 2000 tokens)' },
     { actionType: 'referral_profit_share', baseAmount: 5, streakMultiplier: 1.0, maxDailyRewards: 10, requiresVerification: false, isActive: true, description: '5% share of referral trade profit' },
     { actionType: 'wear_to_earn', baseAmount: 50, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Scanned VEDD clothing QR code' },
+    // Daily-missions catalog actions (previously advertised but unconfigured → paid 0).
+    { actionType: 'devotional_solo', baseAmount: 73, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Completed the daily devotional (solo)' },
+    { actionType: 'devotional_group', baseAmount: 148, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Completed a group devotional session' },
+    { actionType: 'strategy_review', baseAmount: 15, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Reviewed the weekly strategy' },
+    { actionType: 'analysis_view', baseAmount: 10, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Viewed an AI chart analysis' },
+    { actionType: 'live_monitor_check', baseAmount: 5, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Checked the live trading monitor' },
+    { actionType: 'blog_share', baseAmount: 20, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Shared a blog article' },
+    { actionType: 'grant_apply', baseAmount: 25, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Applied for a grant' },
+    { actionType: 'training_module', baseAmount: 50, streakMultiplier: 1.0, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: 'Completed an ambassador training module' },
+    { actionType: 'devotional_streak_bonus', baseAmount: 200, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: '5-day devotional streak bonus' },
   ];
 
   for (const config of configs) {

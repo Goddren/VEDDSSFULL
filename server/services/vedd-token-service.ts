@@ -328,6 +328,22 @@ export class VeddTokenService {
       };
     }
 
+    // Solvency guard — never spend more than the pool holds. The cached
+    // tokenBalance is kept accurate by the decrement-on-success below (plus
+    // periodic syncPoolBalance). If the pool can't cover this reward, hold the
+    // job as 'pending' (not 'failed') so it pays out once the pool is refilled,
+    // rather than silently over-spending into insolvency.
+    const [poolWallet] = await db.select()
+      .from(veddPoolWallets)
+      .where(and(eq(veddPoolWallets.walletType, 'rewards'), eq(veddPoolWallets.status, 'active')))
+      .limit(1);
+    if (poolWallet && (poolWallet.tokenBalance || 0) < job.amount) {
+      await db.update(veddTransferJobs)
+        .set({ status: 'pending', errorMessage: `Pool balance ${poolWallet.tokenBalance ?? 0} below reward ${job.amount} — held until the pool is refilled.` })
+        .where(eq(veddTransferJobs.id, jobId));
+      return { success: false, error: 'Insufficient pool balance — reward held pending.' };
+    }
+
     await db.update(veddTransferJobs)
       .set({ status: 'processing' })
       .where(eq(veddTransferJobs.id, jobId));
@@ -375,10 +391,17 @@ export class VeddTokenService {
         .where(eq(veddTransferJobs.id, jobId));
 
       await db.update(users)
-        .set({ 
+        .set({
           veddTokenBalance: sql`COALESCE(${users.veddTokenBalance}, 0) + ${job.amount}`
         })
         .where(eq(users.id, job.userId));
+
+      // Decrement the pool's cached balance so the solvency guard above stays
+      // accurate between on-chain syncs (previously the pool balance was never
+      // reduced on payout — the core bug that made every balance guard useless).
+      await db.update(veddPoolWallets)
+        .set({ tokenBalance: sql`GREATEST(0, COALESCE(${veddPoolWallets.tokenBalance}, 0) - ${job.amount})` })
+        .where(and(eq(veddPoolWallets.walletType, 'rewards'), eq(veddPoolWallets.status, 'active')));
 
       return { success: true, transactionSig: signature };
 
