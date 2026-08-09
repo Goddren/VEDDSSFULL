@@ -74013,7 +74013,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         total: sql16`count(*)`,
         ambassadors: sql16`count(*) filter (where ${usersTbl.isAmbassador} = true)`,
         admins: sql16`count(*) filter (where ${usersTbl.isAdmin} = true)`,
-        subscribers: sql16`count(*) filter (where ${usersTbl.subscriptionTier} is not null and ${usersTbl.subscriptionTier} <> 'free')`
+        subscribers: sql16`count(*) filter (where ${usersTbl.subscriptionStatus} in ('active','trialing'))`
       }).from(usersTbl);
       const referralTop = await storage.getReferralLeaderboard(5).catch(() => []);
       res.json({

@@ -26,18 +26,6 @@ export default function AdminCommandCenter() {
   const { toast } = useToast();
   const [tab, setTab] = useState<Tab>("overview");
 
-  // Admin gate — ProtectedRoute only enforces login, so self-gate here.
-  if (!user?.isAdmin) {
-    return (
-      <div className="app-page min-h-screen flex items-center justify-center px-4">
-        <div className="smart-card p-8 text-center">
-          <Shield className="mx-auto h-8 w-8 text-red-400" />
-          <p className="mt-3 text-white/70">Admins only.</p>
-        </div>
-      </div>
-    );
-  }
-
   const econ = useQuery<any>({ queryKey: ["/api/admin/economy"], enabled: !!user });
   const usersQ = useQuery<any[]>({ queryKey: ["/api/admin/users"], enabled: !!user && tab === "users" });
   const pending = useQuery<any[]>({ queryKey: ["/api/vedd/admin/pending-rewards"], enabled: !!user && tab === "payouts" });
@@ -53,6 +41,20 @@ export default function AdminCommandCenter() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] }); toast({ title: "User updated" }); },
     onError: (e: any) => toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
   });
+
+  // Admin gate — AFTER all hooks (hooks must run unconditionally every render;
+  // gating before them changed the hook count once `user` loaded and blanked
+  // the page). ProtectedRoute only enforces login, so self-gate here.
+  if (!user?.isAdmin) {
+    return (
+      <div className="app-page min-h-screen flex items-center justify-center px-4">
+        <div className="smart-card p-8 text-center">
+          <Shield className="mx-auto h-8 w-8 text-red-400" />
+          <p className="mt-3 text-white/70">Admins only.</p>
+        </div>
+      </div>
+    );
+  }
 
   const e = econ.data;
   const pool0 = e?.pool?.pools?.[0];
@@ -183,7 +185,7 @@ export default function AdminCommandCenter() {
                 {(usersQ.data ?? []).map((u: any) => (
                   <tr key={u.id} className="border-t border-white/5">
                     <td className="py-1.5 pr-3 text-white/80">{u.username ?? u.email ?? u.id}</td>
-                    <td className="pr-3 text-white/50">{u.subscriptionTier ?? "free"}</td>
+                    <td className="pr-3 text-white/50">{u.subscriptionStatus ?? u.subscriptionTier ?? "free"}</td>
                     <td className="pr-3"><RoleToggle on={u.isAmbassador} onClick={() => toggleRole.mutate({ id: u.id, patch: { isAmbassador: !u.isAmbassador } })} /></td>
                     <td className="pr-3"><RoleToggle on={u.isAdmin} onClick={() => toggleRole.mutate({ id: u.id, patch: { isAdmin: !u.isAdmin } })} /></td>
                   </tr>
