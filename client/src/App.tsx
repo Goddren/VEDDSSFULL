@@ -103,6 +103,7 @@ import ORBBreakoutPage from "@/pages/orb-breakout";
 import RuinConePage from "@/pages/ruin-cone";
 import EventKitPage from "@/pages/event-kit";
 import KalshiBrainPage from "@/pages/kalshi-brain";
+import KalshiHubPage from "@/pages/kalshi";
 import ContentStudioPage from "@/pages/content-studio";
 import LeadHunterPage from "@/pages/lead-hunter";
 import AmbassadorPrimePage from "@/pages/ambassador-prime";
@@ -350,6 +351,7 @@ function AppLayout() {
             <ProtectedRoute path="/orb-breakout" component={ORBBreakoutPage} />
             <ProtectedRoute path="/ruin-cone" component={RuinConePage} />
             <ProtectedRoute path="/event-kit" component={EventKitPage} />
+            <ProtectedRoute path="/kalshi" component={KalshiHubPage} />
             <ProtectedRoute path="/kalshi-brain" component={KalshiBrainPage} />
             <ProtectedRoute path="/activity" component={ActivityHubPage} />
             <ProtectedRoute path="/copy-trading" component={CopyTradingPage} />
