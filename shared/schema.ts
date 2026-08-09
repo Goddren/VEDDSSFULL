@@ -2037,6 +2037,17 @@ export type VeddRewardConfig = typeof veddRewardConfig.$inferSelect;
 export type InsertVeddRewardConfig = z.infer<typeof insertVeddRewardConfigSchema>;
 
 // Internal Wallet System - Holds tokens until user withdraws to pump.fun wallet
+// Ledger of gamified internal-wallet earnings, used to enforce the daily/weekly
+// earning caps (there is no other per-earning record — internal_wallets only
+// holds a running balance). One row per capped credit.
+export const internalWalletEarnings = pgTable("internal_wallet_earnings", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  amount: real("amount").notNull(),   // actual amount credited (post-cap)
+  source: text("source").notNull(),   // 'nfc_tap' | 'nfc_activation' | 'checkin' | 'wear_to_earn'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const internalWallets = pgTable("internal_wallets", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull().unique(),

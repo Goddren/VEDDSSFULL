@@ -42,6 +42,18 @@ export async function ensureTokenomicsMigration(): Promise<void> {
     //    carried a timestamp so there are no duplicates to block its creation.
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS "vedd_transfer_jobs_idempotency_key_uniq" ON "vedd_transfer_jobs" ("idempotency_key")`);
 
+    // 5. Gamified-earnings ledger for the daily/weekly cap enforcement.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "internal_wallet_earnings" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL REFERENCES "users"("id"),
+        "amount" real NOT NULL,
+        "source" text NOT NULL,
+        "created_at" timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS "idx_internal_wallet_earnings_user_time" ON "internal_wallet_earnings" ("user_id", "created_at")`);
+
     console.log('[startup] Tokenomics migration applied — reward config + plan prices aligned to shared/token-rewards.ts.');
   } catch (err: any) {
     console.error('[startup] ensureTokenomicsMigration failed (non-fatal):', err?.message ?? err);

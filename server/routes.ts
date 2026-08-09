@@ -4,6 +4,7 @@ import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
 import { User, userApiKeys, users, subscriptionPlans, optionsEngineTrades } from "@shared/schema";
 import { TOKEN_REWARDS, REFERRAL_SUBSCRIPTION_BASE_CREDITS, tierCommissionCredits, resolveAmbassadorTier } from "@shared/token-rewards";
+import { creditWalletWithCap } from "./services/wallet-cap";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
@@ -25504,8 +25505,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         status: 'pending',
         imageUrl: imageUrl || null,
       }).returning();
-      // Credit VEDD to internal wallet immediately (optimistic)
-      await storage.addToWalletBalance(userId, rewardAmount, true);
+      // Credit VEDD to internal wallet immediately (optimistic), capped daily/weekly
+      await creditWalletWithCap(userId, rewardAmount, 'wear_to_earn', true);
       res.json({ success: true, rewardAmount, claimId: claim.id });
     });
 
@@ -25620,8 +25621,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         ON CONFLICT (user_id, day_string) DO NOTHING
       `);
 
-      // Credit directly to spendable VEDD balance
-      await storage.addToWalletBalance(userId, reward, false);
+      // Credit directly to spendable VEDD balance (capped daily/weekly)
+      await creditWalletWithCap(userId, reward, 'checkin', false);
 
       res.json({ success: true, reward, newStreak, streakBonus: reward - CHECKIN_REWARD });
     });
@@ -25910,8 +25911,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         userId, chipUid: uid, rewardAmount: ACTIVATION_BONUS, dayString: today,
       }).onConflictDoNothing();
 
-      // Credit VEDD directly to spendable balance (no admin approval — chip is the proof)
-      await storage.addToWalletBalance(userId, ACTIVATION_BONUS, false);
+      // Credit VEDD directly to spendable balance (chip is the proof), capped daily/weekly
+      await creditWalletWithCap(userId, ACTIVATION_BONUS, 'nfc_activation', false);
 
       res.json({ success: true, activation, rewardAmount: ACTIVATION_BONUS, isFirstActivation: true });
     });
@@ -25969,8 +25970,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         bestStreak: newBest,
       }).where(eq(nfcActivations.id, activation.id));
 
-      // Credit VEDD to spendable balance
-      await storage.addToWalletBalance(userId, reward, false);
+      // Credit VEDD to spendable balance (capped daily/weekly)
+      await creditWalletWithCap(userId, reward, 'nfc_tap', false);
 
       res.json({
         success: true,
@@ -26193,8 +26194,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         WHERE id = ${activation.id}
       `);
 
-      // Credit wallet
-      await storage.addToWalletBalance(userId, reward, false);
+      // Credit wallet (capped daily/weekly)
+      await creditWalletWithCap(userId, reward, 'nfc_tap', false);
 
       // Insert earn_event with GPS + distance (city resolved async below)
       const [insertedEvent] = await db.execute(sql`

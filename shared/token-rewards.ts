@@ -43,6 +43,12 @@ export type TokenRewardAction = keyof typeof TOKEN_REWARDS;
 //   total on a completed run  = 2000  ← the advertised "1 free month" threshold
 export const JOURNEY_FREE_MONTH_TOKENS = 2000;
 
+// Earning caps for the gamified internal-wallet paths (NFC tap, activation,
+// daily check-in, wear-to-earn). Prevents farming free reward tokens. Owed
+// payouts (copy-trade profit share, marketplace sale proceeds) are NOT capped.
+export const DAILY_VEDD_CAP = 500;   // per UTC day
+export const WEEKLY_VEDD_CAP = 2000; // rolling 7 days
+
 /** Subscription prices in CREDITS (= cents; 100 credits = $1). */
 export const SUBSCRIPTION_PRICE_CENTS = {
   starter: 4995,   // $49.95 / mo
