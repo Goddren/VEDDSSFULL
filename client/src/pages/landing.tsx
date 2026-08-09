@@ -1259,10 +1259,10 @@ export default function LandingPage() {
 
             <motion.div variants={fadeIn} className="grid grid-cols-2 gap-4">
               {[
-                { tier: "Bronze", req: "5 referrals", perk: "500 credits/mo", color: "from-amber-700/30 to-amber-900/20", border: "border-amber-700/40", text: "text-amber-600" },
-                { tier: "Silver", req: "15 referrals", perk: "1,500 credits/mo + 5% commission", color: "from-gray-400/20 to-gray-600/10", border: "border-gray-400/40", text: "text-gray-300" },
-                { tier: "Gold", req: "40 referrals", perk: "Free Pro + 10% commission", color: "from-yellow-500/20 to-yellow-700/10", border: "border-yellow-500/40", text: "text-yellow-400" },
-                { tier: "Platinum", req: "100+ referrals", perk: "Revenue share + co-marketing", color: "from-cyan-500/20 to-blue-700/10", border: "border-cyan-500/40", text: "text-cyan-400" },
+                { tier: "Bronze", req: "10 referrals", perk: "5,000 credits/mo", color: "from-amber-700/30 to-amber-900/20", border: "border-amber-700/40", text: "text-amber-600" },
+                { tier: "Silver", req: "30 referrals", perk: "15,000 credits/mo + 5% commission", color: "from-gray-400/20 to-gray-600/10", border: "border-gray-400/40", text: "text-gray-300" },
+                { tier: "Gold", req: "60 referrals", perk: "30,000 credits/mo + 10% commission", color: "from-yellow-500/20 to-yellow-700/10", border: "border-yellow-500/40", text: "text-yellow-400" },
+                { tier: "Platinum", req: "100+ referrals", perk: "50,000 credits/mo + 15% + revenue share", color: "from-cyan-500/20 to-blue-700/10", border: "border-cyan-500/40", text: "text-cyan-400" },
               ].map((tier, i) => (
                 <motion.div
                   key={i}
