@@ -216,6 +216,8 @@ async function withRetry<T>(
     await hydratePersistedKalshiConfigs();
     const { ensureKalshiBrainTables } = await import('./services/ensure-kalshi-brain-tables');
     await ensureKalshiBrainTables();
+    const { ensureTokenomicsMigration } = await import('./services/ensure-tokenomics-migration');
+    await ensureTokenomicsMigration();
   } catch (err: any) {
     console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
   }

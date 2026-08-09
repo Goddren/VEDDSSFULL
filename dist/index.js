@@ -6275,6 +6275,38 @@ var init_storage = __esm({
   }
 });
 
+// shared/token-rewards.ts
+var TOKEN_REWARDS, SUBSCRIPTION_PRICE_CENTS;
+var init_token_rewards = __esm({
+  "shared/token-rewards.ts"() {
+    "use strict";
+    TOKEN_REWARDS = {
+      daily_post: 10,
+      daily_comment: 5,
+      referral_signup: 50,
+      referral_subscription: 200,
+      challenge_completion: 25,
+      event_hosting: 100,
+      event_attendance: 15,
+      journey_day_complete: 10,
+      journey_streak_bonus: 100,
+      // awarded at each 7-day streak milestone
+      journey_completion_bonus: 960,
+      // raised so a full 44-day journey reaches JOURNEY_FREE_MONTH_TOKENS
+      referral_profit_share: 5,
+      wear_to_earn: 50
+    };
+    SUBSCRIPTION_PRICE_CENTS = {
+      starter: 4995,
+      // $49.95 / mo
+      premium: 14999,
+      // $149.99 / mo
+      yearly: 99999
+      // $999.99 / yr
+    };
+  }
+});
+
 // server/services/github-strategy-context.ts
 import https from "https";
 function getCached(key) {
@@ -44671,6 +44703,53 @@ CREATE INDEX IF NOT EXISTS "idx_kalshi_brain_outcomes_user_coin" ON "kalshi_brai
   }
 });
 
+// server/services/ensure-tokenomics-migration.ts
+var ensure_tokenomics_migration_exports = {};
+__export(ensure_tokenomics_migration_exports, {
+  ensureTokenomicsMigration: () => ensureTokenomicsMigration
+});
+async function ensureTokenomicsMigration() {
+  try {
+    await pool.query(`
+      UPDATE vedd_reward_config SET action_type = 'referral_subscription'
+      WHERE action_type = 'referral_subscribes'
+        AND NOT EXISTS (SELECT 1 FROM vedd_reward_config WHERE action_type = 'referral_subscription')
+    `);
+    const canonical = [
+      ["daily_post", TOKEN_REWARDS.daily_post],
+      ["daily_comment", TOKEN_REWARDS.daily_comment],
+      ["referral_signup", TOKEN_REWARDS.referral_signup],
+      ["referral_subscription", TOKEN_REWARDS.referral_subscription],
+      ["challenge_completion", TOKEN_REWARDS.challenge_completion],
+      ["event_hosting", TOKEN_REWARDS.event_hosting],
+      ["event_attendance", TOKEN_REWARDS.event_attendance],
+      ["journey_day_complete", TOKEN_REWARDS.journey_day_complete],
+      ["journey_completion_bonus", TOKEN_REWARDS.journey_completion_bonus],
+      ["referral_profit_share", TOKEN_REWARDS.referral_profit_share],
+      ["wear_to_earn", TOKEN_REWARDS.wear_to_earn]
+    ];
+    for (const [action, amount] of canonical) {
+      await pool.query(
+        `UPDATE vedd_reward_config SET base_amount = $1, updated_at = now() WHERE action_type = $2 AND base_amount <> $1`,
+        [amount, action]
+      );
+    }
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 5000`, [SUBSCRIPTION_PRICE_CENTS.starter]);
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 15000`, [SUBSCRIPTION_PRICE_CENTS.premium]);
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 100000`, [SUBSCRIPTION_PRICE_CENTS.yearly]);
+    console.log("[startup] Tokenomics migration applied \u2014 reward config + plan prices aligned to shared/token-rewards.ts.");
+  } catch (err) {
+    console.error("[startup] ensureTokenomicsMigration failed (non-fatal):", err?.message ?? err);
+  }
+}
+var init_ensure_tokenomics_migration = __esm({
+  "server/services/ensure-tokenomics-migration.ts"() {
+    "use strict";
+    init_db();
+    init_token_rewards();
+  }
+});
+
 // server/services/ensure-options-tables.ts
 var ensure_options_tables_exports = {};
 __export(ensure_options_tables_exports, {
@@ -47477,26 +47556,7 @@ function getRequestCookie(req, name) {
 // server/routes.ts
 init_storage();
 init_schema();
-
-// shared/token-rewards.ts
-var TOKEN_REWARDS = {
-  daily_post: 10,
-  daily_comment: 5,
-  referral_signup: 50,
-  referral_subscription: 200,
-  challenge_completion: 25,
-  event_hosting: 100,
-  event_attendance: 15,
-  journey_day_complete: 10,
-  journey_streak_bonus: 100,
-  // awarded at each 7-day streak milestone
-  journey_completion_bonus: 960,
-  // raised so a full 44-day journey reaches JOURNEY_FREE_MONTH_TOKENS
-  referral_profit_share: 5,
-  wear_to_earn: 50
-};
-
-// server/routes.ts
+init_token_rewards();
 init_db();
 init_openai();
 init_twilio();
@@ -49030,6 +49090,7 @@ init_cred_store();
 init_vedd_token_service();
 init_db();
 init_schema();
+init_token_rewards();
 import { Router } from "express";
 import { eq as eq8, desc as desc3, sql as sql6 } from "drizzle-orm";
 var router = Router();
@@ -78163,6 +78224,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await hydratePersistedKalshiConfigs2();
     const { ensureKalshiBrainTables: ensureKalshiBrainTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_brain_tables(), ensure_kalshi_brain_tables_exports));
     await ensureKalshiBrainTables2();
+    const { ensureTokenomicsMigration: ensureTokenomicsMigration2 } = await Promise.resolve().then(() => (init_ensure_tokenomics_migration(), ensure_tokenomics_migration_exports));
+    await ensureTokenomicsMigration2();
   } catch (err) {
     console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
   }
