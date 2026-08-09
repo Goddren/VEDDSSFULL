@@ -51,6 +51,7 @@ const communityItems = [
   { name: 'Lead Page',    path: '/ambassador/recruitment?tab=leadpages',  icon: Globe,       color: '#3b82f6' },
   { name: 'Soc Scanner',  path: '/ambassador/recruitment?tab=social',     icon: Search,      color: '#ec4899' },
   { name: 'Host Dash',    path: '/host-dashboard',                        icon: Award,       color: '#f59e0b' },
+  { name: 'Event Kit',    path: '/event-kit',                             icon: BookOpen,    color: '#e0912a' },
   { name: 'Blog',         path: '/blog',                                  icon: Newspaper,   color: '#22c55e' },
   { name: 'Devotional',   path: '/devotional',                            icon: Heart,       color: '#ef4444' },
   { name: 'Content Studio', path: '/ambassador/content-studio',           icon: Zap,         color: '#a855f7' },
