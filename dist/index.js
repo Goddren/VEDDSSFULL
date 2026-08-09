@@ -76342,15 +76342,28 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category = sourceCategory === "tradelocker" ? "tradelocker" : "forex";
+      const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : "forex";
       const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
       const manualOptIn = !!includeManualTrades && category === "forex";
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0, manualOptIn);
-      if (rows.length < MIN_TRADES_TO_LIST2) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades${symbolFilter ? ` on ${symbolFilter.join("/")}` : ""} to list (you have ${rows.length}).` });
+      let rows;
+      let stats;
+      if (category === "kalshi") {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and11, eq: eq20, ne, desc: desc12 } = await import("drizzle-orm");
+        rows = await db2.select().from(kalshiBrainOutcomes2).where(and11(eq20(kalshiBrainOutcomes2.userId, userId), ne(kalshiBrainOutcomes2.source, "purchased_brain"))).orderBy(desc12(kalshiBrainOutcomes2.closedAt)).limit(2e3);
+        if (rows.length < MIN_TRADES_TO_LIST2) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} Kalshi trades to list (you have ${rows.length}).` });
+        }
+        stats = computeListingStats2(rows.map((r) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })));
+      } else {
+        rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0, manualOptIn);
+        if (rows.length < MIN_TRADES_TO_LIST2) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} ${category === "tradelocker" ? "TradeLocker" : "forex/MT5"} trades${symbolFilter ? ` on ${symbolFilter.join("/")}` : ""} to list (you have ${rows.length}).` });
+        }
+        stats = computeListingStats2(rows);
       }
-      const stats = computeListingStats2(rows);
       const finalPrice = clampPrice2(priceVedd ?? stats.suggestedPriceVedd);
       const existing = await storage.getUserActiveBrainListingBySymbols(userId, category, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
@@ -76394,12 +76407,22 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : "forex";
+      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : req.query.sourceCategory === "kalshi" ? "kalshi" : "forex";
       const symbolsParam = typeof req.query.symbols === "string" ? req.query.symbols : "";
       const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === "true" && category === "forex";
       const { computeListingStats: computeListingStats2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
-      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0, manualOptIn);
+      let rows;
+      if (category === "kalshi") {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const { and: and11, eq: eq20, ne, desc: desc12 } = await import("drizzle-orm");
+        const raw = await db2.select().from(kalshiBrainOutcomes2).where(and11(eq20(kalshiBrainOutcomes2.userId, userId), ne(kalshiBrainOutcomes2.source, "purchased_brain"))).orderBy(desc12(kalshiBrainOutcomes2.closedAt)).limit(2e3);
+        if (raw.length < MIN_TRADES_TO_LIST2) return res.json({ eligible: false, tradeCount: raw.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
+        const stats2 = computeListingStats2(raw.map((r) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })));
+        return res.json({ eligible: true, ...stats2 });
+      }
+      rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST2) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
       }
@@ -76479,7 +76502,40 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
-      const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
+      let tradesImported;
+      if (listing.sourceCategory === "kalshi") {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { kalshiBrainOutcomes: kalshiBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const snap = listing.snapshotData ?? [];
+        const toInsert = snap.map((r) => ({
+          userId: buyerId,
+          coin: r.coin,
+          timeframe: r.timeframe ?? "hourly",
+          strategy: r.strategy ?? "unknown",
+          direction: r.direction ?? "BUY",
+          strikeType: r.strikeType ?? null,
+          entryPriceCents: r.entryPriceCents ?? null,
+          confidence: r.confidence ?? null,
+          edgePct: r.edgePct ?? null,
+          valueScore: r.valueScore ?? null,
+          modelProbPct: r.modelProbPct ?? null,
+          agreement: r.agreement ?? null,
+          hourUtc: r.hourUtc ?? null,
+          holdingMinutes: r.holdingMinutes ?? null,
+          exitReason: r.exitReason ?? null,
+          result: r.result ?? "BREAKEVEN",
+          profitLoss: Number(r.profitLoss ?? 0),
+          source: "purchased_brain",
+          closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
+        }));
+        if (toInsert.length) await db2.insert(kalshiBrainOutcomes2).values(toInsert);
+        tradesImported = toInsert.length;
+        const { learnFromKalshiTrades: learnFromKalshiTrades2 } = await Promise.resolve().then(() => (init_kalshi_brain(), kalshi_brain_exports));
+        await learnFromKalshiTrades2(buyerId).catch(() => {
+        });
+      } else {
+        tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
+      }
       await storage.createBrainPurchase({
         listingId,
         sellerId: listing.sellerId,

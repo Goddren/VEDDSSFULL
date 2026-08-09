@@ -29764,29 +29764,49 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category: 'forex' | 'tradelocker' = sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
+      const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : 'forex';
       const symbolFilter = Array.isArray(symbols) && symbols.length
         ? symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean)
         : null;
       const manualOptIn = !!includeManualTrades && category === 'forex';
 
       const { computeListingStats, clampPrice, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? undefined, manualOptIn);
-      if (rows.length < MIN_TRADES_TO_LIST) {
-        return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} ${category === 'tradelocker' ? 'TradeLocker' : 'forex/MT5'} trades${symbolFilter ? ` on ${symbolFilter.join('/')}` : ''} to list (you have ${rows.length}).` });
+
+      let rows: any[];
+      let stats: any;
+      if (category === 'kalshi') {
+        // Kalshi brain snapshots come from kalshi_brain_outcomes (not
+        // ai_confirmation_outcomes). Exclude already-purchased rows so a buyer
+        // can't resell someone else's data. Map to the stats shape (symbol=coin,
+        // confirmedAt=closedAt, tradeOutcome=result) for pricing/stat reuse.
+        const { db } = await import('./db');
+        const { kalshiBrainOutcomes } = await import('../shared/schema');
+        const { and, eq, ne, desc } = await import('drizzle-orm');
+        rows = await db.select().from(kalshiBrainOutcomes)
+          .where(and(eq(kalshiBrainOutcomes.userId, userId), ne(kalshiBrainOutcomes.source, 'purchased_brain')))
+          .orderBy(desc(kalshiBrainOutcomes.closedAt)).limit(2000);
+        if (rows.length < MIN_TRADES_TO_LIST) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} Kalshi trades to list (you have ${rows.length}).` });
+        }
+        stats = computeListingStats(rows.map((r: any) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })) as any);
+      } else {
+        rows = await storage.getOutcomesForListing(userId, category as any, symbolFilter ?? undefined, manualOptIn);
+        if (rows.length < MIN_TRADES_TO_LIST) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} ${category === 'tradelocker' ? 'TradeLocker' : 'forex/MT5'} trades${symbolFilter ? ` on ${symbolFilter.join('/')}` : ''} to list (you have ${rows.length}).` });
+        }
+        stats = computeListingStats(rows);
       }
 
-      const stats = computeListingStats(rows);
       const finalPrice = clampPrice(priceVedd ?? stats.suggestedPriceVedd);
 
       // Re-listing the same category+pair-scope combo updates that specific
       // brain in place; a different scope creates a new, coexisting listing.
-      const existing = await storage.getUserActiveBrainListingBySymbols(userId, category, symbolFilter);
+      const existing = await storage.getUserActiveBrainListingBySymbols(userId, category as any, symbolFilter);
       if (existing) await storage.deactivateBrainListing(existing.id);
 
       const listing = await storage.createBrainListing({
         sellerId: userId,
-        sourceCategory: category,
+        sourceCategory: category as any,
         symbolFilter,
         includesManualTrades: manualOptIn,
         title,
@@ -29831,12 +29851,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const category: 'forex' | 'tradelocker' = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : 'forex';
+      const category = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : req.query.sourceCategory === 'kalshi' ? 'kalshi' : 'forex';
       const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
       const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === 'true' && category === 'forex';
       const { computeListingStats, MIN_TRADES_TO_LIST } = await import('./services/brain-marketplace');
-      const rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : undefined, manualOptIn);
+      let rows: any[];
+      if (category === 'kalshi') {
+        const { db } = await import('./db');
+        const { kalshiBrainOutcomes } = await import('../shared/schema');
+        const { and, eq, ne, desc } = await import('drizzle-orm');
+        const raw = await db.select().from(kalshiBrainOutcomes)
+          .where(and(eq(kalshiBrainOutcomes.userId, userId), ne(kalshiBrainOutcomes.source, 'purchased_brain')))
+          .orderBy(desc(kalshiBrainOutcomes.closedAt)).limit(2000);
+        if (raw.length < MIN_TRADES_TO_LIST) return res.json({ eligible: false, tradeCount: raw.length, minTradesRequired: MIN_TRADES_TO_LIST });
+        const stats = computeListingStats(raw.map((r: any) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })) as any);
+        return res.json({ eligible: true, ...stats });
+      }
+      rows = await storage.getOutcomesForListing(userId, category as any, symbols.length ? symbols : undefined, manualOptIn);
       if (rows.length < MIN_TRADES_TO_LIST) {
         return res.json({ eligible: false, tradeCount: rows.length, minTradesRequired: MIN_TRADES_TO_LIST });
       }
@@ -29929,7 +29961,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       await storage.updateInternalWalletBalance(buyerId, -listing.priceVedd);
       await storage.addToWalletBalance(listing.sellerId, listing.priceVedd);
 
-      const tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
+      let tradesImported: number;
+      if (listing.sourceCategory === 'kalshi') {
+        // Merge into the buyer's Kalshi feature store (tagged purchased_brain so
+        // it can't be resold), then relearn so their brain absorbs the edge.
+        const { db } = await import('./db');
+        const { kalshiBrainOutcomes } = await import('../shared/schema');
+        const snap = (listing.snapshotData as any[]) ?? [];
+        const toInsert = snap.map((r: any) => ({
+          userId: buyerId, coin: r.coin, timeframe: r.timeframe ?? 'hourly', strategy: r.strategy ?? 'unknown',
+          direction: r.direction ?? 'BUY', strikeType: r.strikeType ?? null, entryPriceCents: r.entryPriceCents ?? null,
+          confidence: r.confidence ?? null, edgePct: r.edgePct ?? null, valueScore: r.valueScore ?? null,
+          modelProbPct: r.modelProbPct ?? null, agreement: r.agreement ?? null, hourUtc: r.hourUtc ?? null,
+          holdingMinutes: r.holdingMinutes ?? null, exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN',
+          profitLoss: Number(r.profitLoss ?? 0), source: 'purchased_brain',
+          closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
+        }));
+        if (toInsert.length) await db.insert(kalshiBrainOutcomes).values(toInsert);
+        tradesImported = toInsert.length;
+        const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
+        await learnFromKalshiTrades(buyerId).catch(() => {});
+      } else {
+        tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
+      }
       await storage.createBrainPurchase({
         listingId, sellerId: listing.sellerId, buyerId,
         priceVeddPaid: listing.priceVedd, tradesImported,

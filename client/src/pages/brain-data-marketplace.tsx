@@ -11,9 +11,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Brain, TrendingUp, Calendar, Target, Check, ShoppingCart } from 'lucide-react';
 import BrainVisualization3D from '@/components/brain-visualization-3d';
 
-type SourceCategory = 'forex' | 'tradelocker';
+type SourceCategory = 'forex' | 'tradelocker' | 'kalshi';
 
-const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain' };
+const CATEGORY_LABEL: Record<SourceCategory, string> = { forex: 'Forex / MT5 Brain', tradelocker: 'TradeLocker Brain', kalshi: 'Kalshi Brain' };
 
 interface BrainListing {
   id: number;
@@ -176,7 +176,7 @@ export default function BrainDataMarketplacePage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2">
-              {(['forex', 'tradelocker'] as const).map(cat => (
+              {(['forex', 'tradelocker', 'kalshi'] as const).map(cat => (
                 <button
                   key={cat}
                   onClick={() => setSellCategory(cat)}
