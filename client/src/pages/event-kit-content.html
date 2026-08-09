@@ -231,6 +231,32 @@
     h3.block { break-after: avoid; }
     a { color: var(--ink); text-decoration: none; }
   }
+  /* ── Host outlines + printable flyers ─────────────────────── */
+  .outline { border-left: 3px solid var(--brand); background: var(--paper-2); border-radius: 0 12px 12px 0; padding: 14px 18px; margin: 10px 0 22px; }
+  .outline .ohead { font-weight: 800; font-size: 15px; margin: 0 0 8px; }
+  .outline dl { margin: 0; display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; }
+  .outline dt { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brand); font-weight: 700; padding-top: 3px; }
+  .outline dd { margin: 0; font-size: 13.5px; color: var(--ink-soft); }
+  .outline dd ul { margin: 0; padding-left: 16px; }
+  .outline dd li { margin: 2px 0; }
+
+  .flyer { border: 2px solid var(--ink); border-radius: 18px; padding: 30px; margin: 22px auto; background: var(--card); max-width: 620px; break-inside: avoid; }
+  .flyer .fbrand { font-weight: 800; font-size: 13px; letter-spacing: 0.02em; }
+  .flyer .fbrand b { color: var(--brand); }
+  .flyer .feyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--brand); font-weight: 700; margin-top: 14px; }
+  .flyer h4 { font-size: clamp(24px, 4vw, 30px); font-weight: 800; line-height: 1.08; margin: 4px 0 8px; }
+  .flyer .fhook { font-style: italic; color: var(--ink-soft); font-size: 15px; margin: 0 0 14px; }
+  .flyer ul.fget { list-style: none; margin: 0 0 16px; padding: 0; }
+  .flyer ul.fget li { padding: 5px 0 5px 24px; position: relative; font-size: 14px; }
+  .flyer ul.fget li:before { content: "✓"; position: absolute; left: 0; color: var(--brand); font-weight: 800; }
+  .flyer .fmeta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; border-top: 1px solid var(--hair); padding-top: 14px; font-size: 13px; color: var(--ink); }
+  .flyer .fmeta .k { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); display: block; }
+  .flyer .fill2 { border-bottom: 1.5px solid var(--muted); display: inline-block; min-width: 90px; height: 1.1em; }
+  .flyer .ffoot { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .flyer .fqr { width: 76px; height: 76px; flex: none; border: 1.5px dashed var(--muted); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 9px; color: var(--muted); text-align: center; line-height: 1.3; }
+  .flyer .fhost { font-size: 12px; color: var(--ink-soft); }
+  @media print { .flyer { page-break-before: always; box-shadow: none; } }
+
   @page { margin: 16mm 14mm; }
 </style>
 
@@ -242,6 +268,7 @@
     <a href="#ceo">CEO Flagship</a>
     <a href="#what-is-vedd">Pitch</a>
     <a href="#journey-events">Journey</a>
+    <a href="#outlines-flyers">Flyers</a>
     <a href="#study">Study</a>
     <a href="#trainings">Trainings</a>
     <a href="#promo">Promo</a>
@@ -826,6 +853,243 @@
       <div class="callout">
         <div class="k">Note on these links</div>
         <p>These point to pages inside the VEDD app at veddbuild.com and generally require an account or ambassador access. Verify the exact paths in your live app before printing — routes can change as the platform grows.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ HOST OUTLINES & FLYERS ═══════════ -->
+  <section class="appendix" id="outlines-flyers" style="--c:var(--brand)">
+    <div class="wrap">
+      <p class="eyebrow">Deep Dive</p>
+      <h2 style="font-size:clamp(24px,3.5vw,34px);font-weight:800;">Full Host Outlines &amp; Printable Flyers</h2>
+      <p class="sub">Everything a host needs per event — objective, prep checklist, segment pointers, likely questions, and a close — followed by a print-ready flyer (each flyer prints on its own page). Fill in date, time, venue, and your QR before posting.</p>
+
+      <!-- 1 AMBASSADOR MEETUP -->
+      <h3 class="block">1 · Ambassador Community Meetup</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Get attendees on the free tier via your link, and spot 1–2 future ambassadors.</dd>
+        <dt>Prep</dt><dd><ul><li>Charge devices; test Wi-Fi &amp; the demo chart (have a screen-recording fallback).</li><li>Print door cards with your QR; have the sign-up link short &amp; ready.</li><li>Pick 1 relatable chart to analyze live.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Lead with your own story — why you use VEDD.</li><li>Let the AI do the talking; don't over-explain.</li><li>Have everyone sign up together, in the room.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"I don't trade" → learn while the AI trades. "Too expensive" → &lt;$2/day + free tier. "Legit?" → free, no card; Kalshi is CFTC-regulated.</dd>
+        <dt>Close</dt><dd>Everyone makes a free account before leaving; invite standouts to the ambassador path.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Free live session</div>
+        <h4>AI Trading Night — Read Any Chart in Seconds</h4>
+        <p class="fhook">"No experience needed. Come see AI find the trade — and how it pays you to share it."</p>
+        <ul class="fget"><li>Live AI chart analysis</li><li>How to start free (no card)</li><li>How you get paid to share VEDD</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Phone or laptop</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">veddbuild.com · Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 2 NONPROFIT -->
+      <h3 class="block">2 · Nonprofit / Community &amp; Financial Literacy</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Education first — build trust and point people to free courses. No sales pitch.</dd>
+        <dt>Prep</dt><dd><ul><li>Coordinate consent with the host org (esp. minors &amp; photos).</li><li>Prepare plain-language money basics; avoid jargon.</li><li>Have Workforce Academy enrollment steps printed.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Frame the AI as a patient teacher, not a money machine.</li><li>Name risk honestly — this is learning, not a promise.</li><li>Make the free tier the only "ask."</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Is this gambling?" → no; it's education + tools, risk-managed. "What's the catch?" → free tier, no card, learn at your pace.</dd>
+        <dt>Close</dt><dd>Free tier + Workforce Academy; collect emails only with consent.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Free community workshop</div>
+        <h4>Money, Markets &amp; AI — A Beginner-Friendly Session</h4>
+        <p class="fhook">"Tools the industry usually keeps behind a paywall — explained simply, for everyone."</p>
+        <ul class="fget"><li>Money &amp; markets 101 — no jargon</li><li>Free courses that stack toward grants</li><li>Start learning free, at your pace</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Cost</span> Free · all welcome</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to learn</div><div class="fhost">veddbuild.com · Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 3 CEO FLAGSHIP -->
+      <h3 class="block">3 · CEO Flagship — Live Showcase</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Max reach for veddbuild.com + a credible live demo + a week of content.</dd>
+        <dt>Prep</dt><dd><ul><li>Rehearse the demo twice; record a fallback.</li><li>Multi-cam + captured audio; assign a content lead.</li><li>One big-screen QR to your landing page throughout.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Open with the vision, then prove it live.</li><li>Bring a guest/testimonial on stage.</li><li>Capture testimonials during Q&amp;A.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>Press &amp; partner questions on regulation, results, roadmap — answer with the compliance line and real features.</dd>
+        <dt>Close</dt><dd>QR to veddbuild.com; harvest clips for weeks of promo.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Live keynote &amp; showcase</div>
+        <h4>The Vault That Replaces 7 Trading Tools — Live</h4>
+        <p class="fhook">"See the AI read charts, build bots, and auto-trade — live on stage."</p>
+        <ul class="fget"><li>Live product demo + ABBA</li><li>The mission &amp; the movement</li><li>How to start free + earn as an ambassador</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Venue</span><span class="fill2"></span></div><div><span class="k">Stream</span><span class="fill2"></span></div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>veddbuild</div><div class="fhost">veddbuild.com · A VEDD AI Trading Vault event</div></div>
+      </div>
+
+      <!-- 4 WELCOME -->
+      <h3 class="block">4 · Week 1 · "Welcome to the Fam"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Onboard new members, set the week's game plan, get first accounts made.</dd>
+        <dt>Prep</dt><dd><ul><li>Have the platform tour + a demo chart ready.</li><li>Know the credits/free-path numbers cold.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>High energy — "what's good everybody!"</li><li>Show, then explain how they get paid.</li><li>End every segment with the daily-lesson nudge.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Where do I start?" → Day 1 lesson + free account. "How do credits work?" → refer → credits → cover your sub.</dd>
+        <dt>Close</dt><dd>Everyone signs up + commits to Days 1–7.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 1 · Free live session</div>
+        <h4>Welcome to the Fam — Start Your 44-Day Come-Up</h4>
+        <p class="fhook">"New here? In 45 minutes you'll leave with an AI reading your charts — free."</p>
+        <ul class="fget"><li>Platform tour + live demo</li><li>How you get paid to share</li><li>Your Week 1 game plan</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Phone</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 5 CHART GAME 101 -->
+      <h3 class="block">5 · Week 1 · "Chart Game 101"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Teach the absolute basics of reading a chart; assign a homework post.</dd>
+        <dt>Prep</dt><dd><ul><li>Pick one clean chart; be ready to draw support/resistance live.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Candlesticks = the story; keep it visual.</li><li>Draw zones live, then show VEDD AI confirm them.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Which timeframe?" → start higher, confirm lower. "How many indicators?" → fewer, confluence beats clutter.</dd>
+        <dt>Close</dt><dd>Homework: upload a chart to VEDD AI + post with #VEDDAi.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 1 · Free workshop</div>
+        <h4>Chart Game 101 — Learn to Actually Read the Market</h4>
+        <p class="fhook">"Candlesticks, support &amp; resistance — drawn live. No pitch, just game."</p>
+        <ul class="fget"><li>Read candlesticks &amp; key zones</li><li>See VEDD AI confirm the setup</li><li>Leave able to mark up your own chart</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Phone/laptop</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 6 INDICATORS -->
+      <h3 class="block">6 · Week 2 · "Level Up — Master the Indicators"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Demystify RSI/MACD/MAs + multi-timeframe; kick off the referral race.</dd>
+        <dt>Prep</dt><dd><ul><li>One example per indicator; a multi-TF example on VEDD.</li><li>Set up the 48h referral countdown.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Plain English: RSI=energy, MACD=momentum shift, MA=trend.</li><li>Confluence across timeframes = conviction.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Best settings?" → defaults are fine; consistency &gt; tweaking. "Which indicator wins?" → they confirm each other.</dd>
+        <dt>Close</dt><dd>Refer 3 this week → credits cover your subscription.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 2 · Free workshop</div>
+        <h4>Indicators, Finally Explained — RSI, MACD &amp; MAs</h4>
+        <p class="fhook">"No jargon. Learn what the indicators actually tell you — and let AI confirm it."</p>
+        <ul class="fget"><li>RSI, MACD &amp; moving averages in plain English</li><li>Multi-timeframe confluence, live</li><li>Referral Race kickoff — stack credits</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Phone</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 7 AMA -->
+      <h3 class="block">7 · Week 3 · "AMA — Top Ambassador Secrets"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Mindset + community; showcase real ambassadors; drive engagement.</dd>
+        <dt>Prep</dt><dd><ul><li>Line up 2–3 guests; seed a few starter questions.</li><li>Plan the 30-min social raid.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Keep it real — losses, patience, FOMO, consistency.</li><li>Pull questions from chat live.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"How long to get good?" → reps + journaling. "How do you handle losses?" → part of the game, risk-managed.</dd>
+        <dt>Close</dt><dd>Social raid — everyone engages 10 posts together.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 3 · Free live AMA</div>
+        <h4>Ask the OGs — Ambassador Secrets, Live</h4>
+        <p class="fhook">"How the top ambassadors stay disciplined and win. Ask them anything."</p>
+        <ul class="fget"><li>Real come-up stories</li><li>Mindset: losses, patience, FOMO</li><li>Live Q&amp;A + community raid</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Your questions</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 8 EA MASTERCLASS -->
+      <h3 class="block">8 · Week 4 · "EA Marketplace Masterclass"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Build an EA live (no code), publish it, land a first subscriber.</dd>
+        <dt>Prep</dt><dd><ul><li>Have a multi-TF analysis ready to convert to an EA.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Emphasize: automation = discipline without emotion.</li><li>Show the marketplace publish flow end to end.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Do I need to code?" → no. "Will it lose money?" → backtest first, risk-managed, paper mode.</dd>
+        <dt>Close</dt><dd>Publish your EA + 3 promo posts this week.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 4 · Free masterclass</div>
+        <h4>Build a Trading Bot — No Code, Live</h4>
+        <p class="fhook">"Turn an analysis into an automated EA, publish it, and earn passive income."</p>
+        <ul class="fget"><li>Build an EA from a live analysis</li><li>Publish to the marketplace</li><li>Land your first subscriber</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> Laptop ideal</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 9 HOST TRAINING -->
+      <h3 class="block">9 · Week 5 · "Become a Community Host"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Train the next wave of hosts; everyone practices running a segment.</dd>
+        <dt>Prep</dt><dd><ul><li>Have this kit open; assign practice slots.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Teach run-of-show, energy, handling Q&amp;A.</li><li>Give live, kind feedback after each practice.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"What if no one shows?" → start small, record, repost. "What do I say?" → use the kit's scripts.</dd>
+        <dt>Close</dt><dd>Each attendee books their first event.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 5 · Free leadership training</div>
+        <h4>Become a VEDD Host — Run Your Own Events</h4>
+        <p class="fhook">"Want to host, grow a tribe, and get paid? We'll train you to run the room."</p>
+        <ul class="fget"><li>Run-of-show &amp; hosting energy</li><li>Practice a live segment</li><li>Book your first event</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">For</span> Ambassadors</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 10 CHART REVIEW -->
+      <h3 class="block">10 · Week 6 · "Community Chart Review"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Your first hosted event — review members' charts live; build the tribe.</dd>
+        <dt>Prep</dt><dd><ul><li>Use the Host Dashboard to create the event; ask for charts in advance.</li><li>Set up recording for the replay.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>10 committed &gt; 100 passive.</li><li>Spotlight a member; celebrate wins.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Can you review mine?" → yes, drop it in chat. "Was that a buy signal?" → explain the AI's reasoning, not just the call.</dd>
+        <dt>Close</dt><dd>Post the replay; announce the next event.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Week 6 · Free community event</div>
+        <h4>Bring Your Chart — Live AI Review Night</h4>
+        <p class="fhook">"Drop your chart and we'll break it down live with VEDD AI."</p>
+        <ul class="fget"><li>Live chart reviews for members</li><li>Member spotlight + weekly wins</li><li>Replay posted after</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">Bring</span> A chart</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 11 PLATFORM MASTERY -->
+      <h3 class="block">11 · Bonus · "Platform Mastery" Workshop Series</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Turn graduates into power users — automation, growth, crypto, ABBA.</dd>
+        <dt>Prep</dt><dd><ul><li>Live accounts ready for setup demos; paper mode for crypto.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Reinforce risk controls at every step.</li><li>Backtest before real money; paper-trade crypto first.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"Is auto-trading safe?" → risk controls + backtest. "Which broker?" → MT5 EA or TradeLocker.</dd>
+        <dt>Close</dt><dd>Everyone leaves with the engine set up + a growth plan.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Bonus series · Free workshops</div>
+        <h4>Platform Mastery — Put It All on Autopilot</h4>
+        <p class="fhook">"Set up the AI engine, connect your account, and grow on autopilot — safely."</p>
+        <ul class="fget"><li>SS AI Engine setup + 1% risk rule</li><li>Auto position sizing &amp; account growth</li><li>Crypto scanner + ABBA, your AI advisor</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">For</span> Graduates</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
+      </div>
+
+      <!-- 12 GRADUATION -->
+      <h3 class="block">12 · Weekly · "Graduation &amp; Recognition Night"</h3>
+      <div class="outline"><dl>
+        <dt>Objective</dt><dd>Celebrate progress, promote tiers, hand out certs, kick off next week.</dd>
+        <dt>Prep</dt><dd><ul><li>Pull the leaderboard + tier changes; prep shout-outs.</li></ul></dd>
+        <dt>Pointers</dt><dd><ul><li>Make people feel seen — name names.</li><li>Tie recognition to next week's challenge.</li></ul></dd>
+        <dt>Likely Qs</dt><dd>"How do I rank up?" → referrals + engagement + events. "When's my cert?" → on completion milestones.</dd>
+        <dt>Close</dt><dd>Drop next week's challenge; squad photo.</dd>
+      </dl></div>
+      <div class="flyer">
+        <div class="fbrand"><b>VEDD</b> AI Trading Vault</div>
+        <div class="feyebrow">Every Sunday · Community</div>
+        <h4>Graduation &amp; Recognition Night</h4>
+        <p class="fhook">"Leaderboard, tier promotions, and who's leveling up. Come celebrate the grind."</p>
+        <ul class="fget"><li>Weekly leaderboard &amp; shout-outs</li><li>Tier promotions &amp; certificates</li><li>Next week's challenge drop</li></ul>
+        <div class="fmeta"><div><span class="k">Date</span><span class="fill2"></span></div><div><span class="k">Time</span><span class="fill2"></span></div><div><span class="k">Where</span><span class="fill2"></span></div><div><span class="k">For</span> The whole fam</div></div>
+        <div class="ffoot"><div class="fqr">Scan<br>to join</div><div class="fhost">Hosted by [Your Name], VEDD Community Ambassador</div></div>
       </div>
     </div>
   </section>
