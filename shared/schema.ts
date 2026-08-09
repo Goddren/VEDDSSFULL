@@ -3691,6 +3691,37 @@ export const kalshiEngineConfigs = pgTable("kalshi_engine_configs", {
 
 export type KalshiEngineConfigRow = typeof kalshiEngineConfigs.$inferSelect;
 
+// Per-trade feature store for the Kalshi self-learning brain. ai_trade_results
+// is lossy for Kalshi (no confidence/edge/coin/strikeType columns), so this
+// table captures the FULL decision context of every closed trade — the raw
+// material the brain correlates with win/loss to get smarter each trade. Also
+// the snapshot source when a Kalshi brain is sold on the marketplace.
+export const kalshiBrainOutcomes = pgTable("kalshi_brain_outcomes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  coin: text("coin").notNull(),
+  timeframe: text("timeframe").notNull(),           // 'hourly' | 'fifteen_min'
+  strategy: text("strategy").notNull(),
+  direction: text("direction").notNull(),           // 'BUY' | 'SELL'
+  strikeType: text("strike_type"),                  // greater/less/between/…
+  entryPriceCents: integer("entry_price_cents"),
+  confidence: doublePrecision("confidence"),        // signal confidence 0-100
+  edgePct: doublePrecision("edge_pct"),             // value-pick edge (null for single-strategy)
+  valueScore: doublePrecision("value_score"),
+  modelProbPct: doublePrecision("model_prob_pct"),
+  agreement: doublePrecision("agreement"),
+  hourUtc: integer("hour_utc"),                     // 0-23 entry hour (UTC)
+  holdingMinutes: integer("holding_minutes"),
+  exitReason: text("exit_reason"),                  // take_profit/stop_loss/settlement/manual
+  result: text("result").notNull(),                 // WIN | LOSS | BREAKEVEN
+  profitLoss: doublePrecision("profit_loss").notNull(),
+  source: text("source").notNull().default('live'), // 'live' | 'backfill' | 'purchased_brain'
+  closedAt: timestamp("closed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type KalshiBrainOutcome = typeof kalshiBrainOutcomes.$inferSelect;
+
 // ─── Business Credit Builder ──────────────────────────────────────────────────
 
 export const bizEntityTypeEnum = pgEnum("biz_entity_type", ["llc", "s_corp", "c_corp", "sole_prop"]);

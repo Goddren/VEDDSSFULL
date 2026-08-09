@@ -19452,6 +19452,36 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/brain — the learned Kalshi brain (per-coin knowledge + insights)
+  app.get("/api/kalshi/brain", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { getOrRefreshKalshiBrain } = await import('./services/kalshi-brain');
+      res.json(await getOrRefreshKalshiBrain(userId));
+    } catch (err: any) {
+      console.error('[Kalshi brain]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/kalshi/brain/backfill — seed the brain from past trades + force a fresh learn
+  app.post("/api/kalshi/brain/backfill", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
+      const brain = await learnFromKalshiTrades(userId);
+      res.json({
+        success: true, totalTrades: brain.totalTrades, overallWinRate: brain.overallWinRate,
+        coins: Object.keys(brain.coinKnowledge), insights: brain.insights,
+      });
+    } catch (err: any) {
+      console.error('[Kalshi brain backfill]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/predictions/ai-review — AI review of the best prediction options to WIN.
   // Combines Kalshi value picks (edge model), per-strategy historical accuracy, and
   // both engines' live state, then has the AI rank the highest-probability plays with

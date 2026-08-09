@@ -214,6 +214,8 @@ async function withRetry<T>(
     await ensureKalshiEngineConfigTable();
     const { hydratePersistedKalshiConfigs } = await import('./services/kalshi-engine');
     await hydratePersistedKalshiConfigs();
+    const { ensureKalshiBrainTables } = await import('./services/ensure-kalshi-brain-tables');
+    await ensureKalshiBrainTables();
   } catch (err: any) {
     console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
   }

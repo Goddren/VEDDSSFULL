@@ -22,6 +22,7 @@ import {
 import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
 import { getCryptoCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
+import { getOrRefreshKalshiBrain, learnFromKalshiTrades, kalshiBrainSizeMultiplier, kalshiBrainValueWeight } from './kalshi-brain';
 
 // Coins/assets with a real, currently-tradeable bracket market (same product
 // structure as the original KXBTC). Verified live against Kalshi's API before
@@ -64,6 +65,12 @@ export interface KalshiTradeRecord {
   status: 'open' | 'closed' | 'expired';
   paper: boolean;
   kalshiOrderId?: string;
+  // Decision-context features captured at entry, for the self-learning brain.
+  strikeType?: string;
+  edgePct?: number;
+  valueScore?: number;
+  modelProbPct?: number;
+  agreement?: number;
 }
 
 export interface KalshiEngineState {
@@ -141,6 +148,14 @@ export interface KalshiEngineConfig {
   ruinGuardEnabled: boolean;      // master switch; default false so existing accounts are unaffected
   dailyLossLimitPct: number;      // % of starting bankroll; halt new trades once today's P&L ≤ −this
   maxDrawdownLimitPct: number;    // % of starting bankroll; halt new trades once DD from peak ≥ this
+
+  // ── Self-learning brain (reweight + size) ─────────────────────────────────
+  // Learning (recording per-trade outcomes + recomputing the brain) ALWAYS
+  // happens. This flag only gates whether the brain INFLUENCES live decisions —
+  // scaling the value score and contract sizing by what has actually been
+  // winning for this account. It never hard-blocks a trade (bounded: value
+  // weight ~0.6–1.4×, sizing 0.25–1.5×) and stays neutral until ≥10 trades/coin.
+  kalshiBrainEnabled: boolean;
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -171,6 +186,7 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   ruinGuardEnabled:        false, // opt-in — changes live trading behavior, off by default
   dailyLossLimitPct:       5,     // FTUK-style daily loss limit (% of starting bankroll)
   maxDrawdownLimitPct:     10,    // FTUK-style max drawdown limit (% of starting bankroll)
+  kalshiBrainEnabled:      true,  // brain influence on (bounded + neutral until it has data)
 };
 
 /** Identify which coin + timeframe a ticker belongs to from its series
@@ -318,7 +334,7 @@ export function kalshiBankroll(s: KalshiEngineState): number {
   return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
 }
 
-export async function kalshiContractsFor(userId: number, s: KalshiEngineState, priceInCents: number): Promise<{ contracts: number; reasoning: string }> {
+export async function kalshiContractsFor(userId: number, s: KalshiEngineState, priceInCents: number, coin?: KalshiCryptoCoin): Promise<{ contracts: number; reasoning: string }> {
   const baseContracts = (() => {
     if (!s.config.compounding) return s.config.contractsPerTrade;
     const bankroll = kalshiBankroll(s);
@@ -337,8 +353,12 @@ export async function kalshiContractsFor(userId: number, s: KalshiEngineState, p
     const ddFromPeakPct = peak > 0 ? ((peak - bankroll) / peak) * 100 : 0;
     if (ddFromPeakPct >= s.config.drawdownShieldThreshold) riskMultiplier = 0.25;
   }
-  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier));
-  const shieldNote = riskMultiplier < 1 ? ` ⚠️ Drawdown Shield active — sized to ${Math.round(riskMultiplier * 100)}%.` : '';
+  // Brain sizing — scale by what has actually been winning for this coin
+  // (Kelly-clamped 0.25–1.5×, neutral 1.0 until ≥10 decided trades on the coin).
+  const brainMult = (s.config.kalshiBrainEnabled && coin) ? kalshiBrainSizeMultiplier(userId, coin) : 1;
+  const shieldedBase = Math.max(1, Math.round(baseContracts * riskMultiplier * brainMult));
+  const shieldNote = (riskMultiplier < 1 ? ` ⚠️ Drawdown Shield active — sized to ${Math.round(riskMultiplier * 100)}%.` : '')
+    + (brainMult !== 1 ? ` 🧠 Brain sizing ×${brainMult}${coin ? ` (${coin})` : ''}.` : '');
 
   if (s.config.brainLearningMode) {
     const perf = getKalshiPerformance(userId);
@@ -536,11 +556,12 @@ async function _verifyKalshiFill(userId: number, orderId: string): Promise<boole
 async function _placeKalshiYes(
   userId: number,
   s: KalshiEngineState,
-  p: { coin: KalshiCryptoCoin; timeframe: 'hourly' | 'fifteen_min'; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string },
+  p: { coin: KalshiCryptoCoin; timeframe: 'hourly' | 'fifteen_min'; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string;
+       strikeType?: string; edgePct?: number; valueScore?: number; modelProbPct?: number; agreement?: number },
 ): Promise<{ fired: boolean; reason: string }> {
   // Compounding mode sizes the stake from the growing bankroll; otherwise fixed
-  // count — then Brain Learning Mode / Kelly / Drawdown Shield adjust it further.
-  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p.priceInCents);
+  // count — then Brain Learning Mode / Kelly / Drawdown Shield / the brain adjust it.
+  const { contracts, reasoning: sizingReasoning } = await kalshiContractsFor(userId, s, p.priceInCents, p.coin);
   const stakeUsd = (p.priceInCents / 100) * contracts;
 
   let kalshiOrderId: string | undefined;
@@ -586,6 +607,11 @@ async function _placeKalshiYes(
     status:            'open',
     paper:             s.isPaperMode,
     kalshiOrderId,
+    strikeType:        p.strikeType,
+    edgePct:           p.edgePct,
+    valueScore:        p.valueScore,
+    modelProbPct:      p.modelProbPct,
+    agreement:         p.agreement,
   };
 
   s.openTrades.push(trade);
@@ -784,6 +810,11 @@ async function _scanBestValuePickAcrossSymbols(
     direction: vp.consensus.direction === 'SELL' ? 'SELL' : 'BUY',
     label: `${coin} value pick (score ${top.valueScore}, +${top.edgePct}¢ edge) [best of ${symbols.length}]`,
     strategy: 'consensus',
+    strikeType: top.strikeType,
+    edgePct: top.edgePct,
+    valueScore: top.valueScore,
+    modelProbPct: top.modelProbPct,
+    agreement: top.agreement,
   });
   return result;
 }
@@ -900,6 +931,7 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
       direction: pred.direction === 'SELL' ? 'SELL' : 'BUY',
       label: stratLabel,
       strategy: effectiveStrategy,
+      strikeType: bracket.strikeType,
     });
 
   } catch (err: any) {
@@ -1151,6 +1183,11 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
     winRateWeight = Math.round((0.7 + (consStat.winRate / 100) * 0.6) * 100) / 100;
   }
 
+  // Self-learning brain: warm its cache, then reweight each bracket's value
+  // score by what has actually been winning for this coin + bracket type.
+  const brainEnabled = getKalshiEngineState(userId).config.kalshiBrainEnabled;
+  if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {});
+
   // ── Trade-quality filters (favorite-longshot bias + exit cost) ──────────────
   // These narrow the scanner to genuinely BETTER trades, not more of them. Two
   // well-established effects make the naive "edge = model − ask" surface too
@@ -1198,8 +1235,10 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
     const agreementW = 0.5 + consensus.agreement * 0.5;       // 0.5–1.0
     const confW      = 0.5 + (consensus.confidence / 100) * 0.5; // 0.5–1.0
     const probW      = 0.6 + modelProb * 0.4;                  // favor more-likely outcomes
-    const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * 10) / 10;
+    const brainW     = brainEnabled ? kalshiBrainValueWeight(userId, coin, b.strikeType) : 1; // ~0.6–1.4
+    const valueScore = Math.round(edgePct * agreementW * confW * probW * winRateWeight * brainW * 10) / 10;
 
+    const brainNote = brainW !== 1 ? ` 🧠 Brain ${brainW}× (${coin}${b.strikeType ? `/${b.strikeType}` : ''}).` : '';
     const learnNote = winRateWeight !== 1.0
       ? ` Learned ${winRateWeight}× (consensus WR ${consStat!.winRate}% over ${consStat!.wins + consStat!.losses}).`
       : '';
@@ -1218,7 +1257,7 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
       confidence: consensus.confidence,
       agreement: consensus.agreement,
       winRateWeight,
-      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.${haircutNote}${learnNote}`,
+      rationale: `${consensus.direction} consensus (${Math.round(consensus.agreement * 100)}% agree, ${consensus.confidence}% conf). Model ${modelProbPct}% vs market ${ask}¢ → +${edgePct}¢ edge.${haircutNote}${learnNote}${brainNote}`,
     });
   }
 
@@ -1371,6 +1410,37 @@ function _finalizeKalshiClose(
         mt5Ticket: trade.id,
         notes: `${trade.strategy}: ${trade.subtitle}${exitReason !== 'manual' ? ' | ' + exitReason : ''}`,
       });
+    } catch { /* non-blocking */ }
+  });
+
+  // Capture the full decision context into the brain's feature store, then
+  // retrigger learning so the very next trade reflects this outcome — win OR loss.
+  Promise.resolve().then(async () => {
+    try {
+      const { db } = await import('../db');
+      const { kalshiBrainOutcomes } = await import('../../shared/schema');
+      const openedMs = new Date(trade.openedAt).getTime();
+      await db.insert(kalshiBrainOutcomes).values({
+        userId,
+        coin: trade.coin || 'BTC',
+        timeframe: trade.timeframe || 'hourly',
+        strategy: trade.strategy || 'unknown',
+        direction: trade.signal.direction === 'SELL' ? 'SELL' : 'BUY',
+        strikeType: trade.strikeType ?? null,
+        entryPriceCents: trade.entryPriceCents,
+        confidence: trade.signal.confidence ?? null,
+        edgePct: trade.edgePct ?? null,
+        valueScore: trade.valueScore ?? null,
+        modelProbPct: trade.modelProbPct ?? null,
+        agreement: trade.agreement ?? null,
+        hourUtc: new Date(trade.openedAt).getUTCHours(),
+        holdingMinutes: Math.max(0, Math.round((Date.now() - openedMs) / 60000)),
+        exitReason,
+        result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
+        profitLoss: Math.round(realizedPnl * 100) / 100,
+        source: 'live',
+      });
+      await learnFromKalshiTrades(userId);
     } catch { /* non-blocking */ }
   });
 
