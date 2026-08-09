@@ -4362,7 +4362,9 @@ export async function generateVeddBlogPost(topic?: string, userId?: number): Pro
         },
       ],
       response_format: { type: "json_object" },
-      max_tokens: 300,
+      // Reasoning models (Groq gpt-oss/Qwen3/etc.) spend tokens on hidden
+      // reasoning before the JSON, so 300 truncated the topic selection.
+      max_tokens: hasHiddenReasoningOverhead(blogModel) ? 1200 : 400,
     });
 
     const topicsRaw = topicsResponse.choices[0]?.message?.content || '{}';
@@ -4428,10 +4430,18 @@ OUTPUT: Return a JSON object with these exact fields:
       },
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1800,
+    // A 600-900 word HTML article wrapped in JSON needs real headroom — 1800
+    // truncated the JSON mid-article, which failed JSON.parse and fell back to a
+    // tiny stub (the "articles aren't full" bug). Reasoning models need even more
+    // since they burn tokens on hidden reasoning before emitting the article.
+    max_tokens: hasHiddenReasoningOverhead(blogModel) ? 6000 : 4000,
   });
 
   const articleRaw = articleResponse.choices[0]?.message?.content || '{}';
+  // Surface truncation instead of silently shipping a stub.
+  if (articleResponse.choices[0]?.finish_reason === 'length') {
+    console.warn('[Blog] Article generation hit the token limit — output may be truncated; consider raising max_tokens.');
+  }
   let articleData: {
     title?: string;
     excerpt?: string;

@@ -11349,7 +11349,9 @@ async function generateVeddBlogPost(topic, userId) {
         }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 300
+      // Reasoning models (Groq gpt-oss/Qwen3/etc.) spend tokens on hidden
+      // reasoning before the JSON, so 300 truncated the topic selection.
+      max_tokens: hasHiddenReasoningOverhead(blogModel) ? 1200 : 400
     });
     const topicsRaw = topicsResponse.choices[0]?.message?.content || "{}";
     let topicsData = {};
@@ -11415,9 +11417,16 @@ Make it timely, relevant to current market conditions, and show how VEDD's tools
       }
     ],
     response_format: { type: "json_object" },
-    max_tokens: 1800
+    // A 600-900 word HTML article wrapped in JSON needs real headroom — 1800
+    // truncated the JSON mid-article, which failed JSON.parse and fell back to a
+    // tiny stub (the "articles aren't full" bug). Reasoning models need even more
+    // since they burn tokens on hidden reasoning before emitting the article.
+    max_tokens: hasHiddenReasoningOverhead(blogModel) ? 6e3 : 4e3
   });
   const articleRaw = articleResponse.choices[0]?.message?.content || "{}";
+  if (articleResponse.choices[0]?.finish_reason === "length") {
+    console.warn("[Blog] Article generation hit the token limit \u2014 output may be truncated; consider raising max_tokens.");
+  }
   let articleData = {};
   try {
     articleData = JSON.parse(articleRaw);
