@@ -322,6 +322,7 @@ const Header: React.FC = () => {
     { name: 'Content Flow', path: '/ambassador/content-flow', active: location === '/ambassador/content-flow', icon: <Calendar className="h-4 w-4 mr-2" /> },
     { name: 'Sales Script', path: '/ambassador/sales-script', active: location === '/ambassador/sales-script', icon: <FileText className="h-4 w-4 mr-2" /> },
     { name: 'Training Calendar', path: '/training-calendar', active: location === '/training-calendar', icon: <Calendar className="h-4 w-4 mr-2" /> },
+    { name: 'Event Host Kit', path: '/event-kit', active: location === '/event-kit', icon: <FileText className="h-4 w-4 mr-2" /> },
     { name: 'Host Dashboard', path: '/host-dashboard', active: location === '/host-dashboard', icon: <Award className="h-4 w-4 mr-2" /> },
     { name: 'Streak Tracker', path: '/streak', active: location === '/streak', icon: <Flame className="h-4 w-4 mr-2" /> },
     { name: '7-8 Profit Paths', path: '/seven-eight', active: location === '/seven-eight', icon: <Star className="h-4 w-4 mr-2" /> },

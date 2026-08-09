@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VEDD Event Host Kit</title>
+</head>
+<body>
+<style>
+  :root {
+    /* Warm paper + ink neutrals (chosen, not defaulted — slight amber bias) */
+    --paper:      #FAF8F4;
+    --paper-2:    #F3EFE7;
+    --card:       #FFFFFF;
+    --ink:        #1C1A17;
+    --ink-soft:   #43403A;
+    --muted:      #8A8074;
+    --hair:       rgba(28,26,23,0.12);
+    --hair-soft:  rgba(28,26,23,0.07);
+    /* Brand */
+    --brand:      #DC2626;   /* VEDD red */
+    --brand-deep: #B01B1B;
+    /* Host-type accents */
+    --amb:        #C77B12;   /* ambassador — gold, deepened for print legibility */
+    --amb-tint:   #FBEFD8;
+    --npo:        #0E8F63;   /* nonprofit — emerald */
+    --npo-tint:   #DCF3EA;
+    --ceo:        #C42222;   /* CEO flagship — brand red */
+    --ceo-tint:   #FBE4E2;
+    --shadow:     0 1px 2px rgba(28,26,23,0.05), 0 8px 24px -12px rgba(28,26,23,0.18);
+
+    --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --measure: 68ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#14120F; --paper-2:#1B1815; --card:#201D19; --ink:#F3EFE8; --ink-soft:#C8C2B8;
+      --muted:#9A9082; --hair:rgba(243,239,232,0.14); --hair-soft:rgba(243,239,232,0.08);
+      --brand:#F0503C; --brand-deep:#F0503C;
+      --amb:#E9A83C; --amb-tint:rgba(233,168,60,0.12);
+      --npo:#2CC08A; --npo-tint:rgba(44,192,138,0.12);
+      --ceo:#F0503C; --ceo-tint:rgba(240,80,60,0.12);
+      --shadow:0 1px 2px rgba(0,0,0,0.4), 0 10px 30px -14px rgba(0,0,0,0.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#FAF8F4; --paper-2:#F3EFE7; --card:#FFFFFF; --ink:#1C1A17; --ink-soft:#43403A;
+    --muted:#8A8074; --hair:rgba(28,26,23,0.12); --hair-soft:rgba(28,26,23,0.07);
+    --brand:#DC2626; --brand-deep:#B01B1B;
+    --amb:#C77B12; --amb-tint:#FBEFD8; --npo:#0E8F63; --npo-tint:#DCF3EA; --ceo:#C42222; --ceo-tint:#FBE4E2;
+  }
+  :root[data-theme="dark"] {
+    --paper:#14120F; --paper-2:#1B1815; --card:#201D19; --ink:#F3EFE8; --ink-soft:#C8C2B8;
+    --muted:#9A9082; --hair:rgba(243,239,232,0.14); --hair-soft:rgba(243,239,232,0.08);
+    --brand:#F0503C; --brand-deep:#F0503C;
+    --amb:#E9A83C; --amb-tint:rgba(233,168,60,0.12); --npo:#2CC08A; --npo-tint:rgba(44,192,138,0.12);
+    --ceo:#F0503C; --ceo-tint:rgba(240,80,60,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  .kit { background: var(--paper); color: var(--ink); font-family: var(--font-sans);
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  .kit h1,.kit h2,.kit h3,.kit h4 { text-wrap: balance; line-height: 1.12; margin: 0; letter-spacing: -0.02em; }
+  .kit p { margin: 0 0 0.9em; max-width: var(--measure); }
+  .kit strong { color: var(--ink); font-weight: 700; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 28px; }
+  .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* ── Screen nav ─────────────────────────────────────────── */
+  .nav { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--hair); }
+  .nav-in { max-width: 960px; margin: 0 auto; padding: 10px 28px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .nav .brandmark { font-weight: 800; letter-spacing: 0.02em; font-size: 15px; }
+  .nav .brandmark b { color: var(--brand); }
+  .nav a { color: var(--ink-soft); text-decoration: none; font-size: 13.5px; font-weight: 500; }
+  .nav a:hover { color: var(--brand); }
+  .nav .spring { margin-left: auto; }
+  .printbtn { font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: #fff;
+    background: var(--brand); border: none; border-radius: 8px; padding: 7px 14px; }
+  .printbtn:hover { background: var(--brand-deep); }
+  .kit a { color: var(--brand); }
+  .kit :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+
+  /* ── Cover ──────────────────────────────────────────────── */
+  .cover { padding: 64px 0 40px; border-bottom: 1px solid var(--hair); }
+  .cover .logo { width: min(360px, 74%); height: auto; display: block; margin-bottom: 28px; }
+  @media (prefers-color-scheme: dark) { .cover .logo { filter: invert(1) hue-rotate(180deg); } }
+  :root[data-theme="dark"] .cover .logo { filter: invert(1) hue-rotate(180deg); }
+  :root[data-theme="light"] .cover .logo { filter: none; }
+  .cover h1 { font-size: clamp(38px, 7vw, 68px); font-weight: 800; }
+  .cover h1 .divine { color: var(--brand); }
+  .cover .lede { font-size: clamp(17px, 2.2vw, 20px); color: var(--ink-soft); margin-top: 14px; max-width: 60ch; }
+  .cover .tagline { font-style: italic; color: var(--brand); font-size: 18px; margin-top: 4px; }
+  .cover .site { font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.06em; color: var(--muted); margin-top: 22px; }
+
+  .legend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 34px 0 6px; }
+  .legend .lg { border: 1px solid var(--hair); border-radius: 12px; padding: 16px; background: var(--card);
+    border-top: 3px solid var(--c); }
+  .legend .lg .tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--c); font-weight: 700; }
+  .legend .lg h4 { font-size: 17px; margin: 6px 0 4px; }
+  .legend .lg p { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+
+  .howto { background: var(--paper-2); border: 1px solid var(--hair); border-radius: 14px; padding: 22px 24px; margin-top: 30px; }
+  .howto h3 { font-size: 16px; margin-bottom: 10px; }
+  .howto ol { margin: 0; padding-left: 20px; }
+  .howto li { margin: 4px 0; color: var(--ink-soft); font-size: 14.5px; }
+  .fill { border-bottom: 1.5px solid var(--muted); min-width: 120px; display: inline-block; }
+
+  /* ── Version sections ───────────────────────────────────── */
+  .section { padding: 54px 0; border-bottom: 1px solid var(--hair); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .sec-num { font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--c);
+    border: 1.5px solid var(--c); border-radius: 999px; padding: 3px 11px; }
+  .section h2 { font-size: clamp(26px, 4vw, 38px); font-weight: 800; }
+  .section h2 .accent { color: var(--c); }
+  .sub { color: var(--ink-soft); font-size: 16px; margin-top: 8px; max-width: 62ch; }
+
+  .glance { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid var(--hair);
+    border-radius: 12px; overflow: hidden; margin: 26px 0; background: var(--card); }
+  .glance .g { padding: 14px 16px; border-right: 1px solid var(--hair); }
+  .glance .g:last-child { border-right: none; }
+  .glance .g .k { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .glance .g .v { font-size: 15px; font-weight: 700; margin-top: 3px; }
+
+  .goal { background: var(--tint); border-left: 4px solid var(--c); border-radius: 0 12px 12px 0;
+    padding: 16px 20px; margin: 22px 0; }
+  .goal .k { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c); font-weight: 700; }
+  .goal p { margin: 6px 0 0; color: var(--ink); font-size: 15px; }
+
+  h3.block { font-size: 13px; font-family: var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--c); margin: 32px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--hair); }
+
+  /* Run of show table */
+  .ros { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  .ros th { text-align: left; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 12px 8px; border-bottom: 1px solid var(--hair); }
+  .ros td { padding: 11px 12px; border-bottom: 1px solid var(--hair-soft); vertical-align: top; }
+  .ros td.t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--c); font-weight: 700; white-space: nowrap; width: 84px; }
+  .ros td.seg { font-weight: 700; width: 34%; }
+  .ros td.dt { color: var(--ink-soft); }
+  .ros tr:last-child td { border-bottom: none; }
+
+  /* Script / talking points */
+  .say { border-left: 3px solid var(--c); background: var(--card); border-radius: 0 10px 10px 0;
+    padding: 12px 16px; margin: 12px 0; box-shadow: var(--shadow); }
+  .say .lbl { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c); font-weight: 700; }
+  .say p { margin: 5px 0 0; font-size: 15px; }
+  .say .quote { font-style: italic; color: var(--ink); }
+
+  .obj { display: grid; grid-template-columns: 1fr 1.4fr; gap: 0; border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; margin: 6px 0; }
+  .obj > div { padding: 11px 14px; font-size: 14px; }
+  .obj .q { background: var(--paper-2); font-weight: 600; border-right: 1px solid var(--hair); }
+  .obj .a { color: var(--ink-soft); }
+  .obj .a b { color: var(--c); }
+
+  ul.clean { list-style: none; margin: 0; padding: 0; }
+  ul.clean li { padding: 7px 0 7px 26px; position: relative; font-size: 14.5px; color: var(--ink-soft); border-bottom: 1px solid var(--hair-soft); }
+  ul.clean li:before { content: "→"; position: absolute; left: 0; color: var(--c); font-weight: 700; }
+  ul.clean li:last-child { border-bottom: none; }
+  ul.clean li b { color: var(--ink); }
+
+  /* ── Appendices ─────────────────────────────────────────── */
+  .appendix { padding: 54px 0; border-bottom: 1px solid var(--hair); }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 20px 0; }
+  .study { border: 1px solid var(--hair); border-radius: 12px; padding: 16px 18px; background: var(--card); }
+  .study h4 { font-size: 15.5px; margin-bottom: 6px; }
+  .study h4 .pin { color: var(--brand); }
+  .study p { font-size: 13.5px; color: var(--ink-soft); margin: 0; }
+  .pillars { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 22px; margin: 16px 0; }
+  .pillar { border-bottom: 1px solid var(--hair-soft); padding: 9px 0; }
+  .pillar .n { font-weight: 700; font-size: 14.5px; }
+  .pillar .d { font-size: 13px; color: var(--ink-soft); }
+
+  .tiers { width: 100%; border-collapse: collapse; font-size: 14px; margin: 14px 0; }
+  .tiers th, .tiers td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--hair-soft); }
+  .tiers th { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--hair); }
+  .tiers td:first-child { font-weight: 700; color: var(--brand); }
+  .tiers td { font-variant-numeric: tabular-nums; }
+
+  .check { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 18px 0; }
+  .check .col h4 { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--brand); margin-bottom: 10px; }
+  .check label { display: flex; gap: 9px; align-items: flex-start; font-size: 14px; color: var(--ink-soft); padding: 5px 0; }
+  .check .box { width: 15px; height: 15px; border: 1.5px solid var(--muted); border-radius: 4px; flex: none; margin-top: 2px; }
+
+  .callout { background: var(--paper-2); border: 1px solid var(--hair); border-radius: 12px; padding: 18px 20px; margin: 22px 0; }
+  .callout .k { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand); font-weight: 700; }
+  .callout p { font-size: 13.5px; color: var(--ink-soft); margin: 8px 0 0; max-width: none; }
+
+  .foot { padding: 40px 0 60px; }
+  .foot .disc { font-size: 12px; color: var(--muted); max-width: none; line-height: 1.55; }
+  .foot .mark { font-weight: 800; font-size: 15px; margin-bottom: 8px; }
+  .foot .mark b { color: var(--brand); }
+
+  /* Scan-to-start QR placeholder (host pastes their own QR before printing) */
+  .qr-block { display: flex; align-items: center; gap: 20px; margin-top: 30px; padding: 18px 20px;
+    background: var(--card); border: 1px solid var(--hair); border-radius: 14px; max-width: 580px; box-shadow: var(--shadow); }
+  .qr-frame { position: relative; width: 108px; height: 108px; flex: none; border-radius: 10px;
+    background: var(--paper-2); border: 1.5px dashed var(--muted); display: flex; align-items: center; justify-content: center; }
+  .qr-frame:before, .qr-frame:after { content: ""; position: absolute; width: 22px; height: 22px; border: 3px solid var(--brand); }
+  .qr-frame:before { top: 8px; left: 8px; border-right: none; border-bottom: none; border-radius: 5px 0 0 0; }
+  .qr-frame:after { bottom: 8px; right: 8px; border-left: none; border-top: none; border-radius: 0 0 5px 0; }
+  .qr-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--muted); text-align: center; line-height: 1.4; }
+  .qr-h { font-weight: 800; font-size: 17px; margin: 0 0 5px; }
+  .qr-note p { margin: 0; font-size: 13.5px; color: var(--ink-soft); max-width: none; }
+  .qr-note .mono { font-family: var(--font-mono); color: var(--brand); font-size: 12.5px; }
+
+  @media (max-width: 720px) {
+    .legend, .pillars, .cards { grid-template-columns: 1fr; }
+    .qr-block { flex-direction: column; align-items: flex-start; }
+    .glance { grid-template-columns: repeat(2, 1fr); }
+    .glance .g:nth-child(2) { border-right: none; }
+    .check { grid-template-columns: 1fr; }
+    .obj { grid-template-columns: 1fr; }
+    .obj .q { border-right: none; border-bottom: 1px solid var(--hair); }
+  }
+
+  /* ── Print ──────────────────────────────────────────────── */
+  @media print {
+    :root { --paper:#FFFFFF; --paper-2:#F6F4F0; --card:#FFFFFF; --ink:#1A1815; --ink-soft:#3a3833; --muted:#6c665c;
+      --hair:rgba(0,0,0,0.18); --hair-soft:rgba(0,0,0,0.10); --brand:#C42222; --amb:#9A5E0C; --npo:#0B7A54; --ceo:#B01B1B; --shadow:none; }
+    .nav { display: none; }
+    .kit { font-size: 11.5pt; background: #fff; }
+    .cover .logo { filter: none !important; }
+    .section, .appendix { page-break-before: always; padding: 24px 0; }
+    .cover { padding: 8px 0 22px; }
+    .goal, .say, .study, .glance, .obj, .ros tr, .callout, .legend .lg { break-inside: avoid; }
+    h3.block { break-after: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+  }
+  @page { margin: 16mm 14mm; }
+</style>
+
+<nav class="nav">
+  <div class="nav-in">
+    <span class="brandmark"><b>VEDD</b> Event Kit</span>
+    <a href="#ambassador">Ambassador</a>
+    <a href="#nonprofit">Nonprofit</a>
+    <a href="#ceo">CEO Flagship</a>
+    <a href="#study">Study</a>
+    <a href="#trainings">Trainings</a>
+    <a href="#promo">Promo</a>
+    <span class="spring"></span>
+    <button class="printbtn" onclick="window.print()">Print / Save PDF</button>
+  </div>
+</nav>
+
+<div class="kit">
+  <!-- ═══════════ COVER ═══════════ -->
+  <header class="cover">
+    <div class="wrap">
+      <img class="logo" src="__LOGO_SRC__" alt="VEDD — AI Trading Vault" />
+      <p class="eyebrow">Event Host Kit · veddbuild.com</p>
+      <h1>Host a room. Grow the movement. <span class="divine">Seize the day divine.</span></h1>
+      <p class="lede">Everything a host needs to run a branded VEDD live event — a timed run-of-show,
+        a word-for-word script, host study material, and a promo checklist. Built for three kinds of rooms.</p>
+      <p class="tagline">"AI that finds trades — and pays you to share it."</p>
+      <p class="site">veddbuild.com · VEDD AI Trading Vault</p>
+
+      <div class="qr-block">
+        <div class="qr-frame" aria-hidden="true"><span class="qr-label">Your<br>QR<br>here</span></div>
+        <div class="qr-note">
+          <p class="qr-h">Scan to start</p>
+          <p>Works for every event in this kit. Generate a QR for <b>your</b> ambassador landing page —
+            <span class="mono">veddbuild.com/lp/[your-slug]</span> — and paste it here before printing. Every scan is credited to you.</p>
+        </div>
+      </div>
+
+      <div class="legend">
+        <div class="lg" style="--c:var(--amb)">
+          <div class="tag">01 · Ambassador</div>
+          <h4>Community Meetup</h4>
+          <p>A hands-on, high-energy session to teach, sign up traders on your link, and recruit ambassadors.</p>
+        </div>
+        <div class="lg" style="--c:var(--npo)">
+          <div class="tag">02 · Nonprofit</div>
+          <h4>Community &amp; Financial Literacy</h4>
+          <p>Education-first, no-pitch event for schools, churches, and community orgs — VEDD as access, not sales.</p>
+        </div>
+        <div class="lg" style="--c:var(--ceo)">
+          <div class="tag">03 · CEO Flagship</div>
+          <h4>Live Showcase &amp; Keynote</h4>
+          <p>A polished flagship to promote veddbuild.com, demo the product live, and capture content at scale.</p>
+        </div>
+      </div>
+
+      <div class="howto">
+        <h3>How to use this kit</h3>
+        <ol>
+          <li>Pick the version that matches your room (colored tabs above).</li>
+          <li>Fill the blanks — <span class="fill">&nbsp;</span> date, venue, and <b>your referral link</b> — before you print.</li>
+          <li>Read the <b>Host Study Material</b> at the back until you can explain VEDD without notes.</li>
+          <li>Work the <b>Promo &amp; Content Checklist</b> before, during, and after — every event is content.</li>
+          <li>Send people to the real <b>Trainings &amp; Courses</b> in the app (back of this kit) to keep learning.</li>
+          <li>Always close with your link. Sign off: <em>"Hosted by [Your Name], VEDD Community Ambassador."</em></li>
+        </ol>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══════════ 01 · AMBASSADOR ═══════════ -->
+  <section class="section" id="ambassador" style="--c:var(--amb); --tint:var(--amb-tint)">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">01</span>
+        <div>
+          <p class="eyebrow" style="color:var(--amb)">Ambassador Meetup</p>
+          <h2>The <span class="accent">Community Meetup</span></h2>
+        </div>
+      </div>
+      <p class="sub">Your room, your people. High energy, real charts, real sign-ups. The vibe from the app:
+        <em>"a FREE live trading session… no pitch, no upsell, just pure trading education."</em> Then you put people on.</p>
+
+      <div class="glance">
+        <div class="g"><div class="k">Length</div><div class="v">45–60 min</div></div>
+        <div class="g"><div class="k">Room size</div><div class="v">5–40 people</div></div>
+        <div class="g"><div class="k">Setting</div><div class="v">Café · co-work · IG/YT Live</div></div>
+        <div class="g"><div class="k">Bring</div><div class="v">Laptop or phone</div></div>
+      </div>
+
+      <div class="goal">
+        <div class="k">The one goal</div>
+        <p>Get attendees onto the <strong>free tier via your referral link</strong> before they leave — and spot 1–2 people
+          who'd make great ambassadors. Sign-ups and recruits, not applause.</p>
+      </div>
+
+      <h3 class="block">Run of Show</h3>
+      <table class="ros">
+        <thead><tr><th>Time</th><th>Segment</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="t">0:00</td><td class="seg">Welcome &amp; hook</td><td class="dt">Who you are, why you use VEDD, and the promise: "In 45 minutes you'll leave with an AI reading your charts — free."</td></tr>
+          <tr><td class="t">0:05</td><td class="seg">What VEDD is</td><td class="dt">The 30-second pitch + the "replace 7 tools with one vault" story. Keep it plain.</td></tr>
+          <tr><td class="t">0:12</td><td class="seg">Live chart analysis</td><td class="dt">Upload a real chart. Show pattern, entry, stop, take-profit, confidence score. Let the AI do the talking.</td></tr>
+          <tr><td class="t">0:25</td><td class="seg">Brain Mode + EA demo</td><td class="dt">Show two-round "Brain Mode" confirmation and one-click EA generation (no code). This is the "whoa" moment.</td></tr>
+          <tr><td class="t">0:35</td><td class="seg">Sign up together</td><td class="dt">Everyone opens your link and creates a free account in the room. Walk the slowest person through it.</td></tr>
+          <tr><td class="t">0:45</td><td class="seg">The ask + recruit</td><td class="dt">"Get paid to share this." Explain credits/tiers. Invite 1–2 standouts to the ambassador path.</td></tr>
+          <tr><td class="t">0:55</td><td class="seg">Q&amp;A + photos</td><td class="dt">Answer questions, grab a group photo/clip for content, collect handles.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="block">Host Script — say it like this</h3>
+      <div class="say"><div class="lbl">Open</div><p class="quote">"I've been using an AI trading platform called VEDD — it literally reads charts for me, spots setups, and even runs automated trades through MT5. The part I love is Brain Mode. Tonight I'll show you live, and you can try it free — no card."</p></div>
+      <div class="say"><div class="lbl">The pitch (30 sec)</div><p class="quote">"VEDD is an AI trading vault. Upload any chart from MT5, TradingView, or TradeLocker and get instant pattern recognition, automated Expert Advisors, and live signals — all in one place. It replaces about seven separate tools for one price."</p></div>
+      <div class="say"><div class="lbl">The ask</div><p class="quote">"Here's the part nobody tells you: VEDD pays you to share it. Refer a trader, earn credits, and use those credits to cover your own subscription — free. Scan this / tap my link and make your free account right now."</p></div>
+
+      <h3 class="block">Objection handling</h3>
+      <div class="obj"><div class="q">"I don't trade."</div><div class="a">"Perfect — VEDD <b>teaches you while you watch the AI trade</b>. Start on paper mode."</div></div>
+      <div class="obj"><div class="q">"It's too expensive."</div><div class="a">"<b>Less than $2/day</b> — and I'll show you how to earn credits to offset it. There's a free tier too."</div></div>
+      <div class="obj"><div class="q">"Is it even legit?"</div><div class="a">"<b>Try the free tier — no card needed.</b> The Kalshi auto-trader runs on a CFTC-regulated US exchange. Here's my link."</div></div>
+
+      <h3 class="block">Close every time with</h3>
+      <ul class="clean">
+        <li><b>Your referral link</b> on screen and on a printed card / QR at the door.</li>
+        <li>A clear next step: "Make your free account before you leave."</li>
+        <li>Sign-off: <b>"Hosted by [Your Name], VEDD Community Ambassador."</b></li>
+      </ul>
+
+      <h3 class="block">Prep in the app before you host</h3>
+      <ul class="clean">
+        <li><a href="https://veddbuild.com/ambassador-training">44-Day Ambassador Training</a> — the full course with certifications.</li>
+        <li><a href="https://veddbuild.com/ambassador/sales-script">Sales Script (8 steps)</a> &amp; <a href="https://veddbuild.com/ambassador/recruitment">Recruitment (6 modules)</a> — talking points &amp; objection drills.</li>
+        <li><a href="https://veddbuild.com/ambassador/free-path">Free Path to Pro</a> — how credits cover a subscription.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════ 02 · NONPROFIT ═══════════ -->
+  <section class="section" id="nonprofit" style="--c:var(--npo); --tint:var(--npo-tint)">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">02</span>
+        <div>
+          <p class="eyebrow" style="color:var(--npo)">Nonprofit &amp; Community Event</p>
+          <h2>Community &amp; <span class="accent">Financial Literacy</span></h2>
+        </div>
+      </div>
+      <p class="sub">For schools, churches, workforce programs, and community orgs. The mission voice of the brand:
+        <em>"VEDD is for everyone the financial industry slept on."</em> This room is about access and education first — never a sales pitch.</p>
+
+      <div class="glance">
+        <div class="g"><div class="k">Length</div><div class="v">60–90 min</div></div>
+        <div class="g"><div class="k">Room size</div><div class="v">15–100+</div></div>
+        <div class="g"><div class="k">Setting</div><div class="v">Community room · classroom</div></div>
+        <div class="g"><div class="k">Tone</div><div class="v">Education-first</div></div>
+      </div>
+
+      <div class="goal">
+        <div class="k">The one goal</div>
+        <p>Leave the room more <strong>financially literate and confident with technology</strong> — and aware that VEDD's
+          Workforce Academy offers free courses (AI literacy, credit building, entrepreneurship) whose certificates
+          <strong>stack toward grant eligibility</strong>. Enrollment and trust, not sales.</p>
+      </div>
+
+      <h3 class="block">Run of Show</h3>
+      <table class="ros">
+        <thead><tr><th>Time</th><th>Segment</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="t">0:00</td><td class="seg">Welcome &amp; why we're here</td><td class="dt">Frame the mission: professional-grade tools made accessible, educational, community-driven.</td></tr>
+          <tr><td class="t">0:10</td><td class="seg">Money &amp; markets 101</td><td class="dt">Plain-language basics: what a chart is, risk, and why "never risk what you can't lose." No jargon.</td></tr>
+          <tr><td class="t">0:30</td><td class="seg">AI as a learning tool</td><td class="dt">Show a chart analysis as teaching: the AI explains the pattern so attendees learn to read it themselves.</td></tr>
+          <tr><td class="t">0:45</td><td class="seg">Workforce Academy</td><td class="dt">12 free courses; certificates that stack toward grant eligibility and job readiness. Hand out enrollment steps.</td></tr>
+          <tr><td class="t">1:05</td><td class="seg">Access &amp; next steps</td><td class="dt">Free tier, no card. How to keep learning at home. Optional: pair up mentors.</td></tr>
+          <tr><td class="t">1:20</td><td class="seg">Open Q&amp;A</td><td class="dt">Answer honestly, including risk. Collect emails for follow-up (with consent).</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="block">Host Script — say it like this</h3>
+      <div class="say"><div class="lbl">Open</div><p class="quote">"This isn't a sales pitch and nobody's buying anything tonight. This is about tools the financial industry usually keeps behind a paywall — and how you can start learning them for free."</p></div>
+      <div class="say"><div class="lbl">Frame the AI</div><p class="quote">"Think of the AI as a patient teacher. It looks at a chart and explains what it sees — the pattern, where risk sits — so over time you learn to see it yourself. The goal is your skill, not your wallet."</p></div>
+      <div class="say"><div class="lbl">The invitation</div><p class="quote">"VEDD's Workforce Academy has free courses — AI literacy, credit building, entrepreneurship. Finish them and the certificates stack toward grant eligibility. It's built for communities that deserve better tools."</p></div>
+
+      <h3 class="block">Keep this room right</h3>
+      <ul class="clean">
+        <li><b>Lead with education, never enrollment.</b> Trust first; the platform earns its place.</li>
+        <li>Always name <b>risk honestly</b> — trading can lose money; this is learning, not a get-rich promise.</li>
+        <li>Make the <b>free tier</b> the call to action. No pressure, no card.</li>
+        <li>Coordinate with the host org on <b>consent</b> before collecting any contact info or photos of minors.</li>
+      </ul>
+
+      <h3 class="block">Point attendees to (free in-app courses)</h3>
+      <ul class="clean">
+        <li><a href="https://veddbuild.com/workforce-academy">Workforce Academy</a> — 12 free courses; certificates stack toward grant eligibility.</li>
+        <li><a href="https://veddbuild.com/certifications">Certifications</a> — track and share completed courses.</li>
+        <li><a href="https://veddbuild.com/user-guide">User Guide</a> — the plain-language place to start.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════ 03 · CEO FLAGSHIP ═══════════ -->
+  <section class="section" id="ceo" style="--c:var(--ceo); --tint:var(--ceo-tint)">
+    <div class="wrap">
+      <div class="sec-head">
+        <span class="sec-num">03</span>
+        <div>
+          <p class="eyebrow" style="color:var(--ceo)">CEO Flagship Live Event</p>
+          <h2>The <span class="accent">Live Showcase</span> &amp; Keynote</h2>
+        </div>
+      </div>
+      <p class="sub">The flagship room — press, partners, top prospects, and a live audience online. This is where you promote
+        veddbuild.com at scale, demo the product with confidence, and generate a week's worth of content in 90 minutes.</p>
+
+      <div class="glance">
+        <div class="g"><div class="k">Length</div><div class="v">75–90 min</div></div>
+        <div class="g"><div class="k">Room size</div><div class="v">50–500 + livestream</div></div>
+        <div class="g"><div class="k">Setting</div><div class="v">Venue + multi-cam stream</div></div>
+        <div class="g"><div class="k">Goal</div><div class="v">Reach · demo · content</div></div>
+      </div>
+
+      <div class="goal">
+        <div class="k">The one goal</div>
+        <p>Put veddbuild.com in front of the largest possible audience with a <strong>credible live product demo</strong>,
+          and walk away with <strong>keynote clips, testimonials, and press-ready footage</strong> that promote the brand for weeks.</p>
+      </div>
+
+      <h3 class="block">Run of Show</h3>
+      <table class="ros">
+        <thead><tr><th>Time</th><th>Segment</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="t">0:00</td><td class="seg">Cold open</td><td class="dt">Sizzle clip / countdown, then walk on. Big promise: the vault that replaces seven tools.</td></tr>
+          <tr><td class="t">0:05</td><td class="seg">The vision</td><td class="dt">Why VEDD exists — access for the people the industry slept on. "Seize the day divine."</td></tr>
+          <tr><td class="t">0:15</td><td class="seg">Live product demo</td><td class="dt">Chart analysis → Multi-timeframe → Brain Mode → one-click EA. Rehearsed, with a fallback recording.</td></tr>
+          <tr><td class="t">0:35</td><td class="seg">ABBA &amp; auto-trading</td><td class="dt">Introduce ABBA (the AI assistant) and the CFTC-regulated Kalshi BTC auto-trader. Show, don't tell.</td></tr>
+          <tr><td class="t">0:50</td><td class="seg">Proof &amp; community</td><td class="dt">Member wins, ambassador stories, Workforce Academy + grants. Bring a guest on stage.</td></tr>
+          <tr><td class="t">1:05</td><td class="seg">The offer &amp; CTA</td><td class="dt">Free tier + pricing, ambassador program. One QR on the big screen → veddbuild.com.</td></tr>
+          <tr><td class="t">1:15</td><td class="seg">Q&amp;A + press</td><td class="dt">Moderated Q&amp;A, then press/photo time. Capture testimonials on the spot.</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="block">Keynote Script — anchor lines</h3>
+      <div class="say"><div class="lbl">Thesis</div><p class="quote">"For years the best trading tools were locked behind seven different subscriptions. We put them in one vault, added an AI brain, and opened the door to everyone the financial industry slept on."</p></div>
+      <div class="say"><div class="lbl">Demo bridge</div><p class="quote">"Let me not tell you — let me show you. This is a live chart, right now."</p></div>
+      <div class="say"><div class="lbl">Close</div><p class="quote">"VEDD isn't just a platform, it's a movement — and it pays you to build it with us. Point your phone at the screen, start free at veddbuild.com. Seize the day divine."</p></div>
+
+      <h3 class="block">Production checklist</h3>
+      <ul class="clean">
+        <li><b>Rehearse the demo twice</b> — and record a screen-capture fallback in case the live connection drops.</li>
+        <li><b>Multi-cam + captured audio</b> for the stream and for clip harvesting afterward.</li>
+        <li><b>One QR on the big screen</b> throughout → your <b>veddbuild.com/lp/[your-slug]</b> landing page (tied to the event's referral attribution).</li>
+        <li><b>Assign a content lead</b> to capture testimonials and B-roll during Q&amp;A and after.</li>
+      </ul>
+
+      <h3 class="block">Showcase these in the app</h3>
+      <ul class="clean">
+        <li><a href="https://veddbuild.com/community">Community Hub</a> &amp; <a href="https://veddbuild.com/community-impact">Community Impact</a> — proof and mission.</li>
+        <li><a href="https://veddbuild.com/ambassador-training">Ambassador Training</a> &amp; <a href="https://veddbuild.com/workforce-academy">Workforce Academy</a> — the education engine.</li>
+        <li><a href="https://veddbuild.com/prop-firm-challenge">Prop Firm Challenge</a> &amp; <a href="https://veddbuild.com/weekly-strategy">Weekly Strategy</a> — live tools to demo.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════ STUDY MATERIAL ═══════════ -->
+  <section class="appendix" id="study">
+    <div class="wrap">
+      <p class="eyebrow">Appendix A</p>
+      <h2 style="font-size:clamp(24px,3.5vw,34px);font-weight:800;">Host Study Material — know this cold</h2>
+      <p class="sub">Read until you can explain VEDD without notes and answer questions with confidence. If you know this page, you can host any room.</p>
+
+      <h3 class="block" style="--c:var(--brand)">VEDD in one breath</h3>
+      <p><strong>VEDD AI Trading Vault</strong> (veddbuild.com) lets you upload any trading chart from <strong>MT5, TradingView, or TradeLocker</strong>
+        and get instant AI pattern recognition, automated Expert Advisors, multi-timeframe signals, and live trade execution — all in one vault.
+        The pitch: <strong>"Replace 7 tools with one."</strong> Tagline: <em>"Seize the day divine."</em></p>
+
+      <h3 class="block" style="--c:var(--brand)">The product pillars</h3>
+      <div class="pillars">
+        <div class="pillar"><div class="n">AI Chart Analysis</div><div class="d">Upload a chart → pattern, trend, entry, stop, take-profit, confidence score.</div></div>
+        <div class="pillar"><div class="n">EA Generator (no code)</div><div class="d">18 built-in strategies; one-click MT4/MT5 Expert Advisors with ATR stops &amp; a 4-stage entry.</div></div>
+        <div class="pillar"><div class="n">Brain Mode</div><div class="d">Runs two rounds of AI analysis before confirming a trade.</div></div>
+        <div class="pillar"><div class="n">ABBA — AI assistant</div><div class="d">Your "JARVIS for trading": watches P&amp;L, goals, positions and advises like a fund manager.</div></div>
+        <div class="pillar"><div class="n">BTC + Kalshi Auto-Trader</div><div class="d">Live 5-min BTC prediction, auto-traded on Kalshi — a CFTC-regulated US exchange.</div></div>
+        <div class="pillar"><div class="n">Live Trading Engine</div><div class="d">Monitors 20+ pairs 24/7; executes via TradeLocker or syncs to MT5 by a free EA.</div></div>
+        <div class="pillar"><div class="n">Futures AI</div><div class="d">Scans NQ/ES/YM/GC/CL; NinjaTrader/Tradovate EAs with prop-firm circuit breakers.</div></div>
+        <div class="pillar"><div class="n">Solana Scanner</div><div class="d">Analyzes trending Solana tokens; Phantom wallet + Jupiter DEX. Paper-trade first.</div></div>
+        <div class="pillar"><div class="n">EA Marketplace</div><div class="d">Publish your EAs for others to subscribe — earn passive income.</div></div>
+        <div class="pillar"><div class="n">Workforce Academy</div><div class="d">12 courses (AI, Web3, financial literacy, credit, entrepreneurship); certs stack toward grants.</div></div>
+      </div>
+
+      <h3 class="block" style="--c:var(--brand)">Trading concepts to teach (study cards)</h3>
+      <div class="cards">
+        <div class="study"><h4><span class="pin">◆</span> Chart patterns</h4><p>Double Top, Bull Flag, Head &amp; Shoulders, Triangle, Ascending/Descending Channel, Divergence, Support &amp; Resistance.</p></div>
+        <div class="study"><h4><span class="pin">◆</span> Multi-timeframe confluence</h4><p>Line up 4H → 1H → 15M → 5M. The more timeframes agree, the higher the conviction.</p></div>
+        <div class="study"><h4><span class="pin">◆</span> Risk &amp; the ATR stop</h4><p>Position size to what you can lose. VEDD sets stops from ATR (volatility) rather than a guess.</p></div>
+        <div class="study"><h4><span class="pin">◆</span> Choppy-market filter</h4><p>ADX/ATR detect no-trend "chop" and auto-pause — avoiding the market's worst conditions.</p></div>
+        <div class="study"><h4><span class="pin">◆</span> Indicators in plain terms</h4><p>RSI = overbought/oversold; MACD = momentum shift; EMA = trend direction.</p></div>
+        <div class="study"><h4><span class="pin">◆</span> Sessions matter</h4><p>Asian / European / US sessions have different volume and behavior. Timing is part of the edge.</p></div>
+      </div>
+
+      <h3 class="block" style="--c:var(--brand)">Ambassador program (know the numbers)</h3>
+      <table class="tiers">
+        <thead><tr><th>Tier</th><th>Referrals</th><th>Reward</th></tr></thead>
+        <tbody>
+          <tr><td>Bronze</td><td>5</td><td>500 credits / month</td></tr>
+          <tr><td>Silver</td><td>15</td><td>1,500 credits / month + 5% commission</td></tr>
+          <tr><td>Gold</td><td>40</td><td>Free Pro + 10% commission</td></tr>
+          <tr><td>Platinum</td><td>100+</td><td>Revenue share + co-marketing</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:13.5px;color:var(--ink-soft)"><strong>500 credits per successful referral.</strong> Credits can pay your own subscription — a "free path" to Pro
+        (500 = 1 free week, 2,000 = 1 month, 5,000 = 3 months). Backed by a 44-day training program with certifications.</p>
+
+      <div class="callout">
+        <div class="k">Pricing (confirm live at veddbuild.com)</div>
+        <p>Free tier (no card) · Starter $49.95/mo · Premium $149.99/mo · Yearly $999.99. Ambassador framing: <strong>"less than $2/day."</strong>
+          Prices change — always verify current pricing before quoting it on stage.</p>
+      </div>
+
+      <div class="callout">
+        <div class="k">Compliance &amp; honesty — non-negotiable</div>
+        <p>The Kalshi BTC auto-trader runs on <strong>Kalshi, a CFTC-regulated US exchange</strong>. Everything else is educational tooling and AI analysis —
+          <strong>not financial advice</strong> and not a promise of profit. Always tell rooms that <strong>trading involves real risk of loss</strong>, encourage paper mode first,
+          and never guarantee returns.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ PROMO CHECKLIST ═══════════ -->
+  <section class="appendix" id="promo">
+    <div class="wrap">
+      <p class="eyebrow">Appendix B</p>
+      <h2 style="font-size:clamp(24px,3.5vw,34px);font-weight:800;">Promo &amp; Content Checklist</h2>
+      <p class="sub">Every event is content. This is how you promote veddbuild.com and turn one room into weeks of reach.</p>
+
+      <div class="check">
+        <div class="col">
+          <h4>Before</h4>
+          <label><span class="box"></span> Announce on IG/TikTok/X + Discord with date, place, and "free, hands-on."</label>
+          <label><span class="box"></span> Post the invite copy: "no pitch, no upsell, just pure trading education."</label>
+          <label><span class="box"></span> Make a QR / short link to your landing page <b>veddbuild.com/lp/[your-slug]</b> (carries your referral attribution).</label>
+          <label><span class="box"></span> Print door cards with the QR + "Hosted by [Your Name]."</label>
+          <label><span class="box"></span> Prep the demo chart and a screen-capture fallback.</label>
+          <label><span class="box"></span> Confirm venue Wi-Fi and a phone stand / mic.</label>
+        </div>
+        <div class="col">
+          <h4>During</h4>
+          <label><span class="box"></span> Go live (IG/YT) for at least part of the session.</label>
+          <label><span class="box"></span> Capture a hook clip in the first 2 seconds of the demo.</label>
+          <label><span class="box"></span> Film 2–3 attendee reactions / testimonials.</label>
+          <label><span class="box"></span> Keep the QR → veddbuild.com visible the whole time.</label>
+          <label><span class="box"></span> Get a group photo. Collect handles (with consent).</label>
+          <label><span class="box"></span> Watch people sign up on the free tier in the room.</label>
+        </div>
+        <div class="col">
+          <h4>After</h4>
+          <label><span class="box"></span> Post a recap reel within 24 hours — hook, demo, CTA.</label>
+          <label><span class="box"></span> Cut the keynote/demo into 3–5 short clips.</label>
+          <label><span class="box"></span> Thank attendees; DM the standouts about the ambassador path.</label>
+          <label><span class="box"></span> Every post ends with your link. Track what converts.</label>
+          <label><span class="box"></span> Log sign-ups &amp; recruits; note what to improve next time.</label>
+          <label><span class="box"></span> Share best clips with the VEDD community for reposts.</label>
+        </div>
+      </div>
+
+      <div class="callout">
+        <div class="k">Content pillars (rotate these)</div>
+        <p><strong>Results</strong> · <strong>Education</strong> · <strong>Behind-the-scenes</strong> · <strong>Social proof.</strong>
+          Every post has a call-to-action and your referral link. Hook in the first 2 seconds.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ TRAININGS & COURSES ═══════════ -->
+  <section class="appendix" id="trainings">
+    <div class="wrap">
+      <p class="eyebrow">Appendix C</p>
+      <h2 style="font-size:clamp(24px,3.5vw,34px);font-weight:800;">Continue in the App — Trainings &amp; Courses</h2>
+      <p class="sub">Every event should funnel people into the real learning already built into VEDD. Bookmark these, mention them by name on stage, and drop the links in your follow-up.</p>
+
+      <h3 class="block" style="--c:var(--amb)">For ambassadors &amp; hosts</h3>
+      <div class="cards">
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador-training">44-Day Ambassador Training →</a></h4><p>Interactive training with quizzes and certifications — the core host education.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/training-calendar">Training Calendar →</a></h4><p>Day-by-day guided journey; complete a day, earn tokens.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/recruitment">Recruitment Modules →</a></h4><p>6 modules: value stack, warm market, content, objections, DM strategy, pipeline.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/sales-script">Sales Script →</a></h4><p>The 8-step script plus the platform demo talking points.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/free-path">Free Path to Pro →</a></h4><p>Earn credits over 44 days to cover your own subscription.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/content-studio">Content Studio →</a></h4><p>Plan and produce event content; content-flow calendar.</p></div>
+      </div>
+
+      <h3 class="block" style="--c:var(--npo)">Courses &amp; certifications</h3>
+      <div class="cards">
+        <div class="study"><h4><a href="https://veddbuild.com/workforce-academy">Workforce Academy →</a></h4><p>12 courses — AI trading, Web3, financial literacy, credit building, entrepreneurship. Certificates stack toward grant eligibility.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/certifications">Certifications →</a></h4><p>Earn and track stackable certificates with scores.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/user-guide">User Guide →</a></h4><p>The plain-language starting point for brand-new users.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/weekly-strategy">Weekly Strategy →</a></h4><p>AI-generated weekly plans — great to teach and to demo live.</p></div>
+      </div>
+
+      <h3 class="block" style="--c:var(--ceo)">Host guides, events &amp; community</h3>
+      <div class="cards">
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/propfirm-event">Prop Firm Setup Event →</a></h4><p>A ready-made hands-on event guide with flyer/invite copy.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador/local-outreach">Local Outreach →</a></h4><p>Run structured outreach in your city.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/prop-firm-challenge">Prop Firm Challenge →</a></h4><p>Consistency &amp; funded-account tools you can demo on stage.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/community">Community Hub →</a></h4><p>Challenges, shareable events with auto-agendas, discussion threads.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/community-impact">Community Impact →</a></h4><p>The mission and nonprofit side of VEDD.</p></div>
+        <div class="study"><h4><a href="https://veddbuild.com/ambassador-prime">Ambassador Prime →</a></h4><p>The advanced ambassador dashboard &amp; tools.</p></div>
+      </div>
+
+      <div class="callout">
+        <div class="k">Note on these links</div>
+        <p>These point to pages inside the VEDD app at veddbuild.com and generally require an account or ambassador access. Verify the exact paths in your live app before printing — routes can change as the platform grows.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ FOOTER ═══════════ -->
+  <footer class="foot">
+    <div class="wrap">
+      <div class="mark"><b>VEDD</b> AI Trading Vault · veddbuild.com</div>
+      <p class="disc"><strong>Risk &amp; disclaimer:</strong> Trading and investing involve substantial risk of loss and are not suitable for everyone.
+        VEDD provides educational tools, AI-assisted analysis, and automation — <strong>not personalized financial advice</strong>, and no outcome is guaranteed.
+        Past performance does not predict future results. AI analysis can be wrong; always use paper mode first and never risk money you cannot afford to lose.
+        The Kalshi BTC feature operates on Kalshi, a CFTC-regulated U.S. exchange. Verify current pricing, program terms, and regulatory status at veddbuild.com before quoting them at an event.
+        Host materials — fill in your own event details and referral link before distributing.</p>
+    </div>
+  </footer>
+</div>
+
+</body>
+</html>
