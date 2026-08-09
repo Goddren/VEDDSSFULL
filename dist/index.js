@@ -6286,6 +6286,18 @@ var init_storage = __esm({
 });
 
 // shared/token-rewards.ts
+var token_rewards_exports = {};
+__export(token_rewards_exports, {
+  AMBASSADOR_TIERS: () => AMBASSADOR_TIERS,
+  DAILY_VEDD_CAP: () => DAILY_VEDD_CAP,
+  JOURNEY_FREE_MONTH_TOKENS: () => JOURNEY_FREE_MONTH_TOKENS,
+  REFERRAL_SUBSCRIPTION_BASE_CREDITS: () => REFERRAL_SUBSCRIPTION_BASE_CREDITS,
+  SUBSCRIPTION_PRICE_CENTS: () => SUBSCRIPTION_PRICE_CENTS,
+  TOKEN_REWARDS: () => TOKEN_REWARDS,
+  WEEKLY_VEDD_CAP: () => WEEKLY_VEDD_CAP,
+  resolveAmbassadorTier: () => resolveAmbassadorTier,
+  tierCommissionCredits: () => tierCommissionCredits
+});
 function resolveAmbassadorTier(referralCount) {
   let current = null;
   for (const t of AMBASSADOR_TIERS) if (referralCount >= t.minReferrals) current = t;
@@ -6296,7 +6308,7 @@ function tierCommissionCredits(referralCount, planPriceCents) {
   if (!tier || !tier.commissionPct) return 0;
   return Math.round(planPriceCents * (tier.commissionPct / 100));
 }
-var TOKEN_REWARDS, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP, SUBSCRIPTION_PRICE_CENTS, AMBASSADOR_TIERS, REFERRAL_SUBSCRIPTION_BASE_CREDITS;
+var TOKEN_REWARDS, JOURNEY_FREE_MONTH_TOKENS, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP, SUBSCRIPTION_PRICE_CENTS, AMBASSADOR_TIERS, REFERRAL_SUBSCRIPTION_BASE_CREDITS;
 var init_token_rewards = __esm({
   "shared/token-rewards.ts"() {
     "use strict";
@@ -6327,6 +6339,7 @@ var init_token_rewards = __esm({
       training_module: 50,
       devotional_streak_bonus: 200
     };
+    JOURNEY_FREE_MONTH_TOKENS = 2e3;
     DAILY_VEDD_CAP = 500;
     WEEKLY_VEDD_CAP = 2e3;
     SUBSCRIPTION_PRICE_CENTS = {
@@ -73974,6 +73987,48 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
     const positions = await storage.getAllActiveInvestments();
     res.json(positions);
+  });
+  app2.get("/api/admin/economy", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { veddRewardConfig: veddRewardConfig2, veddTransferJobs: veddTransferJobs2, internalWalletEarnings: internalWalletEarnings2, users: usersTbl } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { sql: sql16 } = await import("drizzle-orm");
+      const { AMBASSADOR_TIERS: AMBASSADOR_TIERS2, DAILY_VEDD_CAP: DAILY_VEDD_CAP3, WEEKLY_VEDD_CAP: WEEKLY_VEDD_CAP3 } = await Promise.resolve().then(() => (init_token_rewards(), token_rewards_exports));
+      let pool2 = null;
+      try {
+        pool2 = await veddTokenService.getPoolOverview();
+      } catch {
+      }
+      const transferRows = await db2.select({ status: veddTransferJobs2.status, c: sql16`count(*)`, total: sql16`coalesce(sum(${veddTransferJobs2.amount}),0)` }).from(veddTransferJobs2).groupBy(veddTransferJobs2.status);
+      const transfers = {};
+      for (const r of transferRows) transfers[r.status] = { count: Number(r.c), total: parseFloat(r.total) || 0 };
+      const rewardConfig = await db2.select().from(veddRewardConfig2).orderBy(veddRewardConfig2.actionType);
+      const now = /* @__PURE__ */ new Date();
+      const startDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1e3);
+      const [dayEarn] = await db2.select({ t: sql16`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql16`${internalWalletEarnings2.createdAt} >= ${startDay}`);
+      const [weekEarn] = await db2.select({ t: sql16`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql16`${internalWalletEarnings2.createdAt} >= ${weekAgo}`);
+      const [uc] = await db2.select({
+        total: sql16`count(*)`,
+        ambassadors: sql16`count(*) filter (where ${usersTbl.isAmbassador} = true)`,
+        admins: sql16`count(*) filter (where ${usersTbl.isAdmin} = true)`,
+        subscribers: sql16`count(*) filter (where ${usersTbl.subscriptionTier} is not null and ${usersTbl.subscriptionTier} <> 'free')`
+      }).from(usersTbl);
+      const referralTop = await storage.getReferralLeaderboard(5).catch(() => []);
+      res.json({
+        users: uc,
+        pool: pool2,
+        transfers,
+        rewardConfig,
+        caps: { daily: DAILY_VEDD_CAP3, weekly: WEEKLY_VEDD_CAP3, gamifiedEarnedToday: parseFloat(dayEarn?.t ?? "0") || 0, gamifiedEarnedWeek: parseFloat(weekEarn?.t ?? "0") || 0 },
+        tiers: AMBASSADOR_TIERS2,
+        referralTop
+      });
+    } catch (e) {
+      console.error("[admin/economy]", e);
+      res.status(500).json({ error: e.message });
+    }
   });
   app2.get("/api/admin/users", async (req, res) => {
     if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });

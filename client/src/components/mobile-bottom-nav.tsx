@@ -811,32 +811,18 @@ export function MobileBottomNav() {
                   <span className="text-[10px] font-bold uppercase tracking-widest text-amber-600">Admin</span>
                   <div className="flex-1 h-px bg-amber-900/40" />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Link href="/admin/vedd-pool">
-                    <button
-                      onClick={close}
-                      className="flex items-center gap-2 w-full px-3 py-2.5 rounded-2xl transition-all active:scale-95"
-                      style={{ background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.30)' }}
-                    >
-                      <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.20)' }}>
-                        <Coins className="w-3.5 h-3.5 text-amber-400" />
-                      </span>
-                      <span className="text-xs font-semibold text-amber-300 leading-tight">Token Pool</span>
-                    </button>
-                  </Link>
-                  <Link href="/admin">
-                    <button
-                      onClick={close}
-                      className="flex items-center gap-2 w-full px-3 py-2.5 rounded-2xl transition-all active:scale-95"
-                      style={{ background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.30)' }}
-                    >
-                      <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.20)' }}>
-                        <Shield className="w-3.5 h-3.5 text-amber-400" />
-                      </span>
-                      <span className="text-xs font-semibold text-amber-300 leading-tight">Admin Hub</span>
-                    </button>
-                  </Link>
-                </div>
+                <Link href="/admin">
+                  <button
+                    onClick={close}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-2xl transition-all active:scale-95"
+                    style={{ background: 'rgba(245,158,11,0.10)', border: '1.5px solid rgba(245,158,11,0.30)' }}
+                  >
+                    <span className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(245,158,11,0.20)' }}>
+                      <Shield className="w-3.5 h-3.5 text-amber-400" />
+                    </span>
+                    <span className="text-xs font-semibold text-amber-300 leading-tight">Admin Command Center</span>
+                  </button>
+                </Link>
               </>
             )}
 

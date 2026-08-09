@@ -775,15 +775,7 @@ const Header: React.FC = () => {
                         <Link href="/admin">
                           <div className="flex items-center w-full text-red-400">
                             <Shield className="mr-2 h-4 w-4" />
-                            <span>Admin Control Centre</span>
-                          </div>
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="cursor-pointer" asChild>
-                        <Link href="/admin/vedd-pool">
-                          <div className="flex items-center w-full text-amber-400">
-                            <Coins className="mr-2 h-4 w-4" />
-                            <span>Token Distribution</span>
+                            <span>Admin Command Center</span>
                           </div>
                         </Link>
                       </DropdownMenuItem>
@@ -1008,15 +1000,7 @@ const Header: React.FC = () => {
                         className="text-lg font-medium transition-colors flex items-center text-red-400 hover:text-red-300"
                       >
                         <Shield className="h-4 w-4 mr-2" />
-                        Admin Control Centre
-                      </Link>
-                      <Link
-                        href="/admin/vedd-pool"
-                        onClick={handleMobileNavClick}
-                        className="text-lg font-medium transition-colors flex items-center text-amber-400 hover:text-amber-300"
-                      >
-                        <Coins className="h-4 w-4 mr-2" />
-                        Token Distribution
+                        Admin Command Center
                       </Link>
                     </>
                   )}

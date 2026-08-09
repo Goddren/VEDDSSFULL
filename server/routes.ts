@@ -26651,6 +26651,60 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
 
   // ─── ADMIN USER MANAGEMENT ─────────────────────────────────────────────────
 
+  // GET /api/admin/economy — one-shot economy snapshot for the Admin Command
+  // Center: pool solvency, payout pipeline, reward config, earning caps, tiers,
+  // and headline user/subscriber counts. Admin only.
+  app.get("/api/admin/economy", async (req: Request, res: Response) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { db } = await import('./db');
+      const { veddRewardConfig, veddTransferJobs, internalWalletEarnings, users: usersTbl } = await import('@shared/schema');
+      const { sql } = await import('drizzle-orm');
+      const { AMBASSADOR_TIERS, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP } = await import('@shared/token-rewards');
+
+      // Pool + payout pipeline
+      let pool: any = null;
+      try { pool = await veddTokenService.getPoolOverview(); } catch { /* pool not configured */ }
+      const transferRows = await db.select({ status: veddTransferJobs.status, c: sql<number>`count(*)`, total: sql<string>`coalesce(sum(${veddTransferJobs.amount}),0)` })
+        .from(veddTransferJobs).groupBy(veddTransferJobs.status);
+      const transfers: Record<string, { count: number; total: number }> = {};
+      for (const r of transferRows) transfers[r.status] = { count: Number(r.c), total: parseFloat(r.total) || 0 };
+
+      // Reward config (source of truth mirror in DB)
+      const rewardConfig = await db.select().from(veddRewardConfig).orderBy(veddRewardConfig.actionType);
+
+      // Gamified earnings totals (for cap context)
+      const now = new Date();
+      const startDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const [dayEarn] = await db.select({ t: sql<string>`coalesce(sum(${internalWalletEarnings.amount}),0)` }).from(internalWalletEarnings).where(sql`${internalWalletEarnings.createdAt} >= ${startDay}`);
+      const [weekEarn] = await db.select({ t: sql<string>`coalesce(sum(${internalWalletEarnings.amount}),0)` }).from(internalWalletEarnings).where(sql`${internalWalletEarnings.createdAt} >= ${weekAgo}`);
+
+      // User / ambassador / subscriber counts
+      const [uc] = await db.select({
+        total: sql<number>`count(*)`,
+        ambassadors: sql<number>`count(*) filter (where ${usersTbl.isAmbassador} = true)`,
+        admins: sql<number>`count(*) filter (where ${usersTbl.isAdmin} = true)`,
+        subscribers: sql<number>`count(*) filter (where ${usersTbl.subscriptionTier} is not null and ${usersTbl.subscriptionTier} <> 'free')`,
+      }).from(usersTbl);
+
+      const referralTop = await storage.getReferralLeaderboard(5).catch(() => []);
+
+      res.json({
+        users: uc,
+        pool,
+        transfers,
+        rewardConfig,
+        caps: { daily: DAILY_VEDD_CAP, weekly: WEEKLY_VEDD_CAP, gamifiedEarnedToday: parseFloat(dayEarn?.t ?? '0') || 0, gamifiedEarnedWeek: parseFloat(weekEarn?.t ?? '0') || 0 },
+        tiers: AMBASSADOR_TIERS,
+        referralTop,
+      });
+    } catch (e: any) {
+      console.error('[admin/economy]', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/admin/users — list all users (admin only)
   app.get("/api/admin/users", async (req: Request, res: Response) => {
     if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
