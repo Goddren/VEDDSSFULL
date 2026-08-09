@@ -303,6 +303,13 @@ export class VeddTokenService {
       return { success: true, transactionSig: job.solanaTransactionSig || undefined };
     }
 
+    // Don't re-send a job that's already mid-flight (e.g. a retry firing while
+    // the first attempt is still confirming on-chain) — that risks a double
+    // transfer. Only 'pending'/'failed' jobs may (re)enter the transfer path.
+    if (job.status === 'processing') {
+      return { success: false, error: 'Transfer already in progress' };
+    }
+
     const MAX_SINGLE_TRANSFER = 1000; // VEDD — safety cap per transfer
     if (job.amount > MAX_SINGLE_TRANSFER) {
       console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
@@ -540,8 +547,11 @@ export class VeddTokenService {
       return true;
     }
 
-    const idempotencyKey = `verified-${rewardId}-${Date.now()}`;
-    
+    // Deterministic key per REWARD (no timestamp) so the unique constraint
+    // actually dedupes: verify + wallet-connect racing on the same reward now
+    // collide → exactly one transfer job, never a double payout.
+    const idempotencyKey = `reward-${rewardId}`;
+
     const [transferJob] = await db.insert(veddTransferJobs)
       .values({
         userId: reward.userId,
@@ -554,7 +564,12 @@ export class VeddTokenService {
         idempotencyKey,
         metadata: { verifiedBy: adminId }
       })
+      .onConflictDoNothing({ target: veddTransferJobs.idempotencyKey })
       .returning();
+
+    // A transfer job for this reward already exists (a concurrent path won) —
+    // it's already being paid; don't create or re-send a duplicate.
+    if (!transferJob) return true;
 
     await db.update(ambassadorActionRewards)
       .set({ 
@@ -669,8 +684,10 @@ export class VeddTokenService {
 
     for (const reward of verifiedRewardsWithoutTransfer) {
       try {
-        const idempotencyKey = `wallet-connect-${reward.id}-${Date.now()}`;
-        
+        // Same deterministic per-reward key as verifyReward — so a reward can
+        // never get two transfer jobs (verify + wallet-connect race).
+        const idempotencyKey = `reward-${reward.id}`;
+
         const [transferJob] = await db.insert(veddTransferJobs)
           .values({
             userId,
@@ -683,7 +700,11 @@ export class VeddTokenService {
             idempotencyKey,
             metadata: { triggeredBy: 'wallet_connection' }
           })
+          .onConflictDoNothing({ target: veddTransferJobs.idempotencyKey })
           .returning();
+
+        // This reward already has a transfer job — skip, don't double-pay.
+        if (!transferJob) continue;
 
         await db.update(ambassadorActionRewards)
           .set({ 
@@ -760,7 +781,10 @@ export class VeddTokenService {
       }
 
       // Create transfer job
-      const idempotencyKey = `referral-${referrerId}-${actionType}-${reward.id}-${Date.now()}`;
+      // Deterministic per-reward key (reward.id is a fresh row per referral
+      // event, so intentional referral double-awards still each get a job, but a
+      // retry of the SAME reward can't create a second job).
+      const idempotencyKey = `reward-${reward.id}`;
       const [transferJob] = await db.insert(veddTransferJobs)
         .values({
           userId: referrerId,
@@ -773,7 +797,11 @@ export class VeddTokenService {
           idempotencyKey,
           metadata: { referralReward: true, autoApproved: true },
         } as any)
+        .onConflictDoNothing({ target: veddTransferJobs.idempotencyKey })
         .returning();
+
+      // A job for this reward already exists — don't send a duplicate.
+      if (!transferJob) return;
 
       // Fire transfer in background — don't block the signup/subscription response
       this.processTransfer(transferJob.id)

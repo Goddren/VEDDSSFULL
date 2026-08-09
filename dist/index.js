@@ -21324,6 +21324,9 @@ var init_vedd_token_service = __esm({
         if (job.status === "completed") {
           return { success: true, transactionSig: job.solanaTransactionSig || void 0 };
         }
+        if (job.status === "processing") {
+          return { success: false, error: "Transfer already in progress" };
+        }
         const MAX_SINGLE_TRANSFER = 1e3;
         if (job.amount > MAX_SINGLE_TRANSFER) {
           console.warn(`[VEDD Security] Transfer amount ${job.amount} exceeds MAX_SINGLE_TRANSFER (${MAX_SINGLE_TRANSFER}). Requires manual review.`);
@@ -21478,7 +21481,7 @@ var init_vedd_token_service = __esm({
           }).where(eq7(ambassadorActionRewards.id, rewardId));
           return true;
         }
-        const idempotencyKey = `verified-${rewardId}-${Date.now()}`;
+        const idempotencyKey = `reward-${rewardId}`;
         const [transferJob] = await db.insert(veddTransferJobs).values({
           userId: reward.userId,
           sourceWalletId: poolWallet.id,
@@ -21489,7 +21492,8 @@ var init_vedd_token_service = __esm({
           status: "pending",
           idempotencyKey,
           metadata: { verifiedBy: adminId }
-        }).returning();
+        }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+        if (!transferJob) return true;
         await db.update(ambassadorActionRewards).set({
           verificationStatus: "verified",
           verifiedBy: adminId,
@@ -21568,7 +21572,7 @@ var init_vedd_token_service = __esm({
         const errors = [];
         for (const reward of verifiedRewardsWithoutTransfer) {
           try {
-            const idempotencyKey = `wallet-connect-${reward.id}-${Date.now()}`;
+            const idempotencyKey = `reward-${reward.id}`;
             const [transferJob] = await db.insert(veddTransferJobs).values({
               userId,
               sourceWalletId: poolWallet.id,
@@ -21579,7 +21583,8 @@ var init_vedd_token_service = __esm({
               status: "pending",
               idempotencyKey,
               metadata: { triggeredBy: "wallet_connection" }
-            }).returning();
+            }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+            if (!transferJob) continue;
             await db.update(ambassadorActionRewards).set({
               transferJobId: transferJob.id,
               notes: "Transfer job created on wallet connection"
@@ -21630,7 +21635,7 @@ var init_vedd_token_service = __esm({
             console.warn(`[Referral Token] Blocked \u2014 blacklisted wallet: ${walletAddr} (userId: ${referrerId})`);
             return;
           }
-          const idempotencyKey = `referral-${referrerId}-${actionType}-${reward.id}-${Date.now()}`;
+          const idempotencyKey = `reward-${reward.id}`;
           const [transferJob] = await db.insert(veddTransferJobs).values({
             userId: referrerId,
             sourceWalletId: poolWallet.id,
@@ -21641,7 +21646,8 @@ var init_vedd_token_service = __esm({
             status: "pending",
             idempotencyKey,
             metadata: { referralReward: true, autoApproved: true }
-          }).returning();
+          }).onConflictDoNothing({ target: veddTransferJobs.idempotencyKey }).returning();
+          if (!transferJob) return;
           this.processTransfer(transferJob.id).then((result) => {
             if (result.success) {
               console.log(`[Referral Token] \u2713 Sent ${amount} VEDD to ${walletAddr} \u2014 tx: ${result.transactionSig}`);
@@ -44760,6 +44766,7 @@ async function ensureTokenomicsMigration() {
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 5000`, [SUBSCRIPTION_PRICE_CENTS.starter]);
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 15000`, [SUBSCRIPTION_PRICE_CENTS.premium]);
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 100000`, [SUBSCRIPTION_PRICE_CENTS.yearly]);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS "vedd_transfer_jobs_idempotency_key_uniq" ON "vedd_transfer_jobs" ("idempotency_key")`);
     console.log("[startup] Tokenomics migration applied \u2014 reward config + plan prices aligned to shared/token-rewards.ts.");
   } catch (err) {
     console.error("[startup] ensureTokenomicsMigration failed (non-fatal):", err?.message ?? err);

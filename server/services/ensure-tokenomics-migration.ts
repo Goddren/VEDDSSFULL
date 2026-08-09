@@ -36,6 +36,12 @@ export async function ensureTokenomicsMigration(): Promise<void> {
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 15000`, [SUBSCRIPTION_PRICE_CENTS.premium]);
     await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 100000`, [SUBSCRIPTION_PRICE_CENTS.yearly]);
 
+    // 4. Ensure the unique index on transfer-job idempotency keys exists — the
+    //    deterministic per-reward keys + onConflictDoNothing dedupe in
+    //    vedd-token-service.ts depend on it to prevent double transfers. Old keys
+    //    carried a timestamp so there are no duplicates to block its creation.
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS "vedd_transfer_jobs_idempotency_key_uniq" ON "vedd_transfer_jobs" ("idempotency_key")`);
+
     console.log('[startup] Tokenomics migration applied — reward config + plan prices aligned to shared/token-rewards.ts.');
   } catch (err: any) {
     console.error('[startup] ensureTokenomicsMigration failed (non-fatal):', err?.message ?? err);
