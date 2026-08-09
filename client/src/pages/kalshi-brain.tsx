@@ -46,11 +46,29 @@ function Bars({ title, data }: { title: string; data: Record<string, Bucket> }) 
 export default function KalshiBrainPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [selling, setSelling] = useState(false);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [title, setTitle] = useState("Kalshi BTC Brain");
+  const [price, setPrice] = useState<number | "">("");
 
   const { data: brain, isLoading, isError } = useQuery<KalshiBrain>({
     queryKey: ["/api/kalshi/brain"],
     enabled: !!user,
+  });
+
+  // Listing eligibility + suggested price (only fetched when the sell panel opens)
+  const { data: preview } = useQuery<any>({
+    queryKey: ["/api/brain-marketplace/my-listings/preview?sourceCategory=kalshi"],
+    enabled: !!user && sellOpen,
+  });
+
+  const listMut = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/brain-marketplace/list", {
+      title: title.trim() || "Kalshi Brain",
+      sourceCategory: "kalshi",
+      priceVedd: price === "" ? undefined : Number(price),
+    })).json(),
+    onSuccess: () => { toast({ title: "Brain listed", description: "Your Kalshi brain is live on the marketplace." }); setSellOpen(false); },
+    onError: (e: any) => toast({ title: "Couldn't list", description: e?.message, variant: "destructive" }),
   });
 
   const relearn = useMutation({
@@ -83,13 +101,50 @@ export default function KalshiBrainPage() {
               {relearn.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Relearn from trades
             </button>
-            <Link href="/brain-data-marketplace">
-              <button className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20">
-                <Store className="h-4 w-4" /> Sell / Marketplace
-              </button>
-            </Link>
+            <button onClick={() => setSellOpen(o => !o)}
+              className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20">
+              <Store className="h-4 w-4" /> Sell this brain
+            </button>
           </div>
         </div>
+
+        {/* One-click sell */}
+        {sellOpen && (
+          <div className="smart-card mb-5 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-300"><Store className="h-4 w-4" /> List your Kalshi brain</div>
+            {preview && preview.eligible === false ? (
+              <p className="text-sm text-amber-300">
+                Not eligible yet — you have {preview.tradeCount} trade(s); need at least {preview.minTradesRequired}. Let the bot trade more (or hit Relearn to backfill history).
+              </p>
+            ) : (
+              <>
+                <p className="mb-3 text-[13px] text-white/55">
+                  Buyers get a snapshot of your trade outcomes merged into their own brain (they can't resell it). Sells for VEDD credits.
+                  {preview?.suggestedPriceVedd != null && <> Suggested price: <b className="text-emerald-300">{preview.suggestedPriceVedd} VEDD</b> · {preview.tradeCount} trades · {preview.winRate != null ? `${Math.round(preview.winRate * 100)}% win rate` : "win rate pending"}.</>}
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-white/45">Listing title</span>
+                    <input value={title} onChange={e => setTitle(e.target.value)}
+                      className="w-56 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-sm text-white/80 outline-none focus:border-emerald-500/40" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] text-white/45">Price (VEDD, blank = suggested)</span>
+                    <input type="number" value={price} placeholder={preview?.suggestedPriceVedd ?? "—"}
+                      onChange={e => setPrice(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-44 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 font-mono text-sm text-white/80 outline-none focus:border-emerald-500/40" />
+                  </label>
+                  <button onClick={() => listMut.mutate()} disabled={listMut.isPending || preview?.eligible === false}
+                    className="flex items-center gap-2 rounded-lg bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
+                    {listMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Store className="h-4 w-4" />}
+                    List on marketplace
+                  </button>
+                  <Link href="/brain-data-marketplace"><button className="rounded-lg border border-white/10 px-3 py-2 text-sm text-white/60 hover:text-white">View marketplace</button></Link>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {isLoading && <div className="flex items-center gap-2 text-white/50"><Loader2 className="h-4 w-4 animate-spin" /> Loading brain…</div>}
         {isError && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">Couldn't load the brain.</div>}
