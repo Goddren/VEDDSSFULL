@@ -455,7 +455,8 @@ export default function AmbassadorFreePathPage() {
               {[
                 { tokens:500, reward:"1 Free Week", earned: tokensEarned >= 500 },
                 { tokens:2000, reward:"1 Free Month", earned: tokensEarned >= 2000 },
-                { tokens:5000, reward:"3 Free Months", earned: tokensEarned >= 5000 },
+                { tokens:4000, reward:"2 Free Months", earned: tokensEarned >= 4000 },
+                { tokens:6000, reward:"3 Free Months", earned: tokensEarned >= 6000 },
               ].map(m => (
                 <div key={m.tokens} className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${m.earned ? "bg-yellow-500/20 text-yellow-400" : "bg-gray-700 text-gray-500"}`}>
@@ -853,8 +854,9 @@ export default function AmbassadorFreePathPage() {
               </div>
               {[
                 { threshold:500, label:"Free week (earned rate)" },
-                { threshold:2000, label:"Free month (earned rate)" },
-                { threshold:5000, label:"3 free months" },
+                { threshold:2000, label:"1 free month (earned rate)" },
+                { threshold:4000, label:"2 free months" },
+                { threshold:6000, label:"3 free months" },
               ].map(m => (
                 <div key={m.threshold} className="mb-2">
                   <div className="flex justify-between text-xs text-gray-500 mb-0.5">

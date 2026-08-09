@@ -43,6 +43,18 @@ export type TokenRewardAction = keyof typeof TOKEN_REWARDS;
 //   total on a completed run  = 2000  ← the advertised "1 free month" threshold
 export const JOURNEY_FREE_MONTH_TOKENS = 2000;
 
+// Free-to-Pro redemption: a FLAT 2,000 earned VEDD per subscription month (the
+// rate used by the redeem flow, tokenomics page, and user guide). The Free Path
+// milestone ladder must follow this rate — previously "5,000 = 3 months" broke
+// it (3 months = 6,000 at 2,000/month), effectively giving a month away.
+export const EARNED_VEDD_PER_MONTH = 2000;
+export const FREE_PATH_MILESTONES = [
+  { tokens: 500,  reward: '1 Free Week' },   // ~2,000/4 weeks
+  { tokens: 2000, reward: '1 Free Month' },
+  { tokens: 4000, reward: '2 Free Months' },
+  { tokens: 6000, reward: '3 Free Months' },
+] as const;
+
 // Earning caps for the gamified internal-wallet paths (NFC tap, activation,
 // daily check-in, wear-to-earn). Prevents farming free reward tokens. Owed
 // payouts (copy-trade profit share, marketplace sale proceeds) are NOT capped.

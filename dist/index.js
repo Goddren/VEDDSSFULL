@@ -6290,6 +6290,8 @@ var token_rewards_exports = {};
 __export(token_rewards_exports, {
   AMBASSADOR_TIERS: () => AMBASSADOR_TIERS,
   DAILY_VEDD_CAP: () => DAILY_VEDD_CAP,
+  EARNED_VEDD_PER_MONTH: () => EARNED_VEDD_PER_MONTH,
+  FREE_PATH_MILESTONES: () => FREE_PATH_MILESTONES,
   JOURNEY_FREE_MONTH_TOKENS: () => JOURNEY_FREE_MONTH_TOKENS,
   REFERRAL_SUBSCRIPTION_BASE_CREDITS: () => REFERRAL_SUBSCRIPTION_BASE_CREDITS,
   SUBSCRIPTION_PRICE_CENTS: () => SUBSCRIPTION_PRICE_CENTS,
@@ -6308,7 +6310,7 @@ function tierCommissionCredits(referralCount, planPriceCents) {
   if (!tier || !tier.commissionPct) return 0;
   return Math.round(planPriceCents * (tier.commissionPct / 100));
 }
-var TOKEN_REWARDS, JOURNEY_FREE_MONTH_TOKENS, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP, SUBSCRIPTION_PRICE_CENTS, AMBASSADOR_TIERS, REFERRAL_SUBSCRIPTION_BASE_CREDITS;
+var TOKEN_REWARDS, JOURNEY_FREE_MONTH_TOKENS, EARNED_VEDD_PER_MONTH, FREE_PATH_MILESTONES, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP, SUBSCRIPTION_PRICE_CENTS, AMBASSADOR_TIERS, REFERRAL_SUBSCRIPTION_BASE_CREDITS;
 var init_token_rewards = __esm({
   "shared/token-rewards.ts"() {
     "use strict";
@@ -6340,6 +6342,14 @@ var init_token_rewards = __esm({
       devotional_streak_bonus: 200
     };
     JOURNEY_FREE_MONTH_TOKENS = 2e3;
+    EARNED_VEDD_PER_MONTH = 2e3;
+    FREE_PATH_MILESTONES = [
+      { tokens: 500, reward: "1 Free Week" },
+      // ~2,000/4 weeks
+      { tokens: 2e3, reward: "1 Free Month" },
+      { tokens: 4e3, reward: "2 Free Months" },
+      { tokens: 6e3, reward: "3 Free Months" }
+    ];
     DAILY_VEDD_CAP = 500;
     WEEKLY_VEDD_CAP = 2e3;
     SUBSCRIPTION_PRICE_CENTS = {
