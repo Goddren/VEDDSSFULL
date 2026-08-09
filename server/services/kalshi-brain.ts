@@ -204,6 +204,26 @@ export function kalshiBrainSizeMultiplier(userId: number, coin: string): number 
   return k ? k.recommendedSizeMultiplier : 1.0;
 }
 
+/** Gating decision (opt-in, hard-block): skip setups the brain has PROVEN to
+ *  lose — a coin or bracket type with enough decided trades and a win rate below
+ *  a conservative floor. Returns blocked=false until there's real evidence, so
+ *  it never blocks on noise. Reads cache only. */
+export function kalshiBrainGate(userId: number, coin: string, strikeType?: string | null): { blocked: boolean; reason: string } {
+  const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k) return { blocked: false, reason: '' };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) {
+    return { blocked: true, reason: `🧠 Brain gate: ${coin} win rate ${k.winRate}% over ${decided} trades — skipping coin` };
+  }
+  if (strikeType) {
+    const st = k.byStrikeType[strikeType];
+    if (st && st.trades >= 8 && st.winRate < 30) {
+      return { blocked: true, reason: `🧠 Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} — skipping bracket type` };
+    }
+  }
+  return { blocked: false, reason: '' };
+}
+
 /** Value-score weight for a bracket (≈0.6–1.4). Combines the coin weight with a
  *  bracket-type nudge when that bracket has enough samples. Reads cache only. */
 export function kalshiBrainValueWeight(userId: number, coin: string, strikeType?: string | null): number {

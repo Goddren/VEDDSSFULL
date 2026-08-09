@@ -22,7 +22,7 @@ import {
 import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStrategy, type TradeSignal, type KalshiConsensus } from './kalshi-strategies';
 import { getCryptoCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
-import { getOrRefreshKalshiBrain, learnFromKalshiTrades, kalshiBrainSizeMultiplier, kalshiBrainValueWeight } from './kalshi-brain';
+import { getOrRefreshKalshiBrain, learnFromKalshiTrades, kalshiBrainSizeMultiplier, kalshiBrainValueWeight, kalshiBrainGate } from './kalshi-brain';
 
 // Coins/assets with a real, currently-tradeable bracket market (same product
 // structure as the original KXBTC). Verified live against Kalshi's API before
@@ -156,6 +156,10 @@ export interface KalshiEngineConfig {
   // winning for this account. It never hard-blocks a trade (bounded: value
   // weight ~0.6–1.4×, sizing 0.25–1.5×) and stays neutral until ≥10 trades/coin.
   kalshiBrainEnabled: boolean;
+  // Gating (opt-in, HARD-BLOCKS): additionally skip coins/bracket types the
+  // brain has proven to lose (enough decided trades + win rate below a floor).
+  // Off by default since it stops trades; requires kalshiBrainEnabled too.
+  kalshiBrainGating: boolean;
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -187,6 +191,7 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   dailyLossLimitPct:       5,     // FTUK-style daily loss limit (% of starting bankroll)
   maxDrawdownLimitPct:     10,    // FTUK-style max drawdown limit (% of starting bankroll)
   kalshiBrainEnabled:      true,  // brain influence on (bounded + neutral until it has data)
+  kalshiBrainGating:       false, // opt-in — hard-blocks proven-losing setups
 };
 
 /** Identify which coin + timeframe a ticker belongs to from its series
@@ -699,6 +704,9 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   // Refresh live prices + run take-profit/stop-loss auto-exits first
   await _updateOpenTradePrices(userId, s);
 
+  // Warm the brain cache once per cycle so both scan paths read fresh learning.
+  if (s.config.kalshiBrainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {});
+
   if (s.openTrades.length >= s.config.maxOpenTrades) {
     const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
     s.lastScanResult = r;
@@ -827,6 +835,12 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
   // inexplicably fails.
   if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
     return { fired: false, reason: `${coin}: ${s.config.timeframe === 'fifteen_min' ? '15-min' : 'hourly'} market exists but isn't broker/API-tradeable on Kalshi's side — skipping` };
+  }
+
+  // Brain coin-level gate (opt-in, hard-block) — skip coins proven to lose.
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, coin);
+    if (g.blocked) return { fired: false, reason: g.reason };
   }
 
   // Note: autoTradeValuePicks mode is handled entirely by
@@ -1185,7 +1199,9 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
 
   // Self-learning brain: warm its cache, then reweight each bracket's value
   // score by what has actually been winning for this coin + bracket type.
-  const brainEnabled = getKalshiEngineState(userId).config.kalshiBrainEnabled;
+  const _brainCfg = getKalshiEngineState(userId).config;
+  const brainEnabled = _brainCfg.kalshiBrainEnabled;
+  const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {});
 
   // ── Trade-quality filters (favorite-longshot bias + exit cost) ──────────────
@@ -1216,6 +1232,9 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
     // sell back well below what we paid regardless of how the event resolves.
     const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
     if (spread > SPREAD_MAX_CENTS) continue;
+
+    // Brain gate (opt-in, hard-block): skip coins/bracket types proven to lose.
+    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType).blocked) continue;
 
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);

@@ -34440,6 +34440,7 @@ var kalshi_brain_exports = {};
 __export(kalshi_brain_exports, {
   cachedKalshiBrain: () => cachedKalshiBrain,
   getOrRefreshKalshiBrain: () => getOrRefreshKalshiBrain,
+  kalshiBrainGate: () => kalshiBrainGate,
   kalshiBrainSizeMultiplier: () => kalshiBrainSizeMultiplier,
   kalshiBrainValueWeight: () => kalshiBrainValueWeight,
   learnFromKalshiTrades: () => learnFromKalshiTrades
@@ -34601,6 +34602,21 @@ function kalshiBrainSizeMultiplier(userId, coin) {
   const b = _cache.get(userId)?.brain;
   const k = b?.coinKnowledge[coin];
   return k ? k.recommendedSizeMultiplier : 1;
+}
+function kalshiBrainGate(userId, coin, strikeType) {
+  const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) {
+    return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} win rate ${k.winRate}% over ${decided} trades \u2014 skipping coin` };
+  }
+  if (strikeType) {
+    const st = k.byStrikeType[strikeType];
+    if (st && st.trades >= 8 && st.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} \u2014 skipping bracket type` };
+    }
+  }
+  return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
   const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
@@ -35005,6 +35021,8 @@ async function _runKalshiScan(userId, manual = false) {
   const s = getKalshiEngineState(userId);
   s.lastScanAt = (/* @__PURE__ */ new Date()).toISOString();
   await _updateOpenTradePrices(userId, s);
+  if (s.config.kalshiBrainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
+  });
   if (s.openTrades.length >= s.config.maxOpenTrades) {
     const r = `Max open trades (${s.config.maxOpenTrades}) reached`;
     s.lastScanResult = r;
@@ -35095,6 +35113,10 @@ async function _scanBestValuePickAcrossSymbols(userId, s, symbols) {
 async function _scanOneCoin(userId, s, coin) {
   if (!isKalshiBrokerTradeable(coin, s.config.timeframe)) {
     return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
+  }
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, coin);
+    if (g.blocked) return { fired: false, reason: g.reason };
   }
   try {
     let effectiveStrategy;
@@ -35289,7 +35311,9 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   if (consStat && consStat.wins + consStat.losses >= 5) {
     winRateWeight = Math.round((0.7 + consStat.winRate / 100 * 0.6) * 100) / 100;
   }
-  const brainEnabled = getKalshiEngineState(userId).config.kalshiBrainEnabled;
+  const _brainCfg = getKalshiEngineState(userId).config;
+  const brainEnabled = _brainCfg.kalshiBrainEnabled;
+  const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
   const LONGSHOT_FLOOR_CENTS = 15;
@@ -35303,6 +35327,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
     if (ask < LONGSHOT_FLOOR_CENTS) continue;
     const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
     if (spread > SPREAD_MAX_CENTS) continue;
+    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType).blocked) continue;
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
     const rawEdgePct = modelProbPct - ask;
@@ -35536,8 +35561,10 @@ var init_kalshi_engine = __esm({
       // FTUK-style daily loss limit (% of starting bankroll)
       maxDrawdownLimitPct: 10,
       // FTUK-style max drawdown limit (% of starting bankroll)
-      kalshiBrainEnabled: true
+      kalshiBrainEnabled: true,
       // brain influence on (bounded + neutral until it has data)
+      kalshiBrainGating: false
+      // opt-in — hard-blocks proven-losing setups
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",

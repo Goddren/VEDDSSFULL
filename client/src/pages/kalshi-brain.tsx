@@ -22,6 +22,28 @@ interface KalshiBrain {
 const wrCls = (wr: number) => (wr >= 60 ? "#10b981" : wr >= 45 ? "#f59e0b" : "#ef4444");
 const fmtUsd = (n: number) => `${n >= 0 ? "+" : "-"}$${Math.abs(n).toFixed(2)}`;
 
+function ToggleRow({ label, desc, on, onToggle, pending, disabled }: {
+  label: string; desc: string; on: boolean; onToggle: () => void; pending?: boolean; disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.03] px-3 py-2.5">
+      <div>
+        <div className="text-sm font-medium text-white/80">{label}</div>
+        <div className="text-[11px] text-white/45">{desc}</div>
+      </div>
+      <button onClick={onToggle} disabled={pending || disabled}
+        className="shrink-0 rounded-full px-3 py-1 text-xs font-bold transition disabled:opacity-40"
+        style={{
+          background: on ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)",
+          color: on ? "#10b981" : "#9ca3af",
+          border: `1px solid ${on ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.12)"}`,
+        }}>
+        {on ? "ON" : "OFF"}
+      </button>
+    </div>
+  );
+}
+
 function Bars({ title, data }: { title: string; data: Record<string, Bucket> }) {
   const entries = Object.entries(data).filter(([, b]) => b.trades > 0).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
   if (!entries.length) return null;
@@ -78,6 +100,15 @@ export default function KalshiBrainPage() {
       toast({ title: "Brain relearned", description: `${d.totalTrades} trades · ${d.overallWinRate}% win rate across ${d.coins?.length ?? 0} coin(s).` });
     },
     onError: (e: any) => toast({ title: "Relearn failed", description: e?.message, variant: "destructive" }),
+  });
+
+  // Live engine config — read/toggle the brain's influence + gating.
+  const { data: engine } = useQuery<any>({ queryKey: ["/api/kalshi/engine/status"], enabled: !!user });
+  const cfg = engine?.config ?? {};
+  const setCfg = useMutation({
+    mutationFn: async (patch: any) => (await apiRequest("PUT", "/api/kalshi/engine/config", patch)).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/kalshi/engine/status"] }),
+    onError: (e: any) => toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
   });
 
   const coins = brain ? Object.entries(brain.coinKnowledge) : [];
@@ -157,6 +188,28 @@ export default function KalshiBrainPage() {
               <div className="smart-card p-4"><div className="text-[11px] uppercase tracking-wider text-white/40">Overall win rate</div><div className="mt-1 font-mono text-2xl font-bold" style={{ color: wrCls(brain.overallWinRate) }}>{brain.overallWinRate}%</div></div>
               <div className="smart-card p-4"><div className="text-[11px] uppercase tracking-wider text-white/40">Net P&amp;L (learned)</div><div className="mt-1 font-mono text-2xl font-bold" style={{ color: brain.totalPnl >= 0 ? "#10b981" : "#ef4444" }}>{fmtUsd(brain.totalPnl)}</div></div>
               <div className="smart-card p-4"><div className="text-[11px] uppercase tracking-wider text-white/40">Coins learned</div><div className="mt-1 font-mono text-2xl font-bold">{coins.length}</div></div>
+            </div>
+
+            {/* Brain controls (live engine) */}
+            <div className="smart-card mb-5 p-4">
+              <div className="mb-3 text-[11px] uppercase tracking-wider text-white/40">Brain controls · live engine</div>
+              <div className="flex flex-col gap-2">
+                <ToggleRow
+                  label="Influence sizing & value scoring"
+                  desc="Bounded reweight (~0.6–1.4×) + Kelly sizing (0.25–1.5×). Never blocks a trade."
+                  on={cfg.kalshiBrainEnabled !== false}
+                  pending={setCfg.isPending}
+                  onToggle={() => setCfg.mutate({ kalshiBrainEnabled: !(cfg.kalshiBrainEnabled !== false) })}
+                />
+                <ToggleRow
+                  label="Gate proven-losing setups (hard-block)"
+                  desc="Skip coins/bracket types with a proven low win rate (enough samples). Requires influence on."
+                  on={!!cfg.kalshiBrainGating}
+                  pending={setCfg.isPending}
+                  disabled={cfg.kalshiBrainEnabled === false}
+                  onToggle={() => setCfg.mutate({ kalshiBrainGating: !cfg.kalshiBrainGating })}
+                />
+              </div>
             </div>
 
             {/* Insights */}
