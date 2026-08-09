@@ -15,11 +15,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc10) => {
+var __copyProps = (to, from, except, desc11) => {
   if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc10 = __getOwnPropDesc(from, key)) || desc10.enumerable });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc11 = __getOwnPropDesc(from, key)) || desc11.enumerable });
   }
   return to;
 };
@@ -16952,13 +16952,13 @@ async function getTLAccountValue(userId, conn) {
     const svc = await getOrCreateService(conn);
     const info = await svc.getAccountInfo();
     const bal = info.balance || 0;
-    const eq18 = info.equity || bal;
+    const eq19 = info.equity || bal;
     if (bal > 0) {
       g.tlAccountBalances[userId][acctId] = bal;
-      g.tlAccountEquity[userId][acctId] = eq18;
+      g.tlAccountEquity[userId][acctId] = eq19;
       g.tlAccountValueAt[userId][acctId] = Date.now();
-      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq18} (live-fetched for sizing)`);
-      return { balance: bal, equity: eq18 };
+      console.log(`[TL value] ${acctId}: balance=$${bal} equity=$${eq19} (live-fetched for sizing)`);
+      return { balance: bal, equity: eq19 };
     }
   } catch (e) {
     console.warn(`[TL value] live-fetch failed for ${acctId}:`, e?.message ?? e);
@@ -27674,8 +27674,8 @@ Generate signals for pairs with strong learned edge. Respect session win-rates. 
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and9, eq: eq18 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and9(eq18(uak.userId, userId), eq18(uak.provider, openai2.provider)));
+        const { and: and10, eq: eq19 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and10(eq19(uak.userId, userId), eq19(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key invalid \u2014 auto-disabled. Brain engine will switch to your next active provider.` });
@@ -30034,8 +30034,8 @@ Keep it natural \u2014 not every sentence. Weave it in where it fits. ALL prices
       try {
         const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
         const { userApiKeys: uak } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-        const { and: and9, eq: eq18 } = await import("drizzle-orm");
-        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and9(eq18(uak.userId, userId), eq18(uak.provider, openai2.provider)));
+        const { and: and10, eq: eq19 } = await import("drizzle-orm");
+        await db2.update(uak).set({ isValid: false, lastValidated: /* @__PURE__ */ new Date() }).where(and10(eq19(uak.userId, userId), eq19(uak.provider, openai2.provider)));
       } catch {
       }
       addActivity2(userId, { type: "error", message: `${openai2.provider} API key is invalid or expired \u2014 auto-disabled. Engine will switch to your next active provider on next scan.` });
@@ -33487,8 +33487,8 @@ async function restoreEngineStateFromDb(userId) {
     await _restorePolymarketRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and9(eq18(engineRunState2.userId, userId), eq18(engineRunState2.engine, "polymarket")));
+    const { eq: eq19, and: and10 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and10(eq19(engineRunState2.userId, userId), eq19(engineRunState2.engine, "polymarket")));
     const row = rows[0];
     if (!row?.isRunning) return;
     console.log(`[Polymarket] Restoring engine for user ${userId}`);
@@ -33511,8 +33511,8 @@ async function _restorePolymarketRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "polymarket")));
+    const { eq: eq19, and: and10, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and10(eq19(aiTradeResults2.userId, userId), eq19(aiTradeResults2.source, "polymarket")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getEngineState(userId);
     s.totalRealizedPnl = total;
@@ -34415,6 +34415,7 @@ __export(kalshi_engine_exports, {
   manualKalshiScan: () => manualKalshiScan,
   refreshKalshiCredValidity: () => refreshKalshiCredValidity,
   restoreKalshiEngineStateFromDb: () => restoreKalshiEngineStateFromDb,
+  ruinGuardStatus: () => ruinGuardStatus,
   scanAllKalshiStrategies: () => scanAllKalshiStrategies,
   scanKalshiValuePicks: () => scanKalshiValuePicks,
   startKalshiEngine: () => startKalshiEngine,
@@ -34483,6 +34484,8 @@ function updateKalshiEngineConfig(userId, patch) {
   if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(99, clean.stopLossCents));
   if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
+  if (clean.dailyLossLimitPct != null) clean.dailyLossLimitPct = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
+  if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
   s.config = { ...s.config, ...clean };
   _persistKalshiConfig(userId, s.config);
 }
@@ -34585,8 +34588,8 @@ async function restoreKalshiEngineStateFromDb(userId) {
     await _restoreKalshiRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and9(eq18(engineRunState2.userId, userId), eq18(engineRunState2.engine, "kalshi")));
+    const { eq: eq19, and: and10 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and10(eq19(engineRunState2.userId, userId), eq19(engineRunState2.engine, "kalshi")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[Kalshi] Restoring engine for user ${userId}`);
@@ -34601,8 +34604,8 @@ async function _restoreKalshiRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "kalshi")));
+    const { eq: eq19, and: and10, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and10(eq19(aiTradeResults2.userId, userId), eq19(aiTradeResults2.source, "kalshi")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getKalshiEngineState(userId);
     s.totalRealizedPnl = total;
@@ -34730,6 +34733,45 @@ async function _placeKalshiYes(userId, s, p) {
   s.lastScanResult = r;
   return { fired: true, reason: r };
 }
+async function ruinGuardStatus(userId, s) {
+  if (!s.config.ruinGuardEnabled) return { blocked: false, reason: "" };
+  const base = Math.max(1, s.config.startingBankroll || 100);
+  const dailyLimit = base * ((s.config.dailyLossLimitPct ?? 5) / 100);
+  const ddLimit = base * ((s.config.maxDrawdownLimitPct ?? 10) / 100);
+  const now = /* @__PURE__ */ new Date();
+  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  let dailyRealized = 0;
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { and: and10, eq: eq19, gte: gte6, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and10(
+      eq19(aiTradeResults2.userId, userId),
+      eq19(aiTradeResults2.source, "kalshi"),
+      gte6(aiTradeResults2.closedAt, startOfDayUtc)
+    ));
+    dailyRealized = parseFloat(row?.total ?? "0") || 0;
+  } catch {
+    const todayKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+    for (const t of s.closedTrades) {
+      if (!t.closedAt) continue;
+      const d = new Date(t.closedAt);
+      if (`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}` === todayKey) dailyRealized += t.realizedPnl || 0;
+    }
+  }
+  const dayPnL = dailyRealized + (s.totalUnrealizedPnl || 0);
+  if (dayPnL <= -dailyLimit) {
+    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: daily P&L $${dayPnL.toFixed(2)} hit the \u2212$${dailyLimit.toFixed(2)} daily-loss limit \u2014 no new trades until next UTC day` };
+  }
+  const bankroll = kalshiBankroll(s);
+  const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+  _sessionPeakBankroll.set(userId, peak);
+  const dd = peak - bankroll;
+  if (dd >= ddLimit) {
+    return { blocked: true, reason: `\u{1F6D1} Ruin Guard: drawdown $${dd.toFixed(2)} from peak $${peak.toFixed(2)} hit the $${ddLimit.toFixed(2)} max-DD limit \u2014 no new trades until equity recovers` };
+  }
+  return { blocked: false, reason: "" };
+}
 async function _runKalshiScan(userId, manual = false) {
   await refreshKalshiCredValidity(userId);
   const s = getKalshiEngineState(userId);
@@ -34749,6 +34791,11 @@ async function _runKalshiScan(userId, manual = false) {
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
+  }
+  const guard = await ruinGuardStatus(userId, s);
+  if (guard.blocked) {
+    s.lastScanResult = guard.reason;
+    return { fired: false, reason: guard.reason };
   }
   const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
   if (s.config.autoTradeValuePicks) {
@@ -35212,8 +35259,14 @@ var init_kalshi_engine = __esm({
       startingBankroll: 100,
       useKellyCriterion: false,
       brainLearningMode: true,
-      drawdownShieldThreshold: 0
+      drawdownShieldThreshold: 0,
       // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
+      ruinGuardEnabled: false,
+      // opt-in — changes live trading behavior, off by default
+      dailyLossLimitPct: 5,
+      // FTUK-style daily loss limit (% of starting bankroll)
+      maxDrawdownLimitPct: 10
+      // FTUK-style max drawdown limit (% of starting bankroll)
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",
@@ -35492,8 +35545,8 @@ async function restorePmUsEngineStateFromDb(userId) {
     await _restorePmUsRealizedPnl(userId);
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9 } = await import("drizzle-orm");
-    const rows = await db2.select().from(engineRunState2).where(and9(eq18(engineRunState2.userId, userId), eq18(engineRunState2.engine, "polymarket-us")));
+    const { eq: eq19, and: and10 } = await import("drizzle-orm");
+    const rows = await db2.select().from(engineRunState2).where(and10(eq19(engineRunState2.userId, userId), eq19(engineRunState2.engine, "polymarket-us")));
     const row = rows[0];
     if (row?.isRunning) {
       console.log(`[PolymarketUS] Restoring engine for user ${userId}`);
@@ -35507,8 +35560,8 @@ async function _restorePmUsRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9, sql: sql13 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and9(eq18(aiTradeResults2.userId, userId), eq18(aiTradeResults2.source, "polymarket-us")));
+    const { eq: eq19, and: and10, sql: sql13 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql13`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and10(eq19(aiTradeResults2.userId, userId), eq19(aiTradeResults2.source, "polymarket-us")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getPmUsEngineState(userId);
     s.totalRealizedPnl = total;
@@ -35771,6 +35824,225 @@ var init_polymarket_us_engine = __esm({
   }
 });
 
+// server/services/ruin-cone.ts
+var ruin_cone_exports = {};
+__export(ruin_cone_exports, {
+  FTUK_DEFAULTS: () => FTUK_DEFAULTS,
+  runRuinConeSimulation: () => runRuinConeSimulation
+});
+import { and as and8, desc as desc7, eq as eq12, isNotNull } from "drizzle-orm";
+function _cacheKey(userId, p) {
+  return `${userId}:${JSON.stringify(p)}`;
+}
+function _percentile(sorted, p) {
+  const n = sorted.length;
+  if (n === 0) return 0;
+  if (n === 1) return sorted[0];
+  const idx = p * (n - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+async function runRuinConeSimulation(userId, params = {}) {
+  const numSimulations = Math.max(100, Math.min(1e4, Math.floor(params.numSimulations ?? DEFAULT_NUM_SIMULATIONS)));
+  const numTrades = Math.max(1, Math.min(1e3, Math.floor(params.numTrades ?? DEFAULT_NUM_TRADES)));
+  const sourceLimit = Math.max(1, Math.min(2e3, Math.floor(params.sourceLimit ?? DEFAULT_SOURCE_LIMIT)));
+  const source = params.source ?? "kalshi";
+  const startingEquity = params.startingEquity != null && params.startingEquity > 0 ? params.startingEquity : Math.max(1, kalshiBankroll(getKalshiEngineState(userId)));
+  const dailyLossLimit = params.dailyLossLimit != null ? Math.abs(params.dailyLossLimit) : startingEquity * (FTUK_DEFAULTS.dailyLossPct / 100);
+  const maxDrawdownLimit = params.maxDrawdownLimit != null ? Math.abs(params.maxDrawdownLimit) : startingEquity * (FTUK_DEFAULTS.maxDrawdownPct / 100);
+  const profitTarget = params.profitTarget != null ? Math.abs(params.profitTarget) : startingEquity * (FTUK_DEFAULTS.profitTargetPct / 100);
+  const rawConsistency = params.consistencyRuleThreshold != null ? params.consistencyRuleThreshold : FTUK_DEFAULTS.consistencyPct;
+  const consistencyRuleThreshold = rawConsistency > 1 ? rawConsistency / 100 : rawConsistency;
+  const resolved = {
+    numSimulations,
+    numTrades,
+    startingEquity,
+    dailyLossLimit,
+    maxDrawdownLimit,
+    consistencyRuleThreshold,
+    profitTarget,
+    sourceLimit,
+    source
+  };
+  if (!params.noCache) {
+    const hit = _cache.get(_cacheKey(userId, resolved));
+    if (hit && hit.expires > Date.now()) return hit.result;
+  }
+  const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and8(
+    eq12(aiTradeResults.userId, userId),
+    eq12(aiTradeResults.source, source),
+    isNotNull(aiTradeResults.profitLoss),
+    isNotNull(aiTradeResults.closedAt)
+  )).orderBy(desc7(aiTradeResults.closedAt)).limit(sourceLimit);
+  const pnls = rows.map((r) => Number(r.pnl)).filter((v) => Number.isFinite(v));
+  const sourceTradeCount = pnls.length;
+  const dayKeys = /* @__PURE__ */ new Set();
+  for (const r of rows) {
+    const d = r.closedAt ? new Date(r.closedAt) : null;
+    if (d) dayKeys.add(`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`);
+  }
+  const distinctDays = Math.max(1, dayKeys.size);
+  const tradesPerDay = Math.max(1, Math.min(50, Math.round(sourceTradeCount / distinctDays) || 1));
+  if (sourceTradeCount < 2) {
+    const flat = Array.from({ length: numTrades + 1 }, (_, i) => ({
+      tradeIndex: i,
+      p5: startingEquity,
+      p25: startingEquity,
+      p50: startingEquity,
+      p75: startingEquity,
+      p95: startingEquity
+    }));
+    const result2 = {
+      cone: flat,
+      stats: {
+        probRuin: 0,
+        probDailyLossBreach: 0,
+        probConsistencyBreach: 0,
+        probHitTarget: 0,
+        expectedFinalEquity: startingEquity,
+        stdDevFinalEquity: 0,
+        simulationsRun: 0,
+        tradesProjected: numTrades,
+        sourceTradeCount,
+        tradesPerDay,
+        startingEquity,
+        dailyLossLimit,
+        maxDrawdownLimit,
+        consistencyRuleThreshold,
+        profitTarget
+      },
+      warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
+    };
+    _cache.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
+    return result2;
+  }
+  const paths = new Array(numSimulations);
+  const finalEquities = new Float64Array(numSimulations);
+  let ruinCount = 0;
+  let dailyBreachCount = 0;
+  let consistencyBreachCount = 0;
+  let hitTargetCount = 0;
+  const targetEquity = startingEquity + profitTarget;
+  for (let s = 0; s < numSimulations; s++) {
+    const path17 = new Float64Array(numTrades + 1);
+    path17[0] = startingEquity;
+    let equity = startingEquity;
+    let peak = startingEquity;
+    let firstFailIndex = -1;
+    let firstTargetIndex = -1;
+    let everRuin = false;
+    let everDailyBreach = false;
+    let dayStartEquity = startingEquity;
+    let tradeInDay = 0;
+    let maxDayProfit = -Infinity;
+    for (let t = 1; t <= numTrades; t++) {
+      const pnl = pnls[Math.random() * sourceTradeCount | 0];
+      equity += pnl;
+      path17[t] = equity;
+      if (equity > peak) peak = equity;
+      if (!everRuin && peak - equity >= maxDrawdownLimit) {
+        everRuin = true;
+        if (firstFailIndex === -1) firstFailIndex = t;
+      }
+      if (!everDailyBreach && dayStartEquity - equity >= dailyLossLimit) {
+        everDailyBreach = true;
+        if (firstFailIndex === -1) firstFailIndex = t;
+      }
+      if (firstTargetIndex === -1 && equity >= targetEquity) firstTargetIndex = t;
+      tradeInDay++;
+      if (tradeInDay >= tradesPerDay || t === numTrades) {
+        const dayProfit = equity - dayStartEquity;
+        if (dayProfit > maxDayProfit) maxDayProfit = dayProfit;
+        dayStartEquity = equity;
+        tradeInDay = 0;
+      }
+    }
+    paths[s] = path17;
+    finalEquities[s] = equity;
+    if (everRuin) ruinCount++;
+    if (everDailyBreach) dailyBreachCount++;
+    if (firstTargetIndex !== -1 && (firstFailIndex === -1 || firstTargetIndex < firstFailIndex)) {
+      hitTargetCount++;
+    }
+    const totalProfit = equity - startingEquity;
+    if (totalProfit > 0 && maxDayProfit > consistencyRuleThreshold * totalProfit) {
+      consistencyBreachCount++;
+    }
+  }
+  const cone = new Array(numTrades + 1);
+  const col = new Float64Array(numSimulations);
+  for (let t = 0; t <= numTrades; t++) {
+    for (let s = 0; s < numSimulations; s++) col[s] = paths[s][t];
+    const sorted = Array.from(col).sort((a, b) => a - b);
+    cone[t] = {
+      tradeIndex: t,
+      p5: Math.round(_percentile(sorted, 0.05)),
+      p25: Math.round(_percentile(sorted, 0.25)),
+      p50: Math.round(_percentile(sorted, 0.5)),
+      p75: Math.round(_percentile(sorted, 0.75)),
+      p95: Math.round(_percentile(sorted, 0.95))
+    };
+  }
+  let sum = 0;
+  for (let s = 0; s < numSimulations; s++) sum += finalEquities[s];
+  const mean = sum / numSimulations;
+  let varSum = 0;
+  for (let s = 0; s < numSimulations; s++) {
+    const d = finalEquities[s] - mean;
+    varSum += d * d;
+  }
+  const stdDev = Math.sqrt(varSum / numSimulations);
+  const result = {
+    cone,
+    stats: {
+      probRuin: ruinCount / numSimulations,
+      probDailyLossBreach: dailyBreachCount / numSimulations,
+      probConsistencyBreach: consistencyBreachCount / numSimulations,
+      probHitTarget: hitTargetCount / numSimulations,
+      expectedFinalEquity: Math.round(mean),
+      stdDevFinalEquity: Math.round(stdDev),
+      simulationsRun: numSimulations,
+      tradesProjected: numTrades,
+      sourceTradeCount,
+      tradesPerDay,
+      startingEquity: Math.round(startingEquity),
+      dailyLossLimit: Math.round(dailyLossLimit),
+      maxDrawdownLimit: Math.round(maxDrawdownLimit),
+      consistencyRuleThreshold,
+      profitTarget: Math.round(profitTarget)
+    },
+    warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
+  };
+  _cache.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
+  return result;
+}
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache;
+var init_ruin_cone = __esm({
+  "server/services/ruin-cone.ts"() {
+    "use strict";
+    init_db();
+    init_schema();
+    init_kalshi_engine();
+    FTUK_DEFAULTS = {
+      dailyLossPct: 5,
+      // max loss from a day's starting balance
+      maxDrawdownPct: 10,
+      // max trailing drawdown from peak equity ("ruin")
+      consistencyPct: 30,
+      // no single day's profit may exceed this % of total profit
+      profitTargetPct: 8
+      // challenge target (FTUK evaluation is commonly 8–10%)
+    };
+    DEFAULT_NUM_SIMULATIONS = 2e3;
+    DEFAULT_NUM_TRADES = 100;
+    DEFAULT_SOURCE_LIMIT = 200;
+    CACHE_TTL_MS6 = 5 * 60 * 1e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/abba-ea-generator.ts
 var abba_ea_generator_exports = {};
 __export(abba_ea_generator_exports, {
@@ -35966,7 +36238,7 @@ __export(sol_engine_exports, {
   triggerSolAIReview: () => triggerSolAIReview,
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
-import { eq as eq12 } from "drizzle-orm";
+import { eq as eq13 } from "drizzle-orm";
 import crypto10 from "crypto";
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
@@ -36055,7 +36327,7 @@ async function upsertPosition(userId, pos) {
 }
 async function loadEngineStateFromDb(userId, state) {
   try {
-    const [settings] = await db.select().from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+    const [settings] = await db.select().from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
     if (settings) {
       state.activeStrategy = settings.activeStrategy;
       state.activeStrategies = settings.activeStrategies || [settings.activeStrategy];
@@ -36090,7 +36362,7 @@ async function loadEngineStateFromDb(userId, state) {
         }
       }
     }
-    const positions = await db.select().from(solEnginePositions).where(eq12(solEnginePositions.userId, userId));
+    const positions = await db.select().from(solEnginePositions).where(eq13(solEnginePositions.userId, userId));
     for (const row of positions) {
       const pos = {
         id: row.positionId,
@@ -36126,7 +36398,7 @@ async function loadEngineStateFromDb(userId, state) {
 }
 async function executeServerSideSell(userId, pos, reason, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -36222,7 +36494,7 @@ async function executeServerSideSell(userId, pos, reason, state) {
 }
 async function executeServerSideBuy(userId, signal, state) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return false;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3, VersionedTransaction } = await import("@solana/web3.js");
@@ -36924,7 +37196,7 @@ async function refreshServerWalletBalance(userId, state) {
   if (now - state.lastWalletRefreshAt < 6e4) return;
   state.lastWalletRefreshAt = now;
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return;
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -37293,7 +37565,7 @@ async function startSolEngine(userId, config = {}) {
   }
   if (state.currentPortfolioValue <= 0) {
     try {
-      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+      const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey, liveTradeEnabled: solEngineSettings.liveTradeEnabled }).from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
       if (settings?.serverWalletKey) {
         const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
         const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -37827,11 +38099,11 @@ async function saveServerWallet(userId, privateKeyBase58) {
   }
 }
 async function clearServerWallet(userId) {
-  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq12(solEngineSettings.userId, userId));
+  await db.update(solEngineSettings).set({ serverWalletKey: null, updatedAt: /* @__PURE__ */ new Date() }).where(eq13(solEngineSettings.userId, userId));
 }
 async function getServerWalletStatus(userId) {
   try {
-    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq12(solEngineSettings.userId, userId));
+    const [settings] = await db.select({ serverWalletKey: solEngineSettings.serverWalletKey }).from(solEngineSettings).where(eq13(solEngineSettings.userId, userId));
     if (!settings?.serverWalletKey) return { hasServerWallet: false };
     const privateKeyBase58 = decryptWalletKey(settings.serverWalletKey);
     const { Keypair: Keypair2, Connection: Connection3 } = await import("@solana/web3.js");
@@ -40907,7 +41179,7 @@ __export(copy_trade_execution_exports, {
   executeCopyTradeClose: () => executeCopyTradeClose,
   executeCopyTradeOpen: () => executeCopyTradeOpen
 });
-import { eq as eq13 } from "drizzle-orm";
+import { eq as eq14 } from "drizzle-orm";
 async function checkRealModeSafety(rel, mirrorLot) {
   if (!rel.copier_connection_id) {
     return { ok: false, reason: "No TradeLocker account selected for real-mode copying" };
@@ -40942,7 +41214,7 @@ async function checkRealModeSafety(rel, mirrorLot) {
   }
   const today = /* @__PURE__ */ new Date();
   today.setHours(0, 0, 0, 0);
-  const todaysLogs = await db.select().from(copyTradeLogs).where(eq13(copyTradeLogs.relationshipId, rel.id));
+  const todaysLogs = await db.select().from(copyTradeLogs).where(eq14(copyTradeLogs.relationshipId, rel.id));
   const realizedToday = todaysLogs.filter((l) => l.status === "closed" && l.closedAt && l.closedAt >= today).reduce((sum, l) => sum + (l.pnl || 0), 0);
   const lossPct = realizedToday / tlCache.balance * 100;
   if (lossPct <= -DAILY_LOSS_BACKSTOP_PCT) {
@@ -40960,7 +41232,7 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
         executionStatus: "skipped",
         executionError: safety.reason,
         closedAt: /* @__PURE__ */ new Date()
-      }).where(eq13(copyTradeLogs.id, copyLogId));
+      }).where(eq14(copyTradeLogs.id, copyLogId));
       return;
     }
     try {
@@ -40978,12 +41250,12 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
         executionStatus: result.success ? "placed" : "failed",
         brokerOrderId: result.orderId,
         executionError: result.error
-      }).where(eq13(copyTradeLogs.id, copyLogId));
+      }).where(eq14(copyTradeLogs.id, copyLogId));
     } catch (e) {
       await db.update(copyTradeLogs).set({
         executionStatus: "failed",
         executionError: e.message
-      }).where(eq13(copyTradeLogs.id, copyLogId));
+      }).where(eq14(copyTradeLogs.id, copyLogId));
     }
     return;
   }
@@ -41003,12 +41275,12 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
     await db.update(copyTradeLogs).set({
       copierFxTradeId,
       executionStatus: "placed"
-    }).where(eq13(copyTradeLogs.id, copyLogId));
+    }).where(eq14(copyTradeLogs.id, copyLogId));
   } catch (e) {
     await db.update(copyTradeLogs).set({
       executionStatus: "failed",
       executionError: e.message
-    }).where(eq13(copyTradeLogs.id, copyLogId));
+    }).where(eq14(copyTradeLogs.id, copyLogId));
   }
 }
 async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sourceLotSize) {
@@ -41456,7 +41728,7 @@ async function fetchAllPredictions() {
   return predictions;
 }
 async function getSportsPredictions() {
-  if (cache3 && Date.now() - cache3.fetchedAt < CACHE_TTL_MS6) {
+  if (cache3 && Date.now() - cache3.fetchedAt < CACHE_TTL_MS7) {
     return cache3.data;
   }
   return refreshSportsPredictions();
@@ -41471,14 +41743,14 @@ async function refreshSportsPredictions() {
     return cache3?.data ?? [];
   }
 }
-var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS6, ELO_K, ELO_DEFAULT, eloRatings, cache3, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
+var ESPN_BASE, GAMMA_BASE2, GOOGLE_NEWS_BASE, CACHE_TTL_MS7, ELO_K, ELO_DEFAULT, eloRatings, cache3, SPORT_PATHS, KEY_POSITIONS, recentGameDates;
 var init_sports_predictor = __esm({
   "server/services/sports-predictor.ts"() {
     "use strict";
     ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
     GAMMA_BASE2 = "https://gamma-api.polymarket.com";
     GOOGLE_NEWS_BASE = "https://news.google.com/rss/search";
-    CACHE_TTL_MS6 = 15 * 60 * 1e3;
+    CACHE_TTL_MS7 = 15 * 60 * 1e3;
     ELO_K = 20;
     ELO_DEFAULT = 1500;
     eloRatings = {};
@@ -42471,7 +42743,7 @@ __export(ambassador_prime_exports, {
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
 import crypto12 from "crypto";
-import { eq as eq14, sql as drizzleSql } from "drizzle-orm";
+import { eq as eq15, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI7 } from "openai";
 async function logStep(runDate, stepName, status, error) {
   try {
@@ -42769,7 +43041,7 @@ Return JSON: { "insights": ["insight 1", "insight 2", "insight 3"], "context": "
   }
 }
 async function aggregateWeeklyPairs() {
-  const activePlans = await db.select().from(weeklyStrategies).where(eq14(weeklyStrategies.isActive, true));
+  const activePlans = await db.select().from(weeklyStrategies).where(eq15(weeklyStrategies.isActive, true));
   const tally = {};
   for (const row of activePlans) {
     const weeklyPlan = row.plan?.weeklyPlan;
@@ -42832,13 +43104,13 @@ confidenceBoost is an integer 0-5: how much extra conviction this week's researc
   }
 }
 async function getOrCreateTodayDevotional(today) {
-  const [existing] = await db.select().from(devotionals).where(eq14(devotionals.date, today)).limit(1);
+  const [existing] = await db.select().from(devotionals).where(eq15(devotionals.date, today)).limit(1);
   if (existing) return existing;
   try {
     const { generateDailyDevotional: generateDailyDevotional2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const generated = await generateDailyDevotional2(today);
     await db.insert(devotionals).values({ date: today, ...generated }).onConflictDoNothing();
-    const [inserted] = await db.select().from(devotionals).where(eq14(devotionals.date, today)).limit(1);
+    const [inserted] = await db.select().from(devotionals).where(eq15(devotionals.date, today)).limit(1);
     return inserted ?? null;
   } catch (e) {
     console.error("[ambassador-prime] Devotional generation failed:", e.message);
@@ -43254,9 +43526,9 @@ ${REFERRAL_LINK}`;
   }
   if (imageUrl) {
     try {
-      await db.update(ambassadorDailyContent).set({ imageUrl }).where(eq14(ambassadorDailyContent.runDate, runDate));
-      await db.update(ambassadorBonusContent).set({ imageUrl }).where(eq14(ambassadorBonusContent.runDate, runDate));
-      await db.update(ambassadorCommunityContent).set({ imageUrl }).where(eq14(ambassadorCommunityContent.runDate, runDate));
+      await db.update(ambassadorDailyContent).set({ imageUrl }).where(eq15(ambassadorDailyContent.runDate, runDate));
+      await db.update(ambassadorBonusContent).set({ imageUrl }).where(eq15(ambassadorBonusContent.runDate, runDate));
+      await db.update(ambassadorCommunityContent).set({ imageUrl }).where(eq15(ambassadorCommunityContent.runDate, runDate));
     } catch (e) {
       console.error("[ambassador-prime] Backfilling imageUrl onto content rows failed (non-fatal):", e.message);
     }
@@ -43334,7 +43606,7 @@ ${REFERRAL_LINK}`;
     errors
   });
   if (emailResult.success) {
-    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq14(ambassadorRunSummary.runDate, runDate));
+    await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq15(ambassadorRunSummary.runDate, runDate));
     completedSteps.push("Email Report");
     await logStep(runDate, "Email Report", "completed");
   } else {
@@ -45231,9 +45503,9 @@ var paper_trade_resolver_loop_exports = {};
 __export(paper_trade_resolver_loop_exports, {
   startPaperTradeResolverLoop: () => startPaperTradeResolverLoop
 });
-import { eq as eq17 } from "drizzle-orm";
+import { eq as eq18 } from "drizzle-orm";
 async function pollOnce() {
-  const pending = await db.select().from(paperTrades).where(eq17(paperTrades.outcome, "pending"));
+  const pending = await db.select().from(paperTrades).where(eq18(paperTrades.outcome, "pending"));
   if (pending.length === 0) return;
   const uniqueSymbols = Array.from(new Set(pending.map((t) => t.symbol)));
   const priceBySymbol = /* @__PURE__ */ new Map();
@@ -46865,7 +47137,7 @@ init_openai();
 init_twilio();
 init_achievement_tracker();
 init_ea_generators();
-import { eq as eq15, and as and8, sql as sql10, desc as desc9 } from "drizzle-orm";
+import { eq as eq16, and as and9, sql as sql10, desc as desc10 } from "drizzle-orm";
 import { scrypt, randomBytes } from "crypto";
 import { promisify } from "util";
 import { z as z2 } from "zod";
@@ -53473,11 +53745,11 @@ Respond ONLY in valid JSON format with these exact keys:
               subscriptionPlanId: planId,
               subscriptionStatus: "active",
               stripeSubscriptionId: session3.subscription
-            }).where(eq15(users.id, userId));
+            }).where(eq16(users.id, userId));
             console.log(`[Stripe] Activated plan ${planId} for user ${userId}`);
             try {
-              const [updatedUser] = await db.select().from(users).where(eq15(users.id, userId));
-              const [plan] = await db.select().from(subscriptionPlans).where(eq15(subscriptionPlans.id, planId));
+              const [updatedUser] = await db.select().from(users).where(eq16(users.id, userId));
+              const [plan] = await db.select().from(subscriptionPlans).where(eq16(subscriptionPlans.id, planId));
               if (updatedUser?.email && plan?.name) {
                 sendSubscriptionConfirmation(updatedUser.email, updatedUser.fullName || updatedUser.username, plan.name).catch(() => {
                 });
@@ -53498,7 +53770,7 @@ Respond ONLY in valid JSON format with these exact keys:
               stripeSubscriptionId: sub.id,
               subscriptionCurrentPeriodEnd: new Date(sub.current_period_end * 1e3),
               ...planId ? { subscriptionPlanId: planId } : {}
-            }).where(eq15(users.id, userId));
+            }).where(eq16(users.id, userId));
             console.log(`[Stripe] Subscription ${sub.status} for user ${userId}`);
           }
           break;
@@ -53507,7 +53779,7 @@ Respond ONLY in valid JSON format with these exact keys:
           const sub = event.data.object;
           const userId = sub.metadata?.userId ? parseInt(sub.metadata.userId) : null;
           if (userId) {
-            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq15(users.id, userId));
+            await db.update(users).set({ subscriptionStatus: "canceled" }).where(eq16(users.id, userId));
             console.log(`[Stripe] Subscription canceled for user ${userId}`);
           }
           break;
@@ -53515,7 +53787,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_succeeded": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "active" }).where(eq15(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "active" }).where(eq16(users.stripeSubscriptionId, invoice.subscription));
             console.log(`[Stripe] Payment succeeded for subscription ${invoice.subscription}`);
           }
           break;
@@ -53523,7 +53795,7 @@ Respond ONLY in valid JSON format with these exact keys:
         case "invoice.payment_failed": {
           const invoice = event.data.object;
           if (invoice.subscription) {
-            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq15(users.stripeSubscriptionId, invoice.subscription));
+            await db.update(users).set({ subscriptionStatus: "past_due" }).where(eq16(users.stripeSubscriptionId, invoice.subscription));
             console.warn(`[Stripe] Payment failed for subscription ${invoice.subscription}`);
           }
           break;
@@ -67181,6 +67453,31 @@ Respond with ONLY valid JSON:
       res.status(500).json({ error: err.message });
     }
   });
+  app2.get("/api/analytics/ruin-cone", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { runRuinConeSimulation: runRuinConeSimulation2 } = await Promise.resolve().then(() => (init_ruin_cone(), ruin_cone_exports));
+      const q = req.query;
+      const num = (v) => v != null && v !== "" ? Number(v) : void 0;
+      const result = await runRuinConeSimulation2(userId, {
+        numSimulations: num(q.numSimulations),
+        numTrades: num(q.numTrades),
+        startingEquity: num(q.startingEquity),
+        dailyLossLimit: num(q.dailyLossLimit),
+        maxDrawdownLimit: num(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num(q.consistencyRuleThreshold),
+        profitTarget: num(q.profitTarget),
+        sourceLimit: num(q.sourceLimit),
+        source: q.source ? String(q.source) : void 0,
+        noCache: q.nocache === "1" || q.noCache === "true"
+      });
+      res.json(result);
+    } catch (err) {
+      console.error("[Ruin Cone]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
   app2.get("/api/predictions/ai-review", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -67813,11 +68110,11 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const mt5Acct = getFreshestMt5Account(userId);
       const isOnline = !!mt5Acct?.connected;
       const bal = mt5Acct?.balance ?? 0;
-      const eq18 = mt5Acct?.equity ?? bal;
+      const eq19 = mt5Acct?.equity ?? bal;
       const mt5Results = _allClosed.filter((t) => !_tlSources.has(t.source || "manual"));
       const dailyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
       const weeklyPnl = Math.round(mt5Results.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.profitLoss || 0), 0) * 100) / 100;
-      mt5 = { balance: bal, equity: eq18, dailyPnl, weeklyPnl, isOnline };
+      mt5 = { balance: bal, equity: eq19, dailyPnl, weeklyPnl, isOnline };
     } catch {
       mt5 = { balance: 0, equity: 0, dailyPnl: 0, weeklyPnl: 0, isOnline: false };
     }
@@ -68072,7 +68369,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         } catch (e) {
           accountError = e.message;
         }
-        const closed = await db.select().from(optionsEngineTrades).where(and8(eq15(optionsEngineTrades.userId, userId), eq15(optionsEngineTrades.connectionId, connId), eq15(optionsEngineTrades.broker, type))).orderBy(desc9(optionsEngineTrades.closedAt)).then((rows) => rows.filter((t) => t.status === "closed" && t.closedAt)).catch(() => []);
+        const closed = await db.select().from(optionsEngineTrades).where(and9(eq16(optionsEngineTrades.userId, userId), eq16(optionsEngineTrades.connectionId, connId), eq16(optionsEngineTrades.broker, type))).orderBy(desc10(optionsEngineTrades.closedAt)).then((rows) => rows.filter((t) => t.status === "closed" && t.closedAt)).catch(() => []);
         const dailyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= todayStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
         const weeklyPnl = Math.round(closed.filter((t) => new Date(t.closedAt) >= weekStart).reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
         const allTimePnl = Math.round(closed.reduce((s, t) => s + (t.realizedPnl || 0), 0) * 100) / 100;
@@ -68080,7 +68377,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
         const winRate2 = closed.length > 0 ? Math.round(wins / closed.length * 100) : 0;
         const closedForCurve = closed.map((t) => ({ ...t, result: (t.realizedPnl || 0) > 0 ? "WIN" : "LOSS", profitLoss: t.realizedPnl }));
         const { dailyWins, dailyLosses, dailyWinAmount, dailyLossAmount, equityCurve } = computeDailyAndCurve(closedForCurve, todayStart);
-        const openCount = await db.select().from(optionsEngineTrades).where(and8(eq15(optionsEngineTrades.userId, userId), eq15(optionsEngineTrades.connectionId, connId), eq15(optionsEngineTrades.broker, type), eq15(optionsEngineTrades.status, "open"))).then((rows) => rows.length).catch(() => 0);
+        const openCount = await db.select().from(optionsEngineTrades).where(and9(eq16(optionsEngineTrades.userId, userId), eq16(optionsEngineTrades.connectionId, connId), eq16(optionsEngineTrades.broker, type), eq16(optionsEngineTrades.status, "open"))).then((rows) => rows.length).catch(() => 0);
         return res.json({
           type,
           id: connId,
@@ -71409,7 +71706,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             isValid = false;
           }
         }
-        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and8(eq15(userApiKeys.userId, req.user.id), eq15(userApiKeys.provider, provider)));
+        await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and9(eq16(userApiKeys.userId, req.user.id), eq16(userApiKeys.provider, provider)));
       } catch {
       }
       res.json({ ...sanitizeKeyForResponse(result), isValid, validated: isValid !== null });
@@ -71474,7 +71771,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } catch (e) {
         isValid = false;
       }
-      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and8(eq15(userApiKeys.userId, req.user.id), eq15(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isValid, lastValidated: /* @__PURE__ */ new Date() }).where(and9(eq16(userApiKeys.userId, req.user.id), eq16(userApiKeys.provider, provider)));
       res.json({ valid: isValid, provider });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -71486,7 +71783,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const { provider, isActive } = req.body;
       const key = await storage.getUserApiKey(req.user.id, provider);
       if (!key) return res.status(404).json({ message: "Key not found" });
-      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and8(eq15(userApiKeys.userId, req.user.id), eq15(userApiKeys.provider, provider)));
+      await db.update(userApiKeys).set({ isActive: !!isActive }).where(and9(eq16(userApiKeys.userId, req.user.id), eq16(userApiKeys.provider, provider)));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: error.message });
@@ -72061,7 +72358,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   });
   {
     const { wearToEarnClaims: wearToEarnClaims2, internalWallets: internalWallets2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9, sql: drizzleSql2 } = await import("drizzle-orm");
+    const { eq: eq19, and: and10, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     app2.post("/api/wear-to-earn/claim", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
@@ -72074,7 +72371,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         return res.status(400).json({ error: "Product name required" });
       }
       const code = claimCode.trim().toUpperCase();
-      const existing = await db2.select().from(wearToEarnClaims2).where(and9(eq18(wearToEarnClaims2.userId, userId), eq18(wearToEarnClaims2.claimCode, code))).limit(1);
+      const existing = await db2.select().from(wearToEarnClaims2).where(and10(eq19(wearToEarnClaims2.userId, userId), eq19(wearToEarnClaims2.claimCode, code))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({ error: "You have already claimed this code" });
       }
@@ -72101,7 +72398,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         rewardAmount: wearToEarnClaims2.rewardAmount,
         submittedAt: wearToEarnClaims2.submittedAt,
         imageUrl: wearToEarnClaims2.imageUrl
-      }).from(wearToEarnClaims2).where(eq18(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql2`${wearToEarnClaims2.submittedAt} DESC`);
+      }).from(wearToEarnClaims2).where(eq19(wearToEarnClaims2.userId, userId)).orderBy(drizzleSql2`${wearToEarnClaims2.submittedAt} DESC`);
       res.json(claims);
     });
     app2.get("/api/wear-to-earn/stats", async (req, res) => {
@@ -72110,7 +72407,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const claims = await db2.select({
         status: wearToEarnClaims2.status,
         rewardAmount: wearToEarnClaims2.rewardAmount
-      }).from(wearToEarnClaims2).where(eq18(wearToEarnClaims2.userId, userId));
+      }).from(wearToEarnClaims2).where(eq19(wearToEarnClaims2.userId, userId));
       const totalClaims = claims.length;
       const totalVeddEarned = claims.reduce((s, c) => s + (c.rewardAmount || 0), 0);
       const pendingClaims = claims.filter((c) => c.status === "pending").length;
@@ -72119,7 +72416,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { sql: drizzleSql2, eq: eq18, and: and9, desc: desc10 } = await import("drizzle-orm");
+    const { sql: drizzleSql2, eq: eq19, and: and10, desc: desc11 } = await import("drizzle-orm");
     const CHECKIN_REWARD = 10;
     const CHECKIN_STREAK_7 = 5;
     const CHECKIN_STREAK_30 = 15;
@@ -72349,7 +72646,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
   }
   {
     const { nfcActivations: nfcActivations2, nfcDailyTaps: nfcDailyTaps2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18, and: and9, sql: drizzleSql2 } = await import("drizzle-orm");
+    const { eq: eq19, and: and10, sql: drizzleSql2 } = await import("drizzle-orm");
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const ACTIVATION_BONUS = 50;
     const DAILY_REWARD = 15;
@@ -72364,16 +72661,16 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         garmentName: nfcActivations2.garmentName,
         activatedAt: nfcActivations2.activatedAt,
         ownedByMe: drizzleSql2`false`
-      }).from(nfcActivations2).where(eq18(nfcActivations2.chipUid, uid2)).limit(1);
+      }).from(nfcActivations2).where(eq19(nfcActivations2.chipUid, uid2)).limit(1);
       if (!row) return res.json({ status: "unclaimed", chipUid: uid2 });
       return res.json({ status: "claimed", garmentName: row.garmentName, activatedAt: row.activatedAt });
     });
     app2.get("/api/nfc/my-garments", async (req, res) => {
       if (!req.isAuthenticated()) return res.status(401).json({ error: "Auth required" });
       const userId = req.user.id;
-      const garments = await db2.select().from(nfcActivations2).where(eq18(nfcActivations2.userId, userId)).orderBy(drizzleSql2`${nfcActivations2.activatedAt} DESC`);
+      const garments = await db2.select().from(nfcActivations2).where(eq19(nfcActivations2.userId, userId)).orderBy(drizzleSql2`${nfcActivations2.activatedAt} DESC`);
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and9(eq18(nfcDailyTaps2.userId, userId), eq18(nfcDailyTaps2.dayString, today)));
+      const tappedToday = await db2.select({ chipUid: nfcDailyTaps2.chipUid }).from(nfcDailyTaps2).where(and10(eq19(nfcDailyTaps2.userId, userId), eq19(nfcDailyTaps2.dayString, today)));
       const tappedSet = new Set(tappedToday.map((t) => t.chipUid));
       res.json(garments.map((g) => ({ ...g, tappedToday: tappedSet.has(g.chipUid) })));
     });
@@ -72384,7 +72681,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const garmentName = (req.body?.garmentName || "VEDD Garment").toString().trim().slice(0, 80);
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [existing] = await db2.select().from(nfcActivations2).where(eq18(nfcActivations2.chipUid, uid2)).limit(1);
+      const [existing] = await db2.select().from(nfcActivations2).where(eq19(nfcActivations2.chipUid, uid2)).limit(1);
       if (existing) {
         if (existing.userId === userId) {
           return res.status(409).json({ error: "You already own this garment", alreadyOwned: true, garment: existing });
@@ -72417,13 +72714,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const rawUid = req.body?.chipUid || req.body?.uid || "";
       const uid2 = normaliseUid(rawUid);
       if (uid2.length < 4) return res.status(400).json({ error: "Invalid chip UID" });
-      const [activation] = await db2.select().from(nfcActivations2).where(and9(eq18(nfcActivations2.chipUid, uid2), eq18(nfcActivations2.userId, userId))).limit(1);
+      const [activation] = await db2.select().from(nfcActivations2).where(and10(eq19(nfcActivations2.chipUid, uid2), eq19(nfcActivations2.userId, userId))).limit(1);
       if (!activation) return res.status(403).json({ error: "Chip not registered to your account. Activate it first." });
       const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and9(
-        eq18(nfcDailyTaps2.userId, userId),
-        eq18(nfcDailyTaps2.chipUid, uid2),
-        eq18(nfcDailyTaps2.dayString, today)
+      const [alreadyTapped] = await db2.select().from(nfcDailyTaps2).where(and10(
+        eq19(nfcDailyTaps2.userId, userId),
+        eq19(nfcDailyTaps2.chipUid, uid2),
+        eq19(nfcDailyTaps2.dayString, today)
       )).limit(1);
       if (alreadyTapped) {
         return res.status(429).json({ error: "Already tapped today \u2014 come back tomorrow!", alreadyTapped: true });
@@ -72450,7 +72747,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         lastTapAt: /* @__PURE__ */ new Date(),
         currentStreak: newStreak,
         bestStreak: newBest
-      }).where(eq18(nfcActivations2.id, activation.id));
+      }).where(eq19(nfcActivations2.id, activation.id));
       await storage.addToWalletBalance(userId, reward, false);
       res.json({
         success: true,
@@ -75258,8 +75555,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { paperTrades: paperTrades2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18, desc: desc10 } = await import("drizzle-orm");
-      const trades = await db2.select().from(paperTrades2).where(eq18(paperTrades2.userId, req.user.id)).orderBy(desc10(paperTrades2.createdAt)).limit(100);
+      const { eq: eq19, desc: desc11 } = await import("drizzle-orm");
+      const trades = await db2.select().from(paperTrades2).where(eq19(paperTrades2.userId, req.user.id)).orderBy(desc11(paperTrades2.createdAt)).limit(100);
       res.json(trades);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -75273,8 +75570,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       if (!["win", "loss", "breakeven"].includes(outcome)) return res.status(400).json({ error: "Invalid outcome" });
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { paperTrades: paperTrades2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18, and: and9 } = await import("drizzle-orm");
-      const [updated] = await db2.update(paperTrades2).set({ outcome, pnlPips, resolvedAt: /* @__PURE__ */ new Date() }).where(and9(eq18(paperTrades2.id, id), eq18(paperTrades2.userId, req.user.id))).returning();
+      const { eq: eq19, and: and10 } = await import("drizzle-orm");
+      const [updated] = await db2.update(paperTrades2).set({ outcome, pnlPips, resolvedAt: /* @__PURE__ */ new Date() }).where(and10(eq19(paperTrades2.id, id), eq19(paperTrades2.userId, req.user.id))).returning();
       if (!updated) return res.status(404).json({ error: "Paper trade not found" });
       res.json(updated);
     } catch (err) {
@@ -76004,9 +76301,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc10 } = await import("drizzle-orm");
+      const { desc: desc11 } = await import("drizzle-orm");
       const limit = Math.min(parseInt(String(req.query.limit || "100")), 500);
-      const rows = await db2.select().from(leads2).orderBy(desc10(leads2.createdAt)).limit(limit);
+      const rows = await db2.select().from(leads2).orderBy(desc11(leads2.createdAt)).limit(limit);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76017,8 +76314,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leadHunterRuns: leadHunterRuns2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc10 } = await import("drizzle-orm");
-      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc10(leadHunterRuns2.createdAt)).limit(20);
+      const { desc: desc11 } = await import("drizzle-orm");
+      const rows = await db2.select().from(leadHunterRuns2).orderBy(desc11(leadHunterRuns2.createdAt)).limit(20);
       res.json(rows);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76029,8 +76326,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18 } = await import("drizzle-orm");
-      const [lead] = await db2.select().from(leads2).where(eq18(leads2.id, req.params.id)).limit(1);
+      const { eq: eq19 } = await import("drizzle-orm");
+      const [lead] = await db2.select().from(leads2).where(eq19(leads2.id, req.params.id)).limit(1);
       if (!lead) return res.status(404).json({ error: "Lead not found" });
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       const result = await outreachLead2(lead);
@@ -76038,7 +76335,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         status: "Contacted",
         autoEngaged: result.automated,
         engagementType: result.engagementType || (result.automated ? "auto" : "manual")
-      }).where(eq18(leads2.id, req.params.id));
+      }).where(eq19(leads2.id, req.params.id));
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76049,15 +76346,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18, and: and9, gte: gte6, sql: dsql } = await import("drizzle-orm");
-      const rows = await db2.select().from(leads2).where(and9(eq18(leads2.status, "New"), gte6(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
+      const { eq: eq19, and: and10, gte: gte6, sql: dsql } = await import("drizzle-orm");
+      const rows = await db2.select().from(leads2).where(and10(eq19(leads2.status, "New"), gte6(leads2.intentScore, 7))).orderBy(dsql`intent_score DESC`).limit(25);
       const { outreachLead: outreachLead2 } = await Promise.resolve().then(() => (init_lead_hunter(), lead_hunter_exports));
       let engaged = 0, manualNeeded = 0;
       for (const lead of rows) {
         const r = await outreachLead2(lead).catch(() => null);
         if (r?.automated) {
           engaged++;
-          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq18(leads2.id, lead.id));
+          await db2.update(leads2).set({ status: "Contacted", autoEngaged: true, engagementType: r.engagementType || "auto" }).where(eq19(leads2.id, lead.id));
           await new Promise((rs) => setTimeout(rs, 1500));
         } else {
           manualNeeded++;
@@ -76073,8 +76370,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { leads: leads2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { eq: eq18 } = await import("drizzle-orm");
-      await db2.update(leads2).set({ status: req.body.status }).where(eq18(leads2.id, req.params.id));
+      const { eq: eq19 } = await import("drizzle-orm");
+      await db2.update(leads2).set({ status: req.body.status }).where(eq19(leads2.id, req.params.id));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76116,11 +76413,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/today", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorDailyContent: ambassadorDailyContent2, ambassadorDailyKpis: ambassadorDailyKpis2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc10 } = await import("drizzle-orm");
+      const { desc: desc11 } = await import("drizzle-orm");
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq15(ambassadorRunSummary2.runDate, today)).limit(1);
-      const content = await db.select().from(ambassadorDailyContent2).where(eq15(ambassadorDailyContent2.runDate, today)).orderBy(desc10(ambassadorDailyContent2.createdAt));
-      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq15(ambassadorDailyKpis2.runDate, today)).limit(1);
+      const [summary] = await db.select().from(ambassadorRunSummary2).where(eq16(ambassadorRunSummary2.runDate, today)).limit(1);
+      const content = await db.select().from(ambassadorDailyContent2).where(eq16(ambassadorDailyContent2.runDate, today)).orderBy(desc11(ambassadorDailyContent2.createdAt));
+      const [kpis] = await db.select().from(ambassadorDailyKpis2).where(eq16(ambassadorDailyKpis2.runDate, today)).limit(1);
       res.json({ summary: summary ?? null, content, kpis: kpis ?? null, date: today });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76129,8 +76426,8 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/history", async (_req, res) => {
     try {
       const { ambassadorRunSummary: ambassadorRunSummary2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc10 } = await import("drizzle-orm");
-      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc10(ambassadorRunSummary2.createdAt)).limit(30);
+      const { desc: desc11 } = await import("drizzle-orm");
+      const runs = await db.select().from(ambassadorRunSummary2).orderBy(desc11(ambassadorRunSummary2.createdAt)).limit(30);
       res.json({ runs });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -76139,15 +76436,15 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
   app2.get("/api/ambassador-prime/content/:date", async (req, res) => {
     try {
       const { ambassadorDailyContent: ambassadorDailyContent2, ambassadorHookVariations: ambassadorHookVariations2, ambassadorBonusContent: ambassadorBonusContent2, ambassadorCommunityContent: ambassadorCommunityContent2, ambassadorRedditInsights: ambassadorRedditInsights2, ambassadorRunStepLog: ambassadorRunStepLog2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { desc: desc10 } = await import("drizzle-orm");
+      const { desc: desc11 } = await import("drizzle-orm");
       const { date: date2 } = req.params;
       const [content, hooks, bonus, community, insights, steps] = await Promise.all([
-        db.select().from(ambassadorDailyContent2).where(eq15(ambassadorDailyContent2.runDate, date2)),
-        db.select().from(ambassadorHookVariations2).where(eq15(ambassadorHookVariations2.runDate, date2)),
-        db.select().from(ambassadorBonusContent2).where(eq15(ambassadorBonusContent2.runDate, date2)),
-        db.select().from(ambassadorCommunityContent2).where(eq15(ambassadorCommunityContent2.runDate, date2)),
-        db.select().from(ambassadorRedditInsights2).where(eq15(ambassadorRedditInsights2.runDate, date2)),
-        db.select().from(ambassadorRunStepLog2).where(eq15(ambassadorRunStepLog2.runDate, date2)).orderBy(desc10(ambassadorRunStepLog2.createdAt))
+        db.select().from(ambassadorDailyContent2).where(eq16(ambassadorDailyContent2.runDate, date2)),
+        db.select().from(ambassadorHookVariations2).where(eq16(ambassadorHookVariations2.runDate, date2)),
+        db.select().from(ambassadorBonusContent2).where(eq16(ambassadorBonusContent2.runDate, date2)),
+        db.select().from(ambassadorCommunityContent2).where(eq16(ambassadorCommunityContent2.runDate, date2)),
+        db.select().from(ambassadorRedditInsights2).where(eq16(ambassadorRedditInsights2.runDate, date2)),
+        db.select().from(ambassadorRunStepLog2).where(eq16(ambassadorRunStepLog2.runDate, date2)).orderBy(desc11(ambassadorRunStepLog2.createdAt))
       ]);
       res.json({ content, hooks, bonus, community, insights, steps });
     } catch (e) {
@@ -76882,7 +77179,7 @@ var initialAchievements = [
 // server/seed.ts
 init_db();
 init_schema();
-import { eq as eq16 } from "drizzle-orm";
+import { eq as eq17 } from "drizzle-orm";
 import { scrypt as scrypt3, randomBytes as randomBytes3 } from "crypto";
 import { promisify as promisify3 } from "util";
 var scryptAsync3 = promisify3(scrypt3);
@@ -77016,7 +77313,7 @@ async function seedAchievements() {
 }
 async function seedAdminUser() {
   const adminUsername = "donchismkos@gmail.com";
-  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq16(subscriptionPlans.name, "Yearly")).limit(1);
+  const [yearlyPlan] = await db.select({ id: subscriptionPlans.id }).from(subscriptionPlans).where(eq17(subscriptionPlans.name, "Yearly")).limit(1);
   if (!yearlyPlan) {
     console.error("[seed] No Yearly plan found \u2014 skipping admin user seed");
     return;
@@ -77417,8 +77714,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq18 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq18(engineRunState2.isRunning, true));
+    const { eq: eq19 } = await import("drizzle-orm");
+    const runningRows = await db2.select().from(engineRunState2).where(eq19(engineRunState2.isRunning, true));
     if (runningRows.length > 0) {
       const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
       const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));

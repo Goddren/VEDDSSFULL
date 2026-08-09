@@ -278,6 +278,7 @@ const Header: React.FC = () => {
     { name: 'AI SS Engine (FX)', path: '/weekly-strategy', active: location === '/weekly-strategy', icon: <Rocket className="h-4 w-4 mr-2" /> },
     { name: 'Options AI Engine', path: '/options-engine', active: location === '/options-engine', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'ORB Breakout', path: '/orb-breakout', active: location === '/orb-breakout', icon: <Target className="h-4 w-4 mr-2" /> },
+    { name: 'Ruin Cone', path: '/ruin-cone', active: location === '/ruin-cone', icon: <Activity className="h-4 w-4 mr-2" /> },
     { name: 'ABBA', path: '/abba', active: location === '/abba', icon: <Brain className="h-4 w-4 mr-2" /> },
     { name: 'Analysis', path: '/analysis', active: location === '/analysis', icon: <LineChart className="h-4 w-4 mr-2" /> },
     { name: 'Predictions', path: '/polymarket-engine', active: location === '/polymarket-engine', icon: <DollarSign className="h-4 w-4 mr-2" /> },

@@ -131,6 +131,16 @@ export interface KalshiEngineConfig {
   useKellyCriterion: boolean;     // size contracts by win-rate history instead of flat count
   brainLearningMode: boolean;     // lock at 1 contract until 10+ trades & 60%+ win rate
   drawdownShieldThreshold: number; // % DD from session-peak bankroll that cuts sizing to 25%
+
+  // ── Ruin Guard — hard circuit breaker (opt-in) ────────────────────────────
+  // Deterministic prop-firm-style safety halt: stops OPENING new trades once a
+  // hard loss limit is hit, instead of merely down-sizing (Drawdown Shield).
+  // Daily halt auto-resumes the next UTC day; the max-DD halt persists until
+  // equity recovers above the limit (effectively a hard stop needing attention).
+  // Limits are % of startingBankroll, matching the Ruin Cone analysis.
+  ruinGuardEnabled: boolean;      // master switch; default false so existing accounts are unaffected
+  dailyLossLimitPct: number;      // % of starting bankroll; halt new trades once today's P&L ≤ −this
+  maxDrawdownLimitPct: number;    // % of starting bankroll; halt new trades once DD from peak ≥ this
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -158,6 +168,9 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   useKellyCriterion:       false,
   brainLearningMode:       true,
   drawdownShieldThreshold: 0, // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
+  ruinGuardEnabled:        false, // opt-in — changes live trading behavior, off by default
+  dailyLossLimitPct:       5,     // FTUK-style daily loss limit (% of starting bankroll)
+  maxDrawdownLimitPct:     10,    // FTUK-style max drawdown limit (% of starting bankroll)
 };
 
 /** Identify which coin + timeframe a ticker belongs to from its series
@@ -262,6 +275,9 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   if (clean.stopLossCents   != null) clean.stopLossCents   = Math.max(0, Math.min(99, clean.stopLossCents));
   if (clean.riskPctPerTrade  != null) clean.riskPctPerTrade  = Math.max(1, Math.min(25, clean.riskPctPerTrade));
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1_000_000, clean.startingBankroll));
+  // Ruin Guard limits — clamp to sane prop-firm ranges
+  if (clean.dailyLossLimitPct   != null) clean.dailyLossLimitPct   = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
+  if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
   s.config = { ...s.config, ...clean };
   _persistKalshiConfig(userId, s.config);
 }
@@ -592,6 +608,63 @@ async function _placeKalshiYes(
 // lives in _scanOneCoin — unchanged from the original single-coin version,
 // just parameterized by `coin` throughout instead of assuming BTC.
 
+// ── Ruin Guard — hard circuit breaker ───────────────────────────────────────
+// Deterministic check run before any new trade is opened. Returns blocked=true
+// with a human reason when a hard loss limit is hit. Daily loss counts today's
+// (UTC) realized P&L plus current floating (conservative); max-DD measures the
+// pullback of realized bankroll from its session peak (same peak map/basis the
+// Drawdown Shield uses, so the two stay consistent).
+export async function ruinGuardStatus(userId: number, s: KalshiEngineState): Promise<{ blocked: boolean; reason: string }> {
+  if (!s.config.ruinGuardEnabled) return { blocked: false, reason: '' };
+  const base = Math.max(1, s.config.startingBankroll || 100);
+  const dailyLimit = base * ((s.config.dailyLossLimitPct ?? 5) / 100);
+  const ddLimit    = base * ((s.config.maxDrawdownLimitPct ?? 10) / 100);
+
+  const now = new Date();
+  const startOfDayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+  // Today's realized P&L (UTC) — read from the DURABLE trade log, not in-memory
+  // s.closedTrades, which a Render redeploy wipes mid-day. A daily breaker that
+  // forgets the day's losses on restart would silently stop protecting the
+  // account (the same failure class as the EA day-start-balance bug). Falls back
+  // to the in-memory log only if the DB read fails.
+  let dailyRealized = 0;
+  try {
+    const { db } = await import('../db');
+    const { aiTradeResults } = await import('../../shared/schema');
+    const { and, eq, gte, sql } = await import('drizzle-orm');
+    const [row] = await db.select({ total: sql<string>`coalesce(sum(${aiTradeResults.profitLoss}), 0)` })
+      .from(aiTradeResults)
+      .where(and(
+        eq(aiTradeResults.userId, userId),
+        eq(aiTradeResults.source, 'kalshi'),
+        gte(aiTradeResults.closedAt, startOfDayUtc),
+      ));
+    dailyRealized = parseFloat(row?.total ?? '0') || 0;
+  } catch {
+    const todayKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+    for (const t of s.closedTrades) {
+      if (!t.closedAt) continue;
+      const d = new Date(t.closedAt);
+      if (`${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}` === todayKey) dailyRealized += (t.realizedPnl || 0);
+    }
+  }
+  const dayPnL = dailyRealized + (s.totalUnrealizedPnl || 0);
+  if (dayPnL <= -dailyLimit) {
+    return { blocked: true, reason: `🛑 Ruin Guard: daily P&L $${dayPnL.toFixed(2)} hit the −$${dailyLimit.toFixed(2)} daily-loss limit — no new trades until next UTC day` };
+  }
+
+  // Max drawdown from session-peak realized bankroll (consistent with the shield).
+  const bankroll = kalshiBankroll(s);
+  const peak = Math.max(_sessionPeakBankroll.get(userId) ?? bankroll, bankroll);
+  _sessionPeakBankroll.set(userId, peak);
+  const dd = peak - bankroll;
+  if (dd >= ddLimit) {
+    return { blocked: true, reason: `🛑 Ruin Guard: drawdown $${dd.toFixed(2)} from peak $${peak.toFixed(2)} hit the $${ddLimit.toFixed(2)} max-DD limit — no new trades until equity recovers` };
+  }
+  return { blocked: false, reason: '' };
+}
+
 async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: boolean; reason: string }> {
   await refreshKalshiCredValidity(userId);
   const s = getKalshiEngineState(userId);
@@ -615,6 +688,15 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
+  }
+
+  // Ruin Guard circuit breaker — hard halt on new trades once a loss limit is
+  // hit. Runs AFTER _updateOpenTradePrices (fresh floating P&L) and before any
+  // firing path, so it covers both value-pick and single-strategy modes.
+  const guard = await ruinGuardStatus(userId, s);
+  if (guard.blocked) {
+    s.lastScanResult = guard.reason;
+    return { fired: false, reason: guard.reason };
   }
 
   const symbols = s.config.symbols?.length ? s.config.symbols : (['BTC'] as KalshiCryptoCoin[]);

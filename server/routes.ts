@@ -19424,6 +19424,34 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/analytics/ruin-cone — forward Monte Carlo of equity paths from the
+  // scanner's own realized trade distribution vs FTUK-style prop-firm rules.
+  app.get("/api/analytics/ruin-cone", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { runRuinConeSimulation } = await import('./services/ruin-cone');
+      const q = req.query;
+      const num = (v: any) => (v != null && v !== '' ? Number(v) : undefined);
+      const result = await runRuinConeSimulation(userId, {
+        numSimulations:           num(q.numSimulations),
+        numTrades:                num(q.numTrades),
+        startingEquity:           num(q.startingEquity),
+        dailyLossLimit:           num(q.dailyLossLimit),
+        maxDrawdownLimit:         num(q.maxDrawdownLimit),
+        consistencyRuleThreshold: num(q.consistencyRuleThreshold),
+        profitTarget:             num(q.profitTarget),
+        sourceLimit:              num(q.sourceLimit),
+        source:                   q.source ? String(q.source) : undefined,
+        noCache:                  q.nocache === '1' || q.noCache === 'true',
+      });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[Ruin Cone]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/predictions/ai-review — AI review of the best prediction options to WIN.
   // Combines Kalshi value picks (edge model), per-strategy historical accuracy, and
   // both engines' live state, then has the AI rank the highest-probability plays with
