@@ -4196,7 +4196,7 @@ export class DatabaseStorage implements IStorage {
       tokensToAward += 100; // 7-day streak bonus
     }
     const allDone = newCompletedDays.length >= 44;
-    if (allDone) tokensToAward += 500; // completion bonus
+    if (allDone) tokensToAward += 960; // completion bonus — raised so a full 44-day run = 2000 tokens (see shared/token-rewards.ts JOURNEY_FREE_MONTH_TOKENS)
 
     const subscriptionEarned = allDone || journey.subscriptionEarned;
     const monthsEarned = allDone ? journey.monthsEarned + 1 : journey.monthsEarned;

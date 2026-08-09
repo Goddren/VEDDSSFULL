@@ -51,7 +51,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Starter",
       description: "Advanced features for serious traders with unified signal synthesis",
-      price: 5000, // $50
+      price: 4995, // $49.95 (matches pay-with-credits + displayed price)
       interval: "month",
       features: [
         "Everything in Free",
@@ -75,7 +75,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Premium",
       description: "Unlimited power for professional traders with advanced AI synthesis",
-      price: 15000, // $150
+      price: 14999, // $149.99 (matches pay-with-credits + displayed price)
       interval: "month",
       features: [
         "Everything in Starter",
@@ -100,7 +100,7 @@ export async function seedSubscriptionPlans() {
     {
       name: "Yearly",
       description: "Annual subscription — all Premium features with yearly renewal. Best value for serious traders.",
-      price: 100000,
+      price: 99999, // $999.99 (matches pay-with-credits + displayed price)
       interval: "yearly",
       features: [
         "Everything in Premium",
@@ -295,12 +295,12 @@ export async function seedVeddRewardConfig() {
     { actionType: 'daily_post', baseAmount: 10, streakMultiplier: 1.2, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Post VEDD content on social media' },
     { actionType: 'daily_comment', baseAmount: 5, streakMultiplier: 1.1, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: 'Engage in community comments' },
     { actionType: 'referral_signup', baseAmount: 50, streakMultiplier: 1.0, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: 'Referred user signs up' },
-    { actionType: 'referral_subscribes', baseAmount: 200, streakMultiplier: 1.0, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: 'Referred user subscribes to paid plan' },
+    { actionType: 'referral_subscription', baseAmount: 200, streakMultiplier: 1.0, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: 'Referred user subscribes to paid plan' },
     { actionType: 'challenge_completion', baseAmount: 25, streakMultiplier: 1.0, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: 'Ambassador training challenge completed' },
     { actionType: 'event_hosting', baseAmount: 100, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Hosted a community event' },
     { actionType: 'event_attendance', baseAmount: 15, streakMultiplier: 1.0, maxDailyRewards: 2, requiresVerification: false, isActive: true, description: 'Attended a community event' },
     { actionType: 'journey_day_complete', baseAmount: 10, streakMultiplier: 1.05, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: 'Completed a day in the 44-day free path journey' },
-    { actionType: 'journey_completion_bonus', baseAmount: 500, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Completed the full 44-day ambassador journey' },
+    { actionType: 'journey_completion_bonus', baseAmount: 960, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Completed the full 44-day ambassador journey (raised so a full run = 2000 tokens)' },
     { actionType: 'referral_profit_share', baseAmount: 5, streakMultiplier: 1.0, maxDailyRewards: 10, requiresVerification: false, isActive: true, description: '5% share of referral trade profit' },
     { actionType: 'wear_to_earn', baseAmount: 50, streakMultiplier: 1.0, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: 'Scanned VEDD clothing QR code' },
   ];

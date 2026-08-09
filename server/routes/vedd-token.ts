@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { veddTokenService, DAILY_VEDD_CAP, WEEKLY_VEDD_CAP } from '../services/vedd-token-service';
 import { db } from '../db';
 import { users, veddPoolWallets, veddRewardConfig, ambassadorActionRewards, veddTransferJobs, referrals, veddWalletBlacklist } from '@shared/schema';
+import { TOKEN_REWARDS } from '@shared/token-rewards';
 import { eq, desc, sql, and } from 'drizzle-orm';
 
 const router = Router();
@@ -437,7 +438,7 @@ router.post('/referral/trade-profit', async (req: Request, res: Response) => {
     
     // Flat VEDD reward per qualifying referral trade — NOT a percentage of profits
     // (percentage-of-profits structure resembles an investment return; flat bonus is a platform reward)
-    const referralReward = 25; // flat 25 VEDD bonus per referral's profitable trade
+    const referralReward = TOKEN_REWARDS.referral_profit_share; // single source of truth — matches what enqueueReward actually pays
     
     const result = await veddTokenService.enqueueReward(
       referrerId,

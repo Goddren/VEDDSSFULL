@@ -2073,7 +2073,7 @@ export default function WorkforceAcademyPage() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
           className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { label: "Courses Available", value: "12", icon: BookOpen, color: "#6366f1" },
+            { label: "Courses Available", value: String(COURSES.length), icon: BookOpen, color: "#6366f1" },
             { label: "Total Enrollments", value: "1,895", icon: Users, color: "#22c55e" },
             { label: "Certs Issued", value: certificates.length + 384, icon: Award, color: "#f59e0b" },
             { label: "Grant Tags", value: "7", icon: Star, color: "#06b6d4" },

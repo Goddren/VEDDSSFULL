@@ -6223,7 +6223,7 @@ var init_storage = __esm({
           tokensToAward += 100;
         }
         const allDone = newCompletedDays.length >= 44;
-        if (allDone) tokensToAward += 500;
+        if (allDone) tokensToAward += 960;
         const subscriptionEarned = allDone || journey.subscriptionEarned;
         const monthsEarned = allDone ? journey.monthsEarned + 1 : journey.monthsEarned;
         const [updated] = await db.update(ambassadorJourney).set({
@@ -47477,6 +47477,26 @@ function getRequestCookie(req, name) {
 // server/routes.ts
 init_storage();
 init_schema();
+
+// shared/token-rewards.ts
+var TOKEN_REWARDS = {
+  daily_post: 10,
+  daily_comment: 5,
+  referral_signup: 50,
+  referral_subscription: 200,
+  challenge_completion: 25,
+  event_hosting: 100,
+  event_attendance: 15,
+  journey_day_complete: 10,
+  journey_streak_bonus: 100,
+  // awarded at each 7-day streak milestone
+  journey_completion_bonus: 960,
+  // raised so a full 44-day journey reaches JOURNEY_FREE_MONTH_TOKENS
+  referral_profit_share: 5,
+  wear_to_earn: 50
+};
+
+// server/routes.ts
 init_db();
 init_openai();
 init_twilio();
@@ -49348,7 +49368,7 @@ router.post("/referral/trade-profit", async (req, res) => {
     if (referrerId === traderId) {
       return res.status(400).json({ error: "Self-referral not allowed" });
     }
-    const referralReward = 25;
+    const referralReward = TOKEN_REWARDS.referral_profit_share;
     const result = await veddTokenService.enqueueReward(
       referrerId,
       "referral_profit_share",
@@ -69608,7 +69628,8 @@ Generate a JSON object with:
       const stats = await storage.getAmbassadorContentStats(userId);
       if (stats) {
         await storage.updateAmbassadorContentStats(userId, {
-          totalTokensEarned: stats.totalTokensEarned + challenge.tokenReward
+          // Single source of truth — must match the VEDD reward enqueued below.
+          totalTokensEarned: stats.totalTokensEarned + TOKEN_REWARDS.challenge_completion
         });
       }
       let veddRewardResult = null;
@@ -70634,7 +70655,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const stats = await storage.getAmbassadorContentStats(userId);
       if (stats) {
         await storage.updateAmbassadorContentStats(userId, {
-          totalTokensEarned: (stats.totalTokensEarned || 0) + (event.hostTokenReward || 50)
+          // Single source of truth — must match the VEDD reward enqueued below.
+          totalTokensEarned: (stats.totalTokensEarned || 0) + TOKEN_REWARDS.event_hosting
         });
       }
       let veddRewardResult = null;
@@ -77647,8 +77669,8 @@ async function seedSubscriptionPlans() {
     {
       name: "Starter",
       description: "Advanced features for serious traders with unified signal synthesis",
-      price: 5e3,
-      // $50
+      price: 4995,
+      // $49.95 (matches pay-with-credits + displayed price)
       interval: "month",
       features: [
         "Everything in Free",
@@ -77672,8 +77694,8 @@ async function seedSubscriptionPlans() {
     {
       name: "Premium",
       description: "Unlimited power for professional traders with advanced AI synthesis",
-      price: 15e3,
-      // $150
+      price: 14999,
+      // $149.99 (matches pay-with-credits + displayed price)
       interval: "month",
       features: [
         "Everything in Starter",
@@ -77698,7 +77720,8 @@ async function seedSubscriptionPlans() {
     {
       name: "Yearly",
       description: "Annual subscription \u2014 all Premium features with yearly renewal. Best value for serious traders.",
-      price: 1e5,
+      price: 99999,
+      // $999.99 (matches pay-with-credits + displayed price)
       interval: "yearly",
       features: [
         "Everything in Premium",
@@ -77857,12 +77880,12 @@ async function seedVeddRewardConfig() {
     { actionType: "daily_post", baseAmount: 10, streakMultiplier: 1.2, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Post VEDD content on social media" },
     { actionType: "daily_comment", baseAmount: 5, streakMultiplier: 1.1, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: "Engage in community comments" },
     { actionType: "referral_signup", baseAmount: 50, streakMultiplier: 1, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: "Referred user signs up" },
-    { actionType: "referral_subscribes", baseAmount: 200, streakMultiplier: 1, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: "Referred user subscribes to paid plan" },
+    { actionType: "referral_subscription", baseAmount: 200, streakMultiplier: 1, maxDailyRewards: 5, requiresVerification: false, isActive: true, description: "Referred user subscribes to paid plan" },
     { actionType: "challenge_completion", baseAmount: 25, streakMultiplier: 1, maxDailyRewards: 3, requiresVerification: false, isActive: true, description: "Ambassador training challenge completed" },
     { actionType: "event_hosting", baseAmount: 100, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Hosted a community event" },
     { actionType: "event_attendance", baseAmount: 15, streakMultiplier: 1, maxDailyRewards: 2, requiresVerification: false, isActive: true, description: "Attended a community event" },
     { actionType: "journey_day_complete", baseAmount: 10, streakMultiplier: 1.05, maxDailyRewards: 1, requiresVerification: false, isActive: true, description: "Completed a day in the 44-day free path journey" },
-    { actionType: "journey_completion_bonus", baseAmount: 500, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Completed the full 44-day ambassador journey" },
+    { actionType: "journey_completion_bonus", baseAmount: 960, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Completed the full 44-day ambassador journey (raised so a full run = 2000 tokens)" },
     { actionType: "referral_profit_share", baseAmount: 5, streakMultiplier: 1, maxDailyRewards: 10, requiresVerification: false, isActive: true, description: "5% share of referral trade profit" },
     { actionType: "wear_to_earn", baseAmount: 50, streakMultiplier: 1, maxDailyRewards: 1, requiresVerification: true, isActive: true, description: "Scanned VEDD clothing QR code" }
   ];

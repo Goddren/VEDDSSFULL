@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { getRequestCookie } from "./utils/cookies";
 import { storage } from "./storage";
 import { User, userApiKeys, users, subscriptionPlans, optionsEngineTrades } from "@shared/schema";
+import { TOKEN_REWARDS } from "@shared/token-rewards";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { db } from "./db";
 import { scrypt, randomBytes } from "crypto";
@@ -21588,7 +21589,8 @@ Generate a JSON object with:
       const stats = await storage.getAmbassadorContentStats(userId);
       if (stats) {
         await storage.updateAmbassadorContentStats(userId, {
-          totalTokensEarned: stats.totalTokensEarned + challenge.tokenReward
+          // Single source of truth — must match the VEDD reward enqueued below.
+          totalTokensEarned: stats.totalTokensEarned + TOKEN_REWARDS.challenge_completion
         });
       }
       
@@ -22902,7 +22904,8 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       const stats = await storage.getAmbassadorContentStats(userId);
       if (stats) {
         await storage.updateAmbassadorContentStats(userId, {
-          totalTokensEarned: (stats.totalTokensEarned || 0) + (event.hostTokenReward || 50)
+          // Single source of truth — must match the VEDD reward enqueued below.
+          totalTokensEarned: (stats.totalTokensEarned || 0) + TOKEN_REWARDS.event_hosting
         });
       }
       
