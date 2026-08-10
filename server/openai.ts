@@ -2320,13 +2320,15 @@ export async function getBreakoutConfirmation(
     // CONFIRM requires tiered breakout approval based on grade and aligned votes.
     // Grade is based on total-fired% (score/maxScore*100); alignment is directional vote count.
             const directionValid = breakoutResult.direction !== 'NEUTRAL';
-            // Tiered breakout approval — looser thresholds to catch more valid setups
+            // Tiered breakout approval. Grades now reflect directional ALIGNMENT
+            // (A ≥3 aligned, B = 2, C = 1) — breakout setups are mutually-exclusive,
+            // so the old "≥3 of 7 fired" requirement blocked nearly every trade.
             const gradeAApproved = ['A+','A'].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 && directionValid;
             const gradeBApproved = breakoutResult.grade === 'B' && breakoutResult.alignedVotes >= 2 && directionValid;
-            // Grade C allowed during high-liquidity sessions only
+            // Grade C (a single aligned breakout) — allowed in high-liquidity sessions only.
             const breakoutHour = new Date().getUTCHours();
             const isLiquidSession = (breakoutHour >= 7 && breakoutHour < 17); // London + NY + Overlap
-            const gradeCApproved = breakoutResult.grade === 'C' && breakoutResult.alignedVotes >= 2 && directionValid && isLiquidSession;
+            const gradeCApproved = breakoutResult.grade === 'C' && breakoutResult.alignedVotes >= 1 && directionValid && isLiquidSession;
             const gradeOk = gradeAApproved || gradeBApproved || gradeCApproved;
             const alignedOk = gradeOk; // alignedOk is now embedded in tiered check above
     if (!gradeOk || !alignedOk) {
@@ -2334,7 +2336,7 @@ export async function getBreakoutConfirmation(
         confirmed: false,
         aiDirection: 'NEUTRAL',
         aiConfidence: breakoutResult.percentage,
-        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore} fired, ${breakoutResult.percentage}%) — ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%). Grade A/B (≥50%) AND ≥3 aligned strategies required.\n\n${breakoutResult.summary}`,
+        reasoning: `🔴 BREAKOUT MASTER: Grade ${breakoutResult.grade} — ${breakoutResult.alignedVotes} aligned of ${breakoutResult.score} fired (${breakoutResult.percentage}% conviction). Need ≥2 aligned (Grade B) any time, or 1 aligned (Grade C) in a liquid session.\n\n${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,
         breakoutGrade: breakoutResult.grade,
         breakoutStrategies: breakoutResult.strategies,

@@ -7986,24 +7986,17 @@ async function computeBreakoutScore(currentPrice, m1Candles = [], m5Candles = []
   const fired = strategies.filter((s) => s.fired);
   const score = fired.length;
   const maxScore = 7;
-  const percentage = Math.round(score / maxScore * 100);
   const buyVotes = fired.filter((s) => s.direction === "BUY").length;
   const sellVotes = fired.filter((s) => s.direction === "SELL").length;
   const direction = buyVotes > sellVotes ? "BUY" : sellVotes > buyVotes ? "SELL" : "NEUTRAL";
   const alignedVotes = direction === "BUY" ? buyVotes : direction === "SELL" ? sellVotes : 0;
   const alignedPct = Math.round(alignedVotes / maxScore * 100);
+  const percentage = alignedVotes <= 0 ? 0 : Math.min(95, 63 + alignedVotes * 11);
   let grade;
-  if (percentage >= 70) {
-    grade = "A";
-  } else if (percentage >= 50) {
-    grade = "B";
-  } else if (percentage >= 35) {
-    grade = "C";
-  } else if (percentage >= 29) {
-    grade = "C";
-  } else {
-    grade = "PASS";
-  }
+  if (alignedVotes >= 3) grade = "A";
+  else if (alignedVotes === 2) grade = "B";
+  else if (alignedVotes === 1) grade = "C";
+  else grade = "PASS";
   const atrCandles = h1Candles.length >= 14 ? h1Candles : m15Candles.length >= 14 ? m15Candles : m5Candles;
   const atr2 = calcATR(atrCandles, 14);
   const sign3 = direction === "BUY" ? 1 : -1;
@@ -9855,7 +9848,7 @@ async function getBreakoutConfirmation(candleData, indicators, proposedSignal, p
     const gradeBApproved = breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 && directionValid;
     const breakoutHour = (/* @__PURE__ */ new Date()).getUTCHours();
     const isLiquidSession = breakoutHour >= 7 && breakoutHour < 17;
-    const gradeCApproved = breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 2 && directionValid && isLiquidSession;
+    const gradeCApproved = breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && directionValid && isLiquidSession;
     const gradeOk = gradeAApproved || gradeBApproved || gradeCApproved;
     const alignedOk = gradeOk;
     if (!gradeOk || !alignedOk) {
@@ -9863,7 +9856,7 @@ async function getBreakoutConfirmation(candleData, indicators, proposedSignal, p
         confirmed: false,
         aiDirection: "NEUTRAL",
         aiConfidence: breakoutResult.percentage,
-        reasoning: `\u{1F534} BREAKOUT MASTER: Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore} fired, ${breakoutResult.percentage}%) \u2014 ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%). Grade A/B (\u226550%) AND \u22653 aligned strategies required.
+        reasoning: `\u{1F534} BREAKOUT MASTER: Grade ${breakoutResult.grade} \u2014 ${breakoutResult.alignedVotes} aligned of ${breakoutResult.score} fired (${breakoutResult.percentage}% conviction). Need \u22652 aligned (Grade B) any time, or 1 aligned (Grade C) in a liquid session.
 
 ${breakoutResult.summary}`,
         breakoutScore: breakoutResult.score,

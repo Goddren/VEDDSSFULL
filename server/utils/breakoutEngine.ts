@@ -366,10 +366,9 @@ export async function computeBreakoutScore(
   ];
 
   const fired = strategies.filter(s => s.fired);
-  // score = total strategies that fired (regardless of direction) — used for display
+  // score = total strategies that fired (regardless of direction) — kept for display/logging
   const score = fired.length;
   const maxScore = 7;
-  const percentage = Math.round((score / maxScore) * 100);
 
   // Count directional votes among fired strategies
   const buyVotes = fired.filter(s => s.direction === 'BUY').length;
@@ -380,24 +379,23 @@ export async function computeBreakoutScore(
 
   // alignedVotes = strategies that fired in the majority direction
   const alignedVotes = direction === 'BUY' ? buyVotes : direction === 'SELL' ? sellVotes : 0;
-  // alignedPct = percentage of max strategies that aligned in the same direction (used for grading)
-  const alignedPct = Math.round((alignedVotes / maxScore) * 100);
+  const alignedPct = Math.round((alignedVotes / maxScore) * 100); // directional share of 7, for logging
 
-  // Grade by total-fired percentage (score / maxScore * 100) — independent of direction/alignment
-  // A ≥70% | B ≥50% | C ≥35% | C ≥29% | PASS <29% — for display and logging only
-  // CONFIRM is controlled separately by alignedVotes >= 3 (see getBreakoutConfirmation in openai.ts)
+  // Confidence = DIRECTIONAL CONVICTION, not the fraction of all 7 setups. The 7
+  // breakout strategies are mutually-exclusive setups — only 1-2 ever fire at once
+  // — so the old (fired/7)*100 capped confidence at ~14-29% and blocked nearly
+  // every trade. Scale by how many strategies AGREE on direction:
+  //   1 aligned → 74 (clears the exec floor), 2 → 85, 3+ → 95. 0 aligned → 0.
+  const percentage = alignedVotes <= 0 ? 0 : Math.min(95, 63 + alignedVotes * 11);
+
+  // Grade by directional ALIGNMENT (grade the agreement, not the count of all
+  // possible setups): A ≥3 aligned, B = 2, C = 1. Matches the CONFIRM gate in
+  // getBreakoutConfirmation (openai.ts).
   let grade: 'A' | 'B' | 'C' | 'PASS';
-  if (percentage >= 70) {
-    grade = 'A'; // ≥5/7 fired (71%)
-  } else if (percentage >= 50) {
-    grade = 'B'; // ≥4/7 fired (57%)
-  } else if (percentage >= 35) {
-    grade = 'C'; // 3/7 fired (43%)
-  } else if (percentage >= 29) {
-    grade = 'C'; // 2/7 fired (≈29%) — minimum viable breakout signal
-  } else {
-    grade = 'PASS'; // 0-1/7 fired — insufficient evidence
-  }
+  if (alignedVotes >= 3) grade = 'A';
+  else if (alignedVotes === 2) grade = 'B';
+  else if (alignedVotes === 1) grade = 'C';
+  else grade = 'PASS';
 
   // ATR from H1 candles (most stable single-timeframe basis); fallback to m15 or m5 if H1 unavailable
   const atrCandles = h1Candles.length >= 14 ? h1Candles
