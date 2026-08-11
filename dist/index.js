@@ -74472,7 +74472,11 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       try {
         const { generateContentImage: generateContentImage2 } = await Promise.resolve().then(() => (init_image_generation(), image_generation_exports));
         const image = await generateContentImage2(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, "blog-cover");
-        coverImage = image?.url;
+        if (image?.url) {
+          const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
+          const persisted = await persistRemoteAsset2(image.url);
+          coverImage = persisted?.url ?? image.url;
+        }
       } catch (err) {
         console.error("[blog/generate] cover image generation failed (non-fatal):", err.message);
       }

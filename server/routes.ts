@@ -27237,7 +27237,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       try {
         const { generateContentImage } = await import('./services/image-generation');
         const image = await generateContentImage(`Blog cover image for an article titled "${generated.title}": ${generated.excerpt}`, 'blog-cover');
-        coverImage = image?.url;
+        if (image?.url) {
+          // Persist to durable storage — the raw DALL-E URL expires in ~1h, which
+          // left saved posts with a broken cover. Mirror the scheduler's flow.
+          const { persistRemoteAsset } = await import('./services/content-asset-store');
+          const persisted = await persistRemoteAsset(image.url);
+          coverImage = persisted?.url ?? image.url;
+        }
       } catch (err: any) {
         console.error('[blog/generate] cover image generation failed (non-fatal):', err.message);
       }

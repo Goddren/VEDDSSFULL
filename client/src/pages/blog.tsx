@@ -792,9 +792,18 @@ function ArticleReader({ post, isLoggedIn, referralCode, onClose, onShare, allPo
         </div>
 
         <div className="max-w-3xl mx-auto w-full px-4 py-8 flex-1">
-          {/* Hero cover */}
-          <div className={`rounded-2xl h-48 md:h-64 bg-gradient-to-br ${coverGradient(post.id)} mb-6 flex items-center justify-center relative overflow-hidden`}>
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(0,0,0,.3) 0%, transparent 100%)' }} />
+          {/* Hero cover — generated image when present, gradient fallback otherwise */}
+          <div className={`rounded-2xl h-48 md:h-64 mb-6 flex items-center justify-center relative overflow-hidden ${post.coverImage ? 'bg-black/40' : `bg-gradient-to-br ${coverGradient(post.id)}`}`}>
+            {post.coverImage && (
+              <img
+                src={post.coverImage}
+                alt={post.title}
+                loading="lazy"
+                className="absolute inset-0 w-full h-full object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+            )}
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(0,0,0,.35) 0%, rgba(0,0,0,.1) 100%)' }} />
             <span className="relative z-10 text-[10px] font-bold px-3 py-1 rounded-full" style={{ background: cs.bg, color: cs.text, border: `1px solid ${cs.border}` }}>
               {post.category}
             </span>
