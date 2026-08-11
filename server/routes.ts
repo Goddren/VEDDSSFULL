@@ -26705,6 +26705,33 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // GET /api/admin/mt5-diag — recent SS AI signal confirmations + why each was
+  // rejected (reads the write-only mt5_confirm_diag log). Admin only.
+  app.get("/api/admin/mt5-diag", async (req: Request, res: Response) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { pool } = await import('./db');
+      const r = await pool.query(`
+        SELECT id, user_id AS "userId", symbol, timeframe, signal, confidence,
+               gate_passed AS "gatePassed", vision_enabled AS "visionEnabled",
+               stage, decision, model, err,
+               buy_votes AS "buyVotes", sell_votes AS "sellVotes",
+               neutral_reason AS "neutralReason", created_at AS "createdAt"
+        FROM mt5_confirm_diag
+        WHERE created_at >= (now() - interval '24 hours')
+        ORDER BY created_at DESC
+        LIMIT 300
+      `);
+      // Decision tally for the summary strip
+      const tally: Record<string, number> = {};
+      for (const row of r.rows) tally[row.decision ?? 'UNKNOWN'] = (tally[row.decision ?? 'UNKNOWN'] || 0) + 1;
+      res.json({ rows: r.rows, count: r.rowCount, tally });
+    } catch (e: any) {
+      // Table may not exist if the diag probe was never created — degrade gracefully.
+      res.json({ rows: [], count: 0, tally: {}, note: e.message });
+    }
+  });
+
   // GET /api/admin/users — list all users (admin only)
   app.get("/api/admin/users", async (req: Request, res: Response) => {
     if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });

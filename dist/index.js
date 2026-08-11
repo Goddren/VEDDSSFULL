@@ -74033,6 +74033,28 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/admin/mt5-diag", async (req, res) => {
+    if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const r = await pool2.query(`
+        SELECT id, user_id AS "userId", symbol, timeframe, signal, confidence,
+               gate_passed AS "gatePassed", vision_enabled AS "visionEnabled",
+               stage, decision, model, err,
+               buy_votes AS "buyVotes", sell_votes AS "sellVotes",
+               neutral_reason AS "neutralReason", created_at AS "createdAt"
+        FROM mt5_confirm_diag
+        WHERE created_at >= (now() - interval '24 hours')
+        ORDER BY created_at DESC
+        LIMIT 300
+      `);
+      const tally = {};
+      for (const row of r.rows) tally[row.decision ?? "UNKNOWN"] = (tally[row.decision ?? "UNKNOWN"] || 0) + 1;
+      res.json({ rows: r.rows, count: r.rowCount, tally });
+    } catch (e) {
+      res.json({ rows: [], count: 0, tally: {}, note: e.message });
+    }
+  });
   app2.get("/api/admin/users", async (req, res) => {
     if (!req.user?.isAdmin) return res.status(403).json({ message: "Admin only" });
     try {

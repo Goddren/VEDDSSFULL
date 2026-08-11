@@ -9,10 +9,11 @@ import {
   ExternalLink, Activity, Wallet, RefreshCw,
 } from "lucide-react";
 
-type Tab = "overview" | "economy" | "payouts" | "users" | "tools";
+type Tab = "overview" | "economy" | "signals" | "payouts" | "users" | "tools";
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "economy", label: "Economy" },
+  { id: "signals", label: "Signals" },
   { id: "payouts", label: "Payouts" },
   { id: "users", label: "Users" },
   { id: "tools", label: "Tools" },
@@ -30,6 +31,7 @@ export default function AdminCommandCenter() {
   const usersQ = useQuery<any[]>({ queryKey: ["/api/admin/users"], enabled: !!user && tab === "users" });
   const pending = useQuery<any[]>({ queryKey: ["/api/vedd/admin/pending-rewards"], enabled: !!user && tab === "payouts" });
   const transfers = useQuery<any[]>({ queryKey: ["/api/vedd/admin/transfers"], enabled: !!user && tab === "payouts" });
+  const diag = useQuery<any>({ queryKey: ["/api/admin/mt5-diag"], enabled: !!user && tab === "signals", refetchInterval: tab === "signals" ? 30000 : false });
 
   const verify = useMutation({
     mutationFn: async (rewardId: number) => (await apiRequest("POST", `/api/vedd/admin/rewards/${rewardId}/verify`, {})).json(),
@@ -139,6 +141,45 @@ export default function AdminCommandCenter() {
                   <Stat key={status} icon={<Coins className="h-4 w-4" />} label={status} value={fmt(v.count)} sub={`${fmt(v.total)} VEDD`} color={status === "failed" ? "#ef4444" : status === "pending" ? "#f59e0b" : "#10b981"} />
                 ))}
               </div>
+            </Section>
+          </div>
+        )}
+
+        {/* SIGNALS (SS AI confirmations + why rejected, last 24h) */}
+        {tab === "signals" && (
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-2">
+              {Object.entries(diag.data?.tally ?? {}).map(([k, v]: any) => (
+                <span key={k} className="rounded-full px-3 py-1 text-xs font-bold" style={{
+                  background: k === "CONFIRMED" ? "rgba(16,185,129,0.18)" : k === "REJECTED" ? "rgba(239,68,68,0.15)" : "rgba(148,163,184,0.15)",
+                  color: k === "CONFIRMED" ? "#34d399" : k === "REJECTED" ? "#f87171" : "#94a3b8",
+                }}>{k}: {v}</span>
+              ))}
+              <span className="ml-auto text-[11px] text-white/40">{diag.data?.count ?? 0} signals · last 24h</span>
+            </div>
+            <Section title="SS AI signals & rejection reasons">
+              {diag.isLoading ? <Loader2 className="h-4 w-4 animate-spin text-white/40" /> :
+               (diag.data?.rows ?? []).length === 0 ? (
+                <p className="text-sm text-white/40">
+                  No signals logged in the last 24h. {diag.data?.note ? `(${diag.data.note})` : "The SS AI engine may be idle, or Breakout Mode filtered everything."}
+                </p>
+              ) : (
+                <Table head={["Time", "Symbol", "TF", "Signal", "Conf", "Votes", "Stage", "Decision", "Reason"]}>
+                  {(diag.data?.rows ?? []).map((r: any) => (
+                    <tr key={r.id} className="border-t border-white/5">
+                      <td className="py-1.5 pr-3 text-white/50 whitespace-nowrap">{r.createdAt ? new Date(r.createdAt).toLocaleTimeString() : "—"}</td>
+                      <td className="pr-3 text-white/80">{r.symbol}</td>
+                      <td className="pr-3 text-white/50">{r.timeframe}</td>
+                      <td className="pr-3">{r.signal}</td>
+                      <td className="pr-3 font-mono">{r.confidence != null ? `${Math.round(r.confidence)}%` : "—"}</td>
+                      <td className="pr-3 font-mono text-white/50">{r.buyVotes ?? 0}/{r.sellVotes ?? 0}</td>
+                      <td className="pr-3 text-white/50">{r.stage}</td>
+                      <td className="pr-3 font-semibold" style={{ color: r.decision === "CONFIRMED" ? "#34d399" : r.decision === "REJECTED" ? "#f87171" : "#fbbf24" }}>{r.decision}</td>
+                      <td className="pr-3 text-white/50 max-w-[220px] truncate" title={r.neutralReason || r.err || ""}>{r.neutralReason || r.err || "—"}</td>
+                    </tr>
+                  ))}
+                </Table>
+              )}
             </Section>
           </div>
         )}
