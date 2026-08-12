@@ -35466,9 +35466,9 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
-  const LONGSHOT_FLOOR_CENTS = 15;
-  const SPREAD_MAX_CENTS = 6;
-  const EDGE_MIN_CENTS = 4;
+  const LONGSHOT_FLOOR_CENTS = 8;
+  const SPREAD_MAX_CENTS = 12;
+  const EDGE_MIN_CENTS = 3;
   const picks = [];
   for (const b of event.brackets) {
     if (!b.hasLiquidity) continue;
@@ -35693,7 +35693,8 @@ var init_kalshi_engine = __esm({
       requireConfluence: true,
       strategy: "momentum",
       autoTradeValuePicks: false,
-      minValueScore: 8,
+      minValueScore: 5,
+      // was 8 — too strict; combined with the value filters it blocked every pick
       takeProfitCents: 50,
       // +50% of entry price
       stopLossCents: 40,

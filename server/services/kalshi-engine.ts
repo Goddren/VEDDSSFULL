@@ -178,7 +178,7 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   requireConfluence:    true,
   strategy:             'momentum',
   autoTradeValuePicks:  false,
-  minValueScore:        8,
+  minValueScore:        5,     // was 8 — too strict; combined with the value filters it blocked every pick
   takeProfitCents:      50, // +50% of entry price
   stopLossCents:        40, // -40% of entry price
   compounding:          false,
@@ -1215,9 +1215,13 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
   //   2. Exit cost: an open YES is valued at the BID (see _updateOpenTradePrices),
   //      so a wide bid/ask spread — or no bid at all — is a guaranteed loss the
   //      moment we're filled. Theoretical edge a wide book eats on the way out.
-  const LONGSHOT_FLOOR_CENTS = 15; // below this, YES is a structural trap — skip outright
-  const SPREAD_MAX_CENTS     = 6;  // wider book (or no bid) → edge is eaten on exit — skip
-  const EDGE_MIN_CENTS       = 4;  // real edge floor, now applied AFTER the longshot haircut
+  // NOTE: loosened from 15/6/4 — those stacked so tightly they rejected EVERY
+  // bracket on thin BTC 15-min books (the bot stopped trading entirely). These
+  // still filter cheap-longshot traps + un-exitable wide books, just with the
+  // headroom real Kalshi books need. Tune stricter via minValueScore in the hub.
+  const LONGSHOT_FLOOR_CENTS = 8;  // below this, YES is a cheap-longshot trap — skip
+  const SPREAD_MAX_CENTS     = 12; // wider book (or no bid) → edge eaten on exit — skip
+  const EDGE_MIN_CENTS       = 3;  // real edge floor, applied AFTER the longshot haircut
 
   const picks: KalshiValuePick[] = [];
   for (const b of event.brackets) {
