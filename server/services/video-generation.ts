@@ -10,9 +10,12 @@
  * by a background job the way image generation is.
  */
 
+export type VideoQuality = 'fast' | 'high';
+
 export interface GeneratedVideo {
   url: string;
-  provider: 'replicate-wan-2.2-fast';
+  provider: string; // e.g. 'replicate:wan-video/wan-2.2-t2v-fast'
+  quality: VideoQuality;
 }
 
 // VEDD's signature "REBIRTH" cinematic look — the master style lock from the
@@ -35,7 +38,13 @@ const NO_TEXT_SUFFIX = ' No on-screen text, captions, subtitles, signage, logos 
 // block that dominated the model; trimmed to a single clause.)
 const HUMAN_STYLE_SUFFIX = ' If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.';
 
-const MODEL = 'wan-video/wan-2.2-t2v-fast';
+// Fast tier — cheap/quick, the default. High tier — a real quality bump:
+// defaults to the SAME Wan model at 720p (which the model already supports, so
+// it works out of the box with zero risk), but can be pointed at a premium
+// Replicate text-to-video model (e.g. a Kling model) via VIDEO_HIGH_MODEL
+// without a redeploy. Kling-style slugs get a Kling input schema automatically.
+const FAST_MODEL = 'wan-video/wan-2.2-t2v-fast';
+const HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || 'wan-video/wan-2.2-t2v-fast';
 const DEFAULT_FPS = 16;
 const MIN_NUM_FRAMES = 81; // hard floor enforced by the model's own API (~5s at 16fps)
 const MAX_DURATION_SECONDS = 6; // keep clips short — cost and generation time both scale with length
@@ -47,9 +56,40 @@ const MAX_POLLS = 60; // 60 x 5s = 5 minutes max wait
  * throws) if REPLICATE_API_TOKEN is missing, generation fails, or it doesn't
  * complete within the poll budget — callers should treat this as non-fatal.
  */
+// Build the model-specific input body. Wan family and Kling family expect
+// different parameter names; anything else gets a best-effort minimal body.
+function buildModelInput(
+  model: string,
+  quality: VideoQuality,
+  styledPrompt: string,
+  numFrames: number,
+  durationSeconds: number,
+): Record<string, any> {
+  if (model.includes('kling')) {
+    return {
+      prompt: styledPrompt,
+      negative_prompt: 'blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles',
+      aspect_ratio: '9:16',
+      duration: durationSeconds <= 5 ? 5 : 10, // Kling only offers 5s or 10s
+      cfg_scale: 0.5,
+    };
+  }
+  if (model.includes('wan')) {
+    return {
+      prompt: styledPrompt,
+      resolution: quality === 'high' ? '720p' : '480p', // 720p is the real quality bump the model already supports
+      num_frames: numFrames,
+      frames_per_second: DEFAULT_FPS,
+      aspect_ratio: '9:16',
+    };
+  }
+  // Unknown premium model — pass the essentials and let Replicate apply defaults.
+  return { prompt: styledPrompt, aspect_ratio: '9:16' };
+}
+
 export async function generateContentVideo(
   prompt: string,
-  opts?: { duration?: number }
+  opts?: { duration?: number; quality?: VideoQuality }
 ): Promise<GeneratedVideo | null> {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
@@ -57,28 +97,24 @@ export async function generateContentVideo(
     return null;
   }
 
+  const quality: VideoQuality = opts?.quality === 'high' ? 'high' : 'fast';
+  const model = quality === 'high' ? HIGH_MODEL : FAST_MODEL;
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
   // User's scene FIRST (primary), then a compact style/representation tail.
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds);
 
   try {
-    const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
+    console.log(`[video-generation] quality=${quality} model=${model}`);
+    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         Prefer: 'wait',
       },
-      body: JSON.stringify({
-        input: {
-          prompt: styledPrompt,
-          resolution: '480p', // cheaper/faster than 720p — fine for social clips
-          num_frames: numFrames,
-          frames_per_second: DEFAULT_FPS,
-          aspect_ratio: '9:16', // vertical — matches Reels/Stories/TikTok format
-        },
-      }),
+      body: JSON.stringify({ input }),
       // Replicate's own `Prefer: wait` window can run right up to ~60s
       // before it gives up and returns 202 "starting" instead of a
       // finished result — a 60000ms client-side abort loses that race and
@@ -113,7 +149,7 @@ export async function generateContentVideo(
     const output = data?.output;
     const url = Array.isArray(output) ? output[0] : output;
     if (!url) return null;
-    return { url, provider: 'replicate-wan-2.2-fast' };
+    return { url, provider: `replicate:${model}`, quality };
   } catch (e: any) {
     console.error('[video-generation] Replicate error:', e.message);
     return null;

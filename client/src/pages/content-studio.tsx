@@ -982,6 +982,7 @@ export default function ContentStudioPage() {
   }, [search]);
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
+  const [videoQuality, setVideoQuality] = useState<'fast' | 'high'>('fast');
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
@@ -995,6 +996,7 @@ export default function ContentStudioPage() {
       const res = await apiRequest('POST', '/api/content-studio/generate-video', {
         prompt: videoPrompt.trim(),
         duration: videoDuration,
+        quality: videoQuality,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
@@ -1022,6 +1024,7 @@ export default function ContentStudioPage() {
       const res = await apiRequest('POST', '/api/content-studio/generate-reel', {
         topic: reelTopic.trim(),
         duration: reelDuration,
+        quality: videoQuality,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
@@ -1292,6 +1295,25 @@ export default function ContentStudioPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Quality</label>
+                <div className="flex gap-2">
+                  {([['fast', 'Fast', '480p · quicker & cheaper'], ['high', 'High', '720p · sharper, slower']] as const).map(([q, label, hint]) => (
+                    <button key={q} onClick={() => setVideoQuality(q)} disabled={generatingVideo}
+                      title={hint}
+                      className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left"
+                      style={{
+                        background: videoQuality === q ? 'rgba(168,85,247,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${videoQuality === q ? 'rgba(168,85,247,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: videoQuality === q ? '#c084fc' : '#9ca3af',
+                      }}>
+                      {label}
+                      <span className="block text-[9px] font-normal opacity-70">{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
                 {generatingVideo ? 'Generating… this can take a few minutes' : 'Generate Video'}
               </Button>
@@ -1348,6 +1370,25 @@ export default function ContentStudioPage() {
                         color: reelDuration === d ? '#34d399' : '#9ca3af',
                       }}>
                       {d}s
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Clip Quality</label>
+                <div className="flex gap-2">
+                  {([['fast', 'Fast', '480p · quicker & cheaper'], ['high', 'High', '720p · sharper, slower']] as const).map(([q, label, hint]) => (
+                    <button key={q} onClick={() => setVideoQuality(q)} disabled={generatingReel}
+                      title={hint}
+                      className="flex-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-left"
+                      style={{
+                        background: videoQuality === q ? 'rgba(52,211,153,.25)' : 'rgba(255,255,255,.05)',
+                        border: `1px solid ${videoQuality === q ? 'rgba(52,211,153,.5)' : 'rgba(255,255,255,.1)'}`,
+                        color: videoQuality === q ? '#34d399' : '#9ca3af',
+                      }}>
+                      {label}
+                      <span className="block text-[9px] font-normal opacity-70">{hint}</span>
                     </button>
                   ))}
                 </div>

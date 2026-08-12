@@ -41268,34 +41268,51 @@ var video_generation_exports = {};
 __export(video_generation_exports, {
   generateContentVideo: () => generateContentVideo
 });
+function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds) {
+  if (model.includes("kling")) {
+    return {
+      prompt: styledPrompt,
+      negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
+      aspect_ratio: "9:16",
+      duration: durationSeconds <= 5 ? 5 : 10,
+      // Kling only offers 5s or 10s
+      cfg_scale: 0.5
+    };
+  }
+  if (model.includes("wan")) {
+    return {
+      prompt: styledPrompt,
+      resolution: quality === "high" ? "720p" : "480p",
+      // 720p is the real quality bump the model already supports
+      num_frames: numFrames,
+      frames_per_second: DEFAULT_FPS,
+      aspect_ratio: "9:16"
+    };
+  }
+  return { prompt: styledPrompt, aspect_ratio: "9:16" };
+}
 async function generateContentVideo(prompt, opts) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
     console.error("[video-generation] REPLICATE_API_TOKEN not set \u2014 cannot generate video");
     return null;
   }
+  const quality = opts?.quality === "high" ? "high" : "fast";
+  const model = quality === "high" ? HIGH_MODEL : FAST_MODEL;
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds);
   try {
-    const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
+    console.log(`[video-generation] quality=${quality} model=${model}`);
+    const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Prefer: "wait"
       },
-      body: JSON.stringify({
-        input: {
-          prompt: styledPrompt,
-          resolution: "480p",
-          // cheaper/faster than 720p — fine for social clips
-          num_frames: numFrames,
-          frames_per_second: DEFAULT_FPS,
-          aspect_ratio: "9:16"
-          // vertical — matches Reels/Stories/TikTok format
-        }
-      }),
+      body: JSON.stringify({ input }),
       // Replicate's own `Prefer: wait` window can run right up to ~60s
       // before it gives up and returns 202 "starting" instead of a
       // finished result — a 60000ms client-side abort loses that race and
@@ -41326,20 +41343,21 @@ async function generateContentVideo(prompt, opts) {
     const output = data?.output;
     const url = Array.isArray(output) ? output[0] : output;
     if (!url) return null;
-    return { url, provider: "replicate-wan-2.2-fast" };
+    return { url, provider: `replicate:${model}`, quality };
   } catch (e) {
     console.error("[video-generation] Replicate error:", e.message);
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
     VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
     NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
-    MODEL = "wan-video/wan-2.2-t2v-fast";
+    FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
+    HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
@@ -74620,10 +74638,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, duration } = req.body;
+      const { prompt, duration, quality } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(prompt, { duration });
+      const video = await generateContentVideo2(prompt, { duration, quality });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);
@@ -74649,12 +74667,12 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration } = req.body;
+      const { topic, duration, quality } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const script = await generateReelScript2(topic, u?.id);
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(script.videoPrompt, { duration });
+      const video = await generateContentVideo2(script.videoPrompt, { duration, quality });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);

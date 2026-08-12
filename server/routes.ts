@@ -27371,10 +27371,10 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, duration } = req.body as { prompt?: string; duration?: number };
+      const { prompt, duration, quality } = req.body as { prompt?: string; duration?: number; quality?: 'fast' | 'high' };
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
       const { generateContentVideo } = await import('./services/video-generation');
-      const video = await generateContentVideo(prompt, { duration });
+      const video = await generateContentVideo(prompt, { duration, quality });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
@@ -27403,14 +27403,14 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration } = req.body as { topic?: string; duration?: number };
+      const { topic, duration, quality } = req.body as { topic?: string; duration?: number; quality?: 'fast' | 'high' };
       if (!topic) return res.status(400).json({ error: "topic is required" });
 
       const { generateReelScript } = await import('./openai');
       const script = await generateReelScript(topic, u?.id);
 
       const { generateContentVideo } = await import('./services/video-generation');
-      const video = await generateContentVideo(script.videoPrompt, { duration });
+      const video = await generateContentVideo(script.videoPrompt, { duration, quality });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out — check server logs)" });
 
       const { persistRemoteAsset } = await import('./services/content-asset-store');
