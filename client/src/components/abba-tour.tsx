@@ -30,10 +30,12 @@ export default function AbbaTour() {
   const uid = (user as any)?.id;
   const flagKey = uid ? `vedd_tour_done_${uid}` : '';
 
-  const measure = useCallback((idx: number) => {
+  // Read the target's position ONLY — never scroll here (this runs on every
+  // user scroll, and scrolling the page from inside a scroll handler traps the
+  // user, snapping the page back so they can't reach the top nav).
+  const recalc = useCallback((idx: number) => {
     const el = document.getElementById(STEPS[idx].id);
     if (!el) { setRect(null); return; }
-    el.scrollIntoView({ block: 'center', behavior: 'auto' });
     const r = el.getBoundingClientRect();
     setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
   }, []);
@@ -54,14 +56,24 @@ export default function AbbaTour() {
     }
   }, [uid, location, flagKey]);
 
+  // On step change only: scroll the target into view once, then measure.
   useEffect(() => {
     if (!active) return;
-    const t = setTimeout(() => measure(i), 60);
-    const onChange = () => measure(i);
+    const el = document.getElementById(STEPS[i].id);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const t = setTimeout(() => recalc(i), 380);
+    return () => clearTimeout(t);
+  }, [active, i, recalc]);
+
+  // On user scroll / resize: only re-measure so the spotlight follows the
+  // element — never scroll the page, so the user can freely pull up/down.
+  useEffect(() => {
+    if (!active) return;
+    const onChange = () => recalc(i);
     window.addEventListener('resize', onChange);
     window.addEventListener('scroll', onChange, true);
-    return () => { clearTimeout(t); window.removeEventListener('resize', onChange); window.removeEventListener('scroll', onChange, true); };
-  }, [active, i, measure]);
+    return () => { window.removeEventListener('resize', onChange); window.removeEventListener('scroll', onChange, true); };
+  }, [active, i, recalc]);
 
   if (!active) return null;
 
