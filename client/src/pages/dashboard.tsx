@@ -250,6 +250,7 @@ function DailyToDoCard() {
 
 // ── Manual Trade Dialog ──────────────────────────────────────────────────────
 function ManualTradeDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [showMonitorInfo, setShowMonitorInfo] = useState(false);
   const [symbol, setSymbol] = useState('');
   const [direction, setDirection] = useState('BUY');
   const [result, setResult] = useState('WIN');
@@ -1213,6 +1214,58 @@ const Dashboard: React.FC = () => {
           )}
 
           {/* Row 3: Goal rings + P&L meters */}
+          <div className="flex items-center gap-2 px-0.5 pb-0.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Profit Monitors</span>
+            <button
+              type="button"
+              onClick={() => setShowMonitorInfo(true)}
+              aria-label="What do these numbers mean?"
+              className="text-gray-500 hover:text-cyan-400 active:text-cyan-400 transition-colors"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+            <div className="flex-1 h-px bg-gray-800" />
+          </div>
+
+          {/* Monitor explainer — mobile-friendly tap dialog describing exactly
+              what each profit number reads (weekly / daily / per account). */}
+          <Dialog open={showMonitorInfo} onOpenChange={setShowMonitorInfo}>
+            <DialogContent className="bg-gray-900 border-gray-700 text-white max-w-md max-h-[85vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Info className="w-4 h-4 text-cyan-400" /> What these monitors read
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-[13px] leading-relaxed text-gray-300">
+                <div>
+                  <p className="font-bold text-white">Week Goal</p>
+                  <p>Sum of your <span className="text-white">closed</span> (realized) profit for the current trading week (Mon–Fri), across every connected account combined, versus your weekly profit target. Open trades are not counted here.</p>
+                </div>
+                <div>
+                  <p className="font-bold text-white">Daily P&amp;L</p>
+                  <p>Today's <span className="text-white">closed</span> profit or loss across all accounts combined. The smaller "open" figure beside it is your current <span className="text-white">unrealized</span> P&amp;L from trades still running — it moves live and isn't locked in yet.</p>
+                </div>
+                <div>
+                  <p className="font-bold text-white">Trades Today</p>
+                  <p>Number of trades closed today, your win rate on those, and how many positions are still open right now.</p>
+                </div>
+                <div className="pt-1 border-t border-gray-800">
+                  <p className="font-bold text-white">Platform Monitors (per account)</p>
+                  <p>Each card is a <span className="text-white">single connected account</span> (MT5, each TradeLocker account, Solana, Polymarket). For each one:</p>
+                  <ul className="mt-1 space-y-0.5 list-disc list-inside">
+                    <li><span className="text-white">Balance / Equity:</span> account cash balance and live equity (balance ± open trades).</li>
+                    <li><span className="text-white">Today:</span> that one account's closed P&amp;L for today only.</li>
+                    <li><span className="text-white">Week:</span> that one account's closed P&amp;L this trading week.</li>
+                    <li><span className="text-white">Unreal / Open:</span> unrealized P&amp;L from that account's open positions.</li>
+                  </ul>
+                </div>
+                <p className="text-[11px] text-gray-500 pt-1 border-t border-gray-800">
+                  Top rings = <span className="text-gray-400">all accounts combined</span>. Platform Monitor cards = <span className="text-gray-400">one account each</span>. "Closed/realized" = locked-in results; "open/unrealized" = live and still moving. Figures refresh about every 30 seconds. A "⚠ data incomplete" note means one account's last sync call failed, so a total may be temporarily understated.
+                </p>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {/* Weekly Goal Ring */}
             {(() => {
@@ -1702,6 +1755,14 @@ const Dashboard: React.FC = () => {
                 {/* Section label */}
                 <div className="flex items-center gap-2 px-0.5 pt-1">
                   <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Platform Monitors</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowMonitorInfo(true)}
+                    aria-label="What does each account monitor show?"
+                    className="text-gray-500 hover:text-cyan-400 active:text-cyan-400 transition-colors"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
                   <div className="flex-1 h-px bg-gray-800" />
                 </div>
 

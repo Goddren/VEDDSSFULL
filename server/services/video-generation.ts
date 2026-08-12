@@ -15,18 +15,25 @@ export interface GeneratedVideo {
   provider: 'replicate-wan-2.2-fast';
 }
 
-// VEDD's audience and representation direction: this platform speaks to
-// inner-city Black communities building wealth through trading — the people
-// shown should reflect that, not a generic stock-footage cast. Appended to
-// every generated-video prompt, same directive used in image-generation.ts.
-const HUMAN_STYLE_SUFFIX = '. If depicting people: they are Black people with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city/urban settings — no generic stock-footage corporate look, no other ethnicities.';
+// VEDD's signature "REBIRTH" cinematic look — the master style lock from the
+// campaign bible. Kept COMPACT and placed right after the user's scene so the
+// scene the user typed stays primary. The old build appended a ~350-char
+// representation directive LAST; on a small/fast video model the trailing block
+// dominated attention and pulled every clip toward the same generic image
+// regardless of the description. Order + brevity are the fix.
+const VEDD_STYLE_LOCK = '. Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only — no fast or shaky camera movement.';
 
 // AI video models frequently render garbled, nonsensical on-screen text when
 // a prompt implies signage, captions, or UI overlays — since none of that
 // text is ever legible or brand-correct, suppress it outright rather than
 // let the model guess at words. Any captions/hooks are added separately as
 // a real text overlay in post, not baked into the generated clip itself.
-const NO_TEXT_SUFFIX = '. Absolutely no on-screen text, no captions, no subtitles, no words, no writing, no signage, no readable UI text of any kind anywhere in the frame — pure visual scene only.';
+const NO_TEXT_SUFFIX = ' No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame — pure visual scene only.';
+
+// Brand representation note — deliberately short and conditional so it guides
+// casting WITHOUT overriding the user's actual scene. (Was a long imperative
+// block that dominated the model; trimmed to a single clause.)
+const HUMAN_STYLE_SUFFIX = ' If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.';
 
 const MODEL = 'wan-video/wan-2.2-t2v-fast';
 const DEFAULT_FPS = 16;
@@ -52,7 +59,8 @@ export async function generateContentVideo(
 
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
+  // User's scene FIRST (primary), then a compact style/representation tail.
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
 
   try {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {

@@ -4553,7 +4553,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags — those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render — describe setting, subject, mood, camera style. Absolutely no text overlays, no captions, no signage, no readable words of any kind, no logos, just the pure visual scene. If the scene includes people, they should be Black people in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally — this reflects VEDD's inner-city audience, not a generic stock-footage cast, no other ethnicities."
+  "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above — describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
 
   const response = await openai.chat.completions.create({
@@ -4582,7 +4582,7 @@ Return a JSON object with these exact fields:
       `Build your vault before this window closes.`,
     ],
     caption: data.caption || `${topic} — here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
-    videoPrompt: data.videoPrompt || `A trader confidently reviewing live charts on a laptop at a clean desk, warm natural light, cinematic depth of field`,
+    videoPrompt: data.videoPrompt || `Inner-city scene evoking "${topic}": a young person in contemporary streetwear in a moody urban interior, lit by one warm gold light source, holding a phone that glows with a rising green chart, quiet and contemplative`,
   };
 }
 

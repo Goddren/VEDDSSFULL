@@ -11514,7 +11514,7 @@ Return a JSON object with these exact fields:
   "hook": "one punchy opening line (max 100 chars) that stops the scroll",
   "script": ["3-5 short lines/beats after the hook, building to a CTA to join VEDD"],
   "caption": "a social caption for the post (2-4 sentences, includes a CTA to veddbuild.com, no hashtags \u2014 those get added separately)",
-  "videoPrompt": "a vivid, concrete visual scene description (1-2 sentences) for an AI video generator to render \u2014 describe setting, subject, mood, camera style. Absolutely no text overlays, no captions, no signage, no readable words of any kind, no logos, just the pure visual scene. If the scene includes people, they should be Black people in contemporary urban/hip-hop-inspired style (streetwear, sneakers, fitted caps), with smartphones and modern tech woven in naturally \u2014 this reflects VEDD's inner-city audience, not a generic stock-footage cast, no other ethnicities."
+  "videoPrompt": "a vivid, concrete visual SCENE (1-2 sentences) for an AI video generator, staying FAITHFUL to the topic above \u2014 describe the setting, subject and mood only. Do NOT describe film style, grain, color grade or camera settings (those are applied automatically). No text overlays, captions, signage, logos or readable words. If the scene includes people, they are young Black people in contemporary streetwear in an authentic inner-city/urban setting."
 }`;
   const response = await openai2.chat.completions.create({
     model,
@@ -11540,7 +11540,7 @@ Return a JSON object with these exact fields:
       `Build your vault before this window closes.`
     ],
     caption: data.caption || `${topic} \u2014 here's how VEDD's AI keeps traders disciplined through it. Start free at veddbuild.com.`,
-    videoPrompt: data.videoPrompt || `A trader confidently reviewing live charts on a laptop at a clean desk, warm natural light, cinematic depth of field`
+    videoPrompt: data.videoPrompt || `Inner-city scene evoking "${topic}": a young person in contemporary streetwear in a moody urban interior, lit by one warm gold light source, holding a phone that glows with a rising green chart, quiet and contemplative`
   };
 }
 async function generateSlideCarouselScript(topic, slideCount, userId) {
@@ -41276,7 +41276,7 @@ async function generateContentVideo(prompt, opts) {
   }
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
-  const styledPrompt = `${prompt}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
+  const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
   try {
     const res = await fetch(`https://api.replicate.com/v1/models/${MODEL}/predictions`, {
       method: "POST",
@@ -41332,12 +41332,13 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var HUMAN_STYLE_SUFFIX2, NO_TEXT_SUFFIX, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
-    HUMAN_STYLE_SUFFIX2 = ". If depicting people: they are Black people with natural skin tones, styled in contemporary urban/hip-hop-inspired fashion (streetwear, fresh sneakers, gold chains, fitted caps), shown with smartphones and modern tech, in authentic inner-city/urban settings \u2014 no generic stock-footage corporate look, no other ethnicities.";
-    NO_TEXT_SUFFIX = ". Absolutely no on-screen text, no captions, no subtitles, no words, no writing, no signage, no readable UI text of any kind anywhere in the frame \u2014 pure visual scene only.";
+    VEDD_STYLE_LOCK = ". Shot as a grainy 35mm cinematic film still: heavy analog film grain, desaturated moody color grade with one warm gold light source, shallow depth of field, photorealistic. Slow, subtle ambient motion only \u2014 no fast or shaky camera movement.";
+    NO_TEXT_SUFFIX = " No on-screen text, captions, subtitles, signage, logos or readable words anywhere in the frame \u2014 pure visual scene only.";
+    HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
     MODEL = "wan-video/wan-2.2-t2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
