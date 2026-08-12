@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
 import { TIER_CONFIG, type UserStreak } from '@shared/schema';
 import { DailyMissions } from '@/components/vedd-rewards/daily-missions';
+import AbbaTour from '@/components/abba-tour';
 import {
   Flame, Coins, Target, TrendingUp, TrendingDown, Trophy, ChevronRight,
   Zap, BarChart3, Map as MapIcon, Wallet, GraduationCap, Radio, Swords,
@@ -69,7 +70,7 @@ export default function PlayerDashboard() {
       <div className="max-w-md mx-auto px-3 pt-4 space-y-3">
 
         {/* ── Player header ── */}
-        <div style={{ ...card, background: '#0a0d13' }} className="p-4">
+        <div id="hud-header" style={{ ...card, background: '#0a0d13' }} className="p-4">
           <div className="flex items-center gap-3">
             <div style={{ background: GOLD, color: '#3a2c05', border: '2px solid #ffe9a8' }}
               className="w-14 h-14 rounded-full flex items-center justify-center text-2xl font-black flex-shrink-0">
@@ -132,14 +133,21 @@ export default function PlayerDashboard() {
         {/* ── Abba mentor line ── */}
         <div style={{ ...card, background: '#0f141c' }} className="p-3 flex items-start gap-2.5">
           <div style={{ background: GOLD, color: '#3a2c05' }} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-black text-sm">A</div>
-          <div>
+          <div className="flex-1">
             <p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: GOLD }}>Abba</p>
             <p className="text-gray-300 text-xs leading-relaxed mt-0.5">{coach}</p>
+            <button
+              onClick={() => window.dispatchEvent(new Event('vedd:start-abba-tour'))}
+              className="mt-2 text-[10px] font-bold uppercase tracking-wide"
+              style={{ color: GOLD, background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            >
+              Show me around →
+            </button>
           </div>
         </div>
 
         {/* ── Score row: today / week P&L ── */}
-        <div className="grid grid-cols-2 gap-2">
+        <div id="hud-score" className="grid grid-cols-2 gap-2">
           <div style={card} className="p-3">
             <div className="flex items-center gap-1.5 mb-1">
               {dailyPnl >= 0 ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400" /> : <TrendingDown className="w-3.5 h-3.5 text-red-400" />}
@@ -162,7 +170,7 @@ export default function PlayerDashboard() {
         </div>
 
         {/* ── Weekly map (the "Abba's pointer during the week") ── */}
-        <div style={card} className="p-3">
+        <div id="hud-week" style={card} className="p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Week map</span>
             <Link href="/weekly-strategy"><span className="text-[10px] font-semibold flex items-center" style={{ color: GOLD }}>Plan <ChevronRight className="w-3 h-3" /></span></Link>
@@ -189,7 +197,7 @@ export default function PlayerDashboard() {
         </div>
 
         {/* ── Missions + Side Quests (real /api/vedd/daily-missions) ── */}
-        <div style={card} className="p-3">
+        <div id="hud-missions" style={card} className="p-3">
           <div className="flex items-center gap-2 mb-3">
             <Swords className="w-4 h-4" style={{ color: GOLD }} />
             <span className="text-sm font-black text-white uppercase tracking-wide">Missions &amp; side quests</span>
@@ -198,7 +206,7 @@ export default function PlayerDashboard() {
         </div>
 
         {/* ── Quick access dock ── */}
-        <div style={card} className="p-3">
+        <div id="hud-quick" style={card} className="p-3">
           <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500 block mb-2">Quick access</span>
           <div className="grid grid-cols-3 gap-2">
             {[
@@ -227,6 +235,8 @@ export default function PlayerDashboard() {
           </div>
         </Link>
       </div>
+
+      <AbbaTour />
     </div>
   );
 }
