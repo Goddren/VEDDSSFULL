@@ -44754,6 +44754,19 @@ async function ensureKalshiEngineConfigTable() {
   try {
     await pool.query(DDL);
     console.log("[startup] Kalshi engine config table ensured (kalshi_engine_configs) \u2014 coin selection/strategy/risk settings now survive restarts.");
+    try {
+      const res = await pool.query(
+        `UPDATE "kalshi_engine_configs"
+            SET "config" = jsonb_set("config", '{minValueScore}', '5'::jsonb),
+                "updated_at" = now()
+          WHERE ("config"->>'minValueScore') = '8'`
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        console.log(`[startup] Kalshi minValueScore migration: lowered ${res.rowCount} persisted config(s) from 8 \u2192 5 (old over-strict default).`);
+      }
+    } catch (mErr) {
+      console.error("[startup] Kalshi minValueScore migration failed (non-fatal):", mErr?.message ?? mErr);
+    }
   } catch (err) {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
@@ -59706,12 +59719,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       let tradelockerResult = null;
       let aiConfirmation = null;
       const mt5MinConfidence = eaSettings?.minConfidence;
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
-        mt5MinConfidence ?? matchingEA?.minConfidence ?? 74,
-        74
-        // MT5 EA basic floor — raised 70→74 to match the live engine HARD_CONFIDENCE_FLOOR
-      );
-      const FULL_MODE_CONF_FLOOR = 74;
+      const ABS_CONF_FLOOR = 55;
+      const _perAccountMin = mt5MinConfidence ?? matchingEA?.minConfidence ?? 74;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(_perAccountMin, ABS_CONF_FLOOR);
+      const FULL_MODE_CONF_FLOOR = Math.max(_perAccountMin, ABS_CONF_FLOOR);
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? "MT5 EA" : matchingEA?.name || "default"} | Session=${eaSettings?.sessionName || "N/A"}`);
       let newsContextForAI;
       let newsAlerts = null;
@@ -60411,7 +60422,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const quantResult = runForexQuantAgent(preConfirmSignal, analysis.indicators, smcContext);
             const aiVerdict = (() => {
               if (useBreakoutMode) return aiConfirmation.confirmed ? "CONFIRM" : "SKIP";
-              const _aiBar = Math.max(72, _getAiMinConf(token.userId) ?? 72);
+              const _aiBar = Math.max(55, _getAiMinConf(token.userId) ?? 72);
               return aiConfirmation.aiConfidence >= _aiBar ? "CONFIRM" : "SKIP";
             })();
             const consensusLabel = quantResult.verdict === "CONFIRM" && aiVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantResult.verdict === "SKIP" && aiVerdict === "SKIP" ? "STRONG_SKIP" : quantResult.verdict === "CONFIRM" && aiVerdict === "SKIP" || quantResult.verdict === "SKIP" && aiVerdict === "CONFIRM" ? "CAUTION" : "WATCH";

@@ -9718,11 +9718,13 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
       const mt5MinConfidence = eaSettings?.minConfidence;
       // Basic floor — what MT5 EA uses to decide whether to trade on its own account
       // Full-mode TL accounts apply a stricter 74% floor separately (per-connection gate check below)
-      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(
-        mt5MinConfidence ?? matchingEA?.minConfidence ?? 74,
-        74   // MT5 EA basic floor — raised 70→74 to match the live engine HARD_CONFIDENCE_FLOOR
-      );
-      const FULL_MODE_CONF_FLOOR = 74; // TL 'full' gate mode floor — matches live engine HARD_CONFIDENCE_FLOOR
+      // Per-account confidence is configurable: the EA's / saved EA's minConfidence
+      // now applies down to an anti-coin-flip absolute floor (ABS_CONF_FLOOR),
+      // instead of being hard-clamped up to 74. Default stays 74 when unset.
+      const ABS_CONF_FLOOR = 55; // absolute minimum — prevents near-coin-flip trades
+      const _perAccountMin = mt5MinConfidence ?? matchingEA?.minConfidence ?? 74;
+      const MIN_CONFIDENCE_FOR_AUTO_TRADE = Math.max(_perAccountMin, ABS_CONF_FLOOR);
+      const FULL_MODE_CONF_FLOOR = Math.max(_perAccountMin, ABS_CONF_FLOOR); // TL full-mode floor now respects the per-account setting too
       
       console.log(`[KNOWLEDGE] ${sanitizedSymbol} Analysis: Confidence=${analysis.confidence}% | Required=${MIN_CONFIDENCE_FOR_AUTO_TRADE}% | Source=${mt5MinConfidence ? 'MT5 EA' : (matchingEA?.name || 'default')} | Session=${eaSettings?.sessionName || 'N/A'}`);
       
@@ -10492,7 +10494,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (useBreakoutMode) return aiConfirmation.confirmed ? 'CONFIRM' : 'SKIP';
               // Use the user's real AI-confidence setting with a 72% floor (was a
               // hard-coded 65% stub that ignored the setting — too close to coin-flip).
-              const _aiBar = Math.max(72, _getAiMinConf(token.userId) ?? 72);
+              const _aiBar = Math.max(55, _getAiMinConf(token.userId) ?? 72);
               return aiConfirmation.aiConfidence >= _aiBar ? 'CONFIRM' : 'SKIP';
             })();
             type SSConsensusLabel = 'STRONG_CONFIRM' | 'STRONG_SKIP' | 'CAUTION' | 'WATCH';
