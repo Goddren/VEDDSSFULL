@@ -8398,14 +8398,11 @@ function inferModelProvider(modelId) {
   return getModelProvider(modelId);
 }
 function resolveVisionModel(modelId) {
-  const model = AVAILABLE_VISION_MODELS.find((m) => m.id === modelId);
-  if (model && model.textOnly) {
-    const provider = model.provider;
-    const fallback = VISION_FALLBACK[provider] || "gpt-4o-mini";
-    console.log(`[AI Model] ${modelId} is text-only \u2014 switching to vision model ${fallback} for chart analysis`);
-    return fallback;
-  }
-  return modelId;
+  if (KNOWN_VISION_MODEL_IDS.has(modelId)) return modelId;
+  const provider = inferModelProvider(modelId);
+  const fallback = VISION_FALLBACK[provider] || "gpt-4o-mini";
+  console.log(`[AI Model] ${modelId} is not vision-capable (${provider}) \u2014 switching to ${fallback} for chart confirmation`);
+  return fallback;
 }
 function setAiVisionConfirmation(userId, enabled) {
   aiVisionConfirmationEnabled.set(userId, enabled);
@@ -9671,6 +9668,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
   try {
     const rawModel = userId ? getUserModelPreference(userId) : "gpt-4o";
     const selectedModel = resolveVisionModel(rawModel);
+    const wasPromoted = selectedModel !== rawModel;
     const provider = inferModelProvider(selectedModel);
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} \u2192 ${selectedModel} (${provider}) for userId=${userId}`);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
@@ -9722,7 +9720,31 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     let content = "";
     let thinkingTrace = null;
     if (provider === "openai") {
-      content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+      if (wasPromoted) {
+        const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, "openai") : null;
+        const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
+        if (!openaiKey) {
+          return {
+            confirmed: false,
+            aiDirection: "NEUTRAL",
+            aiConfidence: 0,
+            reasoning: `\u26A0\uFE0F Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) \u2014 otherwise the AI confirmation can't score this trade.`,
+            confluenceScore: confluenceResult.score,
+            confluenceGrade: confluenceResult.grade
+          };
+        }
+        const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
+        const resp = await visionClient.chat.completions.create({
+          model: selectedModel,
+          messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
+          response_format: { type: "json_object" },
+          max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2e3 : 1e3,
+          temperature: 0.3
+        });
+        content = resp.choices[0]?.message?.content || "";
+      } else {
+        content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+      }
     } else if (provider === "openrouter") {
       const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
       const platformKey = process.env.OPENROUTER_API_KEY;
@@ -11851,7 +11873,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -11923,6 +11945,10 @@ var init_openai = __esm({
       // was rate-limited 429 → cascaded to direct OpenAI, which is what we're avoiding.)
       "openrouter": "google/gemma-3-4b-it"
     };
+    KNOWN_VISION_MODEL_IDS = /* @__PURE__ */ new Set([
+      ...AVAILABLE_VISION_MODELS.filter((m) => !m.textOnly).map((m) => m.id),
+      ...Object.values(VISION_FALLBACK)
+    ]);
     aiVisionConfirmationEnabled = /* @__PURE__ */ new Map();
     aiMinConfidenceThreshold = /* @__PURE__ */ new Map();
     ictStrategyEnabledMap = /* @__PURE__ */ new Map();

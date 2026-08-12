@@ -476,15 +476,24 @@ const VISION_FALLBACK: Record<string, string> = {
   'openrouter': 'google/gemma-3-4b-it',
 };
 
+// Model ids we KNOW can read charts (vision-capable): the non-textOnly registry
+// entries plus the fallback targets themselves. Anything NOT in this set — a
+// text-only registry model OR an unlisted/custom model id — must be promoted.
+const KNOWN_VISION_MODEL_IDS = new Set<string>([
+  ...AVAILABLE_VISION_MODELS.filter(m => !(m as any).textOnly).map(m => m.id),
+  ...Object.values(VISION_FALLBACK),
+]);
+
 function resolveVisionModel(modelId: string): string {
-  const model = AVAILABLE_VISION_MODELS.find(m => m.id === modelId);
-  if (model && (model as any).textOnly) {
-    const provider = model.provider;
-    const fallback = VISION_FALLBACK[provider] || 'gpt-4o-mini';
-    console.log(`[AI Model] ${modelId} is text-only — switching to vision model ${fallback} for chart analysis`);
-    return fallback;
-  }
-  return modelId;
+  // Default-DENY: only pass through models we know are vision-capable. Previously
+  // this only promoted text-only models that were IN the registry, so an unlisted
+  // or unflagged text-only model slipped through and ran a chart confirmation on a
+  // model that can't read charts → junk ~12% confidence that blocked every trade.
+  if (KNOWN_VISION_MODEL_IDS.has(modelId)) return modelId;
+  const provider = inferModelProvider(modelId);
+  const fallback = VISION_FALLBACK[provider] || 'gpt-4o-mini';
+  console.log(`[AI Model] ${modelId} is not vision-capable (${provider}) — switching to ${fallback} for chart confirmation`);
+  return fallback;
 }
 
 const aiVisionConfirmationEnabled: Map<number, boolean> = new Map();
@@ -2111,6 +2120,7 @@ export async function getAiVisionConfirmation(
     // cannot process chart images and return unreliable low-confidence scores that block trades
     const rawModel = userId ? getUserModelPreference(userId) : 'gpt-4o';
     const selectedModel = resolveVisionModel(rawModel);
+    const wasPromoted = selectedModel !== rawModel; // user's model was text-only/unlisted → promoted to a vision model
     const provider = inferModelProvider(selectedModel); // was getModelProvider — that defaulted unknown vendor/model slugs (e.g. google/gemma-3-4b-it, openai/gpt-oss-20b) to 'openai', misrouting AI confirmation to paid OpenAI instead of OpenRouter
     console.log(`[AI Confirmation] Vision model resolved: ${rawModel} → ${selectedModel} (${provider}) for userId=${userId}`);
     const confluenceResult = computeConfluenceScore(proposedSignal, ictContext, smcContext);
@@ -2170,7 +2180,37 @@ export async function getAiVisionConfirmation(
     let thinkingTrace: string | null = null;
 
     if (provider === 'openai') {
-      content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+      if (wasPromoted) {
+        // The model was PROMOTED from a text-only/unlisted pick to a vision model.
+        // Pin it via a direct OpenAI client so the universal failover client's
+        // defaultModel can't override it back to the user's text-only model (which
+        // returns junk ~12% confidence). Use the user's OpenAI key, else the
+        // platform key; block clearly if neither exists (chosen behavior: no
+        // fabricated confidence, no unverified trade).
+        const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, 'openai') : null;
+        const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
+        if (!openaiKey) {
+          return {
+            confirmed: false,
+            aiDirection: 'NEUTRAL',
+            aiConfidence: 0,
+            reasoning: `⚠️ Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) — otherwise the AI confirmation can't score this trade.`,
+            confluenceScore: confluenceResult.score,
+            confluenceGrade: confluenceResult.grade,
+          };
+        }
+        const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 90000 });
+        const resp = await visionClient.chat.completions.create({
+          model: selectedModel,
+          messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
+          response_format: { type: 'json_object' },
+          max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2000 : 1000,
+          temperature: 0.3,
+        });
+        content = resp.choices[0]?.message?.content || '';
+      } else {
+        content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+      }
     } else if (provider === 'openrouter') {
       // Free-tier models (DeepSeek R1/V3 etc.) shouldn't require every user
       // to bring their own OpenRouter key — fall back to the platform key.
