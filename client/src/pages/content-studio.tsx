@@ -983,6 +983,19 @@ export default function ContentStudioPage() {
   const [videoPrompt, setVideoPrompt] = useState('');
   const [videoDuration, setVideoDuration] = useState(5);
   const [videoQuality, setVideoQuality] = useState<'fast' | 'high'>('fast');
+  // Optional start image (data URI) for image-to-video — e.g. a character
+  // reference still, so the clip animates FROM that image for consistency.
+  const [videoImage, setVideoImage] = useState<string | null>(null);
+  const [videoImageName, setVideoImageName] = useState<string | null>(null);
+  const onPickVideoImage = (file: File | null) => {
+    if (!file) { setVideoImage(null); setVideoImageName(null); return; }
+    if (!file.type.startsWith('image/')) { setVideoError('Please choose an image file.'); return; }
+    if (file.size > 12 * 1024 * 1024) { setVideoError('Image is too large (max 12MB).'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setVideoImage(reader.result as string); setVideoImageName(file.name); setVideoError(null); };
+    reader.onerror = () => setVideoError('Could not read that image.');
+    reader.readAsDataURL(file);
+  };
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [generatedVideoUrl, setGeneratedVideoUrl] = useState<string | null>(null);
@@ -997,6 +1010,7 @@ export default function ContentStudioPage() {
         prompt: videoPrompt.trim(),
         duration: videoDuration,
         quality: videoQuality,
+        image: videoImage || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Video generation failed');
@@ -1025,6 +1039,7 @@ export default function ContentStudioPage() {
         topic: reelTopic.trim(),
         duration: reelDuration,
         quality: videoQuality,
+        image: videoImage || undefined,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Reel generation failed');
@@ -1314,6 +1329,27 @@ export default function ContentStudioPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Start image <span className="opacity-60">(optional — animates from this image for character/scene consistency)</span></label>
+                {videoImage ? (
+                  <div className="flex items-center gap-2">
+                    <img src={videoImage} alt="start" className="w-12 h-12 rounded-lg object-cover border border-white/10" />
+                    <span className="text-[11px] text-gray-400 truncate flex-1">{videoImageName}</span>
+                    <button type="button" onClick={() => onPickVideoImage(null)} disabled={generatingVideo}
+                      className="text-[11px] font-bold px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,.06)', color: '#f87171', border: '1px solid rgba(255,255,255,.1)' }}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <label className="block text-center text-xs font-bold px-3 py-2 rounded-lg cursor-pointer"
+                    style={{ background: 'rgba(168,85,247,.12)', color: '#c084fc', border: '1px dashed rgba(168,85,247,.4)' }}>
+                    ⬆ Upload reference image
+                    <input type="file" accept="image/*" className="hidden" disabled={generatingVideo}
+                      onChange={e => onPickVideoImage(e.target.files?.[0] ?? null)} />
+                  </label>
+                )}
+              </div>
+
               <Button onClick={generateVideo} disabled={!videoPrompt.trim() || generatingVideo} className="w-full bg-purple-600 hover:bg-purple-500">
                 {generatingVideo ? 'Generating… this can take a few minutes' : 'Generate Video'}
               </Button>
@@ -1392,6 +1428,27 @@ export default function ContentStudioPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-gray-500 mb-1 block">Start image <span className="opacity-60">(optional — animates the clip from this image)</span></label>
+                {videoImage ? (
+                  <div className="flex items-center gap-2">
+                    <img src={videoImage} alt="start" className="w-12 h-12 rounded-lg object-cover border border-white/10" />
+                    <span className="text-[11px] text-gray-400 truncate flex-1">{videoImageName}</span>
+                    <button type="button" onClick={() => onPickVideoImage(null)} disabled={generatingReel}
+                      className="text-[11px] font-bold px-2 py-1 rounded-lg" style={{ background: 'rgba(255,255,255,.06)', color: '#f87171', border: '1px solid rgba(255,255,255,.1)' }}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <label className="block text-center text-xs font-bold px-3 py-2 rounded-lg cursor-pointer"
+                    style={{ background: 'rgba(52,211,153,.12)', color: '#34d399', border: '1px dashed rgba(52,211,153,.4)' }}>
+                    ⬆ Upload reference image
+                    <input type="file" accept="image/*" className="hidden" disabled={generatingReel}
+                      onChange={e => onPickVideoImage(e.target.files?.[0] ?? null)} />
+                  </label>
+                )}
               </div>
 
               <Button onClick={generateReel} disabled={!reelTopic.trim() || generatingReel} className="w-full bg-emerald-600 hover:bg-emerald-500">

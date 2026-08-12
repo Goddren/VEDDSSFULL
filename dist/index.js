@@ -41268,12 +41268,12 @@ var video_generation_exports = {};
 __export(video_generation_exports, {
   generateContentVideo: () => generateContentVideo
 });
-function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds) {
+function buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image) {
   if (model.includes("kling")) {
     return {
       prompt: styledPrompt,
       negative_prompt: "blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles",
-      aspect_ratio: "9:16",
+      ...image ? { start_image: image } : { aspect_ratio: "9:16" },
       duration: durationSeconds <= 5 ? 5 : 10,
       // Kling only offers 5s or 10s
       cfg_scale: 0.5
@@ -41286,10 +41286,11 @@ function buildModelInput(model, quality, styledPrompt, numFrames, durationSecond
       // 720p is the real quality bump the model already supports
       num_frames: numFrames,
       frames_per_second: DEFAULT_FPS,
-      aspect_ratio: "9:16"
+      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
+      ...image ? { image } : { aspect_ratio: "9:16" }
     };
   }
-  return { prompt: styledPrompt, aspect_ratio: "9:16" };
+  return { prompt: styledPrompt, ...image ? { image } : { aspect_ratio: "9:16" } };
 }
 async function generateContentVideo(prompt, opts) {
   const apiKey = process.env.REPLICATE_API_TOKEN;
@@ -41298,13 +41299,14 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
   const quality = opts?.quality === "high" ? "high" : "fast";
-  const model = quality === "high" ? HIGH_MODEL : FAST_MODEL;
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : void 0;
+  const model = image ? quality === "high" ? HIGH_I2V_MODEL : FAST_I2V_MODEL : quality === "high" ? HIGH_MODEL : FAST_MODEL;
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX2}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds);
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image);
   try {
-    console.log(`[video-generation] quality=${quality} model=${model}`);
+    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? "image-to-video" : "text-to-video"}`);
     const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: "POST",
       headers: {
@@ -41349,7 +41351,7 @@ async function generateContentVideo(prompt, opts) {
     return null;
   }
 }
-var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
+var VEDD_STYLE_LOCK, NO_TEXT_SUFFIX, HUMAN_STYLE_SUFFIX2, FAST_MODEL, HIGH_MODEL, FAST_I2V_MODEL, HIGH_I2V_MODEL, DEFAULT_FPS, MIN_NUM_FRAMES, MAX_DURATION_SECONDS, POLL_INTERVAL_MS, MAX_POLLS;
 var init_video_generation = __esm({
   "server/services/video-generation.ts"() {
     "use strict";
@@ -41358,6 +41360,8 @@ var init_video_generation = __esm({
     HUMAN_STYLE_SUFFIX2 = " If people appear: young Black people, natural skin tones, contemporary streetwear, authentic inner-city/urban setting.";
     FAST_MODEL = "wan-video/wan-2.2-t2v-fast";
     HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || "wan-video/wan-2.2-t2v-fast";
+    FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
+    HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || "wan-video/wan-2.2-i2v-fast";
     DEFAULT_FPS = 16;
     MIN_NUM_FRAMES = 81;
     MAX_DURATION_SECONDS = 6;
@@ -74638,10 +74642,10 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { prompt, duration, quality } = req.body;
+      const { prompt, duration, quality, image } = req.body;
       if (!prompt) return res.status(400).json({ error: "prompt is required" });
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(prompt, { duration, quality });
+      const video = await generateContentVideo2(prompt, { duration, quality, image });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);
@@ -74667,12 +74671,12 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       return res.status(403).json({ error: "Ambassador or admin only" });
     }
     try {
-      const { topic, duration, quality } = req.body;
+      const { topic, duration, quality, image } = req.body;
       if (!topic) return res.status(400).json({ error: "topic is required" });
       const { generateReelScript: generateReelScript2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
       const script = await generateReelScript2(topic, u?.id);
       const { generateContentVideo: generateContentVideo2 } = await Promise.resolve().then(() => (init_video_generation(), video_generation_exports));
-      const video = await generateContentVideo2(script.videoPrompt, { duration, quality });
+      const video = await generateContentVideo2(script.videoPrompt, { duration, quality, image });
       if (!video) return res.status(502).json({ error: "Video generation failed (Replicate unavailable or timed out \u2014 check server logs)" });
       const { persistRemoteAsset: persistRemoteAsset2 } = await Promise.resolve().then(() => (init_content_asset_store(), content_asset_store_exports));
       const persisted = await persistRemoteAsset2(video.url);

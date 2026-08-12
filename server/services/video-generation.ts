@@ -45,6 +45,11 @@ const HUMAN_STYLE_SUFFIX = ' If people appear: young Black people, natural skin 
 // without a redeploy. Kling-style slugs get a Kling input schema automatically.
 const FAST_MODEL = 'wan-video/wan-2.2-t2v-fast';
 const HIGH_MODEL = process.env.VIDEO_HIGH_MODEL || 'wan-video/wan-2.2-t2v-fast';
+// Image-to-video variants — used when the caller supplies a start image (e.g.
+// the VEDD character reference still) so the clip animates FROM that image,
+// keeping the character/scene consistent. Same env-swap upgrade path.
+const FAST_I2V_MODEL = process.env.VIDEO_FAST_I2V_MODEL || 'wan-video/wan-2.2-i2v-fast';
+const HIGH_I2V_MODEL = process.env.VIDEO_HIGH_I2V_MODEL || 'wan-video/wan-2.2-i2v-fast';
 const DEFAULT_FPS = 16;
 const MIN_NUM_FRAMES = 81; // hard floor enforced by the model's own API (~5s at 16fps)
 const MAX_DURATION_SECONDS = 6; // keep clips short — cost and generation time both scale with length
@@ -64,12 +69,13 @@ function buildModelInput(
   styledPrompt: string,
   numFrames: number,
   durationSeconds: number,
+  image?: string, // optional start image (data URI or public URL) for image-to-video
 ): Record<string, any> {
   if (model.includes('kling')) {
     return {
       prompt: styledPrompt,
       negative_prompt: 'blurry, low quality, distorted, deformed, extra limbs, watermark, text, on-screen text, subtitles',
-      aspect_ratio: '9:16',
+      ...(image ? { start_image: image } : { aspect_ratio: '9:16' }),
       duration: durationSeconds <= 5 ? 5 : 10, // Kling only offers 5s or 10s
       cfg_scale: 0.5,
     };
@@ -80,16 +86,17 @@ function buildModelInput(
       resolution: quality === 'high' ? '720p' : '480p', // 720p is the real quality bump the model already supports
       num_frames: numFrames,
       frames_per_second: DEFAULT_FPS,
-      aspect_ratio: '9:16',
+      // Wan i2v derives aspect ratio from the start image; only set it for t2v.
+      ...(image ? { image } : { aspect_ratio: '9:16' }),
     };
   }
   // Unknown premium model — pass the essentials and let Replicate apply defaults.
-  return { prompt: styledPrompt, aspect_ratio: '9:16' };
+  return { prompt: styledPrompt, ...(image ? { image } : { aspect_ratio: '9:16' }) };
 }
 
 export async function generateContentVideo(
   prompt: string,
-  opts?: { duration?: number; quality?: VideoQuality }
+  opts?: { duration?: number; quality?: VideoQuality; image?: string }
 ): Promise<GeneratedVideo | null> {
   const apiKey = process.env.REPLICATE_API_TOKEN;
   if (!apiKey) {
@@ -98,15 +105,19 @@ export async function generateContentVideo(
   }
 
   const quality: VideoQuality = opts?.quality === 'high' ? 'high' : 'fast';
-  const model = quality === 'high' ? HIGH_MODEL : FAST_MODEL;
+  const image = opts?.image && opts.image.trim() ? opts.image.trim() : undefined;
+  // Image-to-video when a start image is supplied, otherwise text-to-video.
+  const model = image
+    ? (quality === 'high' ? HIGH_I2V_MODEL : FAST_I2V_MODEL)
+    : (quality === 'high' ? HIGH_MODEL : FAST_MODEL);
   const durationSeconds = Math.min(Math.max(opts?.duration ?? 5, 1), MAX_DURATION_SECONDS);
   const numFrames = Math.max(MIN_NUM_FRAMES, Math.round(durationSeconds * DEFAULT_FPS));
   // User's scene FIRST (primary), then a compact style/representation tail.
   const styledPrompt = `${prompt.trim()}${VEDD_STYLE_LOCK}${NO_TEXT_SUFFIX}${HUMAN_STYLE_SUFFIX}`;
-  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds);
+  const input = buildModelInput(model, quality, styledPrompt, numFrames, durationSeconds, image);
 
   try {
-    console.log(`[video-generation] quality=${quality} model=${model}`);
+    console.log(`[video-generation] quality=${quality} model=${model} mode=${image ? 'image-to-video' : 'text-to-video'}`);
     const res = await fetch(`https://api.replicate.com/v1/models/${model}/predictions`, {
       method: 'POST',
       headers: {
