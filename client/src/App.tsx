@@ -13,6 +13,7 @@ import Footer from "@/components/layout/footer";
 import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import PlayerDashboard from "@/pages/player-dashboard";
+import VaultLoadIn from "@/components/vault-load-in";
 import AccountDetailPage from "@/pages/account-detail";
 import AllTimePerformancePage from "@/pages/all-time-performance";
 import Analysis from "@/pages/analysis";
@@ -367,6 +368,7 @@ function AppLayout() {
       </main>
       {showHeaderFooter && !isAuthPage && <Footer />}
       <OnboardingTutorial />
+      <VaultLoadIn />
       <MobileBottomNav />
       <MobileFAB />
       <AbbaAssistant />
