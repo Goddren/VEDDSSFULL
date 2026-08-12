@@ -250,7 +250,6 @@ function DailyToDoCard() {
 
 // ── Manual Trade Dialog ──────────────────────────────────────────────────────
 function ManualTradeDialog({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
-  const [showMonitorInfo, setShowMonitorInfo] = useState(false);
   const [symbol, setSymbol] = useState('');
   const [direction, setDirection] = useState('BUY');
   const [result, setResult] = useState('WIN');
@@ -376,6 +375,7 @@ const Dashboard: React.FC = () => {
 
   const [showManualTradeDialog, setShowManualTradeDialog] = useState(false);
   const [showFeaturesHub, setShowFeaturesHub] = useState(false);
+  const [showMonitorInfo, setShowMonitorInfo] = useState(false);
 
   // Section toggles — persisted in localStorage
   const [showStats, toggleStats] = useSectionToggle('stats');
