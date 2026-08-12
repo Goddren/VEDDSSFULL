@@ -1213,6 +1213,21 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Player HUD entry — the gamified one-screen "gaming profile" dashboard */}
+          <Link href="/vault">
+            <div className="flex items-center gap-3 px-3 py-3 rounded-2xl cursor-pointer mb-1"
+              style={{ background: 'linear-gradient(90deg,rgba(245,196,81,.16),rgba(127,119,221,.14))', border: '1px solid rgba(245,196,81,.35)' }}>
+              <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: '#f5c451', color: '#3a2c05' }}>
+                <Rocket className="w-5 h-5" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-black text-sm leading-tight">Enter your Player HUD</p>
+                <p className="text-[11px] text-amber-200/80 leading-tight">Rank, streak, missions &amp; today's score — one screen</p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-amber-300 flex-shrink-0" />
+            </div>
+          </Link>
+
           {/* Row 3: Goal rings + P&L meters */}
           <div className="flex items-center gap-2 px-0.5 pb-0.5">
             <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Profit Monitors</span>

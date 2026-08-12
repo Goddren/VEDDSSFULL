@@ -12,6 +12,7 @@ import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
+import PlayerDashboard from "@/pages/player-dashboard";
 import AccountDetailPage from "@/pages/account-detail";
 import AllTimePerformancePage from "@/pages/all-time-performance";
 import Analysis from "@/pages/analysis";
@@ -259,6 +260,7 @@ function AppLayout() {
             <Route path="/event/:slug" component={PublicEventPage} />
             
             {/* Protected routes */}
+            <ProtectedRoute path="/vault" component={PlayerDashboard} />
             <ProtectedRoute path="/dashboard" component={Dashboard} />
             <ProtectedRoute path="/analysis" component={Analysis} />
             <ProtectedRoute path="/multi-timeframe" component={MultiTimeframeAnalysis} />

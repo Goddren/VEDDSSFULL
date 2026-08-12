@@ -16,6 +16,7 @@ import { TradePerformanceCompact } from '@/components/trade-performance-card';
 
 /* ─── Nav item definitions ────────────────────────── */
 const tradingItems = [
+  { name: 'Player HUD',       path: '/vault',             icon: Rocket,     color: '#f5c451' },
   { name: 'ORB Breakout',     path: '/orb-breakout',      icon: Radio,      color: '#22c55e' },
   { name: 'Prop Firm',        path: '/prop-firm-challenge', icon: Shield,   color: '#7c3aed' },
   { name: 'Weekly Strategy',  path: '/weekly-strategy',   icon: TrendingUp, color: '#ef4444' },
@@ -385,6 +386,7 @@ export function MobileBottomNav() {
         {/* ── Quick-access shortcut strip ── */}
         <div className="px-3 pt-3 pb-1 flex gap-2 flex-shrink-0">
           {[
+            { label: 'Player HUD', path: '/vault',          color: '#f5c451', Icon: Rocket      },
             { label: 'Dashboard', path: '/dashboard',       color: '#6366f1', Icon: Home        },
             { label: 'Strategy',  path: '/weekly-strategy', color: '#ef4444', Icon: TrendingUp  },
             { label: 'ORB',       path: '/orb-breakout',    color: '#22c55e', Icon: Radio       },
