@@ -14,6 +14,8 @@ import Home from "@/pages/home";
 import Dashboard from "@/pages/dashboard";
 import PlayerDashboard from "@/pages/player-dashboard";
 import VaultLoadIn from "@/components/vault-load-in";
+import FeaturesPage from "@/pages/features";
+import PricingPage from "@/pages/pricing";
 import AccountDetailPage from "@/pages/account-detail";
 import AllTimePerformancePage from "@/pages/all-time-performance";
 import Analysis from "@/pages/analysis";
@@ -222,6 +224,8 @@ function AppLayout() {
             <Route path="/forgot-password" component={ForgotPasswordPage} />
             <Route path="/reset-password" component={ResetPasswordPage} />
             <Route path="/subscription" component={SubscriptionPage} />
+            <Route path="/pricing" component={PricingPage} />
+            <Route path="/features" component={FeaturesPage} />
             <Route path="/blog" component={BlogPage} />
             <Route path="/blog/:slug" component={BlogPage} />
             <Route path="/shared/:shareId" component={SharedAnalysisPage} />

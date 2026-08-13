@@ -1,1451 +1,364 @@
-﻿import { useState, useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
-import { SlidingButton } from "@/components/ui/sliding-button";
-import { Link } from "wouter";
-import { 
-  ArrowRight, 
-  BarChart2, 
-  ChartLine, 
-  Zap, 
-  Bell, 
-  Share2, 
-  Clock, 
-  BarChart, 
-  Timer,
-  AlertTriangle,
-  PieChart,
-  TrendingUp,
-  TrendingDown,
-  Sparkles,
-  Target,
-  LineChart,
-  Lightbulb,
-  MoreVertical,
-  Menu,
-  User,
-  Settings,
-  Info,
-  Layers,
-  Pause,
-  Lock,
-  ChevronUp,
-  Bot,
-  Coins,
-  GraduationCap,
-  Users,
-  Flame,
-  Brain,
-  Wallet,
-  Calendar,
-  MessageSquare,
-  Trophy,
-  Gift,
-  X
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { motion, AnimatePresence } from "framer-motion";
-import { EarlyAccessForm } from "@/components/early-access/early-access-form";
-import { FeatureSlider } from "@/components/ui/feature-slider";
-import { PatternSlider } from "@/components/ui/pattern-slider";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { GamifiedLogin } from "@/components/ui/gamified-login";
-import { DemoSection } from "@/components/ui/demo-section";
-import { InteractiveFeatureCard, FeatureCardGrid } from "@/components/ui/interactive-feature-card";
-import { patternDescriptions } from "@/assets/pattern-descriptions";
-import logoImg from "@/assets/IMG_3645.png";
+import { useEffect } from 'react';
+import { Link, useLocation } from 'wouter';
+import logoImage from '@/assets/IMG_3645.png';
 
-// Animated counter hook
-function useCountUp(target: number, duration = 2000, start = false) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!start) return;
-    let startTime: number | null = null;
-    const step = (timestamp: number) => {
-      if (!startTime) startTime = timestamp;
-      const progress = Math.min((timestamp - startTime) / duration, 1);
-      setCount(Math.floor(progress * target));
-      if (progress < 1) requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }, [target, duration, start]);
-  return count;
+/* VEDD landing — AI-first: the live engine + self-learning brain are the focus.
+   Dark "vault terminal" look, VEDD red accent. All styles scoped under .vlx so
+   they never collide with the global index.css utility classes. */
+
+const CSS = `
+.vlx{--bg:#0B0B0E;--bg2:#101114;--card:#151619;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.14);
+  --tx:#F4F5F6;--tx2:#9BA1A9;--tx3:#5B616B;--red:#FF3B34;--red-deep:#B4160D;--gold:#F5C451;--green:#27D07C;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  background:var(--bg);color:var(--tx);position:relative;overflow:hidden;min-height:100vh;
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;line-height:1.6}
+.vlx *{box-sizing:border-box}
+.vlx::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E")}
+.vlx .ember{position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(480px 420px at var(--mx,72%) var(--my,14%),rgba(255,59,52,.16),transparent 70%),
+    radial-gradient(700px 500px at 90% -5%,rgba(255,59,52,.10),transparent 60%),
+    radial-gradient(600px 400px at 5% 105%,rgba(245,196,81,.05),transparent 60%);transition:background .3s ease}
+.vlx .shell{position:relative;z-index:2;max-width:1080px;margin:0 auto;padding:0 22px}
+.vlx nav{display:flex;align-items:center;justify-content:space-between;padding:20px 0;position:relative}
+.vlx .brand img{height:30px;width:auto;display:block}
+.vlx .menu{display:flex;align-items:center;gap:24px}
+.vlx .ml{color:var(--tx2);font:600 14px inherit;text-decoration:none;transition:color .18s;cursor:pointer;background:none;border:none}
+.vlx .ml:hover{color:#fff}
+.vlx .ml-sign{color:var(--tx);padding:8px 14px;border:1px solid var(--line2);border-radius:999px}
+.vlx .ml-sign:hover{border-color:var(--red)}
+.vlx .burger{display:none;background:transparent;border:1px solid var(--line2);color:var(--tx);width:42px;height:42px;border-radius:12px;font-size:18px;cursor:pointer}
+.vlx .nav-cta{font:600 13px inherit;color:var(--tx);background:transparent;border:1px solid var(--line2);padding:9px 18px;border-radius:999px;cursor:pointer;transition:.2s}
+.vlx .nav-cta:hover{border-color:var(--red);color:#fff;box-shadow:0 0 24px rgba(255,59,52,.25)}
+.vlx .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:38px;align-items:center;padding:46px 0 70px}
+.vlx .eyebrow{display:inline-flex;align-items:center;gap:8px;font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.22em;color:var(--red);border:1px solid rgba(255,59,52,.3);background:rgba(255,59,52,.06);padding:6px 12px;border-radius:999px;margin-bottom:22px}
+.vlx .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red);animation:vlblink 1.6s infinite}
+@keyframes vlblink{50%{opacity:.35}}
+.vlx h1{font-size:clamp(2.5rem,6.4vw,4.5rem);line-height:.98;letter-spacing:-.035em;font-weight:850;margin:0 0 20px;text-wrap:balance}
+.vlx h1 .g{background:linear-gradient(120deg,#fff 30%,var(--red) 120%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.vlx .sub{font-size:1.12rem;color:var(--tx2);max-width:30ch;margin:0 0 30px}
+.vlx .cta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.vlx .btn-primary{font:700 16px inherit;color:#fff;background:linear-gradient(150deg,var(--red),var(--red-deep));border:none;padding:15px 30px;border-radius:999px;cursor:pointer;position:relative;box-shadow:0 10px 34px rgba(255,59,52,.34);transition:transform .15s ease,box-shadow .2s}
+.vlx .btn-primary:hover{box-shadow:0 14px 46px rgba(255,59,52,.5)}
+.vlx .btn-ghost{font:600 15px inherit;color:var(--tx);background:transparent;border:none;padding:15px 8px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.vlx .btn-ghost .pl{width:30px;height:30px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;transition:.2s}
+.vlx .btn-ghost:hover .pl{border-color:var(--red);color:var(--red)}
+.vlx .micro{margin-top:16px;font:500 13px inherit;color:var(--tx3)}
+.vlx .panel{background:linear-gradient(180deg,var(--card),#0E0F12);border:1px solid var(--line);border-radius:20px;padding:16px;position:relative;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.vlx .panel-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font:600 12px var(--mono);color:var(--tx3);letter-spacing:.05em}
+.vlx .panel-top .pair{color:var(--tx);letter-spacing:.1em}
+.vlx .chartbox{position:relative;height:230px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,.02),transparent);overflow:hidden}
+.vlx .scan{position:absolute;top:0;bottom:0;width:2px;left:4%;background:linear-gradient(180deg,transparent,var(--red),transparent);box-shadow:0 0 22px 3px rgba(255,59,52,.6);animation:vlsweep 4s cubic-bezier(.55,0,.45,1) infinite;z-index:3}
+@keyframes vlsweep{0%{left:4%;opacity:0}8%{opacity:1}60%{left:88%;opacity:1}68%{opacity:0}100%{opacity:0}}
+.vlx .verdict{position:absolute;top:14px;right:14px;z-index:4;background:rgba(12,13,15,.86);backdrop-filter:blur(8px);border:1px solid rgba(39,208,124,.4);border-radius:14px;padding:12px 14px;min-width:150px;opacity:0;animation:vlpop 4s ease infinite}
+@keyframes vlpop{0%,60%{opacity:0;transform:translateY(8px) scale(.96)}70%{opacity:1;transform:none}94%{opacity:1}100%{opacity:0}}
+.vlx .verdict .vh{font:600 10px var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--tx3)}
+.vlx .verdict .vv{display:flex;align-items:baseline;gap:8px;margin-top:3px}
+.vlx .verdict .side{font:800 20px inherit;color:var(--green)}
+.vlx .verdict .conf{font:700 13px var(--mono);color:var(--tx2)}
+.vlx .meter{height:5px;border-radius:99px;background:rgba(255,255,255,.1);margin-top:9px;overflow:hidden}
+.vlx .meter i{display:block;height:100%;width:82%;background:linear-gradient(90deg,var(--green),#7ef0b6);border-radius:99px}
+.vlx .reason{margin-top:8px;font:500 10.5px inherit;color:var(--tx2);line-height:1.4;max-width:150px}
+.vlx .panel-foot{display:flex;gap:14px;margin-top:12px;font:600 11px var(--mono);color:var(--tx3)}
+.vlx .panel-foot b{color:var(--tx2);font-weight:600}
+.vlx .cndl{transform-origin:bottom;animation:vlgrow .5s cubic-bezier(.2,.8,.2,1) both}
+@keyframes vlgrow{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:1}}
+.vlx .ticker{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:rgba(255,255,255,.015);overflow:hidden;white-space:nowrap;padding:12px 0}
+.vlx .track{display:inline-block;animation:vlmarq 26s linear infinite;font:600 13px var(--mono);letter-spacing:.05em}
+.vlx .track span{margin:0 22px;color:var(--tx2)}
+.vlx .track .up{color:var(--green)} .vlx .track .dn{color:var(--red)}
+@keyframes vlmarq{to{transform:translateX(-50%)}}
+.vlx section{padding:74px 0}
+.vlx .kicker{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.22em;color:var(--red);margin-bottom:12px}
+.vlx h2{font-size:clamp(1.8rem,4vw,2.7rem);letter-spacing:-.02em;font-weight:800;margin:0 0 8px;text-wrap:balance}
+.vlx .lead{color:var(--tx2);max-width:52ch;font-size:1.05rem}
+.vlx .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:40px}
+.vlx .step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+.vlx .step .no{font:800 13px var(--mono);color:var(--red);letter-spacing:.1em}
+.vlx .step h3{font-size:1.15rem;margin:14px 0 8px;font-weight:700}
+.vlx .step p{color:var(--tx2);font-size:.96rem;margin:0}
+.vlx .step .ic{width:42px;height:42px;border-radius:11px;background:rgba(255,59,52,.1);border:1px solid rgba(255,59,52,.22);display:grid;place-items:center;font-size:20px}
+.vlx .feat{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:18px;margin-top:40px}
+.vlx .fcard{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px;position:relative;overflow:hidden}
+.vlx .fcard.hero-feat{background:linear-gradient(160deg,#1a1113,var(--card))}
+.vlx .fcard .tag{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--gold)}
+.vlx .fcard h3{font-size:1.35rem;margin:12px 0 10px;font-weight:800;letter-spacing:-.01em}
+.vlx .fcard p{color:var(--tx2);font-size:.96rem;margin:0}
+.vlx .glow{position:absolute;width:200px;height:200px;border-radius:50%;top:-70px;right:-50px;background:radial-gradient(circle,rgba(255,59,52,.22),transparent 70%);pointer-events:none}
+.vlx .market{display:grid;grid-template-columns:1fr .92fr;gap:36px;align-items:center}
+.vlx .listing{background:linear-gradient(160deg,#1a1710,var(--card));border:1px solid rgba(245,196,81,.2);border-radius:18px;padding:24px;position:relative;overflow:hidden}
+.vlx .stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:36px}
+.vlx .stat{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
+.vlx .stat .n{font:800 2.4rem/1 inherit;letter-spacing:-.02em}
+.vlx .stat .n .u{color:var(--red)}
+.vlx .stat .l{color:var(--tx2);font-size:.9rem;margin-top:6px}
+.vlx .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:40px}
+.vlx .plan{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px;position:relative}
+.vlx .plan.pfeat{border-color:rgba(255,59,52,.5);background:linear-gradient(180deg,#1a1113,var(--card))}
+.vlx .plan .pn{font:700 12px var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--tx2)}
+.vlx .plan .pp{font:800 2.3rem/1 inherit;letter-spacing:-.02em;margin:12px 0 2px}
+.vlx .plan .pp small{font:600 .85rem var(--mono);color:var(--tx3);letter-spacing:0}
+.vlx .plan ul{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:10px}
+.vlx .plan li{color:var(--tx2);font-size:.94rem;display:flex;gap:10px;align-items:flex-start}
+.vlx .plan li::before{content:"✓";color:var(--red);font-weight:800;flex-shrink:0}
+.vlx .plan .badge{position:absolute;top:-11px;left:24px;background:var(--red);color:#fff;font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.12em;padding:4px 11px;border-radius:999px}
+.vlx .faq{margin-top:20px;border-top:1px solid var(--line)}
+.vlx .faq details{border-bottom:1px solid var(--line)}
+.vlx .faq summary{cursor:pointer;list-style:none;padding:20px 4px;font:600 1.08rem inherit;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.vlx .faq summary::-webkit-details-marker{display:none}
+.vlx .faq summary::after{content:"+";color:var(--red);font-size:1.5rem;line-height:1;transition:transform .2s}
+.vlx .faq details[open] summary::after{transform:rotate(45deg)}
+.vlx .faq p{color:var(--tx2);margin:0 4px 20px;max-width:72ch;line-height:1.7}
+.vlx .final{background:linear-gradient(150deg,#1a1012,#0c0c0f);border:1px solid rgba(255,59,52,.22);border-radius:26px;padding:56px 34px;text-align:center;position:relative;overflow:hidden;margin-bottom:20px}
+.vlx .final h2{font-size:clamp(2rem,5vw,3.2rem)}
+.vlx .final p{color:var(--tx2);max-width:40ch;margin:12px auto 28px;font-size:1.08rem}
+.vlx footer{padding:34px 0 46px;color:var(--tx3);font-size:13px;display:flex;justify-content:space-between;border-top:1px solid var(--line);flex-wrap:wrap;gap:10px}
+.vlx .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}
+.vlx .reveal.in{opacity:1;transform:none}
+@media(max-width:820px){
+  .vlx .hero{grid-template-columns:1fr;gap:30px;padding:26px 0 50px}
+  .vlx .steps,.vlx .feat,.vlx .plans{grid-template-columns:1fr}
+  .vlx .market{grid-template-columns:1fr;gap:24px}
+  .vlx .sub{max-width:none}.vlx .panel{order:2}
+  .vlx .burger{display:block}
+  .vlx .menu{position:absolute;top:66px;left:0;right:0;flex-direction:column;align-items:stretch;gap:14px;background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:18px;display:none;z-index:30;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+  .vlx .menu.open{display:flex}
+  .vlx .menu .ml{padding:8px 4px;font-size:16px}
+  .vlx .menu .nav-cta{width:100%}
 }
+@media(prefers-reduced-motion:reduce){
+  .vlx .scan,.vlx .verdict,.vlx .track,.vlx .cndl,.vlx .eyebrow .dot{animation:none!important}
+  .vlx .verdict{opacity:1}.vlx .scan{opacity:.5}
+  .vlx .reveal{opacity:1;transform:none;transition:none}
+}
+`;
 
 export default function LandingPage() {
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
-  const [scrollProgress, setScrollProgress] = useState(0);
-  const [showABBAPopup, setShowABBAPopup] = useState(!localStorage.getItem('ABBA_announced'));
-  // Scroll progress bar
+  const [, navigate] = useLocation();
+  const start = () => navigate('/auth');
+
   useEffect(() => {
-    const handleScroll = () => {
-      const total = document.documentElement.scrollHeight - window.innerHeight;
-      setScrollProgress(total > 0 ? (window.scrollY / total) * 100 : 0);
+    const root = document.querySelector('.vlx');
+    if (!root) return;
+
+    // candlestick chart
+    const svg = document.getElementById('vl-chart');
+    if (svg) {
+      const closes = [40,39,41,43,42,44,47,45,48,51,50,53,52,55,58,57,60,63,62,66];
+      const W = 560, H = 230, pad = 14, n = closes.length, cw = (W - pad * 2) / n;
+      const min = Math.min(...closes) - 4, max = Math.max(...closes) + 4;
+      const y = (v: number) => H - pad - (v - min) / (max - min) * (H - pad * 2);
+      const jit = [1.4,1,1.7,1.2,1.5,1,1.3,1.6,1.1,1.4,1,1.5,1.2,1.6,1.1,1.4,1,1.3,1.5,1.2];
+      let pts = '';
+      for (let i = 0; i < n; i++) pts += (pad + i * cw + cw / 2) + ',' + y(closes[i]) + ' ';
+      let frag = '<polyline points="' + pts + '" fill="none" stroke="rgba(255,59,52,.35)" stroke-width="1.5"/>';
+      for (let i = 0; i < n; i++) {
+        const o = i ? closes[i - 1] : closes[i], c = closes[i], up = c >= o;
+        const top = y(Math.max(o, c)), bot = y(Math.min(o, c));
+        const hi = y(Math.max(o, c) + jit[i]), lo = y(Math.min(o, c) - jit[i]);
+        const x = pad + i * cw + cw / 2, col = up ? '#27D07C' : '#FF3B34', bh = Math.max(2, bot - top);
+        frag += '<g class="cndl" style="animation-delay:' + (i * 0.045) + 's">';
+        frag += '<line x1="' + x + '" y1="' + hi + '" x2="' + x + '" y2="' + lo + '" stroke="' + col + '" stroke-width="1" opacity=".55"/>';
+        frag += '<rect x="' + (x - cw * 0.3) + '" y="' + top + '" width="' + (cw * 0.6) + '" height="' + bh + '" rx="1.5" fill="' + col + '" opacity="' + (up ? .9 : .85) + '"/></g>';
+      }
+      svg.innerHTML = frag;
+    }
+
+    // ticker
+    const tk = document.getElementById('vl-tk');
+    if (tk) {
+      const d: [string, string, number][] = [['EUR/USD','+0.42%',1],['BTC','+3.1%',1],['XAU/USD','-0.18%',0],['GBP/JPY','+0.66%',1],['NAS100','+1.24%',1],['SOL','+5.2%',1],['USD/CAD','-0.31%',0],['ETH','+2.4%',1],['US30','+0.55%',1]];
+      const one = d.map(r => '<span>' + r[0] + ' <b class="' + (r[2] ? 'up' : 'dn') + '">' + r[1] + '</b></span>').join('');
+      tk.innerHTML = one + one;
+    }
+
+    // cursor ember
+    const ember = document.getElementById('vl-ember');
+    const onMove = (ev: PointerEvent) => {
+      if (!ember) return;
+      ember.style.setProperty('--mx', (ev.clientX / window.innerWidth * 100) + '%');
+      ember.style.setProperty('--my', (ev.clientY / window.innerHeight * 100) + '%');
     };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    window.addEventListener('pointermove', onMove, { passive: true });
+
+    // scroll reveal
+    const io = new IntersectionObserver((es) => es.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }), { threshold: 0.16 });
+    root.querySelectorAll('.reveal').forEach((el, i) => { (el as HTMLElement).style.transitionDelay = (i % 3 * 0.06) + 's'; io.observe(el); });
+
+    return () => { window.removeEventListener('pointermove', onMove); io.disconnect(); };
   }, []);
 
-  // Animation variants
-  const fadeIn = {
-    hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1, 
-      transition: { duration: 0.6 }
-    }
-  };
-  
-  const slideUp = {
-    hidden: { opacity: 0, y: 30 },
-    visible: { 
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.5 }
-    }
-  };
-  
-  const staggerContainer = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1
-      }
-    }
-  };
-  
+  const toggleMenu = () => document.getElementById('vl-menu')?.classList.toggle('open');
+  const closeMenu = () => document.getElementById('vl-menu')?.classList.remove('open');
+
   return (
-    <div className="flex flex-col min-h-screen bg-theme-off" style={{ fontFamily: "'Space Grotesk', 'Inter', sans-serif" }}>
-      {/* Scroll Progress Bar */}
-      <div className="fixed top-0 left-0 z-[100] h-[3px] bg-red-500 transition-all duration-100 ease-out" style={{ width: `${scrollProgress}%` }} />
+    <div className="vlx">
+      <style>{CSS}</style>
+      <div className="ember" id="vl-ember" />
 
-      {/* Header with Logo */}
-      <header className="w-full border-b border-theme-light py-4 px-6 bg-theme-light sticky top-0 z-50 backdrop-blur-sm">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center">
-            <img src={logoImg} alt="Trading Vault Logo" className="h-12" />
-            <div className="ml-3 flex flex-col">
-              <span className="text-lg font-bold text-white dark:text-white">AI Trading Vault</span>
-              <span className="text-[10px] text-red-500 italic font-light -mt-1">Powered by Intelligence</span>
-            </div>
+      <div className="shell">
+        <nav>
+          <Link href="/" className="brand"><img src={logoImage} alt="VEDD" /></Link>
+          <div className="menu" id="vl-menu">
+            <Link href="/features" className="ml" onClick={closeMenu}>Features</Link>
+            <Link href="/pricing" className="ml" onClick={closeMenu}>Plans</Link>
+            <a className="ml" href="#faq" onClick={closeMenu}>FAQ</a>
+            <Link href="/blog" className="ml" onClick={closeMenu}>Blog</Link>
+            <Link href="/auth" className="ml ml-sign" onClick={closeMenu}>Sign in</Link>
+            <button className="nav-cta" onClick={start}>Start free</button>
           </div>
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
-            <DropdownMenu>
-              <DropdownMenuTrigger className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none">
-                <div className="flex items-center space-x-1.5">
-                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
-                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
-                  <div className="w-1.5 h-1.5 bg-black dark:bg-white rounded-full"></div>
-                </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[180px]">
-                <Link href="/auth">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <User className="h-4 w-4 mr-2" />
-                    <span>Sign In</span>
-                  </DropdownMenuItem>
-                </Link>
-                <Link href="/subscription">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <Settings className="h-4 w-4 mr-2" />
-                    <span>Plans & Pricing</span>
-                  </DropdownMenuItem>
-                </Link>
-                <Link href="/blog">
-                  <DropdownMenuItem className="cursor-pointer">
-                    <Info className="h-4 w-4 mr-2" />
-                    <span>Blog</span>
-                  </DropdownMenuItem>
-                </Link>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <button className="burger" id="vl-burger" aria-label="Open menu" onClick={toggleMenu}>☰</button>
+        </nav>
+
+        <div className="hero">
+          <div>
+            <span className="eyebrow"><span className="dot" /> Live engine · self-learning brain</span>
+            <h1>The brain that trades<br /><span className="g">while you sleep.</span></h1>
+            <p className="sub">VEDD's live engine reads the markets, takes the trades, and gets smarter with every win and loss. You just watch the vault.</p>
+            <div className="cta-row">
+              <button className="btn-primary" id="vl-cta" onClick={start}>Start free</button>
+              <button className="btn-ghost" onClick={() => document.getElementById('how')?.scrollIntoView({ behavior: 'smooth' })}>
+                <span className="pl">▶</span> See how it works</button>
+            </div>
+            <div className="micro">No card needed · Free forever plan · Works on any pair</div>
           </div>
-        </div>
-      </header>
-      
-      {/* Hero section */}
-      <motion.section 
-        initial="hidden"
-        animate="visible"
-        variants={staggerContainer}
-        className="flex flex-col items-center justify-center px-6 py-16 bg-theme-light lg:px-8 lg:py-24"
-      >
-        <div className="max-w-7xl mx-auto text-center">
-          <motion.div variants={fadeIn} className="mb-8 flex justify-center">
-            <div className="relative">
-              <div className="absolute inset-0 bg-red-500/20 rounded-full blur-2xl animate-pulse" />
-              <img 
-                src={logoImg} 
-                alt="AI Trading Vault Logo" 
-                className="relative h-20 md:h-28 drop-shadow-sm transition-all duration-300"
-              />
-            </div>
-          </motion.div>
-          
-          <motion.h1 variants={slideUp} className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl md:text-6xl lg:text-7xl" style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.02em" }}>
-            <span className="text-red-500">AI Powered</span> Trading Vault
-          </motion.h1>
 
-          <motion.p variants={slideUp} className="mt-4 text-xs font-semibold tracking-[0.2em] uppercase text-red-400/80">
-            Chart Analysis · EA Generator · Live Trading Engine · Solana Scanner
-          </motion.p>
-
-          <motion.p variants={slideUp} className="mt-6 text-xl text-theme-muted max-w-3xl mx-auto leading-relaxed">
-            Upload any trading chart from <strong className="text-theme-main">MT5, TradingView, or TradeLocker</strong> and get instant AI pattern recognition, automated Expert Advisors, multi-timeframe signals, and live trade execution — all in one vault.
-          </motion.p>
-          
-          <motion.div variants={slideUp} className="mt-10 flex flex-col items-center gap-4">
-            <div className="w-full max-w-md flex justify-center mb-4">
-              <motion.button
-                onClick={() => setIsLoginOpen(true)}
-                className="relative w-full max-w-[280px] h-16 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group"
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-90 bg-size-200 animate-gradient-x"></div>
-                
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                  <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                </div>
-                
-                <div className="absolute inset-0 flex items-center justify-center text-white font-semibold text-lg">
-                  <Lock className="h-5 w-5 mr-2" />
-                  <span className="mr-2">Enter the Vault</span>
-                  <ChevronUp className="h-5 w-5 transform transition-transform duration-500 group-hover:-translate-y-1" />
-                </div>
-              </motion.button>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <EarlyAccessForm />
-              <Link href="/subscription">
-                <Button size="lg" variant="outline" className="border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all duration-300">
-                  View Pricing
-                </Button>
-              </Link>
-            </div>
-          </motion.div>
-        </div>
-      </motion.section>
-
-      {/* Unique Platform Features Section - Automated Trading Revolution */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-20 bg-gradient-to-b from-gray-900 to-black border-t border-gray-800"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-16">
-            <div className="inline-flex items-center px-4 py-2 rounded-full bg-red-500/20 text-red-400 text-sm font-medium mb-6">
-              <Bot className="h-4 w-4 mr-2" />
-              Exclusive Features
-            </div>
-            <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl">
-              <span className="text-red-500">Automated Trading</span> Revolution
-            </h2>
-            <p className="mt-4 text-lg text-gray-400 max-w-3xl mx-auto">
-              Experience the future of trading with AI-powered Expert Advisors, automated rewards, and a thriving community ecosystem.
-            </p>
-          </motion.div>
-
-          {/* EA Automated Trading Hero */}
-          <motion.div variants={fadeIn} className="mb-16">
-            <div className="relative bg-gradient-to-r from-red-600/20 via-red-500/10 to-orange-600/20 rounded-3xl p-8 md:p-12 border border-red-500/30 overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/10 rounded-full blur-3xl"></div>
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-orange-500/10 rounded-full blur-3xl"></div>
-              
-              <div className="relative z-10 grid md:grid-cols-2 gap-8 items-center">
-                <div>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 bg-red-500/20 rounded-xl">
-                      <Bot className="h-8 w-8 text-red-400" />
-                    </div>
-                    <span className="text-red-400 font-semibold">EA AI ANALYSIS</span>
-                  </div>
-                  <h3 className="text-3xl md:text-4xl font-bold text-white mb-4">
-                    Expert Advisor with <span className="text-red-400">AI Brain</span>
-                  </h3>
-                  <p className="text-gray-300 text-lg mb-6">
-                    Create automated trading strategies powered by AI analysis. Our EAs combine multi-timeframe analysis with real-time technical indicators for precise entry and exit signals.
-                  </p>
-                  <ul className="space-y-3">
-                    <li className="flex items-center text-gray-300">
-                      <Zap className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
-                      Multi-timeframe synthesis (4H + 1H + 15M + 5M)
-                    </li>
-                    <li className="flex items-center text-gray-300">
-                      <Brain className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
-                      AI pattern recognition baked into EA logic
-                    </li>
-                    <li className="flex items-center text-gray-300">
-                      <Target className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
-                      ATR-based stop loss & dynamic take profit
-                    </li>
-                    <li className="flex items-center text-gray-300">
-                      <Bell className="h-5 w-5 text-red-400 mr-3 flex-shrink-0" />
-                      News-aware trading with confidence filtering
-                    </li>
-                  </ul>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
-                    <Layers className="h-8 w-8 text-blue-400 mb-3" />
-                    <h4 className="font-semibold text-white mb-2">4-Stage Entry</h4>
-                    <p className="text-sm text-gray-400">HTF trend → Pattern scoring → LTF timing → Order type</p>
-                  </div>
-                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
-                    <Pause className="h-8 w-8 text-yellow-400 mb-3" />
-                    <h4 className="font-semibold text-white mb-2">Choppy Filter</h4>
-                    <p className="text-sm text-gray-400">Auto-pause in ranging markets with ADX/ATR</p>
-                  </div>
-                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
-                    <Share2 className="h-8 w-8 text-green-400 mb-3" />
-                    <h4 className="font-semibold text-white mb-2">Signal Relay</h4>
-                    <p className="text-sm text-gray-400">Copy to TradeLocker, TradingView via webhooks</p>
-                  </div>
-                  <div className="bg-gray-800/60 rounded-xl p-6 border border-gray-700">
-                    <LineChart className="h-8 w-8 text-purple-400 mb-3" />
-                    <h4 className="font-semibold text-white mb-2">Live Refresh</h4>
-                    <p className="text-sm text-gray-400">Real-time market data for EA re-analysis</p>
-                  </div>
-                </div>
+          <div className="panel">
+            <div className="panel-top"><span className="pair">BTC / USD · 15M</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#27D07C' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#27D07C', boxShadow: '0 0 8px #27D07C' }} /> LIVE ENGINE</span></div>
+            <div className="chartbox">
+              <svg id="vl-chart" viewBox="0 0 560 230" width="100%" height={230} preserveAspectRatio="none" aria-hidden="true" />
+              <div className="scan" />
+              <div className="verdict">
+                <div className="vh">AI verdict</div>
+                <div className="vv"><span className="side">BUY</span><span className="conf">82%</span></div>
+                <div className="meter"><i /></div>
+                <div className="reason">Bullish break + retest. Brain confidence up after 3 similar wins.</div>
               </div>
             </div>
-          </motion.div>
-
-          {/* Feature Grid */}
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* ABBA AI Personal Assistant */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-red-950/40 to-purple-950/30 rounded-2xl p-6 border border-red-500/40 group hover:border-red-400/60 transition-all duration-300 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-2xl" />
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-red-500/20 rounded-lg group-hover:bg-red-500/30 transition-all relative">
-                  <div className="absolute inset-0 rounded-lg animate-pulse" style={{ background: 'rgba(220,38,38,0.1)' }} />
-                  <Brain className="h-6 w-6 text-red-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-bold text-white">ABBA</h3>
-                    <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
-                  </div>
-                  <p className="text-[10px] text-red-400/70 font-medium tracking-wider">PERSONAL AI TRADING ASSISTANT</p>
-                </div>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Your JARVIS for trading. ABBA monitors your live P&L, weekly goal progress, open positions, and pair strategy — advising you like a personal fund manager from Wells Fargo or Chase, with VEDD intelligence.
-              </p>
-              <ul className="space-y-1.5 mb-4">
-                <li className="flex items-center gap-2 text-sm text-gray-400"><Zap className="h-3.5 w-3.5 text-red-400 shrink-0" /> Goal Intelligence — auto-adjusts lot sizes</li>
-                <li className="flex items-center gap-2 text-sm text-gray-400"><Target className="h-3.5 w-3.5 text-red-400 shrink-0" /> Natural language weekly plan creation</li>
-                <li className="flex items-center gap-2 text-sm text-gray-400"><TrendingUp className="h-3.5 w-3.5 text-red-400 shrink-0" /> Live entry alerts &amp; pacing analysis</li>
-              </ul>
-              <div className="flex items-center gap-2 text-red-400 text-sm">
-                <Bot className="h-4 w-4" />
-                <span>Active 24/7 — powered by your AI key</span>
-              </div>
-            </motion.div>
-
-            {/* BTC Prediction & Kalshi Auto-Trader */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-indigo-950/40 to-emerald-950/30 rounded-2xl p-6 border border-indigo-500/40 group hover:border-indigo-400/60 transition-all duration-300 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl" />
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-indigo-500/20 rounded-lg group-hover:bg-indigo-500/30 transition-all">
-                  <TrendingUp className="h-6 w-6 text-indigo-400" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-xl font-bold text-white">BTC Prediction & Kalshi Auto-Trader</h3>
-                    <span className="text-[9px] font-bold bg-indigo-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
-                  </div>
-                  <p className="text-[10px] text-emerald-400/80 font-medium tracking-wider">CFTC-REGULATED · US-LEGAL AUTO-TRADING</p>
-                </div>
-              </div>
-              <p className="text-gray-300 mb-4">
-                A live 5-minute Bitcoin prediction (BUY/SELL with confidence) that you can auto-trade on Kalshi — a CFTC-regulated US exchange — so US traders can legally automate BTC contracts. Practice in paper mode, then go live with your API key.
-              </p>
-              <ul className="space-y-1.5 mb-4">
-                <li className="flex items-center gap-2 text-sm text-gray-400"><Zap className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> Live 5-min BTC signal — RSI/MACD/EMA, no account needed</li>
-                <li className="flex items-center gap-2 text-sm text-gray-400"><BarChart2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> 3 strategies: Momentum, Volume Profile, Markov</li>
-                <li className="flex items-center gap-2 text-sm text-gray-400"><Target className="h-3.5 w-3.5 text-indigo-400 shrink-0" /> Built-in risk limits &amp; paper-trading mode</li>
-              </ul>
-              <div className="flex items-center gap-2 text-indigo-400 text-sm">
-                <Bot className="h-4 w-4" />
-                <span>Auto-trades hourly BTC contracts on Kalshi</span>
-              </div>
-            </motion.div>
-
-            {/* VEDD Token Rewards */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-amber-900/30 to-yellow-900/20 rounded-2xl p-6 border border-amber-500/30 group hover:border-amber-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-amber-500/20 rounded-lg group-hover:bg-amber-500/30 transition-all">
-                  <Coins className="h-6 w-6 text-amber-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">VEDD Token Rewards</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Earn VEDD tokens for chart analyses, EA creations, and community contributions. Automatic Solana wallet transfers with admin-verified security.
-              </p>
-              <div className="flex items-center gap-2 text-amber-400 text-sm">
-                <Wallet className="h-4 w-4" />
-                <span>Connect wallet to claim rewards</span>
-              </div>
-            </motion.div>
-
-            {/* Ambassador Training */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-purple-900/30 to-violet-900/20 rounded-2xl p-6 border border-purple-500/30 group hover:border-purple-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-purple-500/20 rounded-lg group-hover:bg-purple-500/30 transition-all">
-                  <GraduationCap className="h-6 w-6 text-purple-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">44-Day Ambassador Training</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Complete interactive training combining trading education with biblical wisdom. Earn certifications and unlock exclusive ambassador rewards.
-              </p>
-              <div className="flex items-center gap-2 text-purple-400 text-sm">
-                <Calendar className="h-4 w-4" />
-                <span>Daily content journey with quizzes</span>
-              </div>
-            </motion.div>
-
-            {/* Gamification */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-orange-900/30 to-red-900/20 rounded-2xl p-6 border border-orange-500/30 group hover:border-orange-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-orange-500/20 rounded-lg group-hover:bg-orange-500/30 transition-all">
-                  <Flame className="h-6 w-6 text-orange-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">XP & Streak System</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Level up from YG to OG through five tiers. Earn XP for analyses and EA creations. Track your streak and compete on leaderboards.
-              </p>
-              <div className="flex items-center gap-2 text-orange-400 text-sm">
-                <Trophy className="h-4 w-4" />
-                <span>YG → Apprentice → Journeyman → Expert → OG</span>
-              </div>
-            </motion.div>
-
-            {/* Community Features */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-blue-900/30 to-cyan-900/20 rounded-2xl p-6 border border-blue-500/30 group hover:border-blue-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-blue-500/20 rounded-lg group-hover:bg-blue-500/30 transition-all">
-                  <Users className="h-6 w-6 text-blue-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">Community Hub</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                AI-generated challenges, shareable events with auto-agendas, discussion threads, and social media content directions for promotion.
-              </p>
-              <div className="flex items-center gap-2 text-blue-400 text-sm">
-                <MessageSquare className="h-4 w-4" />
-                <span>Online University-style community experience</span>
-              </div>
-            </motion.div>
-
-            {/* What-If Scenarios */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-green-900/30 to-emerald-900/20 rounded-2xl p-6 border border-green-500/30 group hover:border-green-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-green-500/20 rounded-lg group-hover:bg-green-500/30 transition-all">
-                  <Brain className="h-6 w-6 text-green-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">What-If Scenarios</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Explore different trading outcomes with AI-powered scenario analysis. Test price targets, stop losses, and market conditions before trading.
-              </p>
-              <div className="flex items-center gap-2 text-green-400 text-sm">
-                <Target className="h-4 w-4" />
-                <span>Probability & risk assessments</span>
-              </div>
-            </motion.div>
-
-            {/* EA Marketplace */}
-            <motion.div variants={fadeIn} className="bg-gradient-to-br from-teal-900/30 to-cyan-900/20 rounded-2xl p-6 border border-teal-500/30 group hover:border-teal-400/50 transition-all duration-300">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-teal-500/20 rounded-lg group-hover:bg-teal-500/30 transition-all">
-                  <Gift className="h-6 w-6 text-teal-400" />
-                </div>
-                <h3 className="text-xl font-bold text-white">EA Marketplace</h3>
-              </div>
-              <p className="text-gray-300 mb-4">
-                Publish your Expert Advisors for others to subscribe. Earn passive income from your trading strategies while helping the community.
-              </p>
-              <div className="flex items-center gap-2 text-teal-400 text-sm">
-                <Coins className="h-4 w-4" />
-                <span>Monetize your trading expertise</span>
-              </div>
-            </motion.div>
-          </motion.div>
-        </div>
-      </motion.section>
-      
-      {/* Features section */}
-      <motion.section 
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-16 bg-theme-light border-t border-theme-light"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-16">
-            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
-              <span className="text-red-500">Powerful Trading Intelligence</span>
-            </h2>
-            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Our AI-powered platform analyzes chart patterns and market conditions to provide you with accurate insights and trading recommendations.
-            </p>
-          </motion.div>
-          
-          {/* Main Features */}
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-8 md:grid-cols-3 mb-16">
-            {/* Feature 1 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-red-50 dark:bg-red-900/20 mb-4 group-hover:bg-red-100 dark:group-hover:bg-red-900/30 transition-all duration-300">
-                <BarChart2 className="h-8 w-8 text-red-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-theme-main mb-2">Pattern Recognition</h3>
-              <p className="text-center text-theme-muted">
-                Identify chart patterns and technical indicators with advanced AI analysis.
-              </p>
-              <div className="mt-4 w-24 h-[1px] bg-red-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
-            </motion.div>
-            
-            {/* Feature 2 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-blue-50 dark:bg-blue-900/20 mb-4 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-all duration-300">
-                <ChartLine className="h-8 w-8 text-blue-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-theme-main mb-2">Price Predictions</h3>
-              <p className="text-center text-theme-muted">
-                Get accurate entry/exit points, stop-loss levels, and potential profit targets.
-              </p>
-              <div className="mt-4 w-24 h-[1px] bg-blue-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
-            </motion.div>
-            
-            {/* Feature 3 */}
-            <motion.div variants={fadeIn} className="group flex flex-col items-center p-6 bg-theme-light rounded-lg border border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300">
-              <div className="p-3 rounded-full bg-green-50 dark:bg-green-900/20 mb-4 group-hover:bg-green-100 dark:group-hover:bg-green-900/30 transition-all duration-300">
-                <Zap className="h-8 w-8 text-green-500" />
-              </div>
-              <h3 className="text-xl font-semibold text-theme-main mb-2">Instant Analysis</h3>
-              <p className="text-center text-theme-muted">
-                Upload a chart and receive comprehensive analysis in seconds.
-              </p>
-              <div className="mt-4 w-24 h-[1px] bg-green-500 rounded-full transform origin-left scale-0 group-hover:scale-100 transition-transform duration-500"></div>
-            </motion.div>
-          </motion.div>
-          
-          {/* New Features Section */}
-          <motion.div variants={fadeIn} className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
-              <span className="text-red-500">Latest Trading Tools</span>
-            </h2>
-            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Cutting-edge features to enhance your trading experience and decision-making.
-            </p>
-          </motion.div>
-          
-          {/* Feature Slider */}
-          <motion.div variants={fadeIn} className="mb-16">
-            <FeatureSlider
-              items={[
-                {
-                  icon: <Sparkles className="h-7 w-7 text-red-500" />,
-                  title: "AI-Powered Trading Tip Generator",
-                  description: "Get instant trading tips and insights for any symbol with one click. Our AI analyzes market conditions and provides actionable recommendations.",
-                  color: "bg-red-50 dark:bg-red-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Clock className="h-7 w-7 text-blue-500" />,
-                  title: "Trading Session Countdown Timer",
-                  description: "Never miss important trading sessions. Our interactive timer tracks major market openings across global time zones.",
-                  color: "bg-blue-50 dark:bg-blue-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Target className="h-7 w-7 text-green-500" />,
-                  title: "Support & Resistance Detector",
-                  description: "Automatically identify key support and resistance levels with strength indicators to help you make better entry and exit decisions.",
-                  color: "bg-green-50 dark:bg-green-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <LineChart className="h-7 w-7 text-purple-500" />,
-                  title: "Volume Analysis By Session",
-                  description: "Analyze trading volume across different market sessions to identify the best times to trade specific pairs for maximum liquidity.",
-                  color: "bg-purple-50 dark:bg-purple-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Timer className="h-7 w-7 text-orange-500" />,
-                  title: "Time Zone Converter Tool",
-                  description: "Easily convert trading times between different time zones to coordinate your strategy with global market movements.",
-                  color: "bg-orange-50 dark:bg-orange-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Share2 className="h-7 w-7 text-teal-500" />,
-                  title: "Webhook Signal System",
-                  description: "Automatically send trading signals to TradeLocker, TradingView, or custom endpoints when analyses complete or trades open.",
-                  color: "bg-teal-50 dark:bg-teal-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Zap className="h-7 w-7 text-amber-500" />,
-                  title: "MT5 Trade Copier EA",
-                  description: "Copy trades from MetaTrader 5 directly to TradeLocker and other platforms with our downloadable EA and API tokens.",
-                  color: "bg-amber-50 dark:bg-amber-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Layers className="h-7 w-7 text-indigo-500" />,
-                  title: "4-Stage Entry System",
-                  description: "Advanced multi-stage entry pipeline: HTF trend analysis → candlestick pattern scoring → LTF timing confirmation → smart order type selection for precision entries.",
-                  color: "bg-indigo-50 dark:bg-indigo-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Pause className="h-7 w-7 text-rose-500" />,
-                  title: "Choppy Market Filter",
-                  description: "Automatically pauses trading during sideways/ranging markets using ADX and ATR analysis. Resumes when trends develop to avoid whipsaws.",
-                  color: "bg-rose-50 dark:bg-rose-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                },
-                {
-                  icon: <Wallet className="h-7 w-7 text-purple-500" />,
-                  title: "Solana Token Scanner",
-                  description: "AI-powered scanner that analyzes trending Solana tokens for buy/sell signals. Connect your Phantom wallet for auto-trading with Jupiter DEX integration.",
-                  color: "bg-purple-50 dark:bg-purple-900/20",
-                  bgGradient: "bg-theme-light border border-theme-light"
-                }
-              ]}
-              className="min-h-[250px] md:min-h-[280px]"
-            />
-          </motion.div>
-          
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {/* News Notifications */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-red-50 dark:bg-red-900/20 mr-3 group-hover:bg-red-100 dark:group-hover:bg-red-900/30 transition-all duration-300">
-                  <Bell className="h-5 w-5 text-red-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">News Notifications</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Get instant alerts about market news events that may impact your analyzed trading pairs.
-              </p>
-            </motion.div>
-            
-            {/* Volatility Risk Meter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-orange-50 dark:bg-orange-900/20 mr-3 group-hover:bg-orange-100 dark:group-hover:bg-orange-900/30 transition-all duration-300">
-                  <AlertTriangle className="h-5 w-5 text-orange-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Volatility Risk Meter</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Visual gauge showing market volatility levels with animated insights to help manage risk.
-              </p>
-            </motion.div>
-            
-            {/* One-Click Chart Sharing */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-blue-50 dark:bg-blue-900/20 mr-3 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30 transition-all duration-300">
-                  <Share2 className="h-5 w-5 text-blue-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">One-Click Sharing</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Share your chart analyses with trading notes via public links to collaborate with other traders.
-              </p>
-            </motion.div>
-            
-            {/* Volume Analysis */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-green-50 dark:bg-green-900/20 mr-3 group-hover:bg-green-100 dark:group-hover:bg-green-900/30 transition-all duration-300">
-                  <BarChart className="h-5 w-5 text-green-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Volume Analysis</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Monitor trading volumes across Asian, European, and US sessions to identify the best times to trade.
-              </p>
-            </motion.div>
-            
-            {/* Time Zone Converter */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/20 mr-3 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/30 transition-all duration-300">
-                  <Clock className="h-5 w-5 text-purple-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Time Zone Converter</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Convert trading session times between different time zones to never miss important market openings.
-              </p>
-            </motion.div>
-            
-            {/* Trading Session Countdown */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-theme-light rounded-lg border-theme-light shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-cyan-50 dark:bg-cyan-900/20 mr-3 group-hover:bg-cyan-100 dark:group-hover:bg-cyan-900/30 transition-all duration-300">
-                  <Timer className="h-5 w-5 text-cyan-500" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Session Countdown</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                Interactive countdown timer to major trading sessions, helping you prepare for market opens and closes.
-              </p>
-            </motion.div>
-            
-            {/* Solana Token Scanner */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-gradient-to-br from-purple-900/30 to-cyan-900/30 rounded-lg border border-purple-500/30 shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-purple-50 dark:bg-purple-900/40 mr-3 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/50 transition-all duration-300">
-                  <Wallet className="h-5 w-5 text-purple-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Solana Token Scanner</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                AI-powered scanner analyzes trending Solana tokens for buy/sell signals. Connect Phantom wallet for auto-trading via Jupiter DEX.
-              </p>
-            </motion.div>
-            
-            {/* Wallet Monitoring */}
-            <motion.div variants={fadeIn} className="flex flex-col p-6 bg-gradient-to-br from-cyan-900/30 to-blue-900/30 rounded-lg border border-cyan-500/30 shadow-theme transform hover:translate-y-[-4px] transition-all duration-300 group">
-              <div className="flex items-center mb-4">
-                <div className="p-2 rounded-full bg-cyan-50 dark:bg-cyan-900/40 mr-3 group-hover:bg-cyan-100 dark:group-hover:bg-cyan-900/50 transition-all duration-300">
-                  <Brain className="h-5 w-5 text-cyan-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-theme-main">Wallet Monitoring</h3>
-              </div>
-              <p className="text-theme-muted flex-grow">
-                AI continuously monitors your wallet tokens for sell signals. Get notifications when it's time to exit positions before losses.
-              </p>
-            </motion.div>
-          </motion.div>
-        </div>
-      </motion.section>
-
-      {/* Pattern Distribution section */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-16 bg-theme-off border-t border-theme-light"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-12">
-            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
-              <span className="text-red-500">Pattern Distribution</span>
-            </h2>
-            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Our AI recognizes a wide range of technical patterns across different market conditions.
-            </p>
-          </motion.div>
-          
-          <motion.div variants={fadeIn}>
-            <PatternSlider />
-          </motion.div>
-          
-          <motion.div variants={fadeIn} className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <PieChart className="h-10 w-10 text-pink-500 mb-2" />
-              <span className="font-medium text-theme-main">Double Top</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <ChartLine className="h-10 w-10 text-blue-500 mb-2" />
-              <span className="font-medium text-theme-main">Bull Flag</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <BarChart2 className="h-10 w-10 text-purple-500 mb-2" />
-              <span className="font-medium text-theme-main">Head & Shoulders</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <Share2 className="h-10 w-10 text-green-500 mb-2" />
-              <span className="font-medium text-theme-main">Triangle</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <TrendingUp className="h-10 w-10 text-red-500 mb-2" />
-              <span className="font-medium text-theme-main">Ascending Channel</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <TrendingDown className="h-10 w-10 text-orange-500 mb-2" />
-              <span className="font-medium text-theme-main">Descending Channel</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <Lightbulb className="h-10 w-10 text-yellow-500 mb-2" />
-              <span className="font-medium text-theme-main">Divergence</span>
-            </div>
-            <div className="flex flex-col items-center p-4 bg-theme-light rounded-lg border border-theme-light shadow-theme">
-              <BarChart className="h-10 w-10 text-cyan-500 mb-2" />
-              <span className="font-medium text-theme-main">Support/Resistance</span>
-            </div>
-          </motion.div>
-        </div>
-      </motion.section>
-      
-      {/* Replace Multiple Apps Section */}
-      <motion.section 
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-20 bg-gradient-to-b from-theme-light to-theme-off border-t border-theme-light"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-12">
-            <div className="inline-flex items-center px-4 py-2 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-sm font-medium mb-6">
-              <Zap className="h-4 w-4 mr-2" />
-              All-In-One Platform
-            </div>
-            <h2 className="text-3xl font-bold tracking-tight text-theme-main sm:text-4xl">
-              <span className="text-red-500">Replace Multiple Apps</span> With One
-            </h2>
-            <p className="mt-4 text-lg text-theme-muted max-w-3xl mx-auto">
-              Stop paying for separate tools. AI Trading Vault bundles everything you need into one powerful platform.
-            </p>
-          </motion.div>
-
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {/* Competitor 1 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">TrendSpider</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$82-197/mo</p>
-              <p className="text-sm text-theme-muted">AI pattern analysis & automated chart scanning</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-
-            {/* Competitor 2 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">Trade Ideas</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$118-228/mo</p>
-              <p className="text-sm text-theme-muted">AI stock scanning & signal generation</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-
-            {/* Competitor 3 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">EA Builder Pro</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$19.99/mo</p>
-              <p className="text-sm text-theme-muted">Expert Advisor code generator</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-
-            {/* Competitor 4 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">Trade Copier Services</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$50-150/mo</p>
-              <p className="text-sm text-theme-muted">MT5 to TradeLocker signal relay</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-
-            {/* Competitor 5 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">News Sentiment Tools</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$30-80/mo</p>
-              <p className="text-sm text-theme-muted">Financial news analysis & sentiment scoring</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-
-            {/* Competitor 6 */}
-            <motion.div variants={fadeIn} className="p-6 bg-theme-light rounded-xl border border-red-200 dark:border-red-800 relative overflow-hidden">
-              <div className="absolute top-2 right-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full">REPLACED</div>
-              <h3 className="font-bold text-lg text-theme-main mb-2">Webhook Alert Services</h3>
-              <p className="text-2xl font-bold text-red-500 line-through mb-2">$15-40/mo</p>
-              <p className="text-sm text-theme-muted">Trading signal webhooks & automation</p>
-              <div className="mt-3 pt-3 border-t border-theme-light">
-                <p className="text-xs text-green-500 font-medium">✓ Included in AI Trading Vault</p>
-              </div>
-            </motion.div>
-          </motion.div>
-
-          {/* Pricing Summary */}
-          <motion.div variants={fadeIn} className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-8 text-white text-center">
-            <h3 className="text-2xl font-bold mb-2">All-In-One Platform Pricing</h3>
-            <p className="text-base opacity-80 mb-6">Get everything listed above in a single subscription</p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 max-w-2xl mx-auto">
-              <div className="bg-white/15 rounded-xl p-4">
-                <p className="text-sm opacity-80 mb-1">Starter</p>
-                <p className="text-3xl font-bold">$49.95</p>
-                <p className="text-sm opacity-70">/month</p>
-              </div>
-              <div className="bg-white/25 rounded-xl p-4 ring-2 ring-white/50">
-                <p className="text-sm opacity-80 mb-1">Premium</p>
-                <p className="text-3xl font-bold">$149.99</p>
-                <p className="text-sm opacity-70">/month</p>
-              </div>
-              <div className="bg-white/15 rounded-xl p-4">
-                <p className="text-sm opacity-80 mb-1">Yearly</p>
-                <p className="text-3xl font-bold">$999.99</p>
-                <p className="text-sm opacity-70">/year</p>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/subscription">
-                <Button size="lg" variant="secondary" className="bg-white text-green-600 hover:bg-gray-100">
-                  View Pricing Plans
-                </Button>
-              </Link>
-              <Link href="/auth">
-                <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
-                  Start Free Trial
-                </Button>
-              </Link>
-            </div>
-          </motion.div>
-        </div>
-      </motion.section>
-
-      {/* The VEDDAI Experience Section */}
-      <motion.section 
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-20 bg-gradient-to-b from-theme-off to-theme-light border-t border-theme-light"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-16">
-            <div className="inline-flex items-center px-4 py-2 rounded-full bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-medium mb-6">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Experience the Journey
-            </div>
-            <h2 className="text-4xl font-bold tracking-tight text-theme-main sm:text-5xl lg:text-6xl">
-              <span className="text-red-500">The VEDDAI</span> Experience
-            </h2>
-            <p className="mt-6 text-xl text-theme-muted max-w-4xl mx-auto leading-relaxed">
-              Discover how VEDD transforms complex trading challenges into clear, actionable insights through our revolutionary approach
-            </p>
-          </motion.div>
-          
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
-            {/* Step 1 - Introduction */}
-            <motion.div 
-              variants={fadeIn}
-              className="group relative"
-            >
-              <div className="absolute -top-4 -left-4 w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
-                1
-              </div>
-              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video bg-gradient-to-br from-red-50 to-red-100 dark:from-red-900/20 dark:to-red-800/20 flex items-center justify-center relative overflow-hidden">
-                  {/* Background Pattern */}
-                  <div className="absolute inset-0 opacity-10">
-                    <div className="absolute top-4 left-4">
-                      <BarChart2 className="h-8 w-8 text-red-500" />
-                    </div>
-                    <div className="absolute top-4 right-4">
-                      <TrendingUp className="h-6 w-6 text-red-400" />
-                    </div>
-                    <div className="absolute bottom-4 left-4">
-                      <LineChart className="h-6 w-6 text-red-400" />
-                    </div>
-                    <div className="absolute bottom-4 right-4">
-                      <PieChart className="h-8 w-8 text-red-500" />
-                    </div>
-                  </div>
-                  {/* Main Icon */}
-                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-red-100 dark:border-red-800 group-hover:scale-110 transition-transform duration-300">
-                    <Zap className="h-16 w-16 text-red-500" />
-                  </div>
-                </div>
-                <div className="p-8">
-                  <div className="flex items-center mb-4">
-                    <div className="w-3 h-3 rounded-full bg-red-500 mr-3"></div>
-                    <span className="text-sm font-medium text-red-500 uppercase tracking-wider">Introduction</span>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Initiation to Automation</h3>
-                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                    Begin your journey with VEDD's intuitive interface. Our platform welcomes you into a world where AI-powered trading analysis becomes accessible and actionable.
-                  </p>
-                  <div className="mt-6 flex items-center text-red-500 text-sm font-medium">
-                    <span>Learn More</span>
-                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-            
-            {/* Step 2 - Problem */}
-            <motion.div 
-              variants={fadeIn}
-              className="group relative"
-            >
-              <div className="absolute -top-4 -left-4 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
-                2
-              </div>
-              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 flex items-center justify-center relative overflow-hidden">
-                  {/* Chaos Pattern for Problem */}
-                  <div className="absolute inset-0 opacity-20">
-                    <div className="absolute top-2 left-2 animate-pulse">
-                      <BarChart className="h-4 w-4 text-blue-500" />
-                    </div>
-                    <div className="absolute top-8 left-8 animate-pulse delay-100">
-                      <TrendingDown className="h-5 w-5 text-blue-400" />
-                    </div>
-                    <div className="absolute top-4 right-8 animate-pulse delay-200">
-                      <AlertTriangle className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <div className="absolute bottom-8 left-12 animate-pulse delay-300">
-                      <MoreVertical className="h-4 w-4 text-blue-500" />
-                    </div>
-                    <div className="absolute bottom-4 right-4 animate-pulse delay-150">
-                      <BarChart2 className="h-7 w-7 text-blue-500" />
-                    </div>
-                    <div className="absolute top-12 left-16 animate-pulse delay-250">
-                      <Share2 className="h-3 w-3 text-blue-400" />
-                    </div>
-                  </div>
-                  {/* Main Icon */}
-                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-blue-100 dark:border-blue-800 group-hover:scale-110 transition-transform duration-300">
-                    <AlertTriangle className="h-16 w-16 text-blue-500" />
-                  </div>
-                </div>
-                <div className="p-8">
-                  <div className="flex items-center mb-4">
-                    <div className="w-3 h-3 rounded-full bg-blue-500 mr-3"></div>
-                    <span className="text-sm font-medium text-blue-500 uppercase tracking-wider">Problem</span>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">The Trading Challenge</h3>
-                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                    The real problem with trading isn't the lack of information, but the ability to process it effectively. VEDD addresses this fundamental challenge head-on.
-                  </p>
-                  <div className="mt-6 flex items-center text-blue-500 text-sm font-medium">
-                    <span>Understand the Problem</span>
-                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-            
-            {/* Step 3 - Solution */}
-            <motion.div 
-              variants={fadeIn}
-              className="group relative"
-            >
-              <div className="absolute -top-4 -left-4 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold text-sm z-10">
-                3
-              </div>
-              <div className="relative bg-white dark:bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700 group-hover:shadow-3xl transition-all duration-500 transform group-hover:-translate-y-2">
-                <div className="aspect-video bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 flex items-center justify-center relative overflow-hidden">
-                  {/* Solution Pattern */}
-                  <div className="absolute inset-0 opacity-15">
-                    <div className="absolute top-4 left-4">
-                      <Target className="h-6 w-6 text-green-500" />
-                    </div>
-                    <div className="absolute top-4 right-4">
-                      <TrendingUp className="h-7 w-7 text-green-600" />
-                    </div>
-                    <div className="absolute bottom-4 left-4">
-                      <BarChart2 className="h-8 w-8 text-green-500" />
-                    </div>
-                    <div className="absolute bottom-4 right-4">
-                      <Lightbulb className="h-6 w-6 text-green-400" />
-                    </div>
-                    <div className="absolute top-8 left-12">
-                      <ChartLine className="h-5 w-5 text-green-500" />
-                    </div>
-                  </div>
-                  {/* Main Icon */}
-                  <div className="relative z-10 p-6 bg-white dark:bg-gray-800 rounded-full shadow-lg border border-green-100 dark:border-green-800 group-hover:scale-110 transition-transform duration-300">
-                    <Lightbulb className="h-16 w-16 text-green-500" />
-                  </div>
-                </div>
-                <div className="p-8">
-                  <div className="flex items-center mb-4">
-                    <div className="w-3 h-3 rounded-full bg-green-500 mr-3"></div>
-                    <span className="text-sm font-medium text-green-500 uppercase tracking-wider">Solution</span>
-                  </div>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">The VEDD Answer</h3>
-                  <p className="text-gray-600 dark:text-gray-300 leading-relaxed">
-                    Our algorithm leverages advanced data analysis and EMA crosses to create powerful, data-driven trading strategies that maximize your returns with precision.
-                  </p>
-                  <div className="mt-6 flex items-center text-green-500 text-sm font-medium">
-                    <span>See the Solution</span>
-                    <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-          
-          {/* Progress Indicator */}
-          <motion.div variants={fadeIn} className="flex justify-center mt-16">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <div className="w-16 h-0.5 bg-gray-300 dark:bg-gray-600 mx-2"></div>
-              </div>
-              <div className="flex items-center">
-                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                <div className="w-16 h-0.5 bg-gray-300 dark:bg-gray-600 mx-2"></div>
-              </div>
-              <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            </div>
-          </motion.div>
-          
-          <motion.div 
-            variants={fadeIn}
-            className="mt-10 flex justify-center"
-          >
-            <Link href="/auth" className="w-full max-w-[280px]">
-              <div className="relative w-full h-16 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group">
-                {/* Track */}
-                <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-90 bg-size-200 animate-gradient-x"></div>
-                
-                {/* Animated background effects */}
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                  <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                </div>
-                
-                {/* Text label */}
-                <div className="absolute inset-0 flex items-center justify-center text-white font-semibold text-lg">
-                  <span className="mr-2">Experience it Yourself</span>
-                  <span className="transform transition-transform duration-500 group-hover:translate-x-3">→</span>
-                </div>
-                
-                {/* Left sliding indicator */}
-                <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform -translate-x-full group-hover:translate-x-0">
-                  <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                    <ArrowRight className="h-5 w-5 text-white" />
-                  </div>
-                </div>
-                
-                {/* Right sliding indicator */}
-                <div className="absolute right-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-x-full group-hover:translate-x-0">
-                  <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                    <ArrowRight className="h-5 w-5 text-white" />
-                  </div>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-        </div>
-      </motion.section>
-      
-      {/* Testimonials */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-80px" }}
-        variants={staggerContainer}
-        className="py-20 bg-gradient-to-b from-black to-gray-950 border-t border-gray-800"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <motion.div variants={fadeIn} className="text-center mb-14">
-            <div className="inline-flex items-center px-4 py-2 rounded-full bg-amber-500/10 text-amber-400 text-sm font-medium mb-4">
-              <Trophy className="h-4 w-4 mr-2" />
-              Trader Stories
-            </div>
-            <h2 className="text-3xl font-bold text-white sm:text-4xl" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-              Real traders. <span className="text-red-400">Real results.</span>
-            </h2>
-          </motion.div>
-          <motion.div variants={staggerContainer} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {[
-              {
-                quote: "I uploaded my XAUUSD chart and the AI immediately spotted a Head & Shoulders I completely missed. Saved me from a bad BUY entry. Now I never trade without it.",
-                name: "Marcus T.", role: "Forex Trader · MT5 User", stars: 5,
-              },
-              {
-                quote: "The EA generator is insane. I described my strategy, uploaded my charts, and had a compiled MT5 Expert Advisor running in 10 minutes. Would have taken me weeks to code.",
-                name: "Priya S.", role: "Algorithmic Trader · TradingView", stars: 5,
-              },
-              {
-                quote: "I was paying $197/mo for TrendSpider alone. VEDD replaced that, my webhook service, and my news tool. Better analysis for a fraction of the cost.",
-                name: "Devon K.", role: "Swing Trader · TradeLocker", stars: 5,
-              },
-            ].map((t, i) => (
-              <motion.div
-                key={i}
-                variants={fadeIn}
-                whileHover={{ y: -6, transition: { duration: 0.25 } }}
-                className="bg-gray-900/80 rounded-2xl p-6 border border-gray-700/60 flex flex-col gap-4"
-              >
-                <div className="flex gap-1">
-                  {Array.from({ length: t.stars }).map((_, s) => (
-                    <span key={s} className="text-amber-400 text-sm">★</span>
-                  ))}
-                </div>
-                <p className="text-gray-300 leading-relaxed text-sm italic">"{t.quote}"</p>
-                <div className="mt-auto pt-4 border-t border-gray-700/40">
-                  <p className="font-semibold text-white text-sm">{t.name}</p>
-                  <p className="text-xs text-gray-500">{t.role}</p>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </motion.section>
-
-      {/* Ambassador Program Teaser */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, margin: "-80px" }}
-        variants={staggerContainer}
-        className="py-20 bg-gradient-to-r from-amber-950/40 via-gray-900 to-amber-950/40 border-t border-amber-800/30"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <motion.div variants={slideUp}>
-              <div className="inline-flex items-center px-4 py-2 rounded-full bg-amber-500/15 text-amber-400 text-sm font-medium mb-6">
-                <Gift className="h-4 w-4 mr-2" />
-                Ambassador Program
-              </div>
-              <h2 className="text-3xl font-bold text-white sm:text-4xl mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                Get paid to share <span className="text-amber-400">VEDD</span>
-              </h2>
-              <p className="text-gray-300 text-lg leading-relaxed mb-6">
-                Refer traders, earn recurring commissions, and unlock ambassador credits you can use to <strong className="text-white">pay your own Pro subscription</strong> — completely free.
-              </p>
-              <ul className="space-y-3 mb-8">
-                {[
-                  "500 credits per successful referral",
-                  "Recurring monthly commissions on paid plans",
-                  "Use credits to pay your Starter or Premium plan",
-                  "44-day training program with certifications",
-                  "Bronze → Silver → Gold → Platinum tiers",
-                  "Private ambassador community & strategy calls",
-                ].map((item, i) => (
-                  <li key={i} className="flex items-center gap-3 text-gray-300 text-sm">
-                    <div className="h-5 w-5 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-amber-400 text-xs">✓</span>
-                    </div>
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <Link href="/ambassador-training">
-                <Button className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3 text-base rounded-full transition-all duration-300 hover:scale-105">
-                  Start Ambassador Training
-                  <ArrowRight className="h-5 w-5 ml-2" />
-                </Button>
-              </Link>
-            </motion.div>
-
-            <motion.div variants={fadeIn} className="grid grid-cols-2 gap-4">
-              {[
-                { tier: "Bronze", req: "10 referrals", perk: "5,000 credits/mo", color: "from-amber-700/30 to-amber-900/20", border: "border-amber-700/40", text: "text-amber-600" },
-                { tier: "Silver", req: "30 referrals", perk: "15,000 credits/mo + 5% commission", color: "from-gray-400/20 to-gray-600/10", border: "border-gray-400/40", text: "text-gray-300" },
-                { tier: "Gold", req: "60 referrals", perk: "30,000 credits/mo + 10% commission", color: "from-yellow-500/20 to-yellow-700/10", border: "border-yellow-500/40", text: "text-yellow-400" },
-                { tier: "Platinum", req: "100+ referrals", perk: "50,000 credits/mo + 15% + revenue share", color: "from-cyan-500/20 to-blue-700/10", border: "border-cyan-500/40", text: "text-cyan-400" },
-              ].map((tier, i) => (
-                <motion.div
-                  key={i}
-                  whileHover={{ scale: 1.04, transition: { duration: 0.2 } }}
-                  className={`bg-gradient-to-br ${tier.color} rounded-2xl p-5 border ${tier.border}`}
-                >
-                  <p className={`text-lg font-bold mb-1 ${tier.text}`} style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{tier.tier}</p>
-                  <p className="text-xs text-gray-400 mb-2">{tier.req}</p>
-                  <p className="text-sm text-gray-200 font-medium">{tier.perk}</p>
-                </motion.div>
-              ))}
-            </motion.div>
+            <div className="panel-foot"><span>engine <b>live</b></span><span>brain <b>learning ↑</b></span><span>win-rate <b>68%</b></span></div>
           </div>
         </div>
-      </motion.section>
+      </div>
 
-      {/* Call to Action */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-16 bg-red-600 dark:bg-red-800 text-white border-t border-white/10"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8 text-center">
-          <motion.h2 variants={fadeIn} className="text-3xl font-bold sm:text-4xl mb-4 text-white">
-            Ready to Elevate Your Trading?
-          </motion.h2>
-          <motion.p variants={fadeIn} className="text-lg text-white/90 max-w-2xl mx-auto mb-8">
-            Join traders who are using VEDD's AI-powered analysis to transform their results.
-          </motion.p>
-          <motion.div variants={fadeIn} className="flex flex-col items-center gap-4">
-            <div className="w-full max-w-md flex justify-center mb-4">
-              <Link href="/auth" className="w-full max-w-[280px]">
-                <div className="relative w-full h-16 rounded-full bg-gray-800 p-1 overflow-hidden cursor-pointer shadow-lg shadow-gray-900/20 group">
-                  {/* Track */}
-                  <div className="absolute inset-0 bg-gradient-to-r from-red-600 via-red-500 to-red-600 opacity-90 bg-size-200 animate-gradient-x"></div>
-                  
-                  {/* Animated background effects */}
-                  <div className="absolute inset-0 overflow-hidden">
-                    <div className="absolute -bottom-10 -left-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                    <div className="absolute -top-10 -right-10 h-20 w-20 bg-white/20 rounded-full transition-all duration-500 group-hover:scale-150"></div>
-                  </div>
-                  
-                  {/* Text label */}
-                  <div className="absolute inset-0 flex items-center justify-center text-white font-semibold text-lg">
-                    <span className="mr-2">Get Started</span>
-                    <span className="transform transition-transform duration-500 group-hover:translate-x-3">→</span>
-                  </div>
-                  
-                  {/* Left sliding indicator */}
-                  <div className="absolute left-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform -translate-x-full group-hover:translate-x-0">
-                    <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                      <ArrowRight className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                  
-                  {/* Right sliding indicator */}
-                  <div className="absolute right-1 top-1 bottom-1 flex items-center opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-x-full group-hover:translate-x-0">
-                    <div className="h-14 w-14 rounded-full bg-white/10 flex items-center justify-center">
-                      <ArrowRight className="h-5 w-5 text-white" />
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            </div>
-            
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <EarlyAccessForm />
-              
-              <Link href="/subscription">
-                <Button size="lg" variant="outline" className="border-white/40 text-white/60 hover:bg-white/10 hover:text-white transition-all duration-300">
-                  View Pricing
-                </Button>
-              </Link>
-            </div>
-          </motion.div>
-        </div>
-      </motion.section>
-      
-      {/* Interactive Demo Section */}
-      <motion.section
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        variants={staggerContainer}
-        className="py-20 bg-theme-off border-t border-theme-light"
-      >
-        <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          <DemoSection />
-        </div>
-      </motion.section>
-      
-      {/* Footer */}
-      <footer className="w-full border-t border-theme-light py-6 px-6 bg-theme-light">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center">
-          <div className="flex items-center mb-4 md:mb-0">
-            <img src={logoImg} alt="VEDD Logo" className="h-8" />
-            <span className="ml-2 text-xs text-red-500 italic font-light">seize the day divine</span>
-          </div>
-          
-          <div className="flex items-center space-x-8">
-            <Link href="/blog" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
-              Blog
-            </Link>
-            <Link href="/subscription" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
-              Pricing
-            </Link>
-            <button 
-              onClick={() => setIsLoginOpen(true)}
-              className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300"
-            >
-              Login
-            </button>
-            <Link href="/contact" className="text-sm text-theme-main hover:text-red-500 transition-colors duration-300">
-              Contact
-            </Link>
-          </div>
-        </div>
-      </footer>
-      
-      {/* Floating Login Button */}
-      <motion.button
-        onClick={() => setIsLoginOpen(true)}
-        className="fixed bottom-6 right-6 z-40 p-4 rounded-full bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-500/30 hover:shadow-xl hover:shadow-red-500/40 transition-shadow"
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        initial={{ opacity: 0, y: 50 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1 }}
-      >
-        <Lock className="h-6 w-6" />
-      </motion.button>
-      
-      {/* Gamified Login Modal */}
-      <GamifiedLogin isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+      <div className="ticker"><span className="track" id="vl-tk" /></div>
 
-      {/* ABBA New Feature Announcement Popup */}
-      <AnimatePresence>
-        {showABBAPopup && (
-          <motion.div
-            initial={{ opacity: 0, y: 60, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 40, scale: 0.95 }}
-            transition={{ delay: 2, duration: 0.5 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-sm"
-          >
-            <div className="rounded-2xl overflow-hidden shadow-2xl"
-              style={{ background: 'linear-gradient(135deg, #0a0a14 0%, #130a0a 100%)', border: '1px solid rgba(220,38,38,0.5)', boxShadow: '0 0 40px rgba(220,38,38,0.2)' }}>
-              <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid rgba(220,38,38,0.2)', background: 'rgba(220,38,38,0.08)' }}>
-                {/* Mini arc reactor */}
-                <div className="relative w-8 h-8 flex-shrink-0">
-                  <div className="absolute inset-0 rounded-full animate-ping" style={{ background: 'radial-gradient(circle, rgba(220,38,38,0.3) 0%, transparent 70%)' }} />
-                  <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, #1a0a0a 0%, #0d0d1a 100%)', border: '1.5px solid rgba(220,38,38,0.5)' }} />
-                  <div className="absolute rounded-full" style={{ inset: 3, border: '1px solid rgba(220,38,38,0.7)', boxShadow: '0 0 6px rgba(220,38,38,0.5)' }} />
-                  <div className="absolute rounded-full" style={{ inset: 10, background: 'radial-gradient(circle, #dc2626 0%, #7c3aed 100%)', boxShadow: '0 0 10px rgba(220,38,38,0.9)' }} />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-black tracking-widest" style={{ background: 'linear-gradient(90deg, #ef4444, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>ABBA</span>
-                    <span className="text-[9px] font-bold bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>
-                  </div>
-                  <p className="text-[10px] text-gray-400">VEDD Personal AI Trading Assistant</p>
-                </div>
-                <button onClick={() => { setShowABBAPopup(false); localStorage.setItem('ABBA_announced', '1'); }} className="text-gray-500 hover:text-white p-1">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <div className="px-4 py-3">
-                <p className="text-sm text-gray-300 mb-3">Your JARVIS for trading is here. ABBA monitors your weekly goal, live P&L, open positions, and pair plan — then advises you in real time like a personal fund manager.</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setIsLoginOpen(true)} className="flex-1 py-2 rounded-xl text-xs font-bold text-white text-center" style={{ background: 'linear-gradient(135deg, #dc2626, #7c3aed)' }}>
-                    Try ABBA
-                  </button>
-                  <button onClick={() => { setShowABBAPopup(false); localStorage.setItem('ABBA_announced', '1'); }} className="px-3 py-2 rounded-xl text-xs text-gray-500 hover:text-gray-300" style={{ background: 'rgba(255,255,255,0.05)' }}>
-                    Dismiss
-                  </button>
-                </div>
-              </div>
+      <div className="shell">
+        <section id="how">
+          <div className="reveal">
+            <div className="kicker">How it works</div>
+            <h2>Set it up once. It runs itself.</h2>
+            <p className="lead">No indicators to learn, no setup. The brain decides, the engine trades — you watch.</p>
+          </div>
+          <div className="steps">
+            <div className="step reveal"><div className="ic">🔗</div><div className="no">01</div><h3>Connect or snap</h3><p>Link your account or drop in a chart. Takes about a minute.</p></div>
+            <div className="step reveal"><div className="ic">🧠</div><div className="no">02</div><h3>The brain decides</h3><p>Reads structure, momentum and news, then makes the call — and remembers it.</p></div>
+            <div className="step reveal"><div className="ic">⚡</div><div className="no">03</div><h3>The engine trades</h3><p>Takes the trade, manages it, and learns from the result to get sharper.</p></div>
+          </div>
+        </section>
+
+        <section id="features">
+          <div className="reveal">
+            <div className="kicker">Engine + brain</div>
+            <h2>It trades. It learns. It repeats.</h2>
+            <p className="lead">A live engine that runs your strategy around the clock, and a brain that grades every trade and gets sharper over time.</p>
+          </div>
+          <div className="feat">
+            <div className="fcard hero-feat reveal"><div className="glow" /><div className="tag">Core · Live engine</div><h3>Trades while you sleep</h3><p>The engine reads the markets, takes the trades, and manages them 24/7 — completely hands-off.</p></div>
+            <div className="fcard reveal"><div className="tag">Self-learning</div><h3>A brain that improves</h3><p>Grades every win and loss and gets sharper with each trade it takes.</p></div>
+            <div className="fcard reveal"><div className="tag">Reads anything</div><h3>Any chart, any market</h3><p>Forex, Kalshi and crypto — one brain across them all.</p></div>
+          </div>
+          <div className="stats">
+            <div className="stat reveal"><div className="n">~2<span className="u">s</span></div><div className="l">to read a chart</div></div>
+            <div className="stat reveal"><div className="n">24<span className="u">/7</span></div><div className="l">engine never sleeps</div></div>
+            <div className="stat reveal"><div className="n">$0<span className="u">.</span></div><div className="l">to start, free forever plan</div></div>
+          </div>
+          <div style={{ marginTop: 26 }} className="reveal">
+            <button className="btn-ghost" style={{ paddingLeft: 0 }} onClick={() => navigate('/features')}><span className="pl">→</span> See every feature</button>
+          </div>
+        </section>
+
+        <section>
+          <div className="market reveal">
+            <div>
+              <div className="kicker" style={{ color: 'var(--gold)' }}>Brain marketplace</div>
+              <h2>Outgrown your brain? Sell it.</h2>
+              <p className="lead">Once your brain gets sharp, list it. Traders just getting started plug in a proven brain to skip the learning curve — and you earn a reward every time yours gets used.</p>
+              <button className="btn-ghost" style={{ marginTop: 18, paddingLeft: 0 }} onClick={start}><span className="pl">→</span> List a brain, earn VEDD</button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <div className="listing">
+              <div className="glow" style={{ background: 'radial-gradient(circle,rgba(245,196,81,.2),transparent 70%)' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(245,196,81,.12)', border: '1px solid rgba(245,196,81,.3)', display: 'grid', placeItems: 'center', fontSize: 19 }}>🧠</span>
+                  <div><div style={{ fontWeight: 800 }}>Momentum Brain</div><div style={{ font: '600 11px var(--mono)', color: 'var(--tx3)' }}>v3 · 1,240 trades learned</div></div>
+                </div>
+                <span style={{ font: '700 10px var(--mono)', textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gold)', border: '1px solid rgba(245,196,81,.35)', padding: '4px 8px', borderRadius: 999 }}>For sale</span>
+              </div>
+              <div style={{ display: 'flex', gap: 20, margin: '16px 0 10px' }}>
+                <div><div style={{ font: '800 1.5rem inherit', color: 'var(--green)' }}>71%</div><div style={{ font: '500 11px inherit', color: 'var(--tx3)' }}>win rate</div></div>
+                <div><div style={{ font: '800 1.5rem inherit', color: 'var(--gold)' }}>+250</div><div style={{ font: '500 11px inherit', color: 'var(--tx3)' }}>VEDD to seller</div></div>
+              </div>
+              <div className="meter"><i style={{ width: '71%', background: 'linear-gradient(90deg,var(--gold),#ffe29a)' }} /></div>
+              <button className="btn-primary" style={{ width: '100%', marginTop: 16, background: 'linear-gradient(150deg,var(--gold),#caa02f)', color: '#241a02', boxShadow: '0 10px 30px rgba(245,196,81,.28)' }} onClick={start}>Add this brain to my engine</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="plans">
+          <div className="reveal">
+            <div className="kicker">Plans</div>
+            <h2>Start free. Upgrade when it's paying off.</h2>
+            <p className="lead">The free plan reads your charts. Paid plans hand the trades to the live engine and let the brain run around the clock.</p>
+          </div>
+          <div className="plans">
+            <div className="plan reveal">
+              <div className="pn">Free</div><div className="pp">$0<small>/forever</small></div>
+              <ul><li>AI chart analysis</li><li>Community and devotionals</li><li>Free-to-Pro rewards path</li></ul>
+              <button className="nav-cta" style={{ width: '100%', marginTop: 20 }} onClick={start}>Start free</button>
+            </div>
+            <div className="plan pfeat reveal">
+              <span className="badge">Most popular</span>
+              <div className="pn">Starter</div><div className="pp">$49.95<small>/mo</small></div>
+              <ul><li>Live trading engine, 24/7</li><li>Self-learning brain</li><li>Forex, Kalshi and crypto</li></ul>
+              <button className="btn-primary" style={{ width: '100%', marginTop: 20 }} onClick={() => navigate('/pricing')}>Get Starter</button>
+            </div>
+            <div className="plan reveal">
+              <div className="pn">Premium</div><div className="pp">$149.99<small>/mo</small></div>
+              <ul><li>Everything in Starter</li><li>Sell brains on the marketplace</li><li>Priority AI and higher limits</li></ul>
+              <button className="nav-cta" style={{ width: '100%', marginTop: 20 }} onClick={() => navigate('/pricing')}>Get Premium</button>
+            </div>
+          </div>
+          <p style={{ textAlign: 'center', marginTop: 22, color: 'var(--tx3)', fontSize: '.92rem' }}>
+            Save with $999.99/yr · <Link href="/pricing" style={{ color: 'var(--tx2)' }}>See full plans and features →</Link>
+          </p>
+        </section>
+
+        <section id="faq">
+          <div className="reveal"><div className="kicker">FAQ</div><h2>Questions, answered.</h2></div>
+          <div className="faq reveal">
+            <details><summary>Do I need trading experience?</summary><p>No. The brain reads the charts and the live engine takes the trades — you can let it run or approve each call. It's built for someone opening their first chart.</p></details>
+            <details><summary>Is it really free to start?</summary><p>Yes — the free plan needs no card. Paid plans unlock the live trading engine, the self-learning brain, and higher limits when you're ready.</p></details>
+            <details><summary>What markets does it work on?</summary><p>Forex, Kalshi and crypto, through your own MT5, TradeLocker or connected accounts. One brain works across all of them.</p></details>
+            <details><summary>Is my money safe?</summary><p>VEDD never holds your funds. It connects to your own broker or exchange through your keys, and the trades happen in your account — you stay in control.</p></details>
+            <details><summary>What's the "brain," and can I really sell it?</summary><p>Your brain is the self-learning model behind your engine — it grades every trade and gets sharper over time. Once it's proven, list it on the marketplace and earn VEDD every time a new trader uses it.</p></details>
+            <details><summary>Can I cancel anytime?</summary><p>Yes. Upgrade, downgrade or cancel whenever — no lock-in.</p></details>
+          </div>
+        </section>
+
+        <div className="final reveal">
+          <div className="glow" style={{ top: -90, left: '40%', width: 260, height: 260 }} />
+          <h2>Let the engine take it from here.</h2>
+          <p>Create your account and the brain starts learning your first setup in minutes.</p>
+          <button className="btn-primary" onClick={start}>Start free — no card</button>
+        </div>
+
+        <footer>
+          <span>© 2026 VEDD AI Trading Vault · seize the day divine</span>
+          <span>veddbuild.com</span>
+        </footer>
+      </div>
     </div>
   );
 }
