@@ -11942,7 +11942,10 @@ var init_openai = __esm({
       { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B (OpenRouter)", description: "OpenAI open-weight model via OpenRouter \u2014 ultra-cheap (~$4/1M calls), no daily cap", tier: "budget", provider: "openrouter", textOnly: true },
       { id: "nvidia/nemotron-3-super-120b-a12b:free", name: "Nemotron 3 Super 120B (FREE)", description: "NVIDIA large reasoning model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
       { id: "google/gemma-4-26b-a4b-it:free", name: "Gemma 4 26B (FREE)", description: "Google efficient MoE model \u2014 free via OpenRouter", tier: "budget", provider: "openrouter", textOnly: true },
-      { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B Vision (FREE)", description: "Multimodal vision \u2014 reads chart images, completely free via OpenRouter", tier: "budget", provider: "openrouter" }
+      { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B Vision (FREE)", description: "Multimodal vision \u2014 reads chart images, completely free via OpenRouter", tier: "budget", provider: "openrouter" },
+      // Cheaper OpenRouter vision picks (selectable; honored as-is, not promoted).
+      { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (OpenRouter)", description: "GPT-4o Mini via OpenRouter \u2014 capable chart vision, cheaper than OpenAI-direct, no daily cap", tier: "budget", provider: "openrouter" },
+      { id: "google/gemma-3-4b-it", name: "Gemma 3 4B Vision (OpenRouter)", description: "Ultra-cheap OpenRouter vision (~$0.0000009/call, no daily cap) \u2014 lowest cost, lighter confidence scoring", tier: "budget", provider: "openrouter" }
     ];
     userModelPreferences = /* @__PURE__ */ new Map();
     DEPRECATED_MODEL_MAP = {
