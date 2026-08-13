@@ -351,7 +351,12 @@ async function executeSignal(service: CryptoComService, connection: CryptocomCon
   }
 
   const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, account.equity, result.price);
+  // Size off the SAME equity the safety gate used (gateEquity), which falls back
+  // to the configured accountBalance when the live margin wallet reads 0. Passing
+  // raw account.equity here meant a 0-equity derivatives wallet (funds in spot /
+  // unfunded margin side) passed the gate but sized to 0 → signal skipped, never
+  // traded. This is the "detecting signals but never executing" trap.
+  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price);
   if (quantity <= 0) {
     await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
     return;

@@ -47770,7 +47770,7 @@ async function executeSignal2(service, connection2, userId, symbol, result, cfg)
     return;
   }
   const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, account.equity, result.price);
+  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price);
   if (quantity <= 0) {
     await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     return;
