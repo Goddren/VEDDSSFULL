@@ -237,6 +237,7 @@ __export(schema_exports, {
   nameCheckSourceEnum: () => nameCheckSourceEnum,
   nfcActivations: () => nfcActivations,
   nfcDailyTaps: () => nfcDailyTaps,
+  optionsBrainOutcomes: () => optionsBrainOutcomes,
   optionsEngineActivity: () => optionsEngineActivity,
   optionsEngineConfigs: () => optionsEngineConfigs,
   optionsEngineTrades: () => optionsEngineTrades,
@@ -294,7 +295,7 @@ __export(schema_exports, {
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb, json, real, unique, doublePrecision, pgEnum, date, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWalletEarnings, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, microGrowthSessions, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, workforceCourseProgress, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, kalshiEngineConfigs, kalshiBrainOutcomes, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
+var subscriptionPlans, aiUsageLog, users, chartAnalyses, tradingStrategies, spreadStrategies, insertUserSchema, loginUserSchema, updateUserProfileSchema, insertChartAnalysisSchema, achievements, userAchievements, insertAchievementSchema, insertUserAchievementSchema, userProfiles, follows, analysisFeedback, analysisViews, insertUserProfileSchema, insertFollowSchema, insertAnalysisFeedbackSchema, insertSubscriptionPlanSchema, referrals2, insertReferralSchema, referralVisits, insertReferralVisitSchema, dmKeywords, insertDmKeywordSchema, insertTradingStrategySchema, priceAlerts, insertPriceAlertSchema, savedEAs, eaSubscriptions, insertSavedEASchema, insertEASubscriptionSchema, marketDataSnapshots, insertMarketDataSnapshotSchema, marketDataRefreshJobs, insertMarketDataRefreshJobSchema, eaShareAssets, insertEAShareAssetSchema, userStreaks, insertUserStreakSchema, scenarioAnalyses, insertScenarioAnalysisSchema, webhookConfigs, insertWebhookConfigSchema, webhookLogs, insertWebhookLogSchema, mt5ApiTokens, insertMt5ApiTokenSchema, mt5SignalLogs, insertMt5SignalLogSchema, tradelockerConnections, insertTradelockerConnectionSchema, alpacaConnections, insertAlpacaConnectionSchema, tastytradeConnections, insertTastytradeConnectionSchema, cryptocomConnections, insertCryptocomConnectionSchema, cryptocomEngineConfigs, insertCryptocomEngineConfigSchema, cryptocomEngineActivity, cryptocomEngineTrades, insertCryptocomEngineTradeSchema, optionsEngineConfigs, insertOptionsEngineConfigSchema, liveEngineConfigs, optionsEngineActivity, insertOptionsEngineActivitySchema, optionsEngineTrades, insertOptionsEngineTradeSchema, tradelockerTradeLogs, insertTradelockerTradeLogSchema, tradovateConnections, insertTradovateConnectionSchema, tradovateTradeLogs, insertTradovateTradeLogSchema, futuresEngineConfigs, insertFuturesEngineConfigSchema, futuresEngineActivity, insertFuturesEngineActivitySchema, futuresEngineTrades, insertFuturesEngineTradeSchema, aiTradeResults, insertAiTradeResultSchema, TIER_CONFIG, ambassadorTrainingProgress, insertAmbassadorTrainingProgressSchema, ambassadorCertifications, insertAmbassadorCertificationSchema, governanceProposals, governanceVotes, insertGovernanceProposalSchema, insertGovernanceVoteSchema, ambassadorDailyLessons, ambassadorContentProgress, ambassadorContentStats, insertAmbassadorDailyLessonSchema, insertAmbassadorContentProgressSchema, insertAmbassadorContentStatsSchema, ambassadorSocialDirections, ambassadorChallenges, ambassadorChallengeParticipants, ambassadorEvents, ambassadorEventRegistrations, insertAmbassadorSocialDirectionSchema, insertAmbassadorChallengeSchema, insertAmbassadorChallengeParticipantSchema, insertAmbassadorEventSchema, insertAmbassadorEventRegistrationSchema, ambassadorChallengeSessions, ambassadorEventSchedules, ambassadorScheduleRegistrations, ambassadorCommunityComments, insertAmbassadorChallengeSessionSchema, insertAmbassadorEventScheduleSchema, insertAmbassadorScheduleRegistrationSchema, insertAmbassadorCommunityCommentSchema, veddPoolWallets, veddTransferJobs, veddWalletBlacklist, insertVeddWalletBlacklistSchema, ambassadorActionRewards, subscriptionTokenPayments, veddRewardConfig, insertVeddPoolWalletSchema, insertVeddTransferJobSchema, insertAmbassadorActionRewardSchema, insertSubscriptionTokenPaymentSchema, insertVeddRewardConfigSchema, internalWalletEarnings, internalWallets, withdrawalRequests, insertInternalWalletSchema, insertWithdrawalRequestSchema, connectedSocialAccounts, socialPosts, insertConnectedSocialAccountSchema, insertSocialPostSchema, tradingWallets, tokenPositions, tradingActivityLog, insertTradingWalletSchema, insertTokenPositionSchema, insertTradingActivityLogSchema, userApiKeys, insertUserApiKeySchema, weeklyStrategies, aiModelConfigs, insertAiModelConfigSchema, solEngineSettings, solEnginePositions, wearToEarnClaims, insertWearToEarnClaimSchema, nfcActivations, nfcDailyTaps, paperTrades, insertPaperTradeSchema, aiConfirmationOutcomes, insertAiConfirmationOutcomeSchema, aiConfirmationLogs, propFirmAccountState, propFirmDailyPnl, engineConsensusLog, microGrowthMilestones, microGrowthSessions, brainDataListings, brainDataPurchases, insertBrainDataListingSchema, insertBrainDataPurchaseSchema, grants, insertGrantSchema, grantApplications, insertGrantApplicationSchema, grantScanSessions, insertGrantScanSessionSchema, investmentPools, insertInvestmentPoolSchema, tokenInvestments, insertTokenInvestmentSchema, landingPageQuizzes, quizLeads, socialLeadScans, insertLandingPageQuizSchema, insertQuizLeadSchema, insertSocialLeadScanSchema, leads, leadHunterRuns, ambassadorDailyContent, ambassadorRedditInsights, ambassadorRunSummary, ambassadorWeeklyCalendar, ambassadorDailyKpis, ambassadorHookVariations, ambassadorBonusContent, ambassadorCommunityContent, ambassadorRunStepLog, contentStudioAssets, contentStudioGenerations, insertContentStudioGenerationSchema, ambassadorMarketBriefing, personaPillarRotation, personaArcState, personaContentDays, blogPosts, insertBlogPostSchema, blogNewsletterSubscribers, insertBlogNewsletterSubscriberSchema, ambassadorJourney, ambassadorDailyActions, insertAmbassadorJourneySchema, insertAmbassadorDailyActionSchema, devotionals, devotionalGroups, devotionalSessions, insertDevotionalSchema, insertDevotionalGroupSchema, insertDevotionalSessionSchema, workforceModules, workforceEnrollments, workforceCertificates, impactMetrics, communityPartnerships, auditLogs, biasReports, innovationProjects, insertWorkforceModuleSchema, insertWorkforceEnrollmentSchema, insertWorkforceCertificateSchema, workforceCourseProgress, insertImpactMetricSchema, insertCommunityPartnershipSchema, insertAuditLogSchema, insertBiasReportSchema, insertInnovationProjectSchema, stopOrders, insertStopOrderSchema, allTimeRecords, fxPaperAccounts, fxPaperTrades, insertFxPaperTradeSchema, copyRelationships, copyTradeLogs, engineRunState, kalshiEngineConfigs, kalshiBrainOutcomes, optionsBrainOutcomes, bizEntityTypeEnum, bizStatusEnum, nameCheckSourceEnum, formationProviderEnum, bankProviderEnum, creditTaskTypeEnum, taskStatusEnum, funderTypeEnum, bizProfiles, bizNameChecks, bizFormationLinks, bizBankLinks, bizCreditTasks, bizFundingMatches;
 var init_schema = __esm({
   "shared/schema.ts"() {
     "use strict";
@@ -3713,6 +3714,32 @@ var init_schema = __esm({
       result: text("result").notNull(),
       // WIN | LOSS | BREAKEVEN
       profitLoss: doublePrecision("profit_loss").notNull(),
+      source: text("source").notNull().default("live"),
+      // 'live' | 'backfill' | 'purchased_brain'
+      closedAt: timestamp("closed_at").defaultNow().notNull(),
+      createdAt: timestamp("created_at").defaultNow().notNull()
+    });
+    optionsBrainOutcomes = pgTable("options_brain_outcomes", {
+      id: serial("id").primaryKey(),
+      userId: integer("user_id").references(() => users.id).notNull(),
+      underlyingSymbol: text("underlying_symbol").notNull(),
+      optionType: text("option_type").notNull(),
+      // 'call' | 'put'
+      strategy: text("strategy").notNull(),
+      direction: text("direction"),
+      // 'bullish' | 'bearish'
+      entryConfidence: doublePrecision("entry_confidence"),
+      returnPct: doublePrecision("return_pct"),
+      // premium % return at close
+      hourUtc: integer("hour_utc"),
+      // 0-23 close hour (UTC)
+      holdingMinutes: integer("holding_minutes"),
+      exitReason: text("exit_reason"),
+      // take_profit/stop_loss/trailing_stop/manual
+      result: text("result").notNull(),
+      // WIN | LOSS | BREAKEVEN
+      profitLoss: doublePrecision("profit_loss").notNull(),
+      contracts: integer("contracts"),
       source: text("source").notNull().default("live"),
       // 'live' | 'backfill' | 'purchased_brain'
       closedAt: timestamp("closed_at").defaultNow().notNull(),
@@ -32822,6 +32849,29 @@ function buildLearningInsights2(overallWinRate, totalTrades, contractKnowledge) 
 async function computeOptionsBrain(userId) {
   const allTrades = await storage.getUserOptionsEngineTrades(userId, 1e3);
   const closed = allTrades.filter((t) => t.status === "closed");
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const { and: and12, eq: eq21 } = await import("drizzle-orm");
+    const purchased = await db2.select().from(optionsBrainOutcomes2).where(and12(eq21(optionsBrainOutcomes2.userId, userId), eq21(optionsBrainOutcomes2.source, "purchased_brain")));
+    for (const r of purchased) {
+      const pct2 = Number(r.returnPct ?? 0);
+      closed.push({
+        status: "closed",
+        underlyingSymbol: r.underlyingSymbol,
+        optionType: r.optionType,
+        strategy: r.strategy,
+        entryConfidence: r.entryConfidence ?? null,
+        realizedPnl: Number(r.profitLoss ?? 0),
+        entryPrice: 1,
+        exitPrice: 1 + pct2 / 100,
+        quantity: r.contracts ?? 1,
+        createdAt: r.closedAt,
+        closedAt: r.closedAt
+      });
+    }
+  } catch {
+  }
   const uniqueSymbols = Array.from(new Set(closed.map((t) => t.underlyingSymbol)));
   const contractKnowledge = {};
   for (const symbol of uniqueSymbols) {
@@ -45269,13 +45319,56 @@ ALTER TABLE "brain_data_listings" ADD COLUMN IF NOT EXISTS "source_category" tex
   }
 });
 
+// server/services/ensure-options-brain-outcomes-table.ts
+var ensure_options_brain_outcomes_table_exports = {};
+__export(ensure_options_brain_outcomes_table_exports, {
+  ensureOptionsBrainOutcomesTable: () => ensureOptionsBrainOutcomesTable
+});
+async function ensureOptionsBrainOutcomesTable() {
+  try {
+    await pool.query(DDL7);
+    console.log("[startup] Options brain feature store ensured (options_brain_outcomes) \u2014 options brain is now durable + sellable on the marketplace.");
+  } catch (err) {
+    console.error("[startup] ensureOptionsBrainOutcomesTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL7;
+var init_ensure_options_brain_outcomes_table = __esm({
+  "server/services/ensure-options-brain-outcomes-table.ts"() {
+    "use strict";
+    init_db();
+    DDL7 = `
+CREATE TABLE IF NOT EXISTS "options_brain_outcomes" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "underlying_symbol" text NOT NULL,
+  "option_type" text NOT NULL,
+  "strategy" text NOT NULL,
+  "direction" text,
+  "entry_confidence" double precision,
+  "return_pct" double precision,
+  "hour_utc" integer,
+  "holding_minutes" integer,
+  "exit_reason" text,
+  "result" text NOT NULL,
+  "profit_loss" double precision NOT NULL,
+  "contracts" integer,
+  "source" text NOT NULL DEFAULT 'live',
+  "closed_at" timestamp NOT NULL DEFAULT now(),
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "options_brain_outcomes_user_idx" ON "options_brain_outcomes" ("user_id");
+`;
+  }
+});
+
 // server/services/ensure-persona-content-tables.ts
 var ensure_persona_content_tables_exports = {};
 __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL7);
+  await pool.query(DDL8);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -45286,7 +45379,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL7;
+var PILLARS, DDL8;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -45303,7 +45396,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL7 = `
+    DDL8 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -45340,18 +45433,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL8);
+    await pool.query(DDL9);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL8;
+var DDL9;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL8 = `
+    DDL9 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -45367,18 +45460,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -45391,18 +45484,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -45460,18 +45553,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -45579,18 +45672,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -45621,18 +45714,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -45722,18 +45815,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -45761,18 +45854,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -45794,18 +45887,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -45836,18 +45929,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -45871,18 +45964,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -45901,18 +45994,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -45929,18 +46022,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -47110,6 +47203,32 @@ async function monitorOpenPositions(service, userId, cfg, connectionId) {
         dailyChangePercent: null,
         source: "alpaca"
       });
+      try {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+        await db2.insert(optionsBrainOutcomes2).values({
+          userId,
+          underlyingSymbol: trade.underlyingSymbol,
+          optionType: trade.optionType,
+          strategy: trade.strategy,
+          direction: trade.optionType === "call" ? "bullish" : "bearish",
+          entryConfidence: trade.entryConfidence ?? null,
+          returnPct: pnlPercent,
+          hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
+          holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+          exitReason,
+          result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+          profitLoss: realizedPnl,
+          contracts: trade.quantity,
+          source: "live"
+        });
+        const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+        await runOptionsBrainLearning2(userId).catch(() => {
+        });
+      } catch (e) {
+        console.error("[options-scanner] brain outcome record failed (non-critical):", e?.message ?? e);
+      }
     } catch (err) {
       console.error(`[options-scanner] failed to monitor/close trade ${trade.id}:`, err.message);
     }
@@ -76788,7 +76907,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body;
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : "forex";
+      const category = sourceCategory === "tradelocker" ? "tradelocker" : sourceCategory === "kalshi" ? "kalshi" : sourceCategory === "options" ? "options" : "forex";
       const symbolFilter = Array.isArray(symbols) && symbols.length ? symbols.map((s) => String(s).trim().toUpperCase()).filter(Boolean) : null;
       const manualOptIn = !!includeManualTrades && category === "forex";
       const { computeListingStats: computeListingStats2, clampPrice: clampPrice2, MIN_TRADES_TO_LIST: MIN_TRADES_TO_LIST2 } = await Promise.resolve().then(() => (init_brain_marketplace(), brain_marketplace_exports));
@@ -76803,6 +76922,33 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} Kalshi trades to list (you have ${rows.length}).` });
         }
         stats = computeListingStats2(rows.map((r) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })));
+      } else if (category === "options") {
+        const trades = await storage.getUserOptionsEngineTrades(userId, 2e3);
+        const closedT = trades.filter((t) => t.status === "closed");
+        if (closedT.length < MIN_TRADES_TO_LIST2) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST2} closed options trades to list (you have ${closedT.length}).` });
+        }
+        rows = closedT.map((t) => {
+          const pct2 = t.entryPrice ? (t.exitPrice - t.entryPrice) / t.entryPrice * 100 : 0;
+          const rpl = Number(t.realizedPnl ?? 0);
+          const closedAt = t.closedAt ?? t.createdAt;
+          return {
+            underlyingSymbol: t.underlyingSymbol,
+            optionType: t.optionType,
+            strategy: t.strategy,
+            direction: t.optionType === "call" ? "bullish" : "bearish",
+            entryConfidence: t.entryConfidence ?? null,
+            returnPct: pct2,
+            hourUtc: new Date(closedAt).getUTCHours(),
+            holdingMinutes: t.createdAt ? Math.max(0, Math.round((new Date(closedAt).getTime() - new Date(t.createdAt).getTime()) / 6e4)) : null,
+            exitReason: t.exitReason ?? null,
+            result: rpl > 0 ? "WIN" : rpl < 0 ? "LOSS" : "BREAKEVEN",
+            profitLoss: rpl,
+            contracts: t.quantity ?? null,
+            closedAt
+          };
+        });
+        stats = computeListingStats2(rows.map((r) => ({ symbol: r.underlyingSymbol, confirmedAt: r.closedAt, tradeOutcome: r.result })));
       } else {
         rows = await storage.getOutcomesForListing(userId, category, symbolFilter ?? void 0, manualOptIn);
         if (rows.length < MIN_TRADES_TO_LIST2) {
@@ -76853,7 +76999,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = req.user.id;
     try {
-      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : req.query.sourceCategory === "kalshi" ? "kalshi" : "forex";
+      const category = req.query.sourceCategory === "tradelocker" ? "tradelocker" : req.query.sourceCategory === "kalshi" ? "kalshi" : req.query.sourceCategory === "options" ? "options" : "forex";
       const symbolsParam = typeof req.query.symbols === "string" ? req.query.symbols : "";
       const symbols = symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === "true" && category === "forex";
@@ -76866,6 +77012,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         const raw = await db2.select().from(kalshiBrainOutcomes2).where(and12(eq21(kalshiBrainOutcomes2.userId, userId), ne(kalshiBrainOutcomes2.source, "purchased_brain"))).orderBy(desc12(kalshiBrainOutcomes2.closedAt)).limit(2e3);
         if (raw.length < MIN_TRADES_TO_LIST2) return res.json({ eligible: false, tradeCount: raw.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
         const stats2 = computeListingStats2(raw.map((r) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })));
+        return res.json({ eligible: true, ...stats2 });
+      }
+      if (category === "options") {
+        const trades = await storage.getUserOptionsEngineTrades(userId, 2e3);
+        const closedT = trades.filter((t) => t.status === "closed");
+        if (closedT.length < MIN_TRADES_TO_LIST2) return res.json({ eligible: false, tradeCount: closedT.length, minTradesRequired: MIN_TRADES_TO_LIST2 });
+        const stats2 = computeListingStats2(closedT.map((t) => ({ symbol: t.underlyingSymbol, confirmedAt: t.closedAt ?? t.createdAt, tradeOutcome: Number(t.realizedPnl ?? 0) > 0 ? "WIN" : Number(t.realizedPnl ?? 0) < 0 ? "LOSS" : "BREAKEVEN" })));
         return res.json({ eligible: true, ...stats2 });
       }
       rows = await storage.getOutcomesForListing(userId, category, symbols.length ? symbols : void 0, manualOptIn);
@@ -76978,6 +77131,32 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         tradesImported = toInsert.length;
         const { learnFromKalshiTrades: learnFromKalshiTrades2 } = await Promise.resolve().then(() => (init_kalshi_brain(), kalshi_brain_exports));
         await learnFromKalshiTrades2(buyerId).catch(() => {
+        });
+      } else if (listing.sourceCategory === "options") {
+        const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+        const snap = listing.snapshotData ?? [];
+        const toInsert = snap.map((r) => ({
+          userId: buyerId,
+          underlyingSymbol: r.underlyingSymbol ?? "UNKNOWN",
+          optionType: r.optionType ?? "call",
+          strategy: r.strategy ?? "unknown",
+          direction: r.direction ?? null,
+          entryConfidence: r.entryConfidence ?? null,
+          returnPct: r.returnPct ?? null,
+          hourUtc: r.hourUtc ?? null,
+          holdingMinutes: r.holdingMinutes ?? null,
+          exitReason: r.exitReason ?? null,
+          result: r.result ?? "BREAKEVEN",
+          profitLoss: Number(r.profitLoss ?? 0),
+          contracts: r.contracts ?? null,
+          source: "purchased_brain",
+          closedAt: r.closedAt ? new Date(r.closedAt) : /* @__PURE__ */ new Date()
+        }));
+        if (toInsert.length) await db2.insert(optionsBrainOutcomes2).values(toInsert);
+        tradesImported = toInsert.length;
+        const { runOptionsBrainLearning: runOptionsBrainLearning2 } = await Promise.resolve().then(() => (init_options_brain(), options_brain_exports));
+        await runOptionsBrainLearning2(buyerId).catch(() => {
         });
       } else {
         tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData);
@@ -78617,6 +78796,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureBrainMarketplaceTables2();
   } catch (err) {
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureOptionsBrainOutcomesTable: ensureOptionsBrainOutcomesTable2 } = await Promise.resolve().then(() => (init_ensure_options_brain_outcomes_table(), ensure_options_brain_outcomes_table_exports));
+    await ensureOptionsBrainOutcomesTable2();
+  } catch (err) {
+    console.error(`[startup] ensureOptionsBrainOutcomesTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensurePersonaContentTables: ensurePersonaContentTables2 } = await Promise.resolve().then(() => (init_ensure_persona_content_tables(), ensure_persona_content_tables_exports));

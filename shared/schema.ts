@@ -3733,6 +3733,33 @@ export const kalshiBrainOutcomes = pgTable("kalshi_brain_outcomes", {
 
 export type KalshiBrainOutcome = typeof kalshiBrainOutcomes.$inferSelect;
 
+// Durable per-close feature store for the Options AI Engine brain — same role
+// kalshi_brain_outcomes plays for Kalshi. Every options trade close records one
+// row here (the frozen decision context correlated with win/loss), so the brain
+// can absorb PURCHASED brains without polluting the real optionsEngineTrades
+// table, and so an options brain can be snapshotted and sold on the marketplace.
+export const optionsBrainOutcomes = pgTable("options_brain_outcomes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  underlyingSymbol: text("underlying_symbol").notNull(),
+  optionType: text("option_type").notNull(),          // 'call' | 'put'
+  strategy: text("strategy").notNull(),
+  direction: text("direction"),                       // 'bullish' | 'bearish'
+  entryConfidence: doublePrecision("entry_confidence"),
+  returnPct: doublePrecision("return_pct"),           // premium % return at close
+  hourUtc: integer("hour_utc"),                       // 0-23 close hour (UTC)
+  holdingMinutes: integer("holding_minutes"),
+  exitReason: text("exit_reason"),                    // take_profit/stop_loss/trailing_stop/manual
+  result: text("result").notNull(),                   // WIN | LOSS | BREAKEVEN
+  profitLoss: doublePrecision("profit_loss").notNull(),
+  contracts: integer("contracts"),
+  source: text("source").notNull().default('live'),   // 'live' | 'backfill' | 'purchased_brain'
+  closedAt: timestamp("closed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OptionsBrainOutcome = typeof optionsBrainOutcomes.$inferSelect;
+
 // ─── Business Credit Builder ──────────────────────────────────────────────────
 
 export const bizEntityTypeEnum = pgEnum("biz_entity_type", ["llc", "s_corp", "c_corp", "sole_prop"]);

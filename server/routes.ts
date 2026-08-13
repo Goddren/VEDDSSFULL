@@ -29874,7 +29874,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { title, description, priceVedd, sourceCategory, symbols, includeManualTrades } = req.body as { title?: string; description?: string; priceVedd?: number; sourceCategory?: string; symbols?: string[]; includeManualTrades?: boolean };
       if (!title) return res.status(400).json({ error: "title is required" });
-      const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : 'forex';
+      const category = sourceCategory === 'tradelocker' ? 'tradelocker' : sourceCategory === 'kalshi' ? 'kalshi' : sourceCategory === 'options' ? 'options' : 'forex';
       const symbolFilter = Array.isArray(symbols) && symbols.length
         ? symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean)
         : null;
@@ -29899,6 +29899,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} Kalshi trades to list (you have ${rows.length}).` });
         }
         stats = computeListingStats(rows.map((r: any) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })) as any);
+      } else if (category === 'options') {
+        // Options brain snapshots come from the real optionsEngineTrades history
+        // (complete + immediate, no backfill needed). Normalize to outcome rows
+        // so the buyer can merge them into their options_brain_outcomes store.
+        const trades = await storage.getUserOptionsEngineTrades(userId, 2000);
+        const closedT = (trades as any[]).filter(t => t.status === 'closed');
+        if (closedT.length < MIN_TRADES_TO_LIST) {
+          return res.status(400).json({ error: `Need at least ${MIN_TRADES_TO_LIST} closed options trades to list (you have ${closedT.length}).` });
+        }
+        rows = closedT.map((t: any) => {
+          const pct = t.entryPrice ? ((t.exitPrice - t.entryPrice) / t.entryPrice) * 100 : 0;
+          const rpl = Number(t.realizedPnl ?? 0);
+          const closedAt = t.closedAt ?? t.createdAt;
+          return {
+            underlyingSymbol: t.underlyingSymbol, optionType: t.optionType, strategy: t.strategy,
+            direction: t.optionType === 'call' ? 'bullish' : 'bearish', entryConfidence: t.entryConfidence ?? null,
+            returnPct: pct, hourUtc: new Date(closedAt).getUTCHours(),
+            holdingMinutes: t.createdAt ? Math.max(0, Math.round((new Date(closedAt).getTime() - new Date(t.createdAt).getTime()) / 60000)) : null,
+            exitReason: t.exitReason ?? null, result: rpl > 0 ? 'WIN' : rpl < 0 ? 'LOSS' : 'BREAKEVEN',
+            profitLoss: rpl, contracts: t.quantity ?? null, closedAt,
+          };
+        });
+        stats = computeListingStats(rows.map((r: any) => ({ symbol: r.underlyingSymbol, confirmedAt: r.closedAt, tradeOutcome: r.result })) as any);
       } else {
         rows = await storage.getOutcomesForListing(userId, category as any, symbolFilter ?? undefined, manualOptIn);
         if (rows.length < MIN_TRADES_TO_LIST) {
@@ -29961,7 +29984,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
     const userId = (req.user as User).id;
     try {
-      const category = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : req.query.sourceCategory === 'kalshi' ? 'kalshi' : 'forex';
+      const category = req.query.sourceCategory === 'tradelocker' ? 'tradelocker' : req.query.sourceCategory === 'kalshi' ? 'kalshi' : req.query.sourceCategory === 'options' ? 'options' : 'forex';
       const symbolsParam = typeof req.query.symbols === 'string' ? req.query.symbols : '';
       const symbols = symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
       const manualOptIn = req.query.includeManualTrades === 'true' && category === 'forex';
@@ -29976,6 +29999,13 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           .orderBy(desc(kalshiBrainOutcomes.closedAt)).limit(2000);
         if (raw.length < MIN_TRADES_TO_LIST) return res.json({ eligible: false, tradeCount: raw.length, minTradesRequired: MIN_TRADES_TO_LIST });
         const stats = computeListingStats(raw.map((r: any) => ({ symbol: r.coin, confirmedAt: r.closedAt, tradeOutcome: r.result })) as any);
+        return res.json({ eligible: true, ...stats });
+      }
+      if (category === 'options') {
+        const trades = await storage.getUserOptionsEngineTrades(userId, 2000);
+        const closedT = (trades as any[]).filter(t => t.status === 'closed');
+        if (closedT.length < MIN_TRADES_TO_LIST) return res.json({ eligible: false, tradeCount: closedT.length, minTradesRequired: MIN_TRADES_TO_LIST });
+        const stats = computeListingStats(closedT.map((t: any) => ({ symbol: t.underlyingSymbol, confirmedAt: t.closedAt ?? t.createdAt, tradeOutcome: (Number(t.realizedPnl ?? 0) > 0 ? 'WIN' : Number(t.realizedPnl ?? 0) < 0 ? 'LOSS' : 'BREAKEVEN') })) as any);
         return res.json({ eligible: true, ...stats });
       }
       rows = await storage.getOutcomesForListing(userId, category as any, symbols.length ? symbols : undefined, manualOptIn);
@@ -30091,6 +30121,24 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         tradesImported = toInsert.length;
         const { learnFromKalshiTrades } = await import('./services/kalshi-brain');
         await learnFromKalshiTrades(buyerId).catch(() => {});
+      } else if (listing.sourceCategory === 'options') {
+        // Merge into the buyer's options feature store (tagged purchased_brain so
+        // it can't be resold and won't pollute their real optionsEngineTrades),
+        // then relearn so their options brain absorbs the edge.
+        const { db } = await import('./db');
+        const { optionsBrainOutcomes } = await import('../shared/schema');
+        const snap = (listing.snapshotData as any[]) ?? [];
+        const toInsert = snap.map((r: any) => ({
+          userId: buyerId, underlyingSymbol: r.underlyingSymbol ?? 'UNKNOWN', optionType: r.optionType ?? 'call',
+          strategy: r.strategy ?? 'unknown', direction: r.direction ?? null, entryConfidence: r.entryConfidence ?? null,
+          returnPct: r.returnPct ?? null, hourUtc: r.hourUtc ?? null, holdingMinutes: r.holdingMinutes ?? null,
+          exitReason: r.exitReason ?? null, result: r.result ?? 'BREAKEVEN', profitLoss: Number(r.profitLoss ?? 0),
+          contracts: r.contracts ?? null, source: 'purchased_brain', closedAt: r.closedAt ? new Date(r.closedAt) : new Date(),
+        }));
+        if (toInsert.length) await db.insert(optionsBrainOutcomes).values(toInsert);
+        tradesImported = toInsert.length;
+        const { runOptionsBrainLearning } = await import('./services/options-brain');
+        await runOptionsBrainLearning(buyerId).catch(() => {});
       } else {
         tradesImported = await storage.importBrainDataSnapshot(buyerId, listing.snapshotData as any[]);
       }

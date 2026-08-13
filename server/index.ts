@@ -278,6 +278,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureBrainMarketplaceTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Options AI Engine brain feature store exists
+  try {
+    const { ensureOptionsBrainOutcomesTable } = await import('./services/ensure-options-brain-outcomes-table');
+    await ensureOptionsBrainOutcomesTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureOptionsBrainOutcomesTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Persona Content Engine tables exist (Don Chism founder-brand, 3x/week)
   try {
     const { ensurePersonaContentTables } = await import('./services/ensure-persona-content-tables');

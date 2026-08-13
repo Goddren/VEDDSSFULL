@@ -128,6 +128,36 @@ function buildLearningInsights(overallWinRate: number, totalTrades: number, cont
 async function computeOptionsBrain(userId: number): Promise<any> {
   const allTrades = await storage.getUserOptionsEngineTrades(userId, 1000);
   const closed = allTrades.filter(t => t.status === 'closed');
+
+  // Fold in PURCHASED brains (bought on the marketplace). Real trades stay the
+  // source of truth for the owner; purchased edge is added on top by
+  // synthesizing pseudo-trades from the frozen outcome rows (source =
+  // 'purchased_brain' only — 'live' rows are the owner's own trades, already
+  // counted above, so folding them would double-count).
+  try {
+    const { db } = await import('../db');
+    const { optionsBrainOutcomes } = await import('../../shared/schema');
+    const { and, eq } = await import('drizzle-orm');
+    const purchased = await db.select().from(optionsBrainOutcomes)
+      .where(and(eq(optionsBrainOutcomes.userId, userId), eq(optionsBrainOutcomes.source, 'purchased_brain')));
+    for (const r of purchased) {
+      const pct = Number(r.returnPct ?? 0);
+      closed.push({
+        status: 'closed',
+        underlyingSymbol: r.underlyingSymbol,
+        optionType: r.optionType,
+        strategy: r.strategy,
+        entryConfidence: r.entryConfidence ?? null,
+        realizedPnl: Number(r.profitLoss ?? 0),
+        entryPrice: 1,
+        exitPrice: 1 + pct / 100,
+        quantity: r.contracts ?? 1,
+        createdAt: r.closedAt,
+        closedAt: r.closedAt,
+      } as any);
+    }
+  } catch { /* purchased-brain fold is best-effort */ }
+
   const uniqueSymbols = Array.from(new Set(closed.map(t => t.underlyingSymbol)));
 
   const contractKnowledge: Record<string, ContractKnowledge> = {};

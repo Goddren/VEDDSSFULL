@@ -1071,6 +1071,35 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
         reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.optionSymbol} x${trade.quantity} @ ~$${quote.mid.toFixed(2)} (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(1)}% of premium, ${exitReason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
         score: null, price: quote.mid, dailyChangePercent: null, source: 'alpaca',
       });
+
+      // Record the close into the brain feature store (durable per-trade context,
+      // correlated with win/loss) and let the brain absorb it — mirrors the
+      // Kalshi engine's _finalizeKalshiClose. Non-critical: never block the close.
+      try {
+        const { db } = await import('../db');
+        const { optionsBrainOutcomes } = await import('../../shared/schema');
+        const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+        await db.insert(optionsBrainOutcomes).values({
+          userId,
+          underlyingSymbol: trade.underlyingSymbol,
+          optionType: trade.optionType,
+          strategy: trade.strategy,
+          direction: trade.optionType === 'call' ? 'bullish' : 'bearish',
+          entryConfidence: trade.entryConfidence ?? null,
+          returnPct: pnlPercent,
+          hourUtc: new Date().getUTCHours(),
+          holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 60000)),
+          exitReason,
+          result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
+          profitLoss: realizedPnl,
+          contracts: trade.quantity,
+          source: 'live',
+        });
+        const { runOptionsBrainLearning } = await import('./options-brain');
+        await runOptionsBrainLearning(userId).catch(() => {});
+      } catch (e: any) {
+        console.error('[options-scanner] brain outcome record failed (non-critical):', e?.message ?? e);
+      }
     } catch (err: any) {
       console.error(`[options-scanner] failed to monitor/close trade ${trade.id}:`, err.message);
     }
