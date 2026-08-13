@@ -469,11 +469,13 @@ const VISION_FALLBACK: Record<string, string> = {
   'groq': 'gpt-4o-mini',
   'openai': 'gpt-4o-mini',
   'anthropic': 'claude-sonnet-4-6',
-  // gemma-3-4b-it via OpenRouter — cheapest paid vision (~$0.00000085/call), NO
-  // free-tier daily cap. Reads chart images fine; gpt-4o-mini remains downstream
-  // in the vision failover chain if it ever errors. (The free Gemma vision model
-  // was rate-limited 429 → cascaded to direct OpenAI, which is what we're avoiding.)
-  'openrouter': 'google/gemma-3-4b-it',
+  // gpt-4o-mini via OpenRouter — a genuinely capable model that scores the trade
+  // confirmation reliably. Was 'google/gemma-3-4b-it', a 4B model that returned
+  // uniformly junk-low confidence (~12% ceiling) which failed the min-confidence
+  // gate and REJECTED EVERY TRADE. The default pick (openai/gpt-oss-20b) routes
+  // through OpenRouter, so nearly every user hit that weak fallback. gpt-4o-mini
+  // is what line ~452 already treats as the OpenRouter vision model.
+  'openrouter': 'openai/gpt-4o-mini',
 };
 
 // Model ids we KNOW can read charts (vision-capable): the non-textOnly registry
