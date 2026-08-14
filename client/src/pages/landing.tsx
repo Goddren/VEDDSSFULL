@@ -87,6 +87,20 @@ const CSS = `
 .vlx .glow{position:absolute;width:200px;height:200px;border-radius:50%;top:-70px;right:-50px;background:radial-gradient(circle,rgba(255,59,52,.22),transparent 70%);pointer-events:none}
 .vlx .market{display:grid;grid-template-columns:1fr .92fr;gap:36px;align-items:center}
 .vlx .listing{background:linear-gradient(160deg,#1a1710,var(--card));border:1px solid rgba(245,196,81,.2);border-radius:18px;padding:24px;position:relative;overflow:hidden}
+.vlx .community{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}
+.vlx .ccard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px}
+.vlx .ccard .cic{font-size:26px;margin-bottom:12px;line-height:1}
+.vlx .ccard h3{font-size:1.15rem;margin:0 0 8px;font-weight:700}
+.vlx .ccard p{color:var(--tx2);font-size:.95rem;margin:0;line-height:1.6}
+.vlx .ambassador{display:grid;grid-template-columns:1.1fr .9fr;gap:34px;align-items:center;margin-top:44px;background:linear-gradient(160deg,#181206,#0e0f12);border:1px solid rgba(245,196,81,.22);border-radius:22px;padding:32px}
+.vlx .amb-list{list-style:none;padding:0;margin:18px 0 24px;display:flex;flex-direction:column;gap:11px}
+.vlx .amb-list li{color:var(--tx2);display:flex;gap:10px;align-items:flex-start;font-size:.98rem}
+.vlx .amb-list li::before{content:"✓";color:var(--gold);font-weight:800;flex-shrink:0}
+.vlx .tiers{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.vlx .tier{background:#0e0f12;border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center}
+.vlx .tier .tn{font:700 11px var(--mono);text-transform:uppercase;letter-spacing:.14em;color:var(--gold)}
+.vlx .tier .tv{font:800 1.9rem/1 inherit;margin-top:8px}
+.vlx .tier .tl{font-size:.78rem;color:var(--tx3);margin-top:4px}
 .vlx .stats{display:flex;gap:14px;flex-wrap:wrap;margin-top:36px}
 .vlx .stat{flex:1;min-width:150px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
 .vlx .stat .n{font:800 2.4rem/1 inherit;letter-spacing:-.02em}
@@ -117,8 +131,9 @@ const CSS = `
 .vlx .reveal.in{opacity:1;transform:none}
 @media(max-width:820px){
   .vlx .hero{grid-template-columns:1fr;gap:30px;padding:26px 0 50px}
-  .vlx .steps,.vlx .feat,.vlx .plans{grid-template-columns:1fr}
-  .vlx .market{grid-template-columns:1fr;gap:24px}
+  .vlx .steps,.vlx .feat,.vlx .plans,.vlx .community{grid-template-columns:1fr}
+  .vlx .market,.vlx .ambassador{grid-template-columns:1fr;gap:24px}
+  .vlx .ambassador{padding:22px}
   .vlx .sub{max-width:none}.vlx .panel{order:2}
   .vlx .burger{display:block}
   .vlx .menu{position:absolute;top:66px;left:0;right:0;flex-direction:column;align-items:stretch;gap:14px;background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:18px;display:none;z-index:30;box-shadow:0 20px 50px rgba(0,0,0,.5)}
@@ -202,6 +217,7 @@ export default function LandingPage() {
           <div className="menu" id="vl-menu">
             <Link href="/features" className="ml" onClick={closeMenu}>Features</Link>
             <Link href="/pricing" className="ml" onClick={closeMenu}>Plans</Link>
+            <a className="ml" href="#community" onClick={closeMenu}>Community</a>
             <a className="ml" href="#faq" onClick={closeMenu}>FAQ</a>
             <Link href="/blog" className="ml" onClick={closeMenu}>Blog</Link>
             <Link href="/auth" className="ml ml-sign" onClick={closeMenu}>Sign in</Link>
@@ -302,6 +318,43 @@ export default function LandingPage() {
               </div>
               <div className="meter"><i style={{ width: '71%', background: 'linear-gradient(90deg,var(--gold),#ffe29a)' }} /></div>
               <button className="btn-primary" style={{ width: '100%', marginTop: 16, background: 'linear-gradient(150deg,var(--gold),#caa02f)', color: '#241a02', boxShadow: '0 10px 30px rgba(245,196,81,.28)' }} onClick={start}>Add this brain to my engine</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="community">
+          <div className="reveal">
+            <div className="kicker">The movement</div>
+            <h2>More than a platform — a come-up for the whole block.</h2>
+            <p className="lead">VEDD is built for the people the financial industry slept on. Free education, a faith-driven community, and a program that pays you to bring others in.</p>
+          </div>
+          <div className="community">
+            <div className="ccard reveal"><div className="cic">🎓</div><h3>Free education</h3><p>A Workforce Academy with free courses in trading, AI, credit and entrepreneurship — certificates that stack toward real grants.</p></div>
+            <div className="ccard reveal"><div className="cic">🤝</div><h3>A real community</h3><p>Faith-driven and hands-on — hosted meetups, weekly challenges, and mentors who look like you.</p></div>
+            <div className="ccard reveal"><div className="cic">🌍</div><h3>Real impact</h3><p>Every member who levels up lifts the next one. Knowledge first, money second.</p></div>
+          </div>
+
+          <div className="ambassador reveal">
+            <div>
+              <div className="kicker" style={{ color: 'var(--gold)' }}>Ambassador program</div>
+              <h2>Get paid to put people on.</h2>
+              <p className="lead">Share VEDD and earn on every trader you bring in — enough to cover your own plan and then some.</p>
+              <ul className="amb-list">
+                <li>Earn credits on every successful referral</li>
+                <li>Recurring monthly commission on paid plans</li>
+                <li>Use credits to cover your Starter or Premium plan</li>
+                <li>A 44-day training program with certifications</li>
+              </ul>
+              <button className="btn-primary" onClick={start}>Become an ambassador</button>
+            </div>
+            <div className="tiers">
+              {([['Bronze', '10'], ['Silver', '30'], ['Gold', '60'], ['Platinum', '100']] as const).map(([name, n]) => (
+                <div className="tier" key={name}>
+                  <div className="tn">{name}</div>
+                  <div className="tv">{n}</div>
+                  <div className="tl">referrals</div>
+                </div>
+              ))}
             </div>
           </div>
         </section>
