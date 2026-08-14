@@ -1,3 +1,4 @@
+import { useEffect, useState, type MouseEvent } from 'react';
 import { Link } from 'wouter';
 
 /* /features — real VEDD features, grouped. Each card has: a symbol, a small
@@ -37,7 +38,25 @@ const CSS = `
   border:none;padding:15px 32px;border-radius:999px;cursor:pointer;text-decoration:none;box-shadow:0 10px 34px rgba(255,59,52,.34)}
 .vfx .sub-links{margin-top:16px;color:var(--tx3);font-size:.95rem}
 .vfx .sub-links a{color:var(--tx2)}
-@media(max-width:760px){.vfx .grid{grid-template-columns:1fr}}
+.vfx .controls{position:sticky;top:0;z-index:10;background:rgba(11,11,14,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);padding:12px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line);margin-bottom:8px}
+.vfx .chips{display:flex;gap:8px;flex-wrap:wrap}
+.vfx .chip{font:600 12.5px inherit;color:var(--tx2);background:var(--card);border:1px solid var(--line);padding:7px 14px;border-radius:999px;cursor:pointer;transition:.18s;white-space:nowrap}
+.vfx .chip:hover{color:#fff;border-color:rgba(255,255,255,.2)}
+.vfx .chip.on{color:#fff;background:rgba(255,59,52,.16);border-color:var(--red)}
+.vfx .search{margin-left:auto;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:9px 15px;color:var(--tx);font:500 13px inherit;min-width:190px;outline:none}
+.vfx .search:focus{border-color:var(--red)}
+.vfx .count{font:600 12px var(--mono);color:var(--tx3);width:100%}
+.vfx .card::before{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;opacity:0;transition:opacity .3s;background:radial-gradient(220px circle at var(--mx,50%) var(--my,-20%),rgba(255,59,52,.15),transparent 62%)}
+.vfx .card.star::before{background:radial-gradient(220px circle at var(--mx,50%) var(--my,-20%),rgba(245,196,81,.15),transparent 62%)}
+.vfx .card:hover::before{opacity:1}
+.vfx .card>*{position:relative}
+.vfx .card .vis svg{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.vfx .card:hover .vis svg{transform:scale(1.05)}
+.vfx .card.reveal{opacity:0;transform:translateY(22px)}
+.vfx .card.reveal.in{opacity:1;transform:none;transition:opacity .6s ease,transform .6s cubic-bezier(.2,.8,.2,1)}
+.vfx .empty{color:var(--tx2);text-align:center;padding:48px 0;font-size:1.05rem}
+@media(prefers-reduced-motion:reduce){.vfx .card.reveal{opacity:1;transform:none}.vfx .card:hover .vis svg{transform:none}}
+@media(max-width:760px){.vfx .grid{grid-template-columns:1fr}.vfx .search{margin-left:0;width:100%}}
 `;
 
 /* ── Mini visuals — a "here's what it produces" preview per feature type ── */
@@ -191,6 +210,34 @@ const GROUPS: { group: string; items: Item[] }[] = [
 ];
 
 export default function FeaturesPage() {
+  const [group, setGroup] = useState('All');
+  const [q, setQ] = useState('');
+  const query = q.trim().toLowerCase();
+
+  const filtered = GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((it) => !query || `${it.name} ${it.desc} ${it.ex}`.toLowerCase().includes(query)) }))
+    .filter((g) => (group === 'All' || g.group === group) && g.items.length > 0);
+  const total = filtered.reduce((s, g) => s + g.items.length, 0);
+  const chips = ['All', ...GROUPS.map((g) => g.group)];
+
+  // Scroll-reveal (re-run when the visible set changes)
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (es) => es.forEach((x) => { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }),
+      { threshold: 0.12 },
+    );
+    document.querySelectorAll('.vfx .card.reveal').forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [group, q]);
+
+  // Cursor-follow spotlight glow
+  const spotlight = (e: MouseEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`);
+    el.style.setProperty('--my', `${e.clientY - r.top}px`);
+  };
+
   return (
     <div className="vfx">
       <style>{CSS}</style>
@@ -201,12 +248,24 @@ export default function FeaturesPage() {
           <p className="lead">From reading a single chart to running your whole strategy — see everything VEDD's AI does, with a quick visual and example of each.</p>
         </div>
 
-        {GROUPS.map((g) => (
+        <div className="controls">
+          <div className="chips">
+            {chips.map((c) => (
+              <button key={c} className={`chip${group === c ? ' on' : ''}`} onClick={() => setGroup(c)}>{c}</button>
+            ))}
+          </div>
+          <input className="search" placeholder="Search features…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search features" />
+          <div className="count">{total} feature{total === 1 ? '' : 's'}{query ? ` matching “${q.trim()}”` : group !== 'All' ? ` in ${group}` : ''}</div>
+        </div>
+
+        {filtered.length === 0 && <div className="empty">No features match “{q.trim()}”. Try another word.</div>}
+
+        {filtered.map((g) => (
           <div className="grp" key={g.group}>
             <div className="gh"><span className="gt">{g.group}</span><span className="gl" /></div>
             <div className="grid">
-              {g.items.map((it) => (
-                <div className={`card${it.star ? ' star' : ''}`} key={it.name}>
+              {g.items.map((it, i) => (
+                <div className={`card reveal${it.star ? ' star' : ''}`} key={it.name} onMouseMove={spotlight} style={{ transitionDelay: `${(i % 4) * 0.05}s` }}>
                   <div className="vis">{VIS[it.vis]}</div>
                   <div className="bd"><span className="em" aria-hidden="true">{it.icon}</span><h3>{it.name}</h3>{it.badge && <span className="nb">{it.badge}</span>}</div>
                   <p>{it.desc}</p>
