@@ -1407,6 +1407,11 @@ export default function WeeklyStrategyPage() {
   const [engineShieldThreshold, setEngineShieldThreshold] = useState(3);
   const [engineAdaptiveScan, setEngineAdaptiveScan] = useState(true);
   const [engineDailyLossLimit, setEngineDailyLossLimit] = useState(5);
+  // Loss-protection breakers (inline-PATCH to /api/vedd-live-engine/config)
+  const [engineMaxRiskPerTrade, setEngineMaxRiskPerTrade] = useState(2);
+  const [engineMaxDrawdownPct, setEngineMaxDrawdownPct] = useState(8);
+  const [engineMaxLot, setEngineMaxLot] = useState(0);
+  const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
   const [engineDailyProfitTarget, setEngineDailyProfitTarget] = useState(0);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
   const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
@@ -1553,6 +1558,16 @@ export default function WeeklyStrategyPage() {
     queryKey: ['/api/vedd-live-engine/status'],
     refetchInterval: 5000,
   });
+
+  // Seed the loss-protection breaker inputs from the persisted engine config.
+  useEffect(() => {
+    const c = (liveEngineStatus as any)?.config;
+    if (!c) return;
+    if (c.maxRiskPerTradePct != null) setEngineMaxRiskPerTrade(c.maxRiskPerTradePct);
+    if (c.maxDrawdownPct != null) setEngineMaxDrawdownPct(c.maxDrawdownPct);
+    if (c.maxLot != null) setEngineMaxLot(c.maxLot);
+    if (c.autoFlattenOnBreach != null) setEngineAutoFlatten(c.autoFlattenOnBreach);
+  }, [liveEngineStatus]);
 
   const { data: liveEngineActivityData } = useQuery<any>({
     queryKey: ['/api/vedd-live-engine/activity'],
@@ -2483,6 +2498,37 @@ export default function WeeklyStrategyPage() {
                       <Input type="number" value={engineDailyLossLimit} onChange={e => setEngineDailyLossLimit(Number(e.target.value))}
                         min={1} max={20} step={0.5} className="mt-1 bg-gray-800 border-red-900/50 text-white h-8 text-sm" />
                       <p className="text-[10px] text-red-400/70 mt-0.5">Auto-closes all trades + halts engine</p>
+                    </div>
+                    <div>
+                      <Label className="text-amber-400 text-xs font-semibold flex items-center gap-1"><span>🛡️</span> Max Risk / Trade (%)</Label>
+                      <Input type="number" value={engineMaxRiskPerTrade}
+                        onChange={async e => { const v = Math.max(0, Number(e.target.value)); setEngineMaxRiskPerTrade(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { maxRiskPerTradePct: v }); } catch { /* applied on start */ } }}
+                        min={0} max={10} step={0.5} className="mt-1 bg-gray-800 border-amber-900/50 text-white h-8 text-sm" />
+                      <p className="text-[10px] text-amber-400/70 mt-0.5">Resizes any trade so one loss can't exceed this % (0 = off)</p>
+                    </div>
+                    <div>
+                      <Label className="text-red-400 text-xs font-semibold flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Max Drawdown (%)</Label>
+                      <Input type="number" value={engineMaxDrawdownPct}
+                        onChange={async e => { const v = Math.max(0, Number(e.target.value)); setEngineMaxDrawdownPct(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { maxDrawdownPct: v }); } catch { /* applied on start */ } }}
+                        min={0} max={50} step={1} className="mt-1 bg-gray-800 border-red-900/50 text-white h-8 text-sm" />
+                      <p className="text-[10px] text-red-400/70 mt-0.5">Halts engine if equity falls this % below its peak (0 = off)</p>
+                    </div>
+                    <div>
+                      <Label className="text-gray-400 text-xs">Max Lot (absolute)</Label>
+                      <Input type="number" value={engineMaxLot}
+                        onChange={async e => { const v = Math.max(0, Number(e.target.value)); setEngineMaxLot(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { maxLot: v }); } catch { /* applied on start */ } }}
+                        min={0} step={0.01} className="mt-1 bg-gray-800 border-gray-700 text-white h-8 text-sm" />
+                      <p className="text-[10px] text-gray-500 mt-0.5">Hard per-trade lot ceiling (0 = off)</p>
+                    </div>
+                    <div>
+                      <Label className="text-red-400 text-xs font-semibold flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Auto-flatten on breach</Label>
+                      <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                        <input type="checkbox" checked={engineAutoFlatten}
+                          onChange={async e => { const v = e.target.checked; setEngineAutoFlatten(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { autoFlattenOnBreach: v }); } catch { /* applied on start */ } }}
+                          className="accent-red-500 w-4 h-4" />
+                        <span className="text-[11px] text-gray-300">Close open positions when a breaker trips</span>
+                      </label>
+                      <p className="text-[10px] text-red-400/70 mt-0.5">Closes real positions via the MT5 EA — use with care</p>
                     </div>
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
