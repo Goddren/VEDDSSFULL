@@ -183,6 +183,18 @@ interface LiveEngineConfig {
   drawdownShieldThreshold: number;
   // Safety
   dailyLossLimit: number;
+  // Loss-protection circuit breakers (0 = disabled). maxDailyLossPct halts NEW
+  // trades once today's realized+floating P&L is down this % of balance;
+  // maxDrawdownPct halts once equity falls this % below its running peak;
+  // maxRiskPerTradePct RESIZES any single trade so its stop-out loss can't
+  // exceed this % of balance (the direct guard against one oversized trade);
+  // maxLot is an absolute per-trade lot ceiling; autoFlattenOnBreach also
+  // closes open positions when a breaker trips (default off — closes real money).
+  maxDailyLossPct: number;
+  maxDrawdownPct: number;
+  maxRiskPerTradePct: number;
+  maxLot: number;
+  autoFlattenOnBreach: boolean;
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
@@ -860,6 +872,11 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    maxDailyLossPct: 4,        // halt new trades once down 4% on the day (realized + floating)
+    maxDrawdownPct: 8,         // halt once equity is 8% below its running peak
+    maxRiskPerTradePct: 2,     // resize any single trade so its stop-out can't lose >2% of balance
+    maxLot: 0,                 // 0 = no absolute lot ceiling (balance-scaled cap still applies)
+    autoFlattenOnBreach: false, // opt-in — also CLOSE open positions when a breaker trips
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,

@@ -27980,6 +27980,16 @@ function getDefaultConfig(userId) {
     brainLearningMode: true,
     drawdownShieldThreshold: 3,
     dailyLossLimit: 5,
+    maxDailyLossPct: 4,
+    // halt new trades once down 4% on the day (realized + floating)
+    maxDrawdownPct: 8,
+    // halt once equity is 8% below its running peak
+    maxRiskPerTradePct: 2,
+    // resize any single trade so its stop-out can't lose >2% of balance
+    maxLot: 0,
+    // 0 = no absolute lot ceiling (balance-scaled cap still applies)
+    autoFlattenOnBreach: false,
+    // opt-in — also CLOSE open positions when a breaker trips
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -61091,6 +61101,26 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
         mt5Volume = Math.max(0.01, Math.min(_goalMaxLot2, Math.round(mt5Volume * goalLotMultiplier * 100) / 100));
         console.log(`[VEDD Goal Intelligence] Plan lot override adjusted (${goalPaceMode}): ${preMult} \u2192 ${mt5Volume} lots (\xD7${goalLotMultiplier.toFixed(2)})`);
       }
+      if (_acctBalKnown && analysis.signal !== "NEUTRAL" && analysis.tradePlan?.entry && analysis.tradePlan?.stopLoss) {
+        const _maxRiskPct = _liveState?.config?.maxRiskPerTradePct ?? 0;
+        const _pipSz = getPipSize(sanitizedSymbol);
+        const _pipVal = getPipValue(sanitizedSymbol);
+        const _slPips = Math.abs(analysis.tradePlan.entry - analysis.tradePlan.stopLoss) / (_pipSz || 1);
+        if (_maxRiskPct > 0 && _pipVal > 0 && _slPips > 0) {
+          const _capUsd = accountBalance * (_maxRiskPct / 100);
+          const _riskAtVol = mt5Volume * _slPips * _pipVal;
+          if (_riskAtVol > _capUsd) {
+            const _capped = Math.max(0.01, Math.floor(_capUsd / (_slPips * _pipVal) * 100) / 100);
+            console.warn(`[RISK CAP] ${sanitizedSymbol}: resized ${mt5Volume}\u2192${_capped} lots to keep per-trade risk \u2264 ${_maxRiskPct}% ($${_capUsd.toFixed(0)})`);
+            mt5Volume = _capped;
+          }
+        }
+        const _maxLotCfg = _liveState?.config?.maxLot ?? 0;
+        if (_maxLotCfg > 0 && mt5Volume > _maxLotCfg) {
+          console.warn(`[RISK CAP] ${sanitizedSymbol}: capped ${mt5Volume}\u2192${_maxLotCfg} lots (maxLot ceiling)`);
+          mt5Volume = _maxLotCfg;
+        }
+      }
       let tlGateBlocked = false;
       let tlGateReason = "";
       if (analysis.signal !== "NEUTRAL") {
@@ -61111,13 +61141,17 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             tlGateReason = `Margin level ${_marginLevel.toFixed(0)}% below 200% safety floor`;
           }
         }
-        if (!tlGateBlocked && _acctBalKnown && (_liveState?.config?.dailyLossLimit ?? 0) > 0) {
-          const _realizedToday = typeof accountData.dailyPnL === "number" ? accountData.dailyPnL : 0;
-          const _totalDayPnl = _realizedToday + _floating;
-          const _lossPct = _totalDayPnl / accountData.balance * 100;
-          if (_lossPct <= -_liveState.config.dailyLossLimit) {
-            tlGateBlocked = true;
-            tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% \u2264 -${_liveState.config.dailyLossLimit}% (incl. floating)`;
+        if (!tlGateBlocked && _acctBalKnown) {
+          const _limits = [_liveState?.config?.dailyLossLimit ?? 0, _liveState?.config?.maxDailyLossPct ?? 0].filter((x) => x > 0);
+          if (_limits.length) {
+            const _limit = Math.min(..._limits);
+            const _realizedToday = typeof accountData.dailyPnL === "number" ? accountData.dailyPnL : 0;
+            const _totalDayPnl = _realizedToday + _floating;
+            const _lossPct = _totalDayPnl / accountData.balance * 100;
+            if (_lossPct <= -_limit) {
+              tlGateBlocked = true;
+              tlGateReason = `Daily loss ${_lossPct.toFixed(1)}% \u2264 -${_limit}% circuit breaker (incl. floating)`;
+            }
           }
         }
         if (!tlGateBlocked && _acctBalKnown) {
@@ -61144,12 +61178,33 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             }
           }
         }
+        const _ddLimit = _liveState?.config?.maxDrawdownPct ?? 0;
+        if (!tlGateBlocked && _acctBalKnown && _ddLimit > 0) {
+          const _equity = typeof accountData.equity === "number" && accountData.equity > 0 ? accountData.equity : accountData.balance;
+          const _peakKey = accountData.broker || "default";
+          const _pk = global.mt5PeakEquity ??= {};
+          const _byUser = _pk[token.userId] ??= {};
+          if (!(_byUser[_peakKey] > 0) || _equity > _byUser[_peakKey]) _byUser[_peakKey] = _equity;
+          const _peak = _byUser[_peakKey];
+          const _ddPct = _peak > 0 ? (_peak - _equity) / _peak * 100 : 0;
+          if (_ddPct >= _ddLimit) {
+            tlGateBlocked = true;
+            tlGateReason = `Max drawdown ${_ddPct.toFixed(1)}% \u2265 ${_ddLimit}% from peak $${_peak.toFixed(0)} (equity $${_equity.toFixed(0)})`;
+          }
+        }
         if (tlGateBlocked) {
           analysis.signal = "NEUTRAL";
           analysis.tradePlan = null;
           analysis.alerts = analysis.alerts || [];
           analysis.alerts.push(`\u{1F6E1}\uFE0F RISK BLOCK: ${tlGateReason}. Trade stopped to protect the account.`);
           console.warn(`[Gate 0 RISK BLOCK] ${sanitizedSymbol}: ${tlGateReason}`);
+          const _isBreaker = /Daily loss|Max drawdown/.test(tlGateReason);
+          if (_isBreaker && _liveState?.config?.autoFlattenOnBreach) {
+            analysis.command = "CLOSE_ALL";
+            analysis.closeAll = true;
+            analysis.alerts.push("\u{1F6D1} Auto-flatten: signalled EA to close open positions (loss breaker tripped).");
+            console.warn(`[Gate 0 AUTO-FLATTEN] ${sanitizedSymbol}: ${tlGateReason} \u2014 issuing CLOSE_ALL to EA`);
+          }
         }
       }
       if (analysis.signal !== "NEUTRAL") {
