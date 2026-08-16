@@ -37,6 +37,25 @@ export async function ensureKalshiEngineConfigTable(): Promise<void> {
     } catch (mErr: any) {
       console.error('[startup] Kalshi minValueScore migration failed (non-fatal):', mErr?.message ?? mErr);
     }
+
+    // One-time protections migration: turn ON the brain gating (hard-blocks
+    // proven-losing setups) and Ruin Guard (daily-loss/drawdown circuit breaker)
+    // for existing accounts — they were built but shipped OFF, so bad setups were
+    // never blocked. Runs ONCE per config (protectionsMigrated marker) so it never
+    // fights a user who later turns a protection back off in the /kalshi hub.
+    try {
+      const res = await pool.query(
+        `UPDATE "kalshi_engine_configs"
+            SET "config" = "config" || '{"kalshiBrainGating":true,"ruinGuardEnabled":true,"protectionsMigrated":true}'::jsonb,
+                "updated_at" = now()
+          WHERE ("config"->>'protectionsMigrated') IS NULL`
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        console.log(`[startup] Kalshi protections migration: enabled brain gating + Ruin Guard on ${res.rowCount} existing config(s).`);
+      }
+    } catch (pErr: any) {
+      console.error('[startup] Kalshi protections migration failed (non-fatal):', pErr?.message ?? pErr);
+    }
   } catch (err: any) {
     console.error('[startup] ensureKalshiEngineConfigTable failed (non-fatal):', err?.message ?? err);
   }

@@ -35503,6 +35503,9 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   if (!event || !event.brackets.length) return base;
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 6e4);
+  const _minBufferMin = timeframe === "fifteen_min" ? 2 : 8;
+  const _maxWindowMin = timeframe === "fifteen_min" ? 20 : 240;
+  if (base.minutesToClose < _minBufferMin || base.minutesToClose > _maxWindowMin) return base;
   const { candles } = await getCryptoCandles(coin, 100).catch(() => ({ candles: [] }));
   const hourlyVolFrac = candles.length ? estimateHourlyVol(candles) : 4e-3;
   const hoursLeft = Math.max(0.02, event.msUntilClose / 36e5);
@@ -35521,9 +35524,9 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
-  const LONGSHOT_FLOOR_CENTS = 8;
+  const LONGSHOT_FLOOR_CENTS = 12;
   const SPREAD_MAX_CENTS = 12;
-  const EDGE_MIN_CENTS = 3;
+  const EDGE_MIN_CENTS = 4;
   const picks = [];
   for (const b of event.brackets) {
     if (!b.hasLiquidity) continue;
@@ -35761,16 +35764,16 @@ var init_kalshi_engine = __esm({
       brainLearningMode: true,
       drawdownShieldThreshold: 0,
       // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
-      ruinGuardEnabled: false,
-      // opt-in — changes live trading behavior, off by default
+      ruinGuardEnabled: true,
+      // ON: circuit-breaker halts new trades after a bad day / drawdown
       dailyLossLimitPct: 5,
       // FTUK-style daily loss limit (% of starting bankroll)
       maxDrawdownLimitPct: 10,
       // FTUK-style max drawdown limit (% of starting bankroll)
       kalshiBrainEnabled: true,
       // brain influence on (bounded + neutral until it has data)
-      kalshiBrainGating: false
-      // opt-in — hard-blocks proven-losing setups
+      kalshiBrainGating: true
+      // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",
@@ -44844,6 +44847,19 @@ async function ensureKalshiEngineConfigTable() {
       }
     } catch (mErr) {
       console.error("[startup] Kalshi minValueScore migration failed (non-fatal):", mErr?.message ?? mErr);
+    }
+    try {
+      const res = await pool.query(
+        `UPDATE "kalshi_engine_configs"
+            SET "config" = "config" || '{"kalshiBrainGating":true,"ruinGuardEnabled":true,"protectionsMigrated":true}'::jsonb,
+                "updated_at" = now()
+          WHERE ("config"->>'protectionsMigrated') IS NULL`
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        console.log(`[startup] Kalshi protections migration: enabled brain gating + Ruin Guard on ${res.rowCount} existing config(s).`);
+      }
+    } catch (pErr) {
+      console.error("[startup] Kalshi protections migration failed (non-fatal):", pErr?.message ?? pErr);
     }
   } catch (err) {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);

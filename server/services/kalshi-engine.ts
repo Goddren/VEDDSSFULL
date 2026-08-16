@@ -187,11 +187,11 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   useKellyCriterion:       false,
   brainLearningMode:       true,
   drawdownShieldThreshold: 0, // 0 = disabled by default (opt-in, unlike options/futures/cryptocom)
-  ruinGuardEnabled:        false, // opt-in — changes live trading behavior, off by default
+  ruinGuardEnabled:        true,  // ON: circuit-breaker halts new trades after a bad day / drawdown
   dailyLossLimitPct:       5,     // FTUK-style daily loss limit (% of starting bankroll)
   maxDrawdownLimitPct:     10,    // FTUK-style max drawdown limit (% of starting bankroll)
   kalshiBrainEnabled:      true,  // brain influence on (bounded + neutral until it has data)
-  kalshiBrainGating:       false, // opt-in — hard-blocks proven-losing setups
+  kalshiBrainGating:       true,  // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
 };
 
 /** Identify which coin + timeframe a ticker belongs to from its series
@@ -1166,6 +1166,13 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
   base.eventTicker = event.eventTicker;
   base.minutesToClose = Math.round(event.msUntilClose / 60000);
 
+  // Time-to-expiry guard (the single-strategy path has this; the value path
+  // didn't). Too close to expiry = a coin-flip the stop-loss can't protect (price
+  // gaps to 0/100 between 5-min scans). Too far out = pure noise. Skip both.
+  const _minBufferMin = timeframe === 'fifteen_min' ? 2 : 8;
+  const _maxWindowMin = timeframe === 'fifteen_min' ? 20 : 240;
+  if (base.minutesToClose < _minBufferMin || base.minutesToClose > _maxWindowMin) return base;
+
   // Volatility scaled to the remaining time until the event closes. The vol
   // estimate itself (estimateHourlyVol) is still per-hour — sigmaPrice below
   // already scales it to whatever window is actually left (hoursLeft), so a
@@ -1219,9 +1226,9 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
   // bracket on thin BTC 15-min books (the bot stopped trading entirely). These
   // still filter cheap-longshot traps + un-exitable wide books, just with the
   // headroom real Kalshi books need. Tune stricter via minValueScore in the hub.
-  const LONGSHOT_FLOOR_CENTS = 8;  // below this, YES is a cheap-longshot trap — skip
+  const LONGSHOT_FLOOR_CENTS = 12; // below this, YES is a cheap-longshot trap the model overrates — skip
   const SPREAD_MAX_CENTS     = 12; // wider book (or no bid) → edge eaten on exit — skip
-  const EDGE_MIN_CENTS       = 3;  // real edge floor, applied AFTER the longshot haircut
+  const EDGE_MIN_CENTS       = 4;  // real edge floor, applied AFTER the longshot haircut (3¢ was model noise)
 
   const picks: KalshiValuePick[] = [];
   for (const b of event.brackets) {
