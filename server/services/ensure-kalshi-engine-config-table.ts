@@ -56,6 +56,23 @@ export async function ensureKalshiEngineConfigTable(): Promise<void> {
     } catch (pErr: any) {
       console.error('[startup] Kalshi protections migration failed (non-fatal):', pErr?.message ?? pErr);
     }
+
+    // One-time daily-trade-cap migration: give existing accounts a 10 trades/UTC-day
+    // throttle (overtrading was multiplying losers). Separate marker so it applies
+    // regardless of the protections marker, and only once.
+    try {
+      const res = await pool.query(
+        `UPDATE "kalshi_engine_configs"
+            SET "config" = "config" || '{"maxTradesPerDay":10,"tradeCapMigrated":true}'::jsonb,
+                "updated_at" = now()
+          WHERE ("config"->>'tradeCapMigrated') IS NULL`
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        console.log(`[startup] Kalshi trade-cap migration: set maxTradesPerDay=10 on ${res.rowCount} existing config(s).`);
+      }
+    } catch (cErr: any) {
+      console.error('[startup] Kalshi trade-cap migration failed (non-fatal):', cErr?.message ?? cErr);
+    }
   } catch (err: any) {
     console.error('[startup] ensureKalshiEngineConfigTable failed (non-fatal):', err?.message ?? err);
   }

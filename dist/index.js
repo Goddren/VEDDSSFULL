@@ -34808,7 +34808,7 @@ function kalshiBrainSizeMultiplier(userId, coin) {
   const k = b?.coinKnowledge[coin];
   return k ? k.recommendedSizeMultiplier : 1;
 }
-function kalshiBrainGate(userId, coin, strikeType) {
+function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
   if (!k) return { blocked: false, reason: "" };
   const decided = k.wins + k.losses;
@@ -34819,6 +34819,18 @@ function kalshiBrainGate(userId, coin, strikeType) {
     const st = k.byStrikeType[strikeType];
     if (st && st.trades >= 8 && st.winRate < 30) {
       return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} \u2014 skipping bracket type` };
+    }
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} \u2014 skipping this hour` };
+    }
+  }
+  if (confidence2 != null) {
+    const cb = k.byConfidenceBand[_band(confidence2, 10)];
+    if (cb && cb.trades >= 8 && cb.winRate < 30) {
+      return { blocked: true, reason: `\u{1F9E0} Brain gate: ${coin} at ${_band(confidence2, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} \u2014 skipping` };
     }
   }
   return { blocked: false, reason: "" };
@@ -34898,6 +34910,8 @@ function getKalshiEngineState(userId) {
       lastScanAt: null,
       lastScanResult: null,
       lastTradeAt: null,
+      tradesToday: 0,
+      tradesTodayUtcDate: null,
       openTrades: [],
       closedTrades: [],
       totalRealizedPnl: 0,
@@ -35006,6 +35020,12 @@ function startKalshiEngine(userId) {
   _runKalshiScan(userId).catch(console.error);
   const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1e3);
   _timers.set(userId, iv);
+  const pv = setInterval(() => {
+    const st = getKalshiEngineState(userId);
+    if (st.isRunning && st.openTrades.length) _updateOpenTradePrices(userId, st).catch(() => {
+    });
+  }, 60 * 1e3);
+  _priceTimers.set(userId, pv);
 }
 function stopKalshiEngine(userId) {
   const s = getKalshiEngineState(userId);
@@ -35015,6 +35035,11 @@ function stopKalshiEngine(userId) {
   if (iv) {
     clearInterval(iv);
     _timers.delete(userId);
+  }
+  const pv = _priceTimers.get(userId);
+  if (pv) {
+    clearInterval(pv);
+    _priceTimers.delete(userId);
   }
 }
 function _persistKalshiRunState(userId, isRunning, isPaperMode) {
@@ -35174,6 +35199,12 @@ async function _placeKalshiYes(userId, s, p) {
   };
   s.openTrades.push(trade);
   s.lastTradeAt = (/* @__PURE__ */ new Date()).toISOString();
+  const _fireDay = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _fireDay) {
+    s.tradesTodayUtcDate = _fireDay;
+    s.tradesToday = 0;
+  }
+  s.tradesToday = (s.tradesToday ?? 0) + 1;
   _recalcUnrealized(s);
   const modeStr = s.isPaperMode ? "[PAPER]" : "[LIVE]";
   const exitNote = s.config.takeProfitCents > 0 || s.config.stopLossCents > 0 ? ` \xB7 auto-exit +${s.config.takeProfitCents}%/-${s.config.stopLossCents}% of entry` : "";
@@ -35242,6 +35273,17 @@ async function _runKalshiScan(userId, manual = false) {
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
+  }
+  const _todayUtc = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _todayUtc) {
+    s.tradesTodayUtcDate = _todayUtc;
+    s.tradesToday = 0;
+  }
+  const _dailyCap = s.config.maxTradesPerDay ?? 0;
+  if (!manual && _dailyCap > 0 && s.tradesToday >= _dailyCap) {
+    const r = `Daily trade cap reached (${s.tradesToday}/${_dailyCap}) \u2014 pausing new trades until UTC midnight`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
   }
   const guard = await ruinGuardStatus(userId, s);
   if (guard.blocked) {
@@ -35320,7 +35362,7 @@ async function _scanOneCoin(userId, s, coin) {
     return { fired: false, reason: `${coin}: ${s.config.timeframe === "fifteen_min" ? "15-min" : "hourly"} market exists but isn't broker/API-tradeable on Kalshi's side \u2014 skipping` };
   }
   if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
-    const g = kalshiBrainGate(userId, coin);
+    const g = kalshiBrainGate(userId, coin, null, (/* @__PURE__ */ new Date()).getUTCHours());
     if (g.blocked) return { fired: false, reason: g.reason };
   }
   try {
@@ -35535,7 +35577,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
     if (ask < LONGSHOT_FLOOR_CENTS) continue;
     const spread = b.yesBid > 0 ? ask - b.yesBid : SPREAD_MAX_CENTS + 1;
     if (spread > SPREAD_MAX_CENTS) continue;
-    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType).blocked) continue;
+    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), consensus.confidence).blocked) continue;
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
     const rawEdgePct = modelProbPct - ask;
@@ -35725,7 +35767,7 @@ async function closeAllKalshiTrades(userId) {
   }
   return closed;
 }
-var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS;
+var KALSHI_TRADEABLE_COINS, _sessionPeakBankroll, _states2, _timers, DEFAULT_CONFIG2, STRATEGY_LABELS, _persistedConfigOverrides, _credValidity, CRED_VALIDITY_TTL_MS, _priceTimers;
 var init_kalshi_engine = __esm({
   "server/services/kalshi-engine.ts"() {
     "use strict";
@@ -35746,6 +35788,8 @@ var init_kalshi_engine = __esm({
       contractsPerTrade: 5,
       maxOpenTrades: 3,
       cooldownMinutes: 20,
+      maxTradesPerDay: 10,
+      // throttle overtrading (logs showed 30+ BTC trades/day at 23% WR); 0 = unlimited
       minConfidence: 70,
       requireAlignedHourly: true,
       requireConfluence: true,
@@ -35786,6 +35830,7 @@ var init_kalshi_engine = __esm({
     _persistedConfigOverrides = /* @__PURE__ */ new Map();
     _credValidity = /* @__PURE__ */ new Map();
     CRED_VALIDITY_TTL_MS = 10 * 60 * 1e3;
+    _priceTimers = /* @__PURE__ */ new Map();
   }
 });
 
@@ -44860,6 +44905,19 @@ async function ensureKalshiEngineConfigTable() {
       }
     } catch (pErr) {
       console.error("[startup] Kalshi protections migration failed (non-fatal):", pErr?.message ?? pErr);
+    }
+    try {
+      const res = await pool.query(
+        `UPDATE "kalshi_engine_configs"
+            SET "config" = "config" || '{"maxTradesPerDay":10,"tradeCapMigrated":true}'::jsonb,
+                "updated_at" = now()
+          WHERE ("config"->>'tradeCapMigrated') IS NULL`
+      );
+      if (res.rowCount && res.rowCount > 0) {
+        console.log(`[startup] Kalshi trade-cap migration: set maxTradesPerDay=10 on ${res.rowCount} existing config(s).`);
+      }
+    } catch (cErr) {
+      console.error("[startup] Kalshi trade-cap migration failed (non-fatal):", cErr?.message ?? cErr);
     }
   } catch (err) {
     console.error("[startup] ensureKalshiEngineConfigTable failed (non-fatal):", err?.message ?? err);

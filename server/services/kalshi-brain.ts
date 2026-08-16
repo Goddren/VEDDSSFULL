@@ -208,7 +208,13 @@ export function kalshiBrainSizeMultiplier(userId: number, coin: string): number 
  *  lose — a coin or bracket type with enough decided trades and a win rate below
  *  a conservative floor. Returns blocked=false until there's real evidence, so
  *  it never blocks on noise. Reads cache only. */
-export function kalshiBrainGate(userId: number, coin: string, strikeType?: string | null): { blocked: boolean; reason: string } {
+export function kalshiBrainGate(
+  userId: number,
+  coin: string,
+  strikeType?: string | null,
+  hourUtc?: number | null,
+  confidence?: number | null,
+): { blocked: boolean; reason: string } {
   const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
   if (!k) return { blocked: false, reason: '' };
   const decided = k.wins + k.losses;
@@ -219,6 +225,20 @@ export function kalshiBrainGate(userId: number, coin: string, strikeType?: strin
     const st = k.byStrikeType[strikeType];
     if (st && st.trades >= 8 && st.winRate < 30) {
       return { blocked: true, reason: `🧠 Brain gate: ${coin}/${strikeType} win rate ${st.winRate}% over ${st.trades} — skipping bracket type` };
+    }
+  }
+  // Loss-clustering by hour of day — the brain measured it; now it acts on it.
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) {
+      return { blocked: true, reason: `🧠 Brain gate: ${coin} @ ${hourUtc}:00 UTC win rate ${h.winRate}% over ${h.trades} — skipping this hour` };
+    }
+  }
+  // Loss-clustering by confidence band (10-pt buckets, same as the learner).
+  if (confidence != null) {
+    const cb = k.byConfidenceBand[_band(confidence, 10)];
+    if (cb && cb.trades >= 8 && cb.winRate < 30) {
+      return { blocked: true, reason: `🧠 Brain gate: ${coin} at ${_band(confidence, 10)} confidence win rate ${cb.winRate}% over ${cb.trades} — skipping` };
     }
   }
   return { blocked: false, reason: '' };

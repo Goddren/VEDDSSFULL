@@ -105,6 +105,7 @@ export default function KalshiHubPage() {
                 <Num label="Min confidence %" value={form.minConfidence} onChange={(v) => set("minConfidence", v)} />
                 <Num label="Contracts / trade" value={form.contractsPerTrade} onChange={(v) => set("contractsPerTrade", v)} />
                 <Num label="Max open trades" value={form.maxOpenTrades} onChange={(v) => set("maxOpenTrades", v)} />
+                <Num label="Max trades / day" value={form.maxTradesPerDay} onChange={(v) => set("maxTradesPerDay", v)} />
                 <Num label="Cooldown (min)" value={form.cooldownMinutes} onChange={(v) => set("cooldownMinutes", v)} />
                 <Toggle label="Require aligned 1h trend" value={form.requireAlignedHourly} onChange={(v) => set("requireAlignedHourly", v)} />
                 <Toggle label="Require confluence (≥60%)" value={form.requireConfluence} onChange={(v) => set("requireConfluence", v)} />

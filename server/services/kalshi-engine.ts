@@ -84,6 +84,8 @@ export interface KalshiEngineState {
   lastScanAt: string | null;
   lastScanResult: string | null;
   lastTradeAt: string | null;
+  tradesToday: number;              // count of trades opened during tradesTodayUtcDate
+  tradesTodayUtcDate: string | null; // UTC YYYY-MM-DD the counter belongs to
   openTrades: KalshiTradeRecord[];
   closedTrades: KalshiTradeRecord[];
   totalRealizedPnl: number;
@@ -105,6 +107,7 @@ export interface KalshiEngineConfig {
   contractsPerTrade: number;   // number of Kalshi contracts per order
   maxOpenTrades: number;
   cooldownMinutes: number;
+  maxTradesPerDay: number;     // hard cap on trades opened per UTC day (0 = unlimited) — throttles overtrading
   minConfidence: number;       // min signal confidence to fire (0-100)
   requireAlignedHourly: boolean; // require priceChange1h to align with signal direction
   requireConfluence: boolean;    // require ≥60% multi-strategy consensus agreement before firing
@@ -173,6 +176,7 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   contractsPerTrade:    5,
   maxOpenTrades:        3,
   cooldownMinutes:      20,
+  maxTradesPerDay:      10,    // throttle overtrading (logs showed 30+ BTC trades/day at 23% WR); 0 = unlimited
   minConfidence:        70,
   requireAlignedHourly: true,
   requireConfluence:    true,
@@ -258,6 +262,8 @@ export function getKalshiEngineState(userId: number): KalshiEngineState {
       lastScanAt:         null,
       lastScanResult:     null,
       lastTradeAt:        null,
+      tradesToday:        0,
+      tradesTodayUtcDate: null,
       openTrades:         [],
       closedTrades:       [],
       totalRealizedPnl:   0,
@@ -387,6 +393,12 @@ export async function kalshiContractsFor(userId: number, s: KalshiEngineState, p
   return { contracts: shieldedBase, reasoning: shieldNote.trim() };
 }
 
+// Fast stop-loss monitor: the full scan runs every 5 min, but on 15-min markets
+// a losing price can gap through the stop between scans. This lightweight loop
+// re-prices ONLY open positions every 60s and fires TP/SL — so the stop is a
+// ~1-min check, not a 5-min one. Skips the heavy scan/entry work entirely.
+const _priceTimers = new Map<number, ReturnType<typeof setInterval>>();
+
 export function startKalshiEngine(userId: number): void {
   const s = getKalshiEngineState(userId);
   if (s.isRunning) return;
@@ -395,6 +407,11 @@ export function startKalshiEngine(userId: number): void {
   _runKalshiScan(userId).catch(console.error);
   const iv = setInterval(() => _runKalshiScan(userId).catch(console.error), 5 * 60 * 1000);
   _timers.set(userId, iv);
+  const pv = setInterval(() => {
+    const st = getKalshiEngineState(userId);
+    if (st.isRunning && st.openTrades.length) _updateOpenTradePrices(userId, st).catch(() => {});
+  }, 60 * 1000);
+  _priceTimers.set(userId, pv);
 }
 
 export function stopKalshiEngine(userId: number): void {
@@ -403,6 +420,8 @@ export function stopKalshiEngine(userId: number): void {
   _persistKalshiRunState(userId, false, s.isPaperMode);
   const iv = _timers.get(userId);
   if (iv) { clearInterval(iv); _timers.delete(userId); }
+  const pv = _priceTimers.get(userId);
+  if (pv) { clearInterval(pv); _priceTimers.delete(userId); }
 }
 
 function _persistKalshiRunState(userId: number, isRunning: boolean, isPaperMode: boolean): void {
@@ -621,6 +640,10 @@ async function _placeKalshiYes(
 
   s.openTrades.push(trade);
   s.lastTradeAt = new Date().toISOString();
+  // Count toward the daily cap (reset the counter if the UTC day rolled over).
+  const _fireDay = new Date().toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _fireDay) { s.tradesTodayUtcDate = _fireDay; s.tradesToday = 0; }
+  s.tradesToday = (s.tradesToday ?? 0) + 1;
   _recalcUnrealized(s);
 
   const modeStr = s.isPaperMode ? '[PAPER]' : '[LIVE]';
@@ -722,6 +745,17 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
       s.lastScanResult = r;
       return { fired: false, reason: r };
     }
+  }
+
+  // Daily trade cap — throttle overtrading (more trades ≠ more profit; the logs
+  // showed 30+ BTC trades in a day at a 23% win rate). Resets at UTC midnight.
+  const _todayUtc = new Date().toISOString().slice(0, 10);
+  if (s.tradesTodayUtcDate !== _todayUtc) { s.tradesTodayUtcDate = _todayUtc; s.tradesToday = 0; }
+  const _dailyCap = s.config.maxTradesPerDay ?? 0;
+  if (!manual && _dailyCap > 0 && s.tradesToday >= _dailyCap) {
+    const r = `Daily trade cap reached (${s.tradesToday}/${_dailyCap}) — pausing new trades until UTC midnight`;
+    s.lastScanResult = r;
+    return { fired: false, reason: r };
   }
 
   // Ruin Guard circuit breaker — hard halt on new trades once a loss limit is
@@ -837,9 +871,9 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
     return { fired: false, reason: `${coin}: ${s.config.timeframe === 'fifteen_min' ? '15-min' : 'hourly'} market exists but isn't broker/API-tradeable on Kalshi's side — skipping` };
   }
 
-  // Brain coin-level gate (opt-in, hard-block) — skip coins proven to lose.
+  // Brain coin-level gate (hard-block) — skip coins + loss-clustering hours.
   if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
-    const g = kalshiBrainGate(userId, coin);
+    const g = kalshiBrainGate(userId, coin, null, new Date().getUTCHours());
     if (g.blocked) return { fired: false, reason: g.reason };
   }
 
@@ -1245,7 +1279,7 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
     if (spread > SPREAD_MAX_CENTS) continue;
 
     // Brain gate (opt-in, hard-block): skip coins/bracket types proven to lose.
-    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType).blocked) continue;
+    if (brainGating && kalshiBrainGate(userId, coin, b.strikeType, new Date().getUTCHours(), consensus.confidence).blocked) continue;
 
     const modelProb = _bracketModelProb(b, btcPrice, sigmaPrice, driftPrice);
     const modelProbPct = Math.round(modelProb * 100);
