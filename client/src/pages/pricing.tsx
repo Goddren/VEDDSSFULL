@@ -32,6 +32,10 @@ const CSS = `
 .vpx .note{text-align:center;color:var(--tx3);font-size:.9rem;margin-top:26px}
 .vpx .note a{color:var(--tx2)}
 .vpx .cta{text-align:center;padding:52px 0 70px}
+.vpx .psplit{margin-top:24px;background:linear-gradient(160deg,#1a1710,var(--card));border:1px solid rgba(245,196,81,.3);border-radius:18px;padding:28px;text-align:center}
+.vpx .psplit .pn{color:var(--gold)}
+.vpx .psplit h2{font-size:1.6rem;margin:8px 0}
+.vpx .psplit p{color:var(--tx2);max-width:60ch;margin:0 auto}
 @media(max-width:920px){.vpx .grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:520px){.vpx .grid{grid-template-columns:1fr}}
 `;
@@ -90,6 +94,13 @@ export default function PricingPage() {
               <ul>{p.feats.map((f) => <li key={f}>{f}</li>)}</ul>
             </div>
           ))}
+        </div>
+
+        <div className="psplit">
+          <div className="pn">Ambassador Profit Split</div>
+          <h2>No subscription? Trade on a profit split.</h2>
+          <p>Serious about a prop-firm account? Get full VEDD access with <b>$0 up front</b> — VEDD takes <b>30% of your net prop-firm profit</b>, and only when you're profitable. Ask your VEDD ambassador (or support) to enroll you.</p>
+          <Link href="/auth" className="btn solid" style={{ display: 'inline-block', width: 'auto', padding: '13px 28px', marginTop: 16 }}>Get started free</Link>
         </div>
 
         <p className="note">Pay with card, VEDD tokens, or ambassador credits at checkout · <Link href="/features">See every feature →</Link></p>

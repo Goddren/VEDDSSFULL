@@ -21,6 +21,12 @@ export default function ReferralHubPage() {
   const queryClient = useQueryClient();
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [recruitEmail, setRecruitEmail] = useState("");
+  const enrollRecruit = useMutation({
+    mutationFn: async (email: string) => (await apiRequest("POST", "/api/profit-split/enroll", { email })).json(),
+    onSuccess: () => { setRecruitEmail(""); toast({ title: "Recruit enrolled in Profit Split", description: "They get full access with no subscription — VEDD takes 30% of their prop-firm profit." }); },
+    onError: (e: any) => toast({ title: "Couldn't enroll", description: e?.message || "Must be a trader you referred.", variant: "destructive" }),
+  });
 
   const { data: linkData, isLoading: linkLoading } = useQuery({
     queryKey: ["/api/referral/my-link"],
@@ -209,6 +215,23 @@ export default function ReferralHubPage() {
           </Card>
         ))}
       </div>
+
+      {/* Profit Split — enroll a recruit */}
+      <Card className="mb-6 border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-yellow-500/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">💰 Enroll a recruit — 30% Profit Split</CardTitle>
+          <CardDescription>Put a serious trader on with no subscription: they run a prop-firm account, keep 70%, and VEDD takes 30% of their net profit — only when they win. Works only for traders who signed up with your referral link.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input value={recruitEmail} onChange={(e) => setRecruitEmail(e.target.value)} placeholder="recruit@email.com" className="flex-1 min-w-[220px]" />
+            <Button onClick={() => recruitEmail.trim() && enrollRecruit.mutate(recruitEmail.trim())} disabled={enrollRecruit.isPending} className="bg-amber-500 hover:bg-amber-600 text-black font-bold">
+              {enrollRecruit.isPending ? "Enrolling…" : "Enroll in Profit Split"}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">Full agreement + pitch script is in the Event Kit. They get the live engine, brain, and tools free; the 30% is tracked on their account.</p>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="overview">
         <TabsList className="mb-4">
