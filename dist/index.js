@@ -8049,6 +8049,7 @@ __export(openai_exports, {
   addAiConfirmationLog: () => addAiConfirmationLog,
   analyzeChartImage: () => analyzeChartImage,
   analyzeORBSignal: () => analyzeORBSignal,
+  coerceConfidence: () => coerceConfidence,
   enrichLeadWithAI: () => enrichLeadWithAI,
   extractTextFromImage: () => extractTextFromImage,
   generateDailyDevotional: () => generateDailyDevotional,
@@ -8423,6 +8424,12 @@ function inferModelProvider(modelId) {
   if (m.startsWith("mistral") || m.startsWith("mixtral") || m.startsWith("magistral")) return "mistral";
   if (m.includes("gpt-oss") || m.includes("llama") || m.includes("groq") || m.includes("gemma") || m.includes("qwen") || m.includes("deepseek")) return "groq";
   return getModelProvider(modelId);
+}
+function coerceConfidence(raw) {
+  let c = typeof raw === "string" ? parseFloat(raw) : raw;
+  if (typeof c !== "number" || !Number.isFinite(c)) return 50;
+  if (c > 0 && c <= 1) c *= 100;
+  return Math.max(0, Math.min(100, Math.round(c)));
 }
 function resolveVisionModel(modelId) {
   if (KNOWN_VISION_MODEL_IDS.has(modelId)) return modelId;
@@ -9661,7 +9668,7 @@ ${prompt.system}`, user: judgeUser },
     return {
       confirmed: !!parsed.confirmed,
       aiDirection: parsed.direction || "NEUTRAL",
-      aiConfidence: typeof parsed.confidence === "number" ? parsed.confidence : 50,
+      aiConfidence: coerceConfidence(parsed.confidence),
       reasoning: parsed.reasoning || "No reasoning provided",
       adjustedEntry: typeof parsed.adjustedEntry === "number" ? parsed.adjustedEntry : void 0,
       adjustedStopLoss: typeof parsed.adjustedStopLoss === "number" ? parsed.adjustedStopLoss : void 0,
@@ -9834,7 +9841,7 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || "NEUTRAL",
-      aiConfidence: typeof result.confidence === "number" ? result.confidence : 50,
+      aiConfidence: coerceConfidence(result.confidence),
       reasoning: result.reasoning || "No reasoning provided",
       adjustedEntry: typeof result.adjustedEntry === "number" ? result.adjustedEntry : void 0,
       adjustedStopLoss: typeof result.adjustedStopLoss === "number" ? result.adjustedStopLoss : void 0,
@@ -9977,11 +9984,12 @@ INSTRUCTION: If grade is A (\u226570%) or B (\u226550%) AND \u22653 strategies a
       const fallbackTP1 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr : 0;
       const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
       const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
-      const isGradeOk = breakoutResult.grade === "A" || breakoutResult.grade === "B";
-      const isAlignedOk = breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== "NEUTRAL";
+      const _fbHour = (/* @__PURE__ */ new Date()).getUTCHours();
+      const _fbLiquid = _fbHour >= 7 && _fbHour < 17;
       const directionOk = breakoutResult.direction !== "NEUTRAL" && breakoutResult.direction === fallbackDir;
+      const _fbGateOk = ["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _fbLiquid;
       return {
-        confirmed: isGradeOk && isAlignedOk && directionOk,
+        confirmed: _fbGateOk && directionOk,
         aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only \u2014 no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})
@@ -10014,7 +10022,9 @@ ${breakoutResult.summary}`,
     } catch {
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
-    if ((breakoutResult.grade === "A" || breakoutResult.grade === "B") && breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== "NEUTRAL") {
+    const _cHour = (/* @__PURE__ */ new Date()).getUTCHours();
+    const _cLiquid = _cHour >= 7 && _cHour < 17;
+    if (breakoutResult.direction !== "NEUTRAL" && (["A+", "A"].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3 || breakoutResult.grade === "B" && breakoutResult.alignedVotes >= 2 || breakoutResult.grade === "C" && breakoutResult.alignedVotes >= 1 && _cLiquid)) {
       parsed.confirmed = true;
     }
     console.log(`[Breakout Master] ${symbol} Grade:${breakoutResult.grade} Score:${breakoutResult.score}/${breakoutResult.maxScore} fired | ${breakoutResult.alignedVotes} aligned (${breakoutResult.alignedPct}%) Decision:${parsed.confirmed ? "CONFIRM" : "REJECT"}`);
@@ -60135,13 +60145,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
             } else {
               const eaConf = analysis.confidence || 0;
-              const aiConf = analysis.aiConfidence || 0;
-              const dualHighConf = veddStrategy.highConfidenceOverride && !veddStrategy.lockSettings && eaConf >= 85 && aiConf >= 85;
+              const dualHighConf = veddStrategy.highConfidenceOverride && !veddStrategy.lockSettings && eaConf >= 85;
               const smartUnlocked = smartUnlockedPairs && smartUnlockedPairs.includes(normalizedSymbol);
               if (dualHighConf) {
-                console.log(`[VEDD SS AI] HIGH CONFIDENCE OVERRIDE on ${sanitizedSymbol}: EA ${eaConf}% + AI ${aiConf}% \u2265 85%. Trade allowed from full pool.`);
+                console.log(`[VEDD SS AI] HIGH CONFIDENCE OVERRIDE on ${sanitizedSymbol}: ${eaConf}% \u2265 85%. Trade allowed from full pool (AI gate still applies).`);
                 analysis.alerts = analysis.alerts || [];
-                analysis.alerts.push(`VEDD SS AI: High-confidence override active \u2014 ${sanitizedSymbol} cleared with ${eaConf}% EA + ${aiConf}% AI confidence.`);
+                analysis.alerts.push(`VEDD SS AI: High-confidence override active \u2014 ${sanitizedSymbol} cleared at ${eaConf}% confidence.`);
               } else if (smartUnlocked) {
                 console.log(`[VEDD SS AI] SMART ESCALATION unlocked ${sanitizedSymbol} based on brain win-rate ranking.`);
                 analysis.alerts = analysis.alerts || [];
@@ -61173,8 +61182,14 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const _potentialLoss = mt5Volume * _slPips * _pipVal;
             const _maxLossUsd = accountData.balance * 0.05;
             if (_potentialLoss > _maxLossUsd) {
-              tlGateBlocked = true;
-              tlGateReason = `Per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${_maxLossUsd.toFixed(0)} (${mt5Volume} lots \xD7 ${_slPips.toFixed(0)} pips)`;
+              const _cappedVol = Math.floor(_maxLossUsd / (_slPips * _pipVal) * 100) / 100;
+              if (_cappedVol >= 0.01) {
+                console.warn(`[Gate 0e] ${sanitizedSymbol}: resized ${mt5Volume}\u2192${_cappedVol} lots to fit 5% per-trade cap ($${_maxLossUsd.toFixed(0)})`);
+                mt5Volume = _cappedVol;
+              } else {
+                tlGateBlocked = true;
+                tlGateReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(0)} cap)`;
+              }
             }
           }
         }
@@ -61531,6 +61546,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             }
           }
           const lastTradeTime = global.recentTrades[recentTradeKey];
+          const _prevCooldown = lastTradeTime;
           if (!lastTradeTime || now - lastTradeTime > BASE_COOLDOWN_MS) {
             global.recentTrades[recentTradeKey] = now;
             let lastTradeWasLoss = false;
@@ -61553,11 +61569,12 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
             const hasOpenPosition = openCount - closeCount > 0;
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
+              global.recentTrades[recentTradeKey] = _prevCooldown;
             } else {
               const _postLossBrainK = global.veddAIBrain?.[token.userId]?.pairKnowledge?.[sanitizedSymbol];
               const _consecutiveLosses = _postLossBrainK?.consecutiveLossesToday ?? (lastTradeWasLoss ? 1 : 0);
               const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : _consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0;
-              const effectiveConfFloor = _dynamicLossFloor > 0 ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor) : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
+              const effectiveConfFloor = _dynamicLossFloor > 0 ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor) : MIN_CONFIDENCE_FOR_AUTO_TRADE;
               if (_consecutiveLosses >= 1) {
                 console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: ${_consecutiveLosses} consecutive loss(es) \u2192 need ${_dynamicLossFloor}% (have ${analysis.confidence}%)`);
               }
@@ -61574,6 +61591,7 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
               if (!analysisGuard.allow) {
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
                 tradelockerResult = null;
+                global.recentTrades[recentTradeKey] = _prevCooldown;
               } else {
                 const _eaSym = sanitizedSymbol.toUpperCase();
                 const _eaAcctBal = accountBalance || 0;

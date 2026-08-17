@@ -489,6 +489,17 @@ const KNOWN_VISION_MODEL_IDS = new Set<string>([
   ...Object.values(VISION_FALLBACK),
 ]);
 
+// Coerce a model's confidence field to a 0-100 number. Models frequently return
+// it as a STRING ("85") or a 0-1 fraction (0.85); the old `typeof === 'number'`
+// check silently defaulted both to 50, which fell below the min-confidence gate
+// and dropped genuinely-confirmed trades. Returns 50 only when truly unparseable.
+export function coerceConfidence(raw: any): number {
+  let c = typeof raw === 'string' ? parseFloat(raw) : raw;
+  if (typeof c !== 'number' || !Number.isFinite(c)) return 50;
+  if (c > 0 && c <= 1) c *= 100; // 0-1 fraction → percent
+  return Math.max(0, Math.min(100, Math.round(c)));
+}
+
 function resolveVisionModel(modelId: string): string {
   // Default-DENY: only pass through models we know are vision-capable. Previously
   // this only promoted text-only models that were IN the registry, so an unlisted
@@ -2074,7 +2085,7 @@ async function runDeepReasoningDebate(
     return {
       confirmed: !!parsed.confirmed,
       aiDirection: parsed.direction || 'NEUTRAL',
-      aiConfidence: typeof parsed.confidence === 'number' ? parsed.confidence : 50,
+      aiConfidence: coerceConfidence(parsed.confidence),
       reasoning: parsed.reasoning || 'No reasoning provided',
       adjustedEntry: typeof parsed.adjustedEntry === 'number' ? parsed.adjustedEntry : undefined,
       adjustedStopLoss: typeof parsed.adjustedStopLoss === 'number' ? parsed.adjustedStopLoss : undefined,
@@ -2287,7 +2298,7 @@ export async function getAiVisionConfirmation(
     return {
       confirmed: !!result.confirmed,
       aiDirection: result.direction || 'NEUTRAL',
-      aiConfidence: typeof result.confidence === 'number' ? result.confidence : 50,
+      aiConfidence: coerceConfidence(result.confidence),
       reasoning: result.reasoning || 'No reasoning provided',
       adjustedEntry: typeof result.adjustedEntry === 'number' ? result.adjustedEntry : undefined,
       adjustedStopLoss: typeof result.adjustedStopLoss === 'number' ? result.adjustedStopLoss : undefined,
@@ -2464,12 +2475,17 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
       const fallbackTP2 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 2 : 0;
       const fallbackTP3 = breakoutResult.atr > 0 ? fallbackCurrentPrice + fbSign * breakoutResult.atr * 3 : 0;
 
-      // CONFIRM: Grade A/B (score% >=50%) AND >=3 aligned strategies (matches main AI path gate)
-      const isGradeOk = breakoutResult.grade === 'A' || breakoutResult.grade === 'B';
-      const isAlignedOk = breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL';
+      // CONFIRM must match the ENTRY GATE (A+/A ≥3, B ≥2, C ≥1 in liquid session).
+      // Previously required ≥3 for all grades, so gate-approved Grade B (2 aligned)
+      // and Grade C (1 aligned, liquid session) breakouts were silently rejected here.
+      const _fbHour = new Date().getUTCHours();
+      const _fbLiquid = _fbHour >= 7 && _fbHour < 17;
       const directionOk = breakoutResult.direction !== 'NEUTRAL' && breakoutResult.direction === fallbackDir;
+      const _fbGateOk = (['A+', 'A'].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3)
+        || (breakoutResult.grade === 'B' && breakoutResult.alignedVotes >= 2)
+        || (breakoutResult.grade === 'C' && breakoutResult.alignedVotes >= 1 && _fbLiquid);
       return {
-        confirmed: isGradeOk && isAlignedOk && directionOk,
+        confirmed: _fbGateOk && directionOk,
         aiDirection: fallbackDir,
         aiConfidence: breakoutResult.percentage,
         reasoning: `[Breakout Engine Only — no AI key] Grade ${breakoutResult.grade} (${breakoutResult.score}/${breakoutResult.maxScore})\n\n${breakoutResult.summary}`,
@@ -2503,9 +2519,15 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
       parsed = { confirmed: false, confidence: breakoutResult.percentage, reasoning: rawContent };
     }
 
-    // Grade A/B AND ≥3 aligned = deterministic CONFIRM — AI JSON cannot veto passing engine score
-    if ((breakoutResult.grade === 'A' || breakoutResult.grade === 'B') &&
-        breakoutResult.alignedVotes >= 3 && breakoutResult.direction !== 'NEUTRAL') {
+    // Deterministic CONFIRM for any GATE-APPROVED breakout (A+/A ≥3, B ≥2, C ≥1 in
+    // liquid session) — the AI JSON cannot veto a passing engine score. Matches the
+    // entry gate so gate-approved B/C breakouts aren't dropped by an AI "false".
+    const _cHour = new Date().getUTCHours();
+    const _cLiquid = _cHour >= 7 && _cHour < 17;
+    if (breakoutResult.direction !== 'NEUTRAL' && (
+        (['A+', 'A'].includes(breakoutResult.grade) && breakoutResult.alignedVotes >= 3)
+        || (breakoutResult.grade === 'B' && breakoutResult.alignedVotes >= 2)
+        || (breakoutResult.grade === 'C' && breakoutResult.alignedVotes >= 1 && _cLiquid))) {
       parsed.confirmed = true;
     }
 

@@ -9944,15 +9944,19 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             } else {
               // Pair not in today's plan — check overrides before blocking
               const eaConf = analysis.confidence || 0;
-              const aiConf = (analysis as any).aiConfidence || 0;
-              const dualHighConf = veddStrategy.highConfidenceOverride && !veddStrategy.lockSettings && eaConf >= 85 && aiConf >= 85;
+              // AI confidence isn't computed until the confirmation step (~500 lines
+              // below), so requiring analysis.aiConfidence here left it permanently 0 →
+              // the high-confidence off-plan unlock never fired. Key it on the analysis
+              // confidence available now; the AI second-opinion gate still applies later.
+              const dualHighConf = veddStrategy.highConfidenceOverride && !veddStrategy.lockSettings && eaConf >= 85;
               const smartUnlocked = smartUnlockedPairs && smartUnlockedPairs.includes(normalizedSymbol);
 
               if (dualHighConf) {
-                // 85%+ on both EA and AI — allow the trade from full pair pool
-                console.log(`[VEDD SS AI] HIGH CONFIDENCE OVERRIDE on ${sanitizedSymbol}: EA ${eaConf}% + AI ${aiConf}% ≥ 85%. Trade allowed from full pool.`);
+                // 85%+ analysis confidence — allow the trade from the full pair pool.
+                // The AI second-opinion gate still applies downstream before execution.
+                console.log(`[VEDD SS AI] HIGH CONFIDENCE OVERRIDE on ${sanitizedSymbol}: ${eaConf}% ≥ 85%. Trade allowed from full pool (AI gate still applies).`);
                 analysis.alerts = analysis.alerts || [];
-                analysis.alerts.push(`VEDD SS AI: High-confidence override active — ${sanitizedSymbol} cleared with ${eaConf}% EA + ${aiConf}% AI confidence.`);
+                analysis.alerts.push(`VEDD SS AI: High-confidence override active — ${sanitizedSymbol} cleared at ${eaConf}% confidence.`);
               } else if (smartUnlocked) {
                 // Smart escalation unlocked this pair based on brain win-rate ranking
                 console.log(`[VEDD SS AI] SMART ESCALATION unlocked ${sanitizedSymbol} based on brain win-rate ranking.`);
@@ -11110,8 +11114,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const _potentialLoss = mt5Volume * _slPips * _pipVal;
             const _maxLossUsd = accountData.balance * 0.05; // 5% hard cap per single trade
             if (_potentialLoss > _maxLossUsd) {
-              tlGateBlocked = true;
-              tlGateReason = `Per-trade risk $${_potentialLoss.toFixed(0)} exceeds 5% cap $${_maxLossUsd.toFixed(0)} (${mt5Volume} lots × ${_slPips.toFixed(0)} pips)`;
+              // RESIZE down to the 5% ceiling rather than blocking the trade outright
+              // (a valid signal on a volatile/wide-SL pair should trade small, not be
+              // missed). Only hard-block if even the minimum 0.01 lot still exceeds 5%.
+              const _cappedVol = Math.floor((_maxLossUsd / (_slPips * _pipVal)) * 100) / 100;
+              if (_cappedVol >= 0.01) {
+                console.warn(`[Gate 0e] ${sanitizedSymbol}: resized ${mt5Volume}→${_cappedVol} lots to fit 5% per-trade cap ($${_maxLossUsd.toFixed(0)})`);
+                mt5Volume = _cappedVol;
+              } else {
+                tlGateBlocked = true;
+                tlGateReason = `Per-trade risk exceeds 5% cap even at the 0.01 minimum lot (${_slPips.toFixed(0)} pip stop, $${_maxLossUsd.toFixed(0)} cap)`;
+              }
             }
           }
         }
@@ -11543,9 +11556,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
           }
 
           const lastTradeTime = (global as any).recentTrades[recentTradeKey];
+          const _prevCooldown = lastTradeTime; // for rollback if no trade actually opens
 
           if (!lastTradeTime || (now - lastTradeTime) > BASE_COOLDOWN_MS) {
-            // SET COOLDOWN FIRST to prevent race conditions from concurrent requests
+            // SET COOLDOWN FIRST to prevent race conditions from concurrent requests.
+            // Rolled back below on any branch that does NOT open a trade, so a blocked
+            // or failed attempt can't silently lock this symbol for the full cooldown.
             (global as any).recentTrades[recentTradeKey] = now;
 
             // Check if last closed trade on this symbol was a loss → elevate confidence floor
@@ -11580,6 +11596,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
 
             if (hasOpenPosition) {
               console.log(`[MT5 Chart Data AutoTrade] Skipping trade - existing open position on ${sanitizedSymbol}`);
+              (global as any).recentTrades[recentTradeKey] = _prevCooldown; // no new trade — don't lock the symbol
             } else {
               // tradeVolume is computed below after volatile-pair cap check
 
@@ -11591,7 +11608,9 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               const _dynamicLossFloor = _consecutiveLosses >= 2 ? 86 : (_consecutiveLosses >= 1 ? POST_LOSS_CONF_FLOOR : 0);
               const effectiveConfFloor = _dynamicLossFloor > 0
                 ? Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, _dynamicLossFloor)
-                : Math.max(MIN_CONFIDENCE_FOR_AUTO_TRADE, 70);
+                : MIN_CONFIDENCE_FOR_AUTO_TRADE; // was Math.max(..., 70): a hidden 70 floor
+                  // silently blocked TradeLocker on 55-69% signals that the EA path + outer
+                  // gate already allowed. Honor the account's own MIN_CONFIDENCE_FOR_AUTO_TRADE.
               if (_consecutiveLosses >= 1) {
                 console.log(`[MT5 Chart Data AutoTrade] POST-LOSS gate on ${sanitizedSymbol}: ${_consecutiveLosses} consecutive loss(es) → need ${_dynamicLossFloor}% (have ${analysis.confidence}%)`);
               }
@@ -11608,6 +11627,7 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (!analysisGuard.allow) {
                 console.log(`[MT5 Chart Data AutoTrade Guard] BLOCKED: ${analysisGuard.reason}`);
                 tradelockerResult = null;
+                (global as any).recentTrades[recentTradeKey] = _prevCooldown; // blocked — no trade opened, don't lock the symbol
               } else {
 
               // ── Volatile-pair lot cap for EA path — account-size scaled ────
