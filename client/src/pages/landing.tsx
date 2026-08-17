@@ -342,6 +342,7 @@ export default function LandingPage() {
               <ul className="amb-list">
                 <li>Earn credits on every successful referral</li>
                 <li>Recurring monthly commission on paid plans</li>
+                <li>Put recruits on with a <b>30% profit split</b> — no subscription, VEDD earns only when they profit</li>
                 <li>Use credits to cover your Starter or Premium plan</li>
                 <li>A 44-day training program with certifications</li>
               </ul>
