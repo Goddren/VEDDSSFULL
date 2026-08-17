@@ -9,13 +9,14 @@ import {
   ExternalLink, Activity, Wallet, RefreshCw,
 } from "lucide-react";
 
-type Tab = "overview" | "economy" | "signals" | "payouts" | "users" | "tools";
+type Tab = "overview" | "economy" | "signals" | "payouts" | "users" | "profitsplit" | "tools";
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "economy", label: "Economy" },
   { id: "signals", label: "Signals" },
   { id: "payouts", label: "Payouts" },
   { id: "users", label: "Users" },
+  { id: "profitsplit", label: "Profit Split" },
   { id: "tools", label: "Tools" },
 ];
 
@@ -32,6 +33,23 @@ export default function AdminCommandCenter() {
   const pending = useQuery<any[]>({ queryKey: ["/api/vedd/admin/pending-rewards"], enabled: !!user && tab === "payouts" });
   const transfers = useQuery<any[]>({ queryKey: ["/api/vedd/admin/transfers"], enabled: !!user && tab === "payouts" });
   const diag = useQuery<any>({ queryKey: ["/api/admin/mt5-diag"], enabled: !!user && tab === "signals", refetchInterval: tab === "signals" ? 30000 : false });
+  const splits = useQuery<any[]>({ queryKey: ["/api/profit-split/admin/list"], enabled: !!user && tab === "profitsplit" });
+  const [psEmail, setPsEmail] = useState("");
+  const enrollPs = useMutation({
+    mutationFn: async (email: string) => (await apiRequest("POST", "/api/profit-split/enroll", { email })).json(),
+    onSuccess: () => { setPsEmail(""); queryClient.invalidateQueries({ queryKey: ["/api/profit-split/admin/list"] }); toast({ title: "Trader enrolled in Profit Split" }); },
+    onError: (e: any) => toast({ title: "Enroll failed", description: e?.message, variant: "destructive" }),
+  });
+  const unenrollPs = useMutation({
+    mutationFn: async (userId: number) => (await apiRequest("POST", "/api/profit-split/unenroll", { userId })).json(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/profit-split/admin/list"] }); toast({ title: "Ended enrollment" }); },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message, variant: "destructive" }),
+  });
+  const payPs = useMutation({
+    mutationFn: async ({ userId, amount }: { userId: number; amount: number }) => (await apiRequest("POST", "/api/profit-split/record-payment", { userId, amount })).json(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/profit-split/admin/list"] }); toast({ title: "Payment recorded" }); },
+    onError: (e: any) => toast({ title: "Failed", description: e?.message, variant: "destructive" }),
+  });
 
   const verify = useMutation({
     mutationFn: async (rewardId: number) => (await apiRequest("POST", `/api/vedd/admin/rewards/${rewardId}/verify`, {})).json(),
@@ -237,6 +255,48 @@ export default function AdminCommandCenter() {
         )}
 
         {/* TOOLS */}
+        {tab === "profitsplit" && (
+          <div className="grid gap-3">
+            <Section title="Enroll a trader (30% prop-firm profit split — no subscription)">
+              <div className="flex flex-wrap items-center gap-2">
+                <input value={psEmail} onChange={e => setPsEmail(e.target.value)} placeholder="trader@email.com"
+                  className="flex-1 min-w-[220px] rounded-lg bg-black/40 border border-white/10 px-3 py-2 text-sm text-white outline-none" />
+                <button onClick={() => psEmail.trim() && enrollPs.mutate(psEmail.trim())} disabled={enrollPs.isPending}
+                  className="rounded-lg px-4 py-2 text-sm font-bold" style={{ background: "rgba(245,196,81,.18)", color: "#f5c451", border: "1px solid rgba(245,196,81,.4)" }}>
+                  {enrollPs.isPending ? "Enrolling…" : "Enroll"}
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-white/40">Grants full access with no plan; VEDD is owed 30% of the trader's net prop-firm profit. Ambassadors can enroll their own recruits from the Referral Hub.</p>
+            </Section>
+            <Section title="Active enrollments">
+              {splits.isLoading ? <div className="text-white/40 text-sm">Loading…</div> : !splits.data?.length ? (
+                <div className="text-white/40 text-sm">No active enrollments yet.</div>
+              ) : (
+                <Table head={["Trader", "PF accts", "Net profit", "30% owed", "Paid", "Balance", ""]}>
+                  {splits.data.map((s: any) => (
+                    <tr key={s.userId} className="border-t border-white/5">
+                      <td className="py-2 pr-3">{s.username || `#${s.userId}`}</td>
+                      <td className="py-2 pr-3 font-mono">{s.propFirmConnections}</td>
+                      <td className="py-2 pr-3 font-mono" style={{ color: s.netProfit >= 0 ? "#34d399" : "#f87171" }}>${s.netProfit.toLocaleString()}</td>
+                      <td className="py-2 pr-3 font-mono text-amber-300">${s.owed.toLocaleString()}</td>
+                      <td className="py-2 pr-3 font-mono text-white/70">${s.paid.toLocaleString()}</td>
+                      <td className="py-2 pr-3 font-mono font-bold" style={{ color: s.balance > 0 ? "#f5c451" : "#34d399" }}>${s.balance.toLocaleString()}</td>
+                      <td className="py-2 pr-3">
+                        <div className="flex gap-1.5">
+                          <button onClick={() => { const a = Number(prompt(`Record payment collected from ${s.username || s.userId} (USD):`, String(s.balance))); if (a > 0) payPs.mutate({ userId: s.userId, amount: a }); }}
+                            className="rounded px-2 py-0.5 text-[11px] font-bold" style={{ background: "rgba(16,185,129,.18)", color: "#34d399", border: "1px solid rgba(16,185,129,.4)" }}>Record $</button>
+                          <button onClick={() => confirm(`End profit-split enrollment for ${s.username || s.userId}?`) && unenrollPs.mutate(s.userId)}
+                            className="rounded px-2 py-0.5 text-[11px] font-bold" style={{ background: "rgba(255,255,255,.06)", color: "#f87171", border: "1px solid rgba(255,255,255,.12)" }}>End</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </Table>
+              )}
+            </Section>
+          </div>
+        )}
+
         {tab === "tools" && (
           <div className="grid gap-3 md:grid-cols-2">
             <ToolLink href="/admin/vedd-pool" title="Token Distribution console" desc="Pool wallets, verification queue, transfer history, blacklist." />

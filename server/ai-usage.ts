@@ -97,6 +97,16 @@ export async function getEffectiveAiCostCapCents(userId: number): Promise<number
       if (plan) cap = Math.max(cap, plan.aiMonthlyCostCapCents);
     }
 
+    // Profit Split Program: enrolled users get full access (highest plan cost cap)
+    // with NO paid subscription — VEDD is paid via the 30% prop-firm profit split.
+    try {
+      const { isProfitSplitEnrolled } = await import('./services/profit-split');
+      if (await isProfitSplitEnrolled(userId)) {
+        const topCap = plans.reduce((m, p) => Math.max(m, p.aiMonthlyCostCapCents ?? 0), cap);
+        cap = Math.max(cap, topCap);
+      }
+    } catch { /* non-fatal — never block cost-cap resolution on this */ }
+
     return cap;
   } catch (e) {
     console.error('[AI Usage] Failed to resolve cost cap:', e);

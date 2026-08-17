@@ -408,6 +408,14 @@ async function withRetry<T>(
     console.error(`[startup] ensureReasoningPropFirmTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  // Ensure Ambassador Profit Split tables exist
+  try {
+    const { ensureProfitSplitTables } = await import('./services/ensure-profit-split-tables');
+    await ensureProfitSplitTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureProfitSplitTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Register routes and attach WebSocket to the already-listening server
   try {
     await registerRoutes(app, httpServer);

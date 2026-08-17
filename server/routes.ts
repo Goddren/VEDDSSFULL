@@ -30238,6 +30238,76 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     }
   });
 
+  // ── Ambassador Profit Split Program (30% of prop-firm profit, no subscription) ──
+  // GET own status/ledger
+  app.get("/api/profit-split/status", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getProfitSplitStatus } = await import('./services/profit-split');
+      res.json(await getProfitSplitStatus((req.user as User).id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Enroll a user — admin, or an ambassador enrolling someone they recruited.
+  app.post("/api/profit-split/enroll", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !(u?.isAdmin || u?.isAmbassador)) return res.status(403).json({ error: "Admin or ambassador only" });
+    try {
+      const { userId, email, pct } = req.body as { userId?: number; email?: string; pct?: number };
+      let targetId = userId;
+      if (!targetId && email) {
+        const found = await storage.getUserByEmail(email);
+        targetId = found?.id;
+      }
+      if (!targetId) return res.status(400).json({ error: "Provide userId or a valid email" });
+      // An ambassador (non-admin) may only enroll users they recruited.
+      if (!u.isAdmin) {
+        const target = await storage.getUser(targetId);
+        if (!target || target.referredBy !== u.id) return res.status(403).json({ error: "You can only enroll traders you recruited" });
+      }
+      const _pct = typeof pct === 'number' && pct > 0 && pct <= 100 ? pct : 30;
+      const { enrollProfitSplit } = await import('./services/profit-split');
+      await enrollProfitSplit(targetId, u.isAdmin ? (req.body.enrolledBy ?? null) : u.id, _pct);
+      res.json({ success: true, userId: targetId, pct: _pct });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Unenroll — admin only.
+  app.post("/api/profit-split/unenroll", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { userId } = req.body as { userId?: number };
+      if (!userId) return res.status(400).json({ error: "userId required" });
+      const { unenrollProfitSplit } = await import('./services/profit-split');
+      await unenrollProfitSplit(userId);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Record a collected payment against what's owed — admin only.
+  app.post("/api/profit-split/record-payment", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { userId, amount, note } = req.body as { userId?: number; amount?: number; note?: string };
+      if (!userId || typeof amount !== 'number') return res.status(400).json({ error: "userId and numeric amount required" });
+      const { recordProfitSplitPayment } = await import('./services/profit-split');
+      await recordProfitSplitPayment(userId, amount, note);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Admin list of all active enrollments with computed owed/balance.
+  app.get("/api/profit-split/admin/list", async (req: Request, res: Response) => {
+    const u = req.user as any;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { listProfitSplitEnrollments } = await import('./services/profit-split');
+      res.json(await listProfitSplitEnrollments());
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Sports Predictions ────────────────────────────────────────────────────────
 
   app.get("/api/sports/predictions", async (_req: Request, res: Response) => {

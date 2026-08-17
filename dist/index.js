@@ -6898,6 +6898,125 @@ var init_confirmation_learning = __esm({
   }
 });
 
+// server/services/profit-split.ts
+var profit_split_exports = {};
+__export(profit_split_exports, {
+  DEFAULT_SPLIT_PCT: () => DEFAULT_SPLIT_PCT,
+  enrollProfitSplit: () => enrollProfitSplit,
+  getProfitSplitStatus: () => getProfitSplitStatus,
+  isProfitSplitEnrolled: () => isProfitSplitEnrolled,
+  listProfitSplitEnrollments: () => listProfitSplitEnrollments,
+  recordProfitSplitPayment: () => recordProfitSplitPayment,
+  unenrollProfitSplit: () => unenrollProfitSplit
+});
+async function isProfitSplitEnrolled(userId) {
+  const hit = _enrolledCache.get(userId);
+  if (hit && Date.now() - hit.at < ENROLL_TTL_MS) return hit.v;
+  let v = false;
+  try {
+    const r = await pool.query(
+      `SELECT 1 FROM profit_split_enrollments WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+      [userId]
+    );
+    v = (r.rowCount ?? 0) > 0;
+  } catch {
+  }
+  _enrolledCache.set(userId, { v, at: Date.now() });
+  return v;
+}
+function _invalidate(userId) {
+  _enrolledCache.delete(userId);
+}
+async function _propFirmRealized(userId) {
+  const conns = await pool.query(
+    `SELECT id FROM tradelocker_connections WHERE user_id = $1 AND is_prop_firm_account = true`,
+    [userId]
+  );
+  const ids = conns.rows.map((r) => r.id);
+  if (!ids.length) return { net: 0, connections: 0 };
+  const sum = await pool.query(
+    `SELECT COALESCE(SUM(realized_pnl), 0) AS net FROM prop_firm_daily_pnl
+       WHERE connection_type = 'tradelocker' AND connection_id = ANY($1::int[])`,
+    [ids]
+  );
+  return { net: Number(sum.rows[0]?.net ?? 0), connections: ids.length };
+}
+async function getProfitSplitStatus(userId) {
+  const enr = await pool.query(
+    `SELECT pct, status, enrolled_by, created_at FROM profit_split_enrollments WHERE user_id = $1`,
+    [userId]
+  );
+  const row = enr.rows[0];
+  const pct2 = row ? Number(row.pct) : DEFAULT_SPLIT_PCT;
+  const active = !!row && row.status === "active";
+  const { net, connections } = await _propFirmRealized(userId);
+  const owed = net > 0 ? Math.round(net * (pct2 / 100) * 100) / 100 : 0;
+  let paid = 0;
+  try {
+    const p = await pool.query(`SELECT COALESCE(SUM(amount), 0) AS paid FROM profit_split_payments WHERE user_id = $1`, [userId]);
+    paid = Number(p.rows[0]?.paid ?? 0);
+  } catch {
+  }
+  return {
+    enrolled: active,
+    pct: pct2,
+    status: row?.status ?? null,
+    enrolledBy: row?.enrolled_by ?? null,
+    propFirmConnections: connections,
+    netProfit: Math.round(net * 100) / 100,
+    owed,
+    paid: Math.round(paid * 100) / 100,
+    balance: Math.round((owed - paid) * 100) / 100,
+    startedAt: row?.created_at ? new Date(row.created_at).toISOString() : null
+  };
+}
+async function enrollProfitSplit(userId, enrolledBy, pct2 = DEFAULT_SPLIT_PCT) {
+  await pool.query(
+    `INSERT INTO profit_split_enrollments (user_id, pct, status, enrolled_by, updated_at)
+       VALUES ($1, $2, 'active', $3, now())
+     ON CONFLICT (user_id) DO UPDATE
+       SET status = 'active', pct = EXCLUDED.pct, enrolled_by = EXCLUDED.enrolled_by, updated_at = now()`,
+    [userId, pct2, enrolledBy]
+  );
+  _invalidate(userId);
+}
+async function unenrollProfitSplit(userId) {
+  await pool.query(
+    `UPDATE profit_split_enrollments SET status = 'ended', updated_at = now() WHERE user_id = $1`,
+    [userId]
+  );
+  _invalidate(userId);
+}
+async function recordProfitSplitPayment(userId, amount, note) {
+  await pool.query(
+    `INSERT INTO profit_split_payments (user_id, amount, note) VALUES ($1, $2, $3)`,
+    [userId, amount, note ?? null]
+  );
+}
+async function listProfitSplitEnrollments() {
+  const enr = await pool.query(
+    `SELECT e.user_id, u.username FROM profit_split_enrollments e
+       LEFT JOIN users u ON u.id = e.user_id
+      WHERE e.status = 'active' ORDER BY e.created_at DESC`
+  );
+  const out = [];
+  for (const r of enr.rows) {
+    const s = await getProfitSplitStatus(r.user_id);
+    out.push({ ...s, userId: r.user_id, username: r.username ?? null });
+  }
+  return out;
+}
+var DEFAULT_SPLIT_PCT, _enrolledCache, ENROLL_TTL_MS;
+var init_profit_split = __esm({
+  "server/services/profit-split.ts"() {
+    "use strict";
+    init_db();
+    DEFAULT_SPLIT_PCT = 30;
+    _enrolledCache = /* @__PURE__ */ new Map();
+    ENROLL_TTL_MS = 3e4;
+  }
+});
+
 // server/ai-usage.ts
 import { eq as eq4, and as and4, gte as gte4, sql as sql4 } from "drizzle-orm";
 function estimateCostCents(model, promptTokens, completionTokens) {
@@ -6955,6 +7074,14 @@ async function getEffectiveAiCostCapCents(userId) {
     if (equivalentPlanName) {
       const plan = plans.find((p) => p.name === equivalentPlanName);
       if (plan) cap = Math.max(cap, plan.aiMonthlyCostCapCents);
+    }
+    try {
+      const { isProfitSplitEnrolled: isProfitSplitEnrolled2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      if (await isProfitSplitEnrolled2(userId)) {
+        const topCap = plans.reduce((m, p) => Math.max(m, p.aiMonthlyCostCapCents ?? 0), cap);
+        cap = Math.max(cap, topCap);
+      }
+    } catch {
     }
     return cap;
   } catch (e) {
@@ -46206,6 +46333,47 @@ CREATE TABLE IF NOT EXISTS "prop_firm_daily_pnl" (
   }
 });
 
+// server/services/ensure-profit-split-tables.ts
+var ensure_profit_split_tables_exports = {};
+__export(ensure_profit_split_tables_exports, {
+  ensureProfitSplitTables: () => ensureProfitSplitTables
+});
+async function ensureProfitSplitTables() {
+  try {
+    await pool.query(DDL22);
+    console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
+  } catch (err) {
+    console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL22;
+var init_ensure_profit_split_tables = __esm({
+  "server/services/ensure-profit-split-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL22 = `
+CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
+  "pct" double precision NOT NULL DEFAULT 30,
+  "status" text NOT NULL DEFAULT 'active',   -- 'active' | 'ended'
+  "enrolled_by" integer,                      -- recruiting ambassador's user id (nullable)
+  "notes" text,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS "profit_split_payments" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "amount" double precision NOT NULL,         -- USD collected toward what's owed
+  "note" text,
+  "created_at" timestamp NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "profit_split_payments_user_idx" ON "profit_split_payments" ("user_id");
+`;
+  }
+});
+
 // server/services/blog-scheduler.ts
 var blog_scheduler_exports = {};
 __export(blog_scheduler_exports, {
@@ -77326,6 +77494,74 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       res.status(500).json({ error: e.message });
     }
   });
+  app2.get("/api/profit-split/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    try {
+      const { getProfitSplitStatus: getProfitSplitStatus2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      res.json(await getProfitSplitStatus2(req.user.id));
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/profit-split/enroll", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !(u?.isAdmin || u?.isAmbassador)) return res.status(403).json({ error: "Admin or ambassador only" });
+    try {
+      const { userId, email, pct: pct2 } = req.body;
+      let targetId = userId;
+      if (!targetId && email) {
+        const found = await storage.getUserByEmail(email);
+        targetId = found?.id;
+      }
+      if (!targetId) return res.status(400).json({ error: "Provide userId or a valid email" });
+      if (!u.isAdmin) {
+        const target = await storage.getUser(targetId);
+        if (!target || target.referredBy !== u.id) return res.status(403).json({ error: "You can only enroll traders you recruited" });
+      }
+      const _pct = typeof pct2 === "number" && pct2 > 0 && pct2 <= 100 ? pct2 : 30;
+      const { enrollProfitSplit: enrollProfitSplit2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      await enrollProfitSplit2(targetId, u.isAdmin ? req.body.enrolledBy ?? null : u.id, _pct);
+      res.json({ success: true, userId: targetId, pct: _pct });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/profit-split/unenroll", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { userId } = req.body;
+      if (!userId) return res.status(400).json({ error: "userId required" });
+      const { unenrollProfitSplit: unenrollProfitSplit2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      await unenrollProfitSplit2(userId);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.post("/api/profit-split/record-payment", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { userId, amount, note } = req.body;
+      if (!userId || typeof amount !== "number") return res.status(400).json({ error: "userId and numeric amount required" });
+      const { recordProfitSplitPayment: recordProfitSplitPayment2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      await recordProfitSplitPayment2(userId, amount, note);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/profit-split/admin/list", async (req, res) => {
+    const u = req.user;
+    if (!req.isAuthenticated() || !u?.isAdmin) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { listProfitSplitEnrollments: listProfitSplitEnrollments2 } = await Promise.resolve().then(() => (init_profit_split(), profit_split_exports));
+      res.json(await listProfitSplitEnrollments2());
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
   app2.get("/api/sports/predictions", async (_req, res) => {
     try {
       const { getSportsPredictions: getSportsPredictions2 } = await Promise.resolve().then(() => (init_sports_predictor(), sports_predictor_exports));
@@ -79040,6 +79276,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureReasoningPropFirmTables2();
   } catch (err) {
     console.error(`[startup] ensureReasoningPropFirmTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureProfitSplitTables: ensureProfitSplitTables2 } = await Promise.resolve().then(() => (init_ensure_profit_split_tables(), ensure_profit_split_tables_exports));
+    await ensureProfitSplitTables2();
+  } catch (err) {
+    console.error(`[startup] ensureProfitSplitTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     await registerRoutes(app, httpServer);

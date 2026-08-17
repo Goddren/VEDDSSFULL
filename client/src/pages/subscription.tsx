@@ -206,6 +206,12 @@ export default function SubscriptionPage() {
   });
   const creditBalance = creditData?.balance ?? 0;
 
+  const { data: profitSplit } = useQuery<any>({
+    queryKey: ['/api/profit-split/status'],
+    queryFn: async () => (await apiRequest('GET', '/api/profit-split/status')).json(),
+    enabled: !!user,
+  });
+
   const handlePayWithCredits = async (planId: number) => {
     if (!user) {
       toast({ title: 'Login Required', description: 'Please log in to use ambassador credits.', variant: 'default' });
@@ -350,6 +356,22 @@ export default function SubscriptionPage() {
             <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Pay with USD, VEDD tokens, or Ambassador Credits</span>
             <span className="flex items-center gap-1.5"><Check className="h-4 w-4 text-green-500" /> Replaces 7+ separate tools</span>
           </div>
+          {user && profitSplit?.enrolled && (
+            <div className="mt-6 max-w-2xl mx-auto rounded-2xl p-5 text-left" style={{ background: 'rgba(245,196,81,.08)', border: '1px solid rgba(245,196,81,.3)' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Crown className="h-5 w-5 text-amber-400" />
+                <span className="font-bold text-amber-300">Profit Split Program — no subscription</span>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">You have full access with no plan. In place of a subscription, VEDD earns {profitSplit.pct}% of your prop-firm net profit — only when you're profitable.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div><div className="text-xs text-muted-foreground">Net profit</div><div className="font-bold" style={{ color: profitSplit.netProfit >= 0 ? '#34d399' : '#f87171' }}>${profitSplit.netProfit.toLocaleString()}</div></div>
+                <div><div className="text-xs text-muted-foreground">{profitSplit.pct}% owed</div><div className="font-bold text-amber-300">${profitSplit.owed.toLocaleString()}</div></div>
+                <div><div className="text-xs text-muted-foreground">Paid</div><div className="font-bold">${profitSplit.paid.toLocaleString()}</div></div>
+                <div><div className="text-xs text-muted-foreground">Balance</div><div className="font-bold" style={{ color: profitSplit.balance > 0 ? '#f5c451' : '#34d399' }}>${profitSplit.balance.toLocaleString()}</div></div>
+              </div>
+              {profitSplit.propFirmConnections === 0 && <p className="text-[11px] text-amber-400/80 mt-2">Connect a prop-firm account so your profit split can be tracked.</p>}
+            </div>
+          )}
           {user && creditBalance > 0 && (
             <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-500 text-sm font-medium">
               <Gift className="h-4 w-4" />
