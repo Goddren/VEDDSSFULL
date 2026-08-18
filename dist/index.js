@@ -28787,6 +28787,7 @@ async function scanMarkets(userId) {
     if (volumeSummary.length > 0) {
       addActivity2(userId, { type: "info", message: `High volume detected: ${volumeSummary.join(", ")}` });
     }
+    state._lastMarketAnalysis = marketAnalysis;
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
     try {
@@ -29184,6 +29185,21 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
         }
       }
     }
+  }
+}
+async function monitorPositions(userId) {
+  const state = engineStates[userId];
+  if (!state || !positionMonitorIntervals[userId]) return;
+  if (_monitorBusy[userId]) return;
+  const lastAnalysis = state._lastMarketAnalysis;
+  if (!lastAnalysis) return;
+  _monitorBusy[userId] = true;
+  try {
+    const positions = await getMergedOpenPositions(userId, lastAnalysis);
+    if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
+  } catch {
+  } finally {
+    _monitorBusy[userId] = false;
   }
 }
 function generateRuleBasedSignals(indicators, config, symbol) {
@@ -32087,6 +32103,8 @@ function startLiveEngine(userId, config) {
   setTimeout(() => {
     scanMarkets(userId).then(() => scheduleScan(userId));
   }, 2e3);
+  if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
+  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1e3);
   scheduleGapScanner(userId);
   try {
     const loadFn = global.loadPersistedBrain;
@@ -32138,6 +32156,10 @@ function emergencyStopEngine(userId) {
   if (brainLearningIntervals[userId]) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
+  }
+  if (positionMonitorIntervals[userId]) {
+    clearInterval(positionMonitorIntervals[userId]);
+    delete positionMonitorIntervals[userId];
   }
   const state = engineStates[userId];
   if (state) {
@@ -32292,6 +32314,10 @@ function stopLiveEngine(userId) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
   }
+  if (positionMonitorIntervals[userId]) {
+    clearInterval(positionMonitorIntervals[userId]);
+    delete positionMonitorIntervals[userId];
+  }
   const state = engineStates[userId];
   if (state) {
     state.status = "stopped";
@@ -32413,7 +32439,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -32436,6 +32462,8 @@ var init_live_trading_engine = __esm({
     engineIntervals = {};
     engineTimers = {};
     brainLearningIntervals = {};
+    positionMonitorIntervals = {};
+    _monitorBusy = {};
     persistedConfigOverrides = {};
     goalTrackerCache = {};
     ALL_STRATEGY_KEYS = [

@@ -463,6 +463,10 @@ const engineStates: Record<number, EngineState> = {};
 const engineIntervals: Record<number, ReturnType<typeof setInterval>> = {};
 const engineTimers: Record<number, ReturnType<typeof setTimeout>> = {};
 const brainLearningIntervals: Record<number, ReturnType<typeof setInterval>> = {};
+// Fast position-monitor loop (trailing + reversal exits) — runs every ~25s,
+// independent of the full market scan, so open positions are protected quickly.
+const positionMonitorIntervals: Record<number, ReturnType<typeof setInterval>> = {};
+const _monitorBusy: Record<number, boolean> = {};
 
 // Durable mirror of per-user LiveEngineConfig overrides (propFirmMode,
 // consistency-rule settings, etc.) — this whole module otherwise holds
@@ -1726,6 +1730,7 @@ async function scanMarkets(userId: number): Promise<void> {
       addActivity(userId, { type: 'info', message: `High volume detected: ${volumeSummary.join(', ')}` });
     }
 
+    (state as any)._lastMarketAnalysis = marketAnalysis; // reused by the fast position monitor
     const currentOpenPositions = await getMergedOpenPositions(userId, marketAnalysis);
     await applyServerSideTrails(userId, currentOpenPositions, marketAnalysis);
 
@@ -2231,6 +2236,24 @@ async function applyServerSideTrails(
       }
     }
   }
+}
+
+// Fast position monitor — protects open positions (trailing + reversal exit) on a
+// short interval, independent of the full market scan. Reuses the last scan's
+// indicators (trends don't flip in ~25s); position PRICES are refreshed live via
+// getMergedOpenPositions, so the breakeven/trail react quickly instead of only
+// once per 60s scan. No-op until the first full scan has populated indicators.
+async function monitorPositions(userId: number): Promise<void> {
+  const state = engineStates[userId];
+  if (!state || !positionMonitorIntervals[userId]) return; // engine stopped
+  if (_monitorBusy[userId]) return; // don't overlap with a running monitor/scan
+  const lastAnalysis = (state as any)._lastMarketAnalysis;
+  if (!lastAnalysis) return;
+  _monitorBusy[userId] = true;
+  try {
+    const positions = await getMergedOpenPositions(userId, lastAnalysis);
+    if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
+  } catch { /* non-fatal — retry next tick */ } finally { _monitorBusy[userId] = false; }
 }
 
 // ── Rule-Based Signal Generator (zero API cost) ─────────────────────────────
@@ -5829,6 +5852,11 @@ export function startLiveEngine(userId: number, config?: Partial<LiveEngineConfi
     scanMarkets(userId).then(() => scheduleScan(userId));
   }, 2000);
 
+  // Fast position monitor — trailing + reversal exits every 25s (protects open
+  // positions between the slower full market scans).
+  if (positionMonitorIntervals[userId]) clearInterval(positionMonitorIntervals[userId]);
+  positionMonitorIntervals[userId] = setInterval(() => monitorPositions(userId), 25 * 1000);
+
   scheduleGapScanner(userId);
 
   // ── Load persisted brain from disk so dashboard has data immediately ──
@@ -5889,6 +5917,10 @@ export function emergencyStopEngine(userId: number): EngineState | null {
   if (brainLearningIntervals[userId]) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
+  }
+  if (positionMonitorIntervals[userId]) {
+    clearInterval(positionMonitorIntervals[userId]);
+    delete positionMonitorIntervals[userId];
   }
 
   const state = engineStates[userId];
@@ -6080,6 +6112,10 @@ export function stopLiveEngine(userId: number): EngineState | null {
   if (brainLearningIntervals[userId]) {
     clearInterval(brainLearningIntervals[userId]);
     delete brainLearningIntervals[userId];
+  }
+  if (positionMonitorIntervals[userId]) {
+    clearInterval(positionMonitorIntervals[userId]);
+    delete positionMonitorIntervals[userId];
   }
 
   const state = engineStates[userId];

@@ -1412,6 +1412,7 @@ export default function WeeklyStrategyPage() {
   const [engineMaxDrawdownPct, setEngineMaxDrawdownPct] = useState(8);
   const [engineMaxLot, setEngineMaxLot] = useState(0);
   const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
+  const [engineReversalExit, setEngineReversalExit] = useState(true);
   const [engineDailyProfitTarget, setEngineDailyProfitTarget] = useState(0);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
   const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
@@ -1567,6 +1568,7 @@ export default function WeeklyStrategyPage() {
     if (c.maxDrawdownPct != null) setEngineMaxDrawdownPct(c.maxDrawdownPct);
     if (c.maxLot != null) setEngineMaxLot(c.maxLot);
     if (c.autoFlattenOnBreach != null) setEngineAutoFlatten(c.autoFlattenOnBreach);
+    if (c.reversalExitEnabled != null) setEngineReversalExit(c.reversalExitEnabled);
   }, [liveEngineStatus]);
 
   const { data: liveEngineActivityData } = useQuery<any>({
@@ -2529,6 +2531,16 @@ export default function WeeklyStrategyPage() {
                         <span className="text-[11px] text-gray-300">Close open positions when a breaker trips</span>
                       </label>
                       <p className="text-[10px] text-red-400/70 mt-0.5">Closes real positions via the MT5 EA — use with care</p>
+                    </div>
+                    <div>
+                      <Label className="text-cyan-400 text-xs font-semibold flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Reversal exit</Label>
+                      <label className="mt-1 flex items-center gap-2 cursor-pointer h-8">
+                        <input type="checkbox" checked={engineReversalExit}
+                          onChange={async e => { const v = e.target.checked; setEngineReversalExit(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { reversalExitEnabled: v }); } catch { /* applied on start */ } }}
+                          className="accent-cyan-500 w-4 h-4" />
+                        <span className="text-[11px] text-gray-300">Auto-close when the trend flips against a trade</span>
+                      </label>
+                      <p className="text-[10px] text-cyan-400/70 mt-0.5">Deterministic DI-cross + ADX exit — turn off if it whipsaws on choppy pairs</p>
                     </div>
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
