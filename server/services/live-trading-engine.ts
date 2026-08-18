@@ -200,6 +200,7 @@ interface LiveEngineConfig {
   // AI to notice the direction change. Protects winners/scratches from round-
   // tripping into a full loss. Default on.
   reversalExitEnabled: boolean;
+  reversalSensitivity: number; // 2-5: how many of the 5 reversal confluences must align to auto-exit (default 3)
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
@@ -887,6 +888,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxLot: 0,                 // 0 = no absolute lot ceiling (balance-scaled cap still applies)
     autoFlattenOnBreach: false, // opt-in — also CLOSE open positions when a breaker trips
     reversalExitEnabled: true,  // deterministic exit on a strong trend reversal (DI cross + ADX)
+    reversalSensitivity: 3,     // balanced: 3 of 5 reversal confluences required
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -2060,14 +2062,28 @@ async function applyServerSideTrails(
       const _bullish = _plus > _minus;
       const _against = (pos.direction === 'BUY' && !_bullish) || (pos.direction === 'SELL' && _bullish);
       const _diSep = Math.abs(_plus - _minus);
-      // Choppy-market guard (connects the choppy filter to the reversal exit): a DI
-      // cross is a REAL reversal only in a trending market. In a choppy/ranging
-      // market — ADX < 25 OR DI separation < 6, the codebase's standard chop
-      // definition — DI flips are just noise, so DON'T exit (that's where the
-      // reversal exit would whipsaw). Fire only when the market is genuinely trending.
+      const _isBuy = pos.direction === 'BUY';
+      // HARD PREREQUISITES: only evaluate a reversal when the market is genuinely
+      // TRENDING (ADX ≥ 25 AND DI separation ≥ 6 — the codebase's chop definition)
+      // and the DI has actually turned AGAINST the position. In chop, DI flips are
+      // noise → suppress entirely (that's the whipsaw zone).
       const _choppy = _adx < 25 || _diSep < 6;
-      if (_against && !_choppy) {
-        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — trend flipped in a TRENDING market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, ${_bullish ? '+DI' : '-DI'} dominant)`;
+      // 5-POINT REVERSAL CONFLUENCE SCORE — each independent confirmation that the
+      // trend has turned against this position. reversalSensitivity (default 3) sets
+      // how many must align: 2 = aggressive, 3 = balanced, 4 = conservative, 5 = strict.
+      const _macdHist = _sym.macd?.histogram ?? 0;
+      const _rsi = _sym.rsi?.value ?? 50;
+      const _trendLbl = String(_sym.trend || '').toLowerCase();
+      const _relVol = _sym.volumeMetrics?.relativeVolume ?? _sym.relativeVolume ?? 1;
+      let _revScore = 0;
+      if (_macdHist !== 0 && (_isBuy ? _macdHist < 0 : _macdHist > 0)) _revScore++;   // MACD momentum flipped
+      if (_isBuy ? _rsi < 50 : _rsi > 50) _revScore++;                                 // RSI crossed the 50 midline against
+      if (_isBuy ? _trendLbl.includes('bear') : _trendLbl.includes('bull')) _revScore++; // trend label flipped
+      if (_relVol >= 1.3) _revScore++;                                                  // reversal has volume behind it
+      if (_diSep >= 12) _revScore++;                                                    // decisive DI cross (well beyond the ≥6 gate)
+      const _sensitivity = config.reversalSensitivity ?? 3;
+      if (_against && !_choppy && _revScore >= _sensitivity) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `🔄 ${_reason}` });
         if (pos.source !== 'tl') broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,

@@ -1413,6 +1413,7 @@ export default function WeeklyStrategyPage() {
   const [engineMaxLot, setEngineMaxLot] = useState(0);
   const [engineAutoFlatten, setEngineAutoFlatten] = useState(false);
   const [engineReversalExit, setEngineReversalExit] = useState(true);
+  const [engineReversalSensitivity, setEngineReversalSensitivity] = useState(3);
   const [engineDailyProfitTarget, setEngineDailyProfitTarget] = useState(0);
   const [engineTrailMethod, setEngineTrailMethod] = useState<'staged_volume' | 'chandelier' | 'r_multiple' | 'swing_structure' | 'parabolic_sar' | 'none' | 'fixed_pip' | 'profit_lock' | 'stepped_fixed'>('staged_volume');
   const [engineTrailFixedPips, setEngineTrailFixedPips] = useState(20);
@@ -1569,6 +1570,7 @@ export default function WeeklyStrategyPage() {
     if (c.maxLot != null) setEngineMaxLot(c.maxLot);
     if (c.autoFlattenOnBreach != null) setEngineAutoFlatten(c.autoFlattenOnBreach);
     if (c.reversalExitEnabled != null) setEngineReversalExit(c.reversalExitEnabled);
+    if (c.reversalSensitivity != null) setEngineReversalSensitivity(c.reversalSensitivity);
   }, [liveEngineStatus]);
 
   const { data: liveEngineActivityData } = useQuery<any>({
@@ -2542,6 +2544,20 @@ export default function WeeklyStrategyPage() {
                       </label>
                       <p className="text-[10px] text-cyan-400/70 mt-0.5">DI-cross + ADX exit, auto-suppressed in choppy/ranging markets (ADX&lt;25 or DI sep&lt;6) — only fires on a real trend flip, so it won't whipsaw</p>
                     </div>
+                    {engineReversalExit && (
+                      <div>
+                        <Label className="text-cyan-400 text-xs font-semibold">Reversal sensitivity</Label>
+                        <select value={engineReversalSensitivity}
+                          onChange={async e => { const v = Number(e.target.value); setEngineReversalSensitivity(v); try { await apiRequest('PATCH', '/api/vedd-live-engine/config', { reversalSensitivity: v }); } catch { /* applied on start */ } }}
+                          className="mt-1 w-full bg-gray-800 border border-cyan-900/50 text-white text-sm rounded-md h-8 px-2">
+                          <option value={2}>2 of 5 — Aggressive (exit early)</option>
+                          <option value={3}>3 of 5 — Balanced (recommended)</option>
+                          <option value={4}>4 of 5 — Conservative</option>
+                          <option value={5}>5 of 5 — Strict (only near-certain)</option>
+                        </select>
+                        <p className="text-[10px] text-cyan-400/70 mt-0.5">Confluences: DI cross · MACD flip · RSI vs 50 · trend flip · volume. More required = fewer, higher-conviction exits.</p>
+                      </div>
+                    )}
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
                         <span>🏆</span> Daily Profit Target (%)

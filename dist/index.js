@@ -28129,6 +28129,8 @@ function getDefaultConfig(userId) {
     // opt-in — also CLOSE open positions when a breaker trips
     reversalExitEnabled: true,
     // deterministic exit on a strong trend reversal (DI cross + ADX)
+    reversalSensitivity: 3,
+    // balanced: 3 of 5 reversal confluences required
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -29015,9 +29017,21 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       const _bullish = _plus > _minus;
       const _against = pos.direction === "BUY" && !_bullish || pos.direction === "SELL" && _bullish;
       const _diSep = Math.abs(_plus - _minus);
+      const _isBuy = pos.direction === "BUY";
       const _choppy = _adx < 25 || _diSep < 6;
-      if (_against && !_choppy) {
-        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 trend flipped in a TRENDING market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, ${_bullish ? "+DI" : "-DI"} dominant)`;
+      const _macdHist = _sym.macd?.histogram ?? 0;
+      const _rsi = _sym.rsi?.value ?? 50;
+      const _trendLbl = String(_sym.trend || "").toLowerCase();
+      const _relVol = _sym.volumeMetrics?.relativeVolume ?? _sym.relativeVolume ?? 1;
+      let _revScore = 0;
+      if (_macdHist !== 0 && (_isBuy ? _macdHist < 0 : _macdHist > 0)) _revScore++;
+      if (_isBuy ? _rsi < 50 : _rsi > 50) _revScore++;
+      if (_isBuy ? _trendLbl.includes("bear") : _trendLbl.includes("bull")) _revScore++;
+      if (_relVol >= 1.3) _revScore++;
+      if (_diSep >= 12) _revScore++;
+      const _sensitivity = config.reversalSensitivity ?? 3;
+      if (_against && !_choppy && _revScore >= _sensitivity) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 ${_revScore}/5 reversal confluence in a trending market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, need ${_sensitivity})`;
         addActivity2(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
         if (pos.source !== "tl") broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
