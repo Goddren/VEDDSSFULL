@@ -29014,8 +29014,10 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
       const _bullish = _plus > _minus;
       const _against = pos.direction === "BUY" && !_bullish || pos.direction === "SELL" && _bullish;
-      if (_adx >= 25 && Math.abs(_plus - _minus) >= 3 && _against) {
-        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 trend flipped (ADX ${Math.round(_adx)}, ${_bullish ? "+DI" : "-DI"} dominant)`;
+      const _diSep = Math.abs(_plus - _minus);
+      const _choppy = _adx < 25 || _diSep < 6;
+      if (_against && !_choppy) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 trend flipped in a TRENDING market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, ${_bullish ? "+DI" : "-DI"} dominant)`;
         addActivity2(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
         if (pos.source !== "tl") broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,

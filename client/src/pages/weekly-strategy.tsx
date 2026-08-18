@@ -2540,7 +2540,7 @@ export default function WeeklyStrategyPage() {
                           className="accent-cyan-500 w-4 h-4" />
                         <span className="text-[11px] text-gray-300">Auto-close when the trend flips against a trade</span>
                       </label>
-                      <p className="text-[10px] text-cyan-400/70 mt-0.5">Deterministic DI-cross + ADX exit — turn off if it whipsaws on choppy pairs</p>
+                      <p className="text-[10px] text-cyan-400/70 mt-0.5">DI-cross + ADX exit, auto-suppressed in choppy/ranging markets (ADX&lt;25 or DI sep&lt;6) — only fires on a real trend flip, so it won't whipsaw</p>
                     </div>
                     <div>
                       <Label className="text-emerald-400 text-xs font-semibold flex items-center gap-1">

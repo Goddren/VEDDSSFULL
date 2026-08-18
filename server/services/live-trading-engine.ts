@@ -2059,8 +2059,15 @@ async function applyServerSideTrails(
       const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
       const _bullish = _plus > _minus;
       const _against = (pos.direction === 'BUY' && !_bullish) || (pos.direction === 'SELL' && _bullish);
-      if (_adx >= 25 && Math.abs(_plus - _minus) >= 3 && _against) {
-        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — trend flipped (ADX ${Math.round(_adx)}, ${_bullish ? '+DI' : '-DI'} dominant)`;
+      const _diSep = Math.abs(_plus - _minus);
+      // Choppy-market guard (connects the choppy filter to the reversal exit): a DI
+      // cross is a REAL reversal only in a trending market. In a choppy/ranging
+      // market — ADX < 25 OR DI separation < 6, the codebase's standard chop
+      // definition — DI flips are just noise, so DON'T exit (that's where the
+      // reversal exit would whipsaw). Fire only when the market is genuinely trending.
+      const _choppy = _adx < 25 || _diSep < 6;
+      if (_against && !_choppy) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — trend flipped in a TRENDING market (ADX ${Math.round(_adx)}, DI sep ${Math.round(_diSep)}, ${_bullish ? '+DI' : '-DI'} dominant)`;
         addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `🔄 ${_reason}` });
         if (pos.source !== 'tl') broadcastMT5Signal(userId, {
           id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
