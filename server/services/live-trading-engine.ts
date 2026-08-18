@@ -195,6 +195,11 @@ interface LiveEngineConfig {
   maxRiskPerTradePct: number;
   maxLot: number;
   autoFlattenOnBreach: boolean;
+  // Deterministic reversal exit: close an open position when a strong opposing
+  // trend forms (DI cross against it + ADX strength), instead of waiting for the
+  // AI to notice the direction change. Protects winners/scratches from round-
+  // tripping into a full loss. Default on.
+  reversalExitEnabled: boolean;
   dailyProfitTarget: number;                   // stop trading when daily gain % hits this (0 = disabled)
   maxDailyTrades: number;                      // hard daily trade cap across all pairs (0 = unlimited)
   directionFilter: 'buy_only' | 'sell_only' | 'both'; // restrict signal direction (global)
@@ -877,6 +882,7 @@ function getDefaultConfig(userId: number): LiveEngineConfig {
     maxRiskPerTradePct: 2,     // resize any single trade so its stop-out can't lose >2% of balance
     maxLot: 0,                 // 0 = no absolute lot ceiling (balance-scaled cap still applies)
     autoFlattenOnBreach: false, // opt-in — also CLOSE open positions when a breaker trips
+    reversalExitEnabled: true,  // deterministic exit on a strong trend reversal (DI cross + ADX)
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -1767,6 +1773,7 @@ function computeStagedVolumeSL(position: any, config?: { breakevenBufferPips?: n
   else if (pips >= 40) lockPips = 20;
   else if (pips >= 25) lockPips = 10;
   else if (pips >= 15) lockPips = buffer;    // breakeven + small buffer
+  else if (pips >= 10) lockPips = 0;         // pure breakeven — a small winner can't round-trip into a loss
   else return 0;                              // not enough profit — leave original SL
 
   return isBuy
@@ -2020,7 +2027,7 @@ async function applyServerSideTrails(
   } catch { /* no TL — MT5 only */ }
 
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
-  const activationPips = config.trailActivationPips ?? 15;
+  const activationPips = config.trailActivationPips ?? 10;
 
   for (const pos of openPositions) {
     const key = String(pos.ticket || pos.id || pos.symbol);
@@ -2036,6 +2043,47 @@ async function applyServerSideTrails(
       };
     }
     const ts = state.positionTrailState[key];
+
+    // ── Deterministic reversal exit — catch a direction change WITHOUT waiting
+    // for the AI. If a strong opposing trend has formed (DI cross against the
+    // position + ADX ≥ 25 with a clear DI gap), close the position so a winner or
+    // scratch can't round-trip into a full loss. Config-gated; default on.
+    if (config.reversalExitEnabled !== false) {
+      const _sym = marketAnalysis[pos.symbol?.replace('/', '')] || marketAnalysis[pos.symbol] || {};
+      const _adx = _sym.adx?.value ?? _sym.adx ?? 0;
+      const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
+      const _bullish = _plus > _minus;
+      const _against = (pos.direction === 'BUY' && !_bullish) || (pos.direction === 'SELL' && _bullish);
+      if (_adx >= 25 && Math.abs(_plus - _minus) >= 3 && _against) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} — trend flipped (ADX ${Math.round(_adx)}, ${_bullish ? '+DI' : '-DI'} dominant)`;
+        addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `🔄 ${_reason}` });
+        if (pos.source !== 'tl') broadcastMT5Signal(userId, {
+          id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          timestamp: new Date().toISOString(),
+          symbol: pos.symbol, direction: pos.direction, action: 'CLOSE', lotSize: 0,
+          entryPrice: null, stopLoss: null, takeProfit: null, confidence: 100,
+          reason: _reason, holdTime: '', strategy: 'position_management', confluences: [],
+          status: 'pending', modifyAction: 'full_close', positionId: pos.ticket || pos.id || null,
+        } as PendingMT5Signal);
+        for (const tlConn of tlConnections) {
+          try {
+            const svc = await getTradeLockerService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = (pos.direction || 'BUY').toUpperCase();
+            const tlMatch = tlPositions.find((p: any) =>
+              (p.symbol || '').toUpperCase().replace('/', '') === pos.symbol?.toUpperCase().replace('/', '') &&
+              (p.side || '').toUpperCase() === (matchDir === 'BUY' ? 'BUY' : 'SELL'));
+            if (!tlMatch) continue;
+            const r = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: 'CLOSE', symbol: pos.symbol, direction: pos.direction || 'BUY', volume: 0, positionId: tlMatch.id,
+            });
+            if (r.success) { addActivity(userId, { type: 'trade_close', symbol: pos.symbol, message: `✅ Reversal exit closed on TradeLocker ${tlConn.accountId}: ${pos.symbol}` }); refreshTlAfterTrade(userId); }
+            else addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Reversal exit close failed on ${tlConn.accountId}: ${r.error}` });
+          } catch (e: any) { addActivity(userId, { type: 'error', symbol: pos.symbol, message: `⚠️ Reversal exit error on ${tlConn.accountId}: ${e.message}` }); }
+        }
+        continue; // closed — don't also trail this position
+      }
+    }
 
     // Universal activation pip gate — don't trail until minimum pips in profit
     if (activationPips > 0 && pos.openPrice && pos.currentPrice) {

@@ -28127,6 +28127,8 @@ function getDefaultConfig(userId) {
     // 0 = no absolute lot ceiling (balance-scaled cap still applies)
     autoFlattenOnBreach: false,
     // opt-in — also CLOSE open positions when a breaker trips
+    reversalExitEnabled: true,
+    // deterministic exit on a strong trend reversal (DI cross + ADX)
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -28809,6 +28811,7 @@ function computeStagedVolumeSL(position, config) {
   else if (pips >= 40) lockPips = 20;
   else if (pips >= 25) lockPips = 10;
   else if (pips >= 15) lockPips = buffer;
+  else if (pips >= 10) lockPips = 0;
   else return 0;
   return isBuy ? position.openPrice + lockPips * pipSize : position.openPrice - lockPips * pipSize;
 }
@@ -28989,7 +28992,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
   } catch {
   }
   const methodLabel = TRAIL_METHOD_LABELS[config.trailMethod] || config.trailMethod;
-  const activationPips = config.trailActivationPips ?? 15;
+  const activationPips = config.trailActivationPips ?? 10;
   for (const pos of openPositions) {
     const key = String(pos.ticket || pos.id || pos.symbol);
     if (!state.positionTrailState[key]) {
@@ -29004,6 +29007,59 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       };
     }
     const ts = state.positionTrailState[key];
+    if (config.reversalExitEnabled !== false) {
+      const _sym = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
+      const _adx = _sym.adx?.value ?? _sym.adx ?? 0;
+      const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
+      const _bullish = _plus > _minus;
+      const _against = pos.direction === "BUY" && !_bullish || pos.direction === "SELL" && _bullish;
+      if (_adx >= 25 && Math.abs(_plus - _minus) >= 3 && _against) {
+        const _reason = `Reversal exit: ${pos.symbol} ${pos.direction} \u2014 trend flipped (ADX ${Math.round(_adx)}, ${_bullish ? "+DI" : "-DI"} dominant)`;
+        addActivity2(userId, { type: "trade_close", symbol: pos.symbol, message: `\u{1F504} ${_reason}` });
+        if (pos.source !== "tl") broadcastMT5Signal(userId, {
+          id: `revexit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          symbol: pos.symbol,
+          direction: pos.direction,
+          action: "CLOSE",
+          lotSize: 0,
+          entryPrice: null,
+          stopLoss: null,
+          takeProfit: null,
+          confidence: 100,
+          reason: _reason,
+          holdTime: "",
+          strategy: "position_management",
+          confluences: [],
+          status: "pending",
+          modifyAction: "full_close",
+          positionId: pos.ticket || pos.id || null
+        });
+        for (const tlConn of tlConnections) {
+          try {
+            const svc = await getOrCreateService(tlConn);
+            const tlPositions = await svc.getPositionsNormalized().catch(() => []);
+            const matchDir = (pos.direction || "BUY").toUpperCase();
+            const tlMatch = tlPositions.find((p) => (p.symbol || "").toUpperCase().replace("/", "") === pos.symbol?.toUpperCase().replace("/", "") && (p.side || "").toUpperCase() === (matchDir === "BUY" ? "BUY" : "SELL"));
+            if (!tlMatch) continue;
+            const r = await executeMT5SignalOnTradeLocker(tlConn, {
+              action: "CLOSE",
+              symbol: pos.symbol,
+              direction: pos.direction || "BUY",
+              volume: 0,
+              positionId: tlMatch.id
+            });
+            if (r.success) {
+              addActivity2(userId, { type: "trade_close", symbol: pos.symbol, message: `\u2705 Reversal exit closed on TradeLocker ${tlConn.accountId}: ${pos.symbol}` });
+              refreshTlAfterTrade(userId);
+            } else addActivity2(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit close failed on ${tlConn.accountId}: ${r.error}` });
+          } catch (e) {
+            addActivity2(userId, { type: "error", symbol: pos.symbol, message: `\u26A0\uFE0F Reversal exit error on ${tlConn.accountId}: ${e.message}` });
+          }
+        }
+        continue;
+      }
+    }
     if (activationPips > 0 && pos.openPrice && pos.currentPrice) {
       const pipSize = getPipSize(pos.symbol || "");
       const pipsInProfit = pos.direction === "BUY" ? (pos.currentPrice - pos.openPrice) / pipSize : (pos.openPrice - pos.currentPrice) / pipSize;
