@@ -23,6 +23,7 @@ import { getKalshiSignal, getKalshiConsensus, estimateHourlyVol, type KalshiStra
 import { getCryptoCandles } from './btc-5min-predictor';
 import { recordKalshiOutcome, getKalshiPerformance } from './kalshi-performance';
 import { getOrRefreshKalshiBrain, learnFromKalshiTrades, kalshiBrainSizeMultiplier, kalshiBrainValueWeight, kalshiBrainGate } from './kalshi-brain';
+import { scanKalshiWeatherPicks, type WeatherScanResult } from './kalshi-weather';
 
 // Coins/assets with a real, currently-tradeable bracket market (same product
 // structure as the original KXBTC). Verified live against Kalshi's API before
@@ -43,7 +44,7 @@ const _sessionPeakBankroll = new Map<number, number>();
 
 export interface KalshiTradeRecord {
   id: string;
-  coin: KalshiCryptoCoin;  // which series/event this trade belongs to — added for multi-coin support
+  coin: KalshiCryptoCoin | string;  // crypto series (BTC…) OR a weather city code (WX-NY…) — the brain's per-market key
   timeframe: 'hourly' | 'fifteen_min'; // which bracket-event product this ticker belongs to — needed to know which series to re-query for live pricing regardless of later config changes
   ticker: string;
   subtitle: string;
@@ -172,6 +173,19 @@ export interface KalshiEngineConfig {
   // brain has proven to lose (enough decided trades + win rate below a floor).
   // Off by default since it stops trades; requires kalshiBrainEnabled too.
   kalshiBrainGating: boolean;
+
+  // ── Weather engine (KXHIGH daily high-temperature markets) ────────────────
+  // The highest-defensibility edge in the Kalshi ecosystem: temperature markets
+  // systematically overprice uncertainty, and a free 31-member GFS ensemble
+  // (Open-Meteo) gives a genuinely calibrated bucket probability. OFF by default
+  // and PAPER-FIRST by design: raw GFS 2m temp carries a station-specific bias,
+  // so a calibration period (letting the brain learn each city's win rate before
+  // it trades live) is required. A bias-disagreement guard blocks trades whenever
+  // the ensemble median disagrees with the market's favorite by >maxBiasDegrees.
+  weatherEnabled: boolean;        // master switch (default false)
+  weatherCities: string[];        // city codes: NY, CHI, MIA, AUS, LAX, DEN, PHIL
+  weatherMinEdgeCents: number;    // min (modelProb − ask) to fire (default 8, per research)
+  weatherMaxBiasDegrees: number;  // skip a city if ensemble median vs market favorite differ by more (default 3)
 }
 
 // ── Per-user state ────────────────────────────────────────────────────────────
@@ -206,6 +220,10 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   maxDrawdownLimitPct:     10,    // FTUK-style max drawdown limit (% of starting bankroll)
   kalshiBrainEnabled:      true,  // brain influence on (bounded + neutral until it has data)
   kalshiBrainGating:       true,  // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
+  weatherEnabled:          false, // opt-in; paper-first (needs a per-city calibration period before live)
+  weatherCities:           ['NY', 'CHI', 'MIA', 'AUS', 'LAX', 'DEN', 'PHIL'],
+  weatherMinEdgeCents:     8,
+  weatherMaxBiasDegrees:   3,
 };
 
 /** Identify which coin + timeframe a ticker belongs to from its series
@@ -316,6 +334,8 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   // Ruin Guard limits — clamp to sane prop-firm ranges
   if (clean.dailyLossLimitPct   != null) clean.dailyLossLimitPct   = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
   if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
+  if (clean.weatherMinEdgeCents    != null) clean.weatherMinEdgeCents    = Math.max(1, Math.min(50, clean.weatherMinEdgeCents));
+  if (clean.weatherMaxBiasDegrees  != null) clean.weatherMaxBiasDegrees  = Math.max(1, Math.min(15, clean.weatherMaxBiasDegrees));
   s.config = { ...s.config, ...clean };
   _persistKalshiConfig(userId, s.config);
 }
@@ -356,7 +376,7 @@ export function kalshiBankroll(s: KalshiEngineState): number {
   return Math.max(1, (s.config.startingBankroll || 100) + (s.totalRealizedPnl || 0));
 }
 
-export async function kalshiContractsFor(userId: number, s: KalshiEngineState, priceInCents: number, coin?: KalshiCryptoCoin): Promise<{ contracts: number; reasoning: string }> {
+export async function kalshiContractsFor(userId: number, s: KalshiEngineState, priceInCents: number, coin?: KalshiCryptoCoin | string): Promise<{ contracts: number; reasoning: string }> {
   const baseContracts = (() => {
     if (!s.config.compounding) return s.config.contractsPerTrade;
     const bankroll = kalshiBankroll(s);
@@ -591,7 +611,7 @@ async function _verifyKalshiFill(userId: number, orderId: string): Promise<boole
 async function _placeKalshiYes(
   userId: number,
   s: KalshiEngineState,
-  p: { coin: KalshiCryptoCoin; timeframe: 'hourly' | 'fifteen_min'; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string;
+  p: { coin: KalshiCryptoCoin | string; timeframe: 'hourly' | 'fifteen_min'; ticker: string; subtitle: string; priceInCents: number; confidence: number; btcPrice: number; direction: 'BUY' | 'SELL'; label: string; strategy: string;
        strikeType?: string; edgePct?: number; valueScore?: number; modelProbPct?: number; agreement?: number },
 ): Promise<{ fired: boolean; reason: string }> {
   // Compounding mode sizes the stake from the growing bankroll; otherwise fixed
@@ -778,6 +798,16 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     return { fired: false, reason: guard.reason };
   }
 
+  // Weather engine (KXHIGH) runs first when enabled — it's the higher-edge
+  // product. If it places a trade this cycle we're done; otherwise fall through
+  // to the crypto scan so both can share the same engine/cooldown/guards.
+  let weatherReason = '';
+  if (s.config.weatherEnabled) {
+    const wx = await _scanWeather(userId, s);
+    if (wx.fired) { s.lastScanResult = wx.reason; return wx; }
+    weatherReason = wx.reason; // surfaced alongside the crypto reason below
+  }
+
   const symbols = s.config.symbols?.length ? s.config.symbols : (['BTC'] as KalshiCryptoCoin[]);
 
   // In value-pick mode, evaluate ALL configured symbols and fire on the
@@ -792,7 +822,13 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
   // clears even a low threshold first and the loop never got to compare it
   // against what the other coins were offering that same cycle.
   if (s.config.autoTradeValuePicks) {
-    return await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+    const vpResult = await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+    if (!vpResult.fired && weatherReason) {
+      const combined = `${weatherReason} · ${vpResult.reason}`;
+      s.lastScanResult = combined;
+      return { fired: false, reason: combined };
+    }
+    return vpResult;
   }
 
   // Previously only the LAST symbol's block reason was kept — e.g. if BTC was
@@ -809,9 +845,67 @@ async function _runKalshiScan(userId: number, manual = false): Promise<{ fired: 
     }
     perSymbolReasons.push(result.reason);
   }
-  const combined = perSymbolReasons.join(' · ');
+  const combined = [weatherReason, ...perSymbolReasons].filter(Boolean).join(' · ');
   s.lastScanResult = combined;
   return { fired: false, reason: combined };
+}
+
+/** Weather (KXHIGH) scan + fire: pick the biggest positive-edge temperature
+ *  bucket across the configured cities (GFS-ensemble model vs market), guarded
+ *  by the bias-disagreement check, and place it through the shared fire path so
+ *  it inherits sizing, the brain, TP/SL, settlement, and the ruin guard. */
+async function _scanWeather(userId: number, s: KalshiEngineState): Promise<{ fired: boolean; reason: string }> {
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ['NY', 'CHI', 'MIA', 'AUS', 'LAX', 'DEN', 'PHIL'];
+  let scan: WeatherScanResult;
+  try {
+    scan = await scanKalshiWeatherPicks(cities, {
+      minEntryCents: s.config.minEntryPriceCents ?? 15,
+      minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+      maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3,
+    });
+  } catch (err: any) {
+    return { fired: false, reason: `Weather: scan error: ${err.message}` };
+  }
+
+  const top = scan.picks[0];
+  if (!top) {
+    return { fired: false, reason: `Weather: no qualifying pick — ${scan.perCityReasons.join(' · ')}` };
+  }
+
+  // Brain coin-level gate (same hard-block the crypto path uses), keyed per city.
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, top.cityCode, top.strikeType, new Date().getUTCHours(), top.confidence);
+    if (g.blocked) return { fired: false, reason: g.reason };
+  }
+
+  return _placeKalshiYes(userId, s, {
+    coin: top.cityCode,
+    timeframe: 'hourly',        // daily market; the per-ticker pricing/settlement fallback handles it regardless
+    ticker: top.ticker,
+    subtitle: `${top.city} ${top.subtitle}`,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: 0,
+    direction: 'BUY',
+    label: `Weather: ${top.city} "${top.subtitle}" (+${top.edgePct}¢ edge, score ${top.valueScore})`,
+    strategy: 'weather',
+    strikeType: top.strikeType,
+    edgePct: top.edgePct,
+    valueScore: top.valueScore,
+    modelProbPct: top.modelProbPct,
+  });
+}
+
+/** Read-only weather-pick preview for the UI/endpoint (no order placed). Uses
+ *  the user's configured cities/edge/bias thresholds. */
+export async function previewKalshiWeatherPicks(userId: number): Promise<WeatherScanResult> {
+  const s = getKalshiEngineState(userId);
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ['NY', 'CHI', 'MIA', 'AUS', 'LAX', 'DEN', 'PHIL'];
+  return scanKalshiWeatherPicks(cities, {
+    minEntryCents: s.config.minEntryPriceCents ?? 15,
+    minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+    maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3,
+  });
 }
 
 async function _scanBestValuePickAcrossSymbols(
@@ -1369,6 +1463,10 @@ async function _updateOpenTradePrices(userId: number, s: KalshiEngineState): Pro
   const bracketsByKey = new Map<string, KalshiBTCBracket[]>();
   for (const key of keysInPlay) {
     const [coin, timeframe] = key.split(':') as [KalshiCryptoCoin, 'hourly' | 'fifteen_min'];
+    // Weather (WX-*) and any non-crypto key have no entry in KALSHI_SERIES_MAP —
+    // skip the batch bracket fetch for them; each such position is priced and
+    // settled individually by the per-ticker fallback below.
+    if (!KALSHI_SERIES_MAP[coin]) continue;
     try {
       const seriesTicker = timeframe === 'fifteen_min' ? (KALSHI_SERIES_MAP[coin]?.fifteenMin ?? 'KXBTC15M') : (KALSHI_SERIES_MAP[coin]?.hourly ?? 'KXBTC');
       const event = await getKalshiCryptoEvent(seriesTicker, undefined, true);

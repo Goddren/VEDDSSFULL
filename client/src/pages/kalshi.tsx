@@ -133,6 +133,14 @@ export default function KalshiHubPage() {
                 <Link href="/kalshi-brain"><button className="mt-1 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-500/20"><Brain className="h-4 w-4" /> Open Brain panel</button></Link>
               </Group>
 
+              {/* Weather engine */}
+              <Group label="Weather engine (KXHIGH) — highest-edge product">
+                <Toggle label="Weather engine enabled" value={form.weatherEnabled} onChange={(v) => set("weatherEnabled", v)} />
+                <Num label="Min edge (¢: model − market)" value={form.weatherMinEdgeCents} onChange={(v) => set("weatherMinEdgeCents", v)} />
+                <Num label="Max model/market bias (°F)" value={form.weatherMaxBiasDegrees} onChange={(v) => set("weatherMaxBiasDegrees", v)} />
+                <p className="text-xs text-white/40 leading-snug">GFS 31-member ensemble vs Kalshi temperature buckets across NY, Chicago, Miami, Austin, LA, Denver, Philadelphia. Run in <b>paper first</b> — raw model temps carry a station bias, so the bias guard skips a city until the ensemble agrees with the market, and the brain learns each city's win rate before it leans in.</p>
+              </Group>
+
               {/* Ruin guard */}
               <Group label="Ruin Guard (circuit breaker)">
                 <Toggle label="Ruin Guard enabled" value={form.ruinGuardEnabled} onChange={(v) => set("ruinGuardEnabled", v)} />

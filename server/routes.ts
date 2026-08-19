@@ -19560,6 +19560,21 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/kalshi/weather-picks — KXHIGH temperature-market edges (GFS ensemble
+  // model vs market), read-only preview. Shows the bias-guard reasons too.
+  app.get("/api/kalshi/weather-picks", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { previewKalshiWeatherPicks } = await import('./services/kalshi-engine');
+      const result = await previewKalshiWeatherPicks(userId);
+      res.json(result);
+    } catch (err: any) {
+      console.error('[Kalshi weather-picks]', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // GET /api/analytics/ruin-cone — forward Monte Carlo of equity paths from the
   // scanner's own realized trade distribution vs FTUK-style prop-firm rules.
   app.get("/api/analytics/ruin-cone", async (req: Request, res: Response) => {

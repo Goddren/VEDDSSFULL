@@ -35117,6 +35117,157 @@ var init_kalshi_brain = __esm({
   }
 });
 
+// server/services/kalshi-weather.ts
+function localDateInTz(ms, tz) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
+}
+async function fetchEnsembleDailyMax(city, targetLocalDate) {
+  const cacheKey = `${city.code}:${targetLocalDate}`;
+  const hit = _ensembleCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < ENSEMBLE_TTL_MS) return hit.members;
+  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${city.lat}&longitude=${city.lon}&hourly=temperature_2m&models=gfs025&forecast_days=4&temperature_unit=fahrenheit&timezone=${encodeURIComponent(city.tz)}`;
+  const res = await fetch(url, { headers: { "User-Agent": "VEDD-Trading-AI/1.0" }, signal: AbortSignal.timeout(1e4) });
+  if (!res.ok) throw new Error(`Open-Meteo ensemble ${res.status}`);
+  const data = await res.json();
+  const hourly = data.hourly;
+  if (!hourly?.time?.length) throw new Error("Open-Meteo ensemble: no hourly data");
+  const times = hourly.time;
+  const dayIdx = [];
+  for (let i = 0; i < times.length; i++) if (times[i].slice(0, 10) === targetLocalDate) dayIdx.push(i);
+  if (!dayIdx.length) throw new Error(`Open-Meteo ensemble: target day ${targetLocalDate} not in forecast window`);
+  const memberKeys = Object.keys(hourly).filter((k) => k === "temperature_2m" || k.startsWith("temperature_2m_member"));
+  const members = [];
+  for (const key of memberKeys) {
+    const arr = hourly[key];
+    let mx = -Infinity;
+    for (const i of dayIdx) {
+      const v = arr[i];
+      if (typeof v === "number" && v > mx) mx = v;
+    }
+    if (mx > -Infinity) members.push(mx);
+  }
+  if (!members.length) throw new Error("Open-Meteo ensemble: no member maxima computed");
+  _ensembleCache.set(cacheKey, { members, targetDate: targetLocalDate, ts: Date.now() });
+  return members;
+}
+function bucketProbFromMembers(members, b) {
+  if (!members.length) return 0;
+  let yes = 0;
+  for (const m of members) {
+    const r = Math.round(m);
+    let win = false;
+    if (b.strikeType === "between") {
+      win = b.floorStrike != null && b.capStrike != null && r >= b.floorStrike && r <= b.capStrike;
+    } else if (b.strikeType === "greater" || b.strikeType === "greater_or_equal") {
+      win = b.floorStrike != null && (b.strikeType === "greater" ? r > b.floorStrike : r >= b.floorStrike);
+    } else if (b.strikeType === "less" || b.strikeType === "less_or_equal") {
+      win = b.capStrike != null && (b.strikeType === "less" ? r < b.capStrike : r <= b.capStrike);
+    }
+    if (win) yes++;
+  }
+  return yes / members.length;
+}
+function ensembleConfidence(members) {
+  if (members.length < 3) return 50;
+  const mean = members.reduce((a, b) => a + b, 0) / members.length;
+  const sd = Math.sqrt(members.reduce((s, x) => s + (x - mean) ** 2, 0) / members.length);
+  return Math.round(Math.max(50, Math.min(95, 95 - (sd - 1) * 9)));
+}
+async function scanKalshiWeatherPicks(cityCodes, opts = {}) {
+  const minEntry = opts.minEntryCents ?? 15;
+  const minEdge = opts.minEdgeCents ?? 8;
+  const spreadMax = opts.spreadMaxCents ?? 12;
+  const limit = opts.limit ?? 5;
+  const maxBias = opts.maxBiasDegrees ?? 3;
+  const biasOffsets = opts.biasOffsets ?? {};
+  const picks = [];
+  const perCityReasons = [];
+  for (const raw of cityCodes) {
+    const key = raw.toUpperCase().replace(/^WX-?/, "");
+    const city = WEATHER_CITIES[key];
+    if (!city) {
+      perCityReasons.push(`${raw}: unknown weather city`);
+      continue;
+    }
+    try {
+      const event = await getKalshiCryptoEvent(city.series);
+      if (!event.brackets.length) {
+        perCityReasons.push(`${city.name}: no open ${city.series} brackets`);
+        continue;
+      }
+      const strikeMs = new Date(event.closeTime).getTime();
+      const targetDate = localDateInTz(strikeMs - 6 * 36e5, city.tz);
+      const offset = biasOffsets[city.code] ?? 0;
+      const members = (await fetchEnsembleDailyMax(city, targetDate)).map((m) => m + offset);
+      const conf = ensembleConfidence(members);
+      const sorted = [...members].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const favBucket = event.brackets.filter((b) => b.strikeType === "between" && b.floorStrike != null && b.capStrike != null).reduce((best, b) => b.yesAsk > (best?.yesAsk ?? -1) ? b : best, null);
+      if (favBucket) {
+        const favMid = ((favBucket.floorStrike ?? 0) + (favBucket.capStrike ?? 0)) / 2;
+        const disagree = Math.abs(median - favMid);
+        if (disagree > maxBias) {
+          perCityReasons.push(`${city.name}: SKIP \u2014 model median ${median.toFixed(1)}\xB0F disagrees with market favorite "${favBucket.subtitle}" by ${disagree.toFixed(1)}\xB0F (> ${maxBias}\xB0 bias guard; needs calibration${offset ? `, offset ${offset > 0 ? "+" : ""}${offset}\xB0` : ""})`);
+          continue;
+        }
+      }
+      let cityBest = null;
+      for (const b of event.brackets) {
+        if (!b.hasLiquidity) continue;
+        const ask = b.yesAsk > 0 ? b.yesAsk : b.yesProbability;
+        if (ask < minEntry || ask >= 97) continue;
+        const spread = b.yesBid > 0 ? ask - b.yesBid : spreadMax + 1;
+        if (spread > spreadMax) continue;
+        const modelProbPct = Math.round(bucketProbFromMembers(members, b) * 100);
+        const edgePct = modelProbPct - ask;
+        if (edgePct < minEdge) continue;
+        const probW = 0.6 + modelProbPct / 100 * 0.4;
+        const confW = 0.5 + conf / 100 * 0.5;
+        const valueScore = Math.round(edgePct * probW * confW * 10) / 10;
+        const pick = {
+          city: city.name,
+          cityCode: city.code,
+          ticker: b.ticker,
+          subtitle: b.subtitle,
+          strikeType: b.strikeType,
+          marketAskCents: ask,
+          modelProbPct,
+          edgePct,
+          valueScore,
+          confidence: conf,
+          targetDate,
+          rationale: `${city.name} ${targetDate}: GEFS ensemble ${modelProbPct}% vs market ${ask}\xA2 \u2192 +${edgePct}\xA2 edge on "${b.subtitle}" (${members.length} members, spread-conf ${conf}%).`
+        };
+        picks.push(pick);
+        if (!cityBest || pick.valueScore > cityBest.valueScore) cityBest = pick;
+      }
+      perCityReasons.push(cityBest ? `${city.name}: best +${cityBest.edgePct}\xA2 edge on "${cityBest.subtitle}" (score ${cityBest.valueScore})` : `${city.name}: no positive-edge bucket (ensemble agrees with the market)`);
+    } catch (err) {
+      perCityReasons.push(`${city.name}: ${err.message}`);
+    }
+  }
+  picks.sort((a, b) => b.valueScore - a.valueScore);
+  return { picks: picks.slice(0, limit), perCityReasons, scannedAt: (/* @__PURE__ */ new Date()).toISOString() };
+}
+var WEATHER_CITIES, ENSEMBLE_TTL_MS, _ensembleCache;
+var init_kalshi_weather = __esm({
+  "server/services/kalshi-weather.ts"() {
+    "use strict";
+    init_kalshi();
+    WEATHER_CITIES = {
+      NY: { code: "WX-NY", series: "KXHIGHNY", name: "New York City", lat: 40.78, lon: -73.97, tz: "America/New_York" },
+      CHI: { code: "WX-CHI", series: "KXHIGHCHI", name: "Chicago", lat: 41.79, lon: -87.75, tz: "America/Chicago" },
+      MIA: { code: "WX-MIA", series: "KXHIGHMIA", name: "Miami", lat: 25.79, lon: -80.29, tz: "America/New_York" },
+      AUS: { code: "WX-AUS", series: "KXHIGHAUS", name: "Austin", lat: 30.18, lon: -97.68, tz: "America/Chicago" },
+      LAX: { code: "WX-LAX", series: "KXHIGHLAX", name: "Los Angeles", lat: 33.94, lon: -118.4, tz: "America/Los_Angeles" },
+      DEN: { code: "WX-DEN", series: "KXHIGHDEN", name: "Denver", lat: 39.85, lon: -104.66, tz: "America/Denver" },
+      PHIL: { code: "WX-PHIL", series: "KXHIGHPHIL", name: "Philadelphia", lat: 39.87, lon: -75.23, tz: "America/New_York" }
+    };
+    ENSEMBLE_TTL_MS = 30 * 60 * 1e3;
+    _ensembleCache = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/kalshi-engine.ts
 var kalshi_engine_exports = {};
 __export(kalshi_engine_exports, {
@@ -35128,6 +35279,7 @@ __export(kalshi_engine_exports, {
   kalshiBankroll: () => kalshiBankroll,
   kalshiContractsFor: () => kalshiContractsFor,
   manualKalshiScan: () => manualKalshiScan,
+  previewKalshiWeatherPicks: () => previewKalshiWeatherPicks,
   refreshKalshiCredValidity: () => refreshKalshiCredValidity,
   restoreKalshiEngineStateFromDb: () => restoreKalshiEngineStateFromDb,
   ruinGuardStatus: () => ruinGuardStatus,
@@ -35204,6 +35356,8 @@ function updateKalshiEngineConfig(userId, patch) {
   if (clean.startingBankroll != null) clean.startingBankroll = Math.max(10, Math.min(1e6, clean.startingBankroll));
   if (clean.dailyLossLimitPct != null) clean.dailyLossLimitPct = Math.max(1, Math.min(100, clean.dailyLossLimitPct));
   if (clean.maxDrawdownLimitPct != null) clean.maxDrawdownLimitPct = Math.max(1, Math.min(100, clean.maxDrawdownLimitPct));
+  if (clean.weatherMinEdgeCents != null) clean.weatherMinEdgeCents = Math.max(1, Math.min(50, clean.weatherMinEdgeCents));
+  if (clean.weatherMaxBiasDegrees != null) clean.weatherMaxBiasDegrees = Math.max(1, Math.min(15, clean.weatherMaxBiasDegrees));
   s.config = { ...s.config, ...clean };
   _persistKalshiConfig(userId, s.config);
 }
@@ -35551,9 +35705,24 @@ async function _runKalshiScan(userId, manual = false) {
     s.lastScanResult = guard.reason;
     return { fired: false, reason: guard.reason };
   }
+  let weatherReason = "";
+  if (s.config.weatherEnabled) {
+    const wx = await _scanWeather(userId, s);
+    if (wx.fired) {
+      s.lastScanResult = wx.reason;
+      return wx;
+    }
+    weatherReason = wx.reason;
+  }
   const symbols = s.config.symbols?.length ? s.config.symbols : ["BTC"];
   if (s.config.autoTradeValuePicks) {
-    return await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+    const vpResult = await _scanBestValuePickAcrossSymbols(userId, s, symbols);
+    if (!vpResult.fired && weatherReason) {
+      const combined2 = `${weatherReason} \xB7 ${vpResult.reason}`;
+      s.lastScanResult = combined2;
+      return { fired: false, reason: combined2 };
+    }
+    return vpResult;
   }
   const perSymbolReasons = [];
   for (const coin of symbols) {
@@ -35564,9 +35733,56 @@ async function _runKalshiScan(userId, manual = false) {
     }
     perSymbolReasons.push(result.reason);
   }
-  const combined = perSymbolReasons.join(" \xB7 ");
+  const combined = [weatherReason, ...perSymbolReasons].filter(Boolean).join(" \xB7 ");
   s.lastScanResult = combined;
   return { fired: false, reason: combined };
+}
+async function _scanWeather(userId, s) {
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
+  let scan;
+  try {
+    scan = await scanKalshiWeatherPicks(cities, {
+      minEntryCents: s.config.minEntryPriceCents ?? 15,
+      minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+      maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
+    });
+  } catch (err) {
+    return { fired: false, reason: `Weather: scan error: ${err.message}` };
+  }
+  const top = scan.picks[0];
+  if (!top) {
+    return { fired: false, reason: `Weather: no qualifying pick \u2014 ${scan.perCityReasons.join(" \xB7 ")}` };
+  }
+  if (s.config.kalshiBrainEnabled && s.config.kalshiBrainGating) {
+    const g = kalshiBrainGate(userId, top.cityCode, top.strikeType, (/* @__PURE__ */ new Date()).getUTCHours(), top.confidence);
+    if (g.blocked) return { fired: false, reason: g.reason };
+  }
+  return _placeKalshiYes(userId, s, {
+    coin: top.cityCode,
+    timeframe: "hourly",
+    // daily market; the per-ticker pricing/settlement fallback handles it regardless
+    ticker: top.ticker,
+    subtitle: `${top.city} ${top.subtitle}`,
+    priceInCents: top.marketAskCents,
+    confidence: top.confidence,
+    btcPrice: 0,
+    direction: "BUY",
+    label: `Weather: ${top.city} "${top.subtitle}" (+${top.edgePct}\xA2 edge, score ${top.valueScore})`,
+    strategy: "weather",
+    strikeType: top.strikeType,
+    edgePct: top.edgePct,
+    valueScore: top.valueScore,
+    modelProbPct: top.modelProbPct
+  });
+}
+async function previewKalshiWeatherPicks(userId) {
+  const s = getKalshiEngineState(userId);
+  const cities = s.config.weatherCities?.length ? s.config.weatherCities : ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"];
+  return scanKalshiWeatherPicks(cities, {
+    minEntryCents: s.config.minEntryPriceCents ?? 15,
+    minEdgeCents: s.config.weatherMinEdgeCents ?? 8,
+    maxBiasDegrees: s.config.weatherMaxBiasDegrees ?? 3
+  });
 }
 async function _scanBestValuePickAcrossSymbols(userId, s, symbols) {
   const perSymbolReasons = [];
@@ -35881,6 +36097,7 @@ async function _updateOpenTradePrices(userId, s) {
   const bracketsByKey = /* @__PURE__ */ new Map();
   for (const key of keysInPlay) {
     const [coin, timeframe] = key.split(":");
+    if (!KALSHI_SERIES_MAP[coin]) continue;
     try {
       const seriesTicker = timeframe === "fifteen_min" ? KALSHI_SERIES_MAP[coin]?.fifteenMin ?? "KXBTC15M" : KALSHI_SERIES_MAP[coin]?.hourly ?? "KXBTC";
       const event = await getKalshiCryptoEvent(seriesTicker, void 0, true);
@@ -36042,6 +36259,7 @@ var init_kalshi_engine = __esm({
     init_btc_5min_predictor();
     init_kalshi_performance();
     init_kalshi_brain();
+    init_kalshi_weather();
     KALSHI_TRADEABLE_COINS = ["BTC", "ETH", "SOL", "XRP", "DOGE", "GOLD"];
     _sessionPeakBankroll = /* @__PURE__ */ new Map();
     _states2 = /* @__PURE__ */ new Map();
@@ -36084,8 +36302,13 @@ var init_kalshi_engine = __esm({
       // FTUK-style max drawdown limit (% of starting bankroll)
       kalshiBrainEnabled: true,
       // brain influence on (bounded + neutral until it has data)
-      kalshiBrainGating: true
+      kalshiBrainGating: true,
       // ON: hard-blocks setups the brain has proven to lose (≥15 trades & <35% WR)
+      weatherEnabled: false,
+      // opt-in; paper-first (needs a per-city calibration period before live)
+      weatherCities: ["NY", "CHI", "MIA", "AUS", "LAX", "DEN", "PHIL"],
+      weatherMinEdgeCents: 8,
+      weatherMaxBiasDegrees: 3
     };
     STRATEGY_LABELS = {
       momentum: "Momentum",
@@ -68722,6 +68945,18 @@ Respond with ONLY valid JSON:
       res.json(result);
     } catch (err) {
       console.error("[Kalshi value-picks]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app2.get("/api/kalshi/weather-picks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { previewKalshiWeatherPicks: previewKalshiWeatherPicks2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      const result = await previewKalshiWeatherPicks2(userId);
+      res.json(result);
+    } catch (err) {
+      console.error("[Kalshi weather-picks]", err);
       res.status(500).json({ error: err.message });
     }
   });
