@@ -35197,6 +35197,7 @@ function updateKalshiEngineConfig(userId, patch) {
   }
   if (clean.timeframe && clean.timeframe !== "hourly" && clean.timeframe !== "fifteen_min") delete clean.timeframe;
   if (clean.minValueScore != null) clean.minValueScore = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.minEntryPriceCents != null) clean.minEntryPriceCents = Math.max(1, Math.min(95, clean.minEntryPriceCents));
   if (clean.takeProfitCents != null) clean.takeProfitCents = Math.max(0, Math.min(500, clean.takeProfitCents));
   if (clean.stopLossCents != null) clean.stopLossCents = Math.max(0, Math.min(99, clean.stopLossCents));
   if (clean.riskPctPerTrade != null) clean.riskPctPerTrade = Math.max(1, Math.min(25, clean.riskPctPerTrade));
@@ -35677,6 +35678,10 @@ async function _scanOneCoin(userId, s, coin) {
     if (priceInCents >= 97) {
       return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}\xA2 \u2014 too expensive` };
     }
+    const _minEntry = s.config.minEntryPriceCents ?? 30;
+    if (priceInCents < _minEntry) {
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} at ${priceInCents}\xA2 is below the ${_minEntry}\xA2 longshot floor (cheap brackets win ~17% \u2014 skipping)` };
+    }
     if (priceInCents > pred.confidence - 5) {
       return { fired: false, reason: `${coin}: No edge: ${bracket.subtitle} costs ${priceInCents}\xA2 but signal implies ~${pred.confidence}% win \u2014 need \u2264${pred.confidence - 5}\xA2. Skip.` };
     }
@@ -35826,7 +35831,7 @@ async function scanKalshiValuePicks(userId, limit = 5, coin = "BTC", timeframe =
   const brainGating = brainEnabled && _brainCfg.kalshiBrainGating;
   if (brainEnabled) await getOrRefreshKalshiBrain(userId).catch(() => {
   });
-  const LONGSHOT_FLOOR_CENTS = 12;
+  const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
   const SPREAD_MAX_CENTS = 12;
   const EDGE_MIN_CENTS = 4;
   const picks = [];
@@ -36053,10 +36058,13 @@ var init_kalshi_engine = __esm({
       minConfidence: 70,
       requireAlignedHourly: true,
       requireConfluence: true,
-      strategy: "momentum",
+      strategy: "auto",
+      // was 'momentum' — the WORST performer in this account's history (14% win over 14 trades). 'auto' picks the best strategy by live confidence × historical accuracy each cycle.
       autoTradeValuePicks: false,
       minValueScore: 5,
       // was 8 — too strict; combined with the value filters it blocked every pick
+      minEntryPriceCents: 30,
+      // favorite-longshot floor (data-backed: <30¢ won 17%, 50¢+ won 55%+)
       takeProfitCents: 50,
       // +50% of entry price
       stopLossCents: 40,

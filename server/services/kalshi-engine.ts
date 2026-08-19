@@ -115,6 +115,15 @@ export interface KalshiEngineConfig {
   // Auto-trade the High-Value Picks (all-strategy consensus + edge model)
   autoTradeValuePicks: boolean; // if true, the engine fires the top value pick instead of single-strategy
   minValueScore: number;        // minimum value score to auto-trade a pick (default 8)
+  // Favorite-longshot floor: never buy YES below this price. Backed by this
+  // account's own results (kalshi_brain_outcomes, 318 trades): <30¢ entries won
+  // just 17% and were the single biggest bleed (−$7.60), while 50–69¢ won 55%
+  // and 70¢+ won 58%. Cheap "longshot" brackets are systematically overpriced by
+  // the crowd AND get chopped out by the stop-loss before settlement. Applies to
+  // BOTH the value-pick scanner and the single-strategy path (which previously
+  // had no longshot protection at all — only an EV gate). Tunable in the hub.
+  minEntryPriceCents: number;   // default 30
+
   // Auto-exit, as a PERCENTAGE OF ENTRY PRICE (0 = disabled). Was an absolute
   // cents threshold — changed after confirming live that value-pick entries
   // (which specifically target cheap, underpriced contracts) routinely
@@ -180,9 +189,10 @@ const DEFAULT_CONFIG: KalshiEngineConfig = {
   minConfidence:        70,
   requireAlignedHourly: true,
   requireConfluence:    true,
-  strategy:             'momentum',
+  strategy:             'auto',   // was 'momentum' — the WORST performer in this account's history (14% win over 14 trades). 'auto' picks the best strategy by live confidence × historical accuracy each cycle.
   autoTradeValuePicks:  false,
   minValueScore:        5,     // was 8 — too strict; combined with the value filters it blocked every pick
+  minEntryPriceCents:   30,    // favorite-longshot floor (data-backed: <30¢ won 17%, 50¢+ won 55%+)
   takeProfitCents:      50, // +50% of entry price
   stopLossCents:        40, // -40% of entry price
   compounding:          false,
@@ -294,6 +304,7 @@ export function updateKalshiEngineConfig(userId: number, patch: Partial<KalshiEn
   if (clean.timeframe && clean.timeframe !== 'hourly' && clean.timeframe !== 'fifteen_min') delete clean.timeframe;
   // Clamp auto-trade / exit fields to sane ranges
   if (clean.minValueScore   != null) clean.minValueScore   = Math.max(1, Math.min(50, clean.minValueScore));
+  if (clean.minEntryPriceCents != null) clean.minEntryPriceCents = Math.max(1, Math.min(95, clean.minEntryPriceCents));
   // Percentages of entry price now, not absolute/relative cents — a cheap
   // contract can legitimately multiply several times over (10¢ -> 99¢ is a
   // +890% move), so the take-profit upper bound is much wider than before;
@@ -960,6 +971,14 @@ async function _scanOneCoin(userId: number, s: KalshiEngineState, coin: KalshiCr
       return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} already at ${priceInCents}¢ — too expensive` };
     }
 
+    // Favorite-longshot floor (the value-pick path had one; this single-strategy
+    // path did not). Data: <30¢ entries won 17% and drove the biggest loss
+    // cluster. Skip cheap longshots the crowd overprices and the stop chops out.
+    const _minEntry = s.config.minEntryPriceCents ?? 30;
+    if (priceInCents < _minEntry) {
+      return { fired: false, reason: `${coin}: Bracket ${bracket.subtitle} at ${priceInCents}¢ is below the ${_minEntry}¢ longshot floor (cheap brackets win ~17% — skipping)` };
+    }
+
     // Expected-value gate: our signal confidence ≈ P(win). Never pay MORE for the
     // contract than our edge justifies — buying an 80¢ contract on a 72% signal is
     // negative EV. Require the price to be at least 5¢ below implied probability.
@@ -1260,7 +1279,12 @@ export async function scanKalshiValuePicks(userId: number, limit = 5, coin: Kals
   // bracket on thin BTC 15-min books (the bot stopped trading entirely). These
   // still filter cheap-longshot traps + un-exitable wide books, just with the
   // headroom real Kalshi books need. Tune stricter via minValueScore in the hub.
-  const LONGSHOT_FLOOR_CENTS = 12; // below this, YES is a cheap-longshot trap the model overrates — skip
+  // Favorite-longshot floor is now config-driven (default 30¢). This account's
+  // own results made the case: <30¢ entries won 17% (−$7.60, the biggest bleed),
+  // 50–69¢ won 55%, 70¢+ won 58%. The old hard-coded 12¢ let far too many
+  // cheap-longshot traps through. Still enforce an absolute 12¢ hard minimum
+  // even if a user tunes the config lower.
+  const LONGSHOT_FLOOR_CENTS = Math.max(12, getKalshiEngineState(userId).config.minEntryPriceCents ?? 30);
   const SPREAD_MAX_CENTS     = 12; // wider book (or no bid) → edge eaten on exit — skip
   const EDGE_MIN_CENTS       = 4;  // real edge floor, applied AFTER the longshot haircut (3¢ was model noise)
 

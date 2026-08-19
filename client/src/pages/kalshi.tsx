@@ -111,6 +111,7 @@ export default function KalshiHubPage() {
                 <Toggle label="Require confluence (≥60%)" value={form.requireConfluence} onChange={(v) => set("requireConfluence", v)} />
                 <Toggle label="Auto-trade value picks" value={form.autoTradeValuePicks} onChange={(v) => set("autoTradeValuePicks", v)} />
                 <Num label="Min value score" value={form.minValueScore} onChange={(v) => set("minValueScore", v)} />
+                <Num label="Min entry price (¢)" value={form.minEntryPriceCents} onChange={(v) => set("minEntryPriceCents", v)} />
               </Group>
 
               {/* Exits + sizing */}
