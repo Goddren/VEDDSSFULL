@@ -17342,6 +17342,11 @@ async function executeMT5SignalOnTradeLocker(connection2, signal) {
       const tlOrderType = signal.orderType === "limit_entry" ? "limit" : signal.orderType === "stop_entry" ? "stop" : "market";
       const usePrice = tlOrderType !== "market" && signal.entryPrice && signal.entryPrice > 0 ? signal.entryPrice : void 0;
       const resolvedType = usePrice ? tlOrderType : "market";
+      const _slNum = Number(signal.stopLoss);
+      if (!Number.isFinite(_slNum) || _slNum <= 0) {
+        console.error(`[TradeLocker Execute] \u{1F6AB} NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected \u2014 no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
+        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) \u2014 unprotected trade rejected` };
+      }
       console.log("[TradeLocker Execute] Placing order:", {
         symbol: signal.symbol,
         side: signal.direction.toLowerCase(),
@@ -17892,6 +17897,13 @@ var init_tradelocker = __esm({
         }
       }
       async placeOrder(order) {
+        {
+          const _sl = Number(order.stopLoss);
+          if (!Number.isFinite(_sl) || _sl <= 0) {
+            console.error(`[TradeLocker] \u{1F6AB} NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected \u2014 invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
+            return { orderId: "", status: "rejected", message: `Blocked: no valid stop loss (SL=${order.stopLoss})` };
+          }
+        }
         await this.ensureAuthenticated();
         if (!this.accNumResolved || this.accNum === "0") {
           await this.resolveAccNum();
@@ -77590,6 +77602,88 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       });
       await storage.incrementBrainListingPurchaseCount(listingId);
       res.json({ success: true, tradesImported, veddCharged: listing.priceVedd });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+  app2.get("/api/trade-review/daily", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = req.user.id;
+    try {
+      const hours = Math.min(168, Math.max(1, parseInt(String(req.query.hours ?? "24"), 10) || 24));
+      const since = Date.now() - hours * 3600 * 1e3;
+      const [trades, outcomes] = await Promise.all([
+        storage.getAiTradeResults(userId, 500),
+        storage.getConfirmationOutcomes(userId, 300).catch(() => [])
+      ]);
+      const closed = trades.filter((t) => t.result && t.result !== "PENDING" && t.closedAt && new Date(t.closedAt).getTime() >= since);
+      const matchOutcome = (t) => {
+        const sym = (t.symbol || "").toUpperCase().replace("/", "");
+        const entryT = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+        let best = null, bestDiff = Infinity;
+        for (const o of outcomes) {
+          if ((o.symbol || "").toUpperCase().replace("/", "") !== sym) continue;
+          const ot = o.confirmedAt ? new Date(o.confirmedAt).getTime() : 0;
+          const d = Math.abs(ot - entryT);
+          if (d < bestDiff) {
+            bestDiff = d;
+            best = o;
+          }
+        }
+        return bestDiff <= 6 * 3600 * 1e3 ? best : null;
+      };
+      const reasonFor = (t, o) => {
+        if (t.result !== "LOSS") return "";
+        const parts = [];
+        const range = t.stopLoss && t.entryPrice ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+        const nearStop = t.stopLoss && t.exitPrice != null && range > 0 && Math.abs(t.exitPrice - t.stopLoss) <= range * 0.2;
+        parts.push(nearStop ? "Hit stop loss \u2014 price ran against the entry before reaching target" : "Closed at a loss before the stop (early / reversal / manual exit)");
+        if (t.aiConfidence != null && t.aiConfidence < 70) parts.push(`entered on marginal confidence (${t.aiConfidence}%)`);
+        if (o) {
+          if (o.confluenceGrade && ["C", "D"].includes(String(o.confluenceGrade).toUpperCase())) parts.push(`low confluence grade ${o.confluenceGrade}`);
+          if (o.newsConflict) parts.push("news conflict at entry");
+          if (o.adxValue != null && Number(o.adxValue) < 20) parts.push(`choppy market (ADX ${Math.round(Number(o.adxValue))})`);
+          if (o.aiDecision && o.aiDecision !== "CONFIRMED" && o.aiDecision !== "CONFIRM") parts.push(`AI was cautious (${o.aiDecision})`);
+        }
+        return parts.join(" \xB7 ");
+      };
+      const reviewed = closed.map((t) => {
+        const o = matchOutcome(t);
+        return {
+          symbol: t.symbol,
+          direction: t.direction,
+          result: t.result,
+          entryPrice: t.entryPrice,
+          exitPrice: t.exitPrice,
+          stopLoss: t.stopLoss,
+          takeProfit: t.takeProfit,
+          profitLoss: t.profitLoss != null ? Math.round(Number(t.profitLoss) * 100) / 100 : null,
+          pips: t.profitLossPips != null ? Math.round(Number(t.profitLossPips) * 10) / 10 : null,
+          confidence: t.aiConfidence ?? null,
+          source: t.source ?? null,
+          closedAt: t.closedAt,
+          grade: o?.confluenceGrade ?? null,
+          session: o?.session ?? null,
+          reason: reasonFor(t, o)
+        };
+      }).sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
+      const wins = reviewed.filter((t) => t.result === "WIN").length;
+      const losses = reviewed.filter((t) => t.result === "LOSS").length;
+      const netPnl = Math.round(reviewed.reduce((s, t) => s + (Number(t.profitLoss) || 0), 0) * 100) / 100;
+      const netPips = Math.round(reviewed.reduce((s, t) => s + (Number(t.pips) || 0), 0) * 10) / 10;
+      res.json({
+        hours,
+        totals: {
+          count: reviewed.length,
+          wins,
+          losses,
+          breakeven: reviewed.length - wins - losses,
+          winRate: wins + losses ? Math.round(wins / (wins + losses) * 100) : 0,
+          netPnl,
+          netPips
+        },
+        trades: reviewed
+      });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

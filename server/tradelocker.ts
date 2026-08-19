@@ -745,6 +745,18 @@ export class TradeLockerService {
   }
 
   async placeOrder(order: TradeLockerOrderRequest): Promise<TradeLockerOrderResponse> {
+    // ── LAST-LINE DEFENSE: never place an entry order without a stop loss ─────
+    // executeMT5SignalOnTradeLocker already blocks this, but guard here too so no
+    // future direct caller can send a stopless order to the broker (see the
+    // 2026-08-18 NaN-ATR incident). Entry orders only — closes go elsewhere.
+    {
+      const _sl = Number(order.stopLoss);
+      if (!Number.isFinite(_sl) || _sl <= 0) {
+        console.error(`[TradeLocker] 🚫 NO-SL BLOCK (placeOrder): ${order.symbol} ${order.side} rejected — invalid stop loss (SL=${order.stopLoss}). Unprotected entry never allowed.`);
+        return { orderId: '', status: 'rejected', message: `Blocked: no valid stop loss (SL=${order.stopLoss})` } as TradeLockerOrderResponse;
+      }
+    }
+
     await this.ensureAuthenticated();
 
     // Resolve accNum only if not yet done (avoids redundant round-trips on every order)
@@ -1751,6 +1763,19 @@ export async function executeMT5SignalOnTradeLocker(
       const usePrice = (tlOrderType !== 'market') && signal.entryPrice && signal.entryPrice > 0
         ? signal.entryPrice : undefined;
       const resolvedType = usePrice ? tlOrderType : 'market';
+
+      // ── HARD BLOCK: no valid stop loss = unprotected trade, never allowed ────
+      // Root cause of the 2026-08-18 -$8.1k day: when ATR came back NaN the
+      // confirmation path produced a null/NaN stopLoss that flowed straight
+      // through to the broker, so orders were opened with NO stop and each loser
+      // ran unbounded ($2k+ hits). Reject categorically here — this is the one
+      // choke point every OPEN path (confirmation, SS engine, copy-trade,
+      // futures) passes through. A trade with undefined downside risk is a bug.
+      const _slNum = Number(signal.stopLoss);
+      if (!Number.isFinite(_slNum) || _slNum <= 0) {
+        console.error(`[TradeLocker Execute] 🚫 NO-SL BLOCK: ${signal.symbol} ${signal.direction} rejected — no valid stop loss (SL=${signal.stopLoss}). Unprotected trades are never allowed (likely NaN ATR upstream).`);
+        return { success: false, error: `Blocked: no valid stop loss (SL=${signal.stopLoss}) — unprotected trade rejected` };
+      }
 
       console.log('[TradeLocker Execute] Placing order:', {
         symbol: signal.symbol,
