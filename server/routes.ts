@@ -10539,12 +10539,26 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               ? aiConfirmation.confirmed
               : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
+            // ── AI-override quality floor ──────────────────────────────────────
+            // An AI override (AI confirms but EA is below the 80% gate) on a WEAK
+            // grade is exactly what produced the 2026-08-18 loss cluster: Grade C /
+            // 1-of-7 breakout setups the AI text itself called "weak/insufficient"
+            // were taken via override. Forbid the override unless confluence is
+            // Grade B or better (≥2 aligned strategies). Strong (STRONG_CONFIRM /
+            // EA-passing) trades are unaffected — only the low-EA override path.
+            const _isAiOverride = aiPasses && !eaPasses;
+            const _alignedVotes = Number((aiConfirmation as any).alignedVotes ?? NaN);
+            const _strongGrade = ['A+', 'A', 'B'].includes(String(breakoutGrade || '').toUpperCase());
+            const _enoughAligned = Number.isFinite(_alignedVotes) ? _alignedVotes >= 2 : _strongGrade;
+            const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
             // STRONG_SKIP = both agents independently say NO → hard block
-            const tradeAllowed = consensusLabel !== 'STRONG_SKIP' && aiPasses;
+            const tradeAllowed = consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak;
 
             if (!tradeAllowed) {
               const reason = consensusLabel === 'STRONG_SKIP'
                 ? `Dual-agent STRONG_SKIP — Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject`
+                : overrideTooWeak
+                ? `AI override blocked — weak confluence (Grade ${breakoutGrade || '?'}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ''}); override requires Grade B / ≥2 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%`
                 : useBreakoutMode
                 ? `Breakout grade insufficient (Grade ${breakoutGrade || 'PASS'} — Grade A (≥70%) or B (≥50%) required to CONFIRM)`
                 : (!eaPasses
@@ -11793,6 +11807,33 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 volume: connLot, refLot: tradeVolume, copyMode: _eaCopyMode,
                 tlBal: _tlBal, mt5Bal: accountBalance, orderType: _eaOrderType,
               });
+
+              // ── Re-entry throttle: never stack onto a losing position ─────────
+              // The 2026-08-18 cluster re-fired the same symbol+direction almost
+              // every minute, adding size to trades already underwater (one EURUSD
+              // SELL was re-entered higher while the first was still red). Block a
+              // new OPEN when an open position on the SAME symbol+direction is
+              // currently losing. A winning same-direction position is allowed to
+              // scale; only losers are protected from stacking.
+              try {
+                const _thrSvc = await tlGetOrCreateService(tlConn);
+                const _thrPos = await _thrSvc.getPositionsNormalized();
+                const _ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                const _wantSide = String(analysis.signal || '').toLowerCase().startsWith('b') ? 'buy' : 'sell';
+                const _loser = _thrPos.find((p) => {
+                  const ps = (p.symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                  const _match = ps === _ts || ps.includes(_ts) || _ts.includes(ps);
+                  const _sameDir = (p.side || '').toLowerCase() === _wantSide;
+                  return _match && _sameDir && Number.isFinite(p.unrealizedPl) && p.unrealizedPl < 0;
+                });
+                if (_loser) {
+                  console.log(`[Re-entry THROTTLE] ${tlConn.accountId}: skip ${sanitizedSymbol} ${_wantSide.toUpperCase()} — existing ${_wantSide.toUpperCase()} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)}. Not stacking into a loser.`);
+                  analysis.alerts.push(`RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} — not adding size.`);
+                  continue;
+                }
+              } catch (_thrErr: any) {
+                console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
+              }
 
               try {
                 const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
@@ -30236,6 +30277,77 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ── Daily Trade Review — per-trade P&L + why each loss happened ──
+  app.get("/api/trade-review/daily", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Not authenticated" });
+    const userId = (req.user as User).id;
+    try {
+      const hours = Math.min(168, Math.max(1, parseInt(String(req.query.hours ?? '24'), 10) || 24));
+      const since = Date.now() - hours * 3600 * 1000;
+      const [trades, outcomes] = await Promise.all([
+        storage.getAiTradeResults(userId, 500),
+        storage.getConfirmationOutcomes(userId, 300).catch(() => [] as any[]),
+      ]);
+      const closed = (trades as any[]).filter(t => t.result && t.result !== 'PENDING' && t.closedAt && new Date(t.closedAt).getTime() >= since);
+
+      const matchOutcome = (t: any) => {
+        const sym = (t.symbol || '').toUpperCase().replace('/', '');
+        const entryT = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+        let best: any = null, bestDiff = Infinity;
+        for (const o of outcomes as any[]) {
+          if ((o.symbol || '').toUpperCase().replace('/', '') !== sym) continue;
+          const ot = o.confirmedAt ? new Date(o.confirmedAt).getTime() : 0;
+          const d = Math.abs(ot - entryT);
+          if (d < bestDiff) { bestDiff = d; best = o; }
+        }
+        return bestDiff <= 6 * 3600 * 1000 ? best : null; // within 6h of entry
+      };
+
+      const reasonFor = (t: any, o: any): string => {
+        if (t.result !== 'LOSS') return '';
+        const parts: string[] = [];
+        const range = t.stopLoss && t.entryPrice ? Math.abs(t.entryPrice - t.stopLoss) : 0;
+        const nearStop = t.stopLoss && t.exitPrice != null && range > 0 && Math.abs(t.exitPrice - t.stopLoss) <= range * 0.2;
+        parts.push(nearStop ? 'Hit stop loss — price ran against the entry before reaching target' : 'Closed at a loss before the stop (early / reversal / manual exit)');
+        if (t.aiConfidence != null && t.aiConfidence < 70) parts.push(`entered on marginal confidence (${t.aiConfidence}%)`);
+        if (o) {
+          if (o.confluenceGrade && ['C', 'D'].includes(String(o.confluenceGrade).toUpperCase())) parts.push(`low confluence grade ${o.confluenceGrade}`);
+          if (o.newsConflict) parts.push('news conflict at entry');
+          if (o.adxValue != null && Number(o.adxValue) < 20) parts.push(`choppy market (ADX ${Math.round(Number(o.adxValue))})`);
+          if (o.aiDecision && o.aiDecision !== 'CONFIRMED' && o.aiDecision !== 'CONFIRM') parts.push(`AI was cautious (${o.aiDecision})`);
+        }
+        return parts.join(' · ');
+      };
+
+      const reviewed = closed.map(t => {
+        const o = matchOutcome(t);
+        return {
+          symbol: t.symbol, direction: t.direction, result: t.result,
+          entryPrice: t.entryPrice, exitPrice: t.exitPrice, stopLoss: t.stopLoss, takeProfit: t.takeProfit,
+          profitLoss: t.profitLoss != null ? Math.round(Number(t.profitLoss) * 100) / 100 : null,
+          pips: t.profitLossPips != null ? Math.round(Number(t.profitLossPips) * 10) / 10 : null,
+          confidence: t.aiConfidence ?? null,
+          source: t.source ?? null,
+          closedAt: t.closedAt,
+          grade: o?.confluenceGrade ?? null,
+          session: o?.session ?? null,
+          reason: reasonFor(t, o),
+        };
+      }).sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
+
+      const wins = reviewed.filter(t => t.result === 'WIN').length;
+      const losses = reviewed.filter(t => t.result === 'LOSS').length;
+      const netPnl = Math.round(reviewed.reduce((s, t) => s + (Number(t.profitLoss) || 0), 0) * 100) / 100;
+      const netPips = Math.round(reviewed.reduce((s, t) => s + (Number(t.pips) || 0), 0) * 10) / 10;
+      res.json({
+        hours,
+        totals: { count: reviewed.length, wins, losses, breakeven: reviewed.length - wins - losses,
+          winRate: (wins + losses) ? Math.round((wins / (wins + losses)) * 100) : 0, netPnl, netPips },
+        trades: reviewed,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Ambassador Profit Split Program (30% of prop-firm profit, no subscription) ──

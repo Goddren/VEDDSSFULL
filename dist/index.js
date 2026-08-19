@@ -10176,6 +10176,7 @@ ${breakoutResult.summary}`,
       adjustedTakeProfit3: rawTP3 || void 0,
       breakoutScore: breakoutResult.score,
       breakoutGrade: breakoutResult.grade,
+      alignedVotes: breakoutResult.alignedVotes,
       breakoutStrategies: breakoutResult.strategies,
       breakoutQuality,
       propFirmVerdict: ["SAFE", "WARNING", "BLOCK"].includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : "SAFE"
@@ -60970,9 +60971,14 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const breakoutGrade = aiConfirmation.breakoutGrade;
             const aiPasses = useBreakoutMode ? aiConfirmation.confirmed : aiConfirmation.aiConfidence >= AI_MIN_CONFIDENCE;
             const eaPasses = preConfirmConfidence >= EA_MIN_CONFIDENCE_FOR_AI_GATE;
-            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses;
+            const _isAiOverride = aiPasses && !eaPasses;
+            const _alignedVotes = Number(aiConfirmation.alignedVotes ?? NaN);
+            const _strongGrade = ["A+", "A", "B"].includes(String(breakoutGrade || "").toUpperCase());
+            const _enoughAligned = Number.isFinite(_alignedVotes) ? _alignedVotes >= 2 : _strongGrade;
+            const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
+            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak;
             if (!tradeAllowed) {
-              const reason = consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
+              const reason = consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
               analysis.alerts.push(`TRADE BLOCKED [${consensusLabel}]: ${reason} - ${aiConfirmation.reasoning}`);
               aiConfirmation.confirmed = false;
@@ -61997,6 +62003,25 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     mt5Bal: accountBalance,
                     orderType: _eaOrderType
                   });
+                  try {
+                    const _thrSvc = await getOrCreateService(tlConn);
+                    const _thrPos = await _thrSvc.getPositionsNormalized();
+                    const _ts = sanitizedSymbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                    const _wantSide = String(analysis.signal || "").toLowerCase().startsWith("b") ? "buy" : "sell";
+                    const _loser = _thrPos.find((p) => {
+                      const ps = (p.symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                      const _match = ps === _ts || ps.includes(_ts) || _ts.includes(ps);
+                      const _sameDir = (p.side || "").toLowerCase() === _wantSide;
+                      return _match && _sameDir && Number.isFinite(p.unrealizedPl) && p.unrealizedPl < 0;
+                    });
+                    if (_loser) {
+                      console.log(`[Re-entry THROTTLE] ${tlConn.accountId}: skip ${sanitizedSymbol} ${_wantSide.toUpperCase()} \u2014 existing ${_wantSide.toUpperCase()} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)}. Not stacking into a loser.`);
+                      analysis.alerts.push(`RE-ENTRY BLOCKED: existing ${_wantSide.toUpperCase()} ${sanitizedSymbol} position down $${Math.abs(_loser.unrealizedPl).toFixed(2)} \u2014 not adding size.`);
+                      continue;
+                    }
+                  } catch (_thrErr) {
+                    console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
+                  }
                   try {
                     const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
                       action: "OPEN",

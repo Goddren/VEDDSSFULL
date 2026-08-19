@@ -677,6 +677,7 @@ export interface AiVisionConfirmation {
   dailyBufferPct?: number;
   breakoutScore?: number;
   breakoutGrade?: 'A' | 'B' | 'C' | 'PASS';
+  alignedVotes?: number;
   breakoutStrategies?: Array<{ name: string; fired: boolean; direction: string; reason: string; strength: number }>;
   breakoutQuality?: 'ELITE' | 'STRONG' | 'DEVELOPING';
   modelUsed?: string;
@@ -2567,6 +2568,7 @@ INSTRUCTION: If grade is A (≥70%) or B (≥50%) AND ≥3 strategies align in s
       adjustedTakeProfit3: rawTP3 || undefined,
       breakoutScore: breakoutResult.score,
       breakoutGrade: breakoutResult.grade,
+      alignedVotes: breakoutResult.alignedVotes,
       breakoutStrategies: breakoutResult.strategies,
       breakoutQuality,
       propFirmVerdict: (['SAFE', 'WARNING', 'BLOCK'] as const).includes(parsed.propFirmVerdict) ? parsed.propFirmVerdict : 'SAFE',
