@@ -131,6 +131,17 @@ export default function AccountDetailPage() {
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', `/api/tradelocker/connection/${params.id}/backfill-consistency`, {});
+      if (!res.ok) throw new Error('Failed to recalculate from broker');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tradelocker/connection/${params.id}/consistency`] });
+    },
+  });
+
   const [showConsistencyInfo, setShowConsistencyInfo] = useState(false);
 
   if (isLoading) {
@@ -289,7 +300,23 @@ export default function AccountDetailPage() {
                 <div className="grid grid-cols-2 gap-3 text-xs mb-3">
                   <div><p className="text-gray-500">Today's P&amp;L</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.todayPnl)}</p></div>
                   <div><p className="text-gray-500">Total profit (all-time)</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.totalPositivePnl)}</p></div>
+                  {typeof consistency.maxDayPnl === 'number' && (
+                    <div><p className="text-gray-500">Biggest day</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.maxDayPnl)} <span className="text-gray-500">({(consistency.maxDayRatioPct ?? 0).toFixed(1)}%)</span></p></div>
+                  )}
                 </div>
+
+                <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-gray-800/60 bg-black/20 px-3 py-2">
+                  <p className="text-[10px] text-gray-500 leading-snug">Numbers not matching your prop firm? VEDD only counts trades it placed. Pull your broker's full closed-trade history to match the firm's ratio.</p>
+                  <button
+                    onClick={() => backfillMutation.mutate()}
+                    disabled={backfillMutation.isPending}
+                    className="shrink-0 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-60"
+                  >
+                    {backfillMutation.isPending ? 'Syncing…' : 'Sync from broker'}
+                  </button>
+                </div>
+                {backfillMutation.isError && <p className="text-[10px] text-red-400 mb-2">Sync failed — try again in a moment.</p>}
+                {backfillMutation.isSuccess && <p className="text-[10px] text-emerald-400 mb-2">Recalculated from broker history ✓</p>}
 
                 <p className="text-[11px] text-gray-500 mb-3">{consistency.guidance}</p>
 

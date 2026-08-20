@@ -166,6 +166,70 @@ export async function getConsistencyPlan(
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 /**
+ * Rebuild the durable daily P&L ledger for one connection from the broker's OWN
+ * closed-trade history (not just VEDD-routed trades). This is what makes the
+ * consistency ratio match the prop firm's dashboard: VEDD's live ledger only
+ * captures days VEDD itself closed a trade, so accounts with manual trades (or
+ * history predating the connection) read far lower than the firm shows. Pulling
+ * the broker's full closed-trade P&L and grouping by UTC day fixes that.
+ *
+ * REPLACES the connection's existing rows (the broker history is the source of
+ * truth and already includes any VEDD-executed trades, so merging would double
+ * count). `closedTrades` = [{ profit, closeTime }] from getClosedTradesWithPnl.
+ */
+export async function rebuildDailyLedgerFromClosedTrades(
+  userId: number,
+  connectionId: number,
+  connectionType: string,
+  closedTrades: Array<{ profit: number; closeTime: string | number | Date }>,
+): Promise<{ days: number; totalPositive: number; maxDay: number; maxDayDate: string | null; tradesUsed: number }> {
+  // Bucket realized P&L by UTC trading day.
+  const byDay = new Map<string, number>();
+  let used = 0;
+  for (const t of closedTrades) {
+    const pnl = Number(t.profit);
+    if (!isFinite(pnl) || pnl === 0) continue;
+    const d = new Date(t.closeTime);
+    if (isNaN(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
+    used++;
+  }
+
+  // Replace the connection's ledger atomically.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    for (const [day, pnl] of Array.from(byDay)) {
+      await client.query(
+        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id, connection_type, trade_date)
+         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
+        [userId, connectionId, connectionType, day, round2(pnl)]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  let totalPositive = 0, maxDay = 0, maxDayDate: string | null = null;
+  for (const [day, pnl] of Array.from(byDay)) {
+    if (pnl > 0) totalPositive += pnl;
+    if (pnl > maxDay) { maxDay = pnl; maxDayDate = day; }
+  }
+  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
+}
+
+/**
  * Record a closed trade's realized P&L against the account's daily ledger.
  * Additive — call once per newly-resolved closed trade. Safe to call
  * concurrently; upserts with a running total for the day.

@@ -19564,6 +19564,36 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // POST /api/tradelocker/connection/:id/backfill-consistency — rebuild the daily
+  // P&L ledger from the broker's OWN closed-trade history so the consistency ratio
+  // matches the prop firm's dashboard (VEDD's live ledger only sees VEDD-routed
+  // trades; manual/pre-connection trades are missing without this).
+  app.post("/api/tradelocker/connection/:id/backfill-consistency", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connId = parseInt(req.params.id, 10);
+    const connection = await storage.getTradelockerConnection(connId);
+    if (!connection || connection.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const svc = await tlGetOrCreateService(connection);
+      // Full-history lookback (365 days) so the whole account is captured.
+      const fromTs = Math.floor(Date.now() / 1000) - 365 * 24 * 3600;
+      const closed = await svc.getClosedTradesWithPnl(fromTs);
+      const { rebuildDailyLedgerFromClosedTrades, getConsistencyStatus, getConsistencyPlan } = await import('./services/prop-firm-consistency');
+      const summary = await rebuildDailyLedgerFromClosedTrades(userId, connId, 'tradelocker', closed);
+      const [status, plan] = await Promise.all([
+        getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct, (connection as any).consistencyEnabled !== false),
+        getConsistencyPlan(connId, 'tradelocker', (connection as any).consistencyThresholdPct),
+      ]);
+      res.json({ ok: true, rebuilt: summary, status, plan });
+    } catch (err: any) {
+      console.error('[Consistency backfill]', err);
+      res.status(500).json({ error: err?.message || 'backfill failed' });
+    }
+  });
+
   // GET /api/kalshi/weather-picks — KXHIGH temperature-market edges (GFS ensemble
   // model vs market), read-only preview. Shows the bias-guard reasons too.
   app.get("/api/kalshi/weather-picks", async (req: Request, res: Response) => {

@@ -18537,6 +18537,7 @@ __export(prop_firm_consistency_exports, {
   DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
   getConsistencyPlan: () => getConsistencyPlan,
   getConsistencyStatus: () => getConsistencyStatus,
+  rebuildDailyLedgerFromClosedTrades: () => rebuildDailyLedgerFromClosedTrades,
   recordRealizedPnl: () => recordRealizedPnl
 });
 function todayUtcDateStr() {
@@ -18614,6 +18615,52 @@ async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
 }
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+async function rebuildDailyLedgerFromClosedTrades(userId, connectionId, connectionType, closedTrades) {
+  const byDay = /* @__PURE__ */ new Map();
+  let used = 0;
+  for (const t of closedTrades) {
+    const pnl = Number(t.profit);
+    if (!isFinite(pnl) || pnl === 0) continue;
+    const d = new Date(t.closeTime);
+    if (isNaN(d.getTime())) continue;
+    const day = d.toISOString().slice(0, 10);
+    byDay.set(day, (byDay.get(day) ?? 0) + pnl);
+    used++;
+  }
+  const client2 = await pool.connect();
+  try {
+    await client2.query("BEGIN");
+    await client2.query(
+      `DELETE FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    for (const [day, pnl] of Array.from(byDay)) {
+      await client2.query(
+        `INSERT INTO prop_firm_daily_pnl (user_id, connection_id, connection_type, trade_date, realized_pnl)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (connection_id, connection_type, trade_date)
+         DO UPDATE SET realized_pnl = $5, updated_at = now()`,
+        [userId, connectionId, connectionType, day, round2(pnl)]
+      );
+    }
+    await client2.query("COMMIT");
+  } catch (err) {
+    await client2.query("ROLLBACK").catch(() => {
+    });
+    throw err;
+  } finally {
+    client2.release();
+  }
+  let totalPositive = 0, maxDay = 0, maxDayDate = null;
+  for (const [day, pnl] of Array.from(byDay)) {
+    if (pnl > 0) totalPositive += pnl;
+    if (pnl > maxDay) {
+      maxDay = pnl;
+      maxDayDate = day;
+    }
+  }
+  return { days: byDay.size, totalPositive: round2(totalPositive), maxDay: round2(maxDay), maxDayDate, tradesUsed: used };
 }
 async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
   if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
@@ -69054,6 +69101,30 @@ Respond with ONLY valid JSON:
     } catch (err) {
       console.error("[Kalshi value-picks]", err);
       res.status(500).json({ error: err.message });
+    }
+  });
+  app2.post("/api/tradelocker/connection/:id/backfill-consistency", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connId = parseInt(req.params.id, 10);
+    const connection2 = await storage.getTradelockerConnection(connId);
+    if (!connection2 || connection2.userId !== userId) {
+      return res.status(404).json({ error: "No connection found" });
+    }
+    try {
+      const svc = await getOrCreateService(connection2);
+      const fromTs = Math.floor(Date.now() / 1e3) - 365 * 24 * 3600;
+      const closed = await svc.getClosedTradesWithPnl(fromTs);
+      const { rebuildDailyLedgerFromClosedTrades: rebuildDailyLedgerFromClosedTrades2, getConsistencyStatus: getConsistencyStatus2, getConsistencyPlan: getConsistencyPlan2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const summary = await rebuildDailyLedgerFromClosedTrades2(userId, connId, "tradelocker", closed);
+      const [status, plan] = await Promise.all([
+        getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct, connection2.consistencyEnabled !== false),
+        getConsistencyPlan2(connId, "tradelocker", connection2.consistencyThresholdPct)
+      ]);
+      res.json({ ok: true, rebuilt: summary, status, plan });
+    } catch (err) {
+      console.error("[Consistency backfill]", err);
+      res.status(500).json({ error: err?.message || "backfill failed" });
     }
   });
   app2.get("/api/kalshi/weather-picks", async (req, res) => {
