@@ -286,6 +286,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureOptionsBrainOutcomesTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureOptionsIvHistoryTable } = await import('./services/ensure-options-iv-history-table');
+    await ensureOptionsIvHistoryTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureOptionsIvHistoryTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure Persona Content Engine tables exist (Don Chism founder-brand, 3x/week)
   try {
     const { ensurePersonaContentTables } = await import('./services/ensure-persona-content-tables');

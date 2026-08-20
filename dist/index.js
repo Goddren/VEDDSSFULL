@@ -1315,6 +1315,8 @@ var init_schema = __esm({
       // % of equity to risk per spread, off the DEFINED max loss
       creditSpreadMinCreditPct: doublePrecision("credit_spread_min_credit_pct").notNull().default(20),
       // require credit ≥ this % of width (else risk/reward too poor)
+      creditSpreadMinIvRank: doublePrecision("credit_spread_min_iv_rank").notNull().default(30),
+      // only sell when IV Rank ≥ this (premium rich vs the name's own 1yr range); falls back to creditSpreadMinIv until ≥20 days of IV history exist
       // Strategy-specific parameters
       orbRangeMinutes: integer("orb_range_minutes").notNull().default(15),
       // opening range window length
@@ -46155,13 +46157,45 @@ CREATE INDEX IF NOT EXISTS "options_brain_outcomes_user_idx" ON "options_brain_o
   }
 });
 
+// server/services/ensure-options-iv-history-table.ts
+var ensure_options_iv_history_table_exports = {};
+__export(ensure_options_iv_history_table_exports, {
+  ensureOptionsIvHistoryTable: () => ensureOptionsIvHistoryTable
+});
+async function ensureOptionsIvHistoryTable() {
+  try {
+    await pool.query(DDL8);
+    console.log("[startup] Options IV-history table ensured (options_iv_history) \u2014 IV Rank now self-builds from daily ATM IV snapshots.");
+  } catch (err) {
+    console.error("[startup] ensureOptionsIvHistoryTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL8;
+var init_ensure_options_iv_history_table = __esm({
+  "server/services/ensure-options-iv-history-table.ts"() {
+    "use strict";
+    init_db();
+    DDL8 = `
+CREATE TABLE IF NOT EXISTS "options_iv_history" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "underlying_symbol" text NOT NULL,
+  "iv" double precision NOT NULL,
+  "observed_date" date NOT NULL,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "options_iv_history_symbol_date_unique" UNIQUE ("underlying_symbol", "observed_date")
+);
+CREATE INDEX IF NOT EXISTS "idx_options_iv_history_symbol_date" ON "options_iv_history" ("underlying_symbol", "observed_date");
+`;
+  }
+});
+
 // server/services/ensure-persona-content-tables.ts
 var ensure_persona_content_tables_exports = {};
 __export(ensure_persona_content_tables_exports, {
   ensurePersonaContentTables: () => ensurePersonaContentTables
 });
 async function ensurePersonaContentTables() {
-  await pool.query(DDL8);
+  await pool.query(DDL9);
   for (const pillar of PILLARS) {
     await pool.query(
       `INSERT INTO "persona_pillar_rotation" ("pillar") VALUES ($1) ON CONFLICT ("pillar") DO NOTHING`,
@@ -46172,7 +46206,7 @@ async function ensurePersonaContentTables() {
     `INSERT INTO "persona_arc_state" ("id", "current_index", "loops_completed") VALUES (1, 0, 0) ON CONFLICT ("id") DO NOTHING`
   );
 }
-var PILLARS, DDL8;
+var PILLARS, DDL9;
 var init_ensure_persona_content_tables = __esm({
   "server/services/ensure-persona-content-tables.ts"() {
     "use strict";
@@ -46189,7 +46223,7 @@ var init_ensure_persona_content_tables = __esm({
       "Behind-the-scenes",
       "Family/life balance/purpose"
     ];
-    DDL8 = `
+    DDL9 = `
 CREATE TABLE IF NOT EXISTS "persona_pillar_rotation" (
   "id" serial PRIMARY KEY NOT NULL,
   "pillar" text NOT NULL UNIQUE,
@@ -46226,18 +46260,18 @@ __export(ensure_content_image_columns_exports, {
 });
 async function ensureContentImageColumns() {
   try {
-    await pool.query(DDL9);
+    await pool.query(DDL10);
     console.log("[startup] Content image columns ensured (devotionals.hero_image, ambassador_daily_content/bonus_content/community_content.image_url).");
   } catch (err) {
     console.error("[startup] ensureContentImageColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL9;
+var DDL10;
 var init_ensure_content_image_columns = __esm({
   "server/services/ensure-content-image-columns.ts"() {
     "use strict";
     init_db();
-    DDL9 = `
+    DDL10 = `
 ALTER TABLE "devotionals" ADD COLUMN IF NOT EXISTS "hero_image" text;
 ALTER TABLE "ambassador_daily_content" ADD COLUMN IF NOT EXISTS "image_url" text;
 ALTER TABLE "ambassador_bonus_content" ADD COLUMN IF NOT EXISTS "image_url" text;
@@ -46253,18 +46287,18 @@ __export(ensure_order_flow_column_exports, {
 });
 async function ensureOrderFlowColumn() {
   try {
-    await pool.query(DDL10);
+    await pool.query(DDL11);
     console.log("[startup] Options Engine order-flow column ensured (options_engine_configs.order_flow_lookback_bars).");
   } catch (err) {
     console.error("[startup] ensureOrderFlowColumn failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL10;
+var DDL11;
 var init_ensure_order_flow_column = __esm({
   "server/services/ensure-order-flow-column.ts"() {
     "use strict";
     init_db();
-    DDL10 = `
+    DDL11 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "order_flow_lookback_bars" integer NOT NULL DEFAULT 30;
 `;
   }
@@ -46277,18 +46311,18 @@ __export(ensure_options_engine_parity_columns_exports, {
 });
 async function ensureOptionsEngineParityColumns() {
   try {
-    await pool.query(DDL11);
+    await pool.query(DDL12);
     console.log("[startup] Options Engine FX-parity columns ensured (trailing stops, Drawdown Shield, Kelly, Brain Learning Mode, prop-firm presets + consistency rule, Copy Mode, Volatile Cap, Goal Tracker, scheduling, AI intelligence extras, liquidity filter, per-trade confidence/DTE/IV/spread).");
   } catch (err) {
     console.error("[startup] ensureOptionsEngineParityColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL11;
+var DDL12;
 var init_ensure_options_engine_parity_columns = __esm({
   "server/services/ensure-options-engine-parity-columns.ts"() {
     "use strict";
     init_db();
-    DDL11 = `
+    DDL12 = `
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "ai_mode" text NOT NULL DEFAULT 'full';
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "use_kelly_criterion" boolean NOT NULL DEFAULT false;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "brain_learning_mode" boolean NOT NULL DEFAULT true;
@@ -46348,6 +46382,7 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_pro
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_stop_multiple" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_risk_pct" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_credit_pct" double precision NOT NULL DEFAULT 20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_iv_rank" double precision NOT NULL DEFAULT 30;
 
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "spread_type" text;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "long_leg_symbol" text;
@@ -46364,18 +46399,18 @@ __export(ensure_futures_engine_tables_exports, {
 });
 async function ensureFuturesEngineTables() {
   try {
-    await pool.query(DDL12);
+    await pool.query(DDL13);
     console.log("[startup] Futures Engine tables ensured (futures_engine_configs/activity/trades \u2014 FX-parity persisted config, trailing stops, Kelly, Brain Learning Mode, Drawdown Shield, consistency rule, scheduling).");
   } catch (err) {
     console.error("[startup] ensureFuturesEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL12;
+var DDL13;
 var init_ensure_futures_engine_tables = __esm({
   "server/services/ensure-futures-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL12 = `
+    DDL13 = `
 CREATE TABLE IF NOT EXISTS "futures_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -46483,18 +46518,18 @@ __export(ensure_content_studio_tables_exports, {
 });
 async function ensureContentStudioTables() {
   try {
-    await pool.query(DDL13);
+    await pool.query(DDL14);
     console.log("[startup] Content Studio durable media tables ensured (content_studio_assets/generations).");
   } catch (err) {
     console.error("[startup] ensureContentStudioTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL13;
+var DDL14;
 var init_ensure_content_studio_tables = __esm({
   "server/services/ensure-content-studio-tables.ts"() {
     "use strict";
     init_db();
-    DDL13 = `
+    DDL14 = `
 CREATE TABLE IF NOT EXISTS "content_studio_assets" (
   "id" serial PRIMARY KEY,
   "mime_type" text NOT NULL,
@@ -46525,18 +46560,18 @@ __export(ensure_cryptocom_engine_tables_exports, {
 });
 async function ensureCryptocomEngineTables() {
   try {
-    await pool.query(DDL14);
+    await pool.query(DDL15);
     console.log("[startup] Crypto.com Engine tables ensured (cryptocom_engine_configs/activity/trades).");
   } catch (err) {
     console.error("[startup] ensureCryptocomEngineTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL14;
+var DDL15;
 var init_ensure_cryptocom_engine_tables = __esm({
   "server/services/ensure-cryptocom-engine-tables.ts"() {
     "use strict";
     init_db();
-    DDL14 = `
+    DDL15 = `
 CREATE TABLE IF NOT EXISTS "cryptocom_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -46626,18 +46661,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL15);
+    await pool.query(DDL16);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL15;
+var DDL16;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL15 = `
+    DDL16 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -46665,18 +46700,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -46698,18 +46733,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -46740,18 +46775,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -46775,18 +46810,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -46805,18 +46840,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -46833,18 +46868,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -46925,18 +46960,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47191,6 +47226,66 @@ var init_prop_firm_consistency_audit_loop = __esm({
     init_storage();
     init_prop_firm_consistency();
     POLL_INTERVAL_MS3 = 3 * 60 * 1e3;
+  }
+});
+
+// server/services/iv-rank.ts
+var iv_rank_exports = {};
+__export(iv_rank_exports, {
+  MIN_IV_SAMPLES: () => MIN_IV_SAMPLES,
+  getIvRank: () => getIvRank,
+  recordDailyIv: () => recordDailyIv
+});
+function todayUtc() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function recordDailyIv(underlyingSymbol, iv) {
+  if (!isFinite(iv) || iv <= 0) return;
+  const day = todayUtc();
+  if (_recordedToday.get(underlyingSymbol) === day) return;
+  _recordedToday.set(underlyingSymbol, day);
+  try {
+    await pool.query(
+      `INSERT INTO options_iv_history (underlying_symbol, iv, observed_date)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (underlying_symbol, observed_date)
+       DO UPDATE SET iv = EXCLUDED.iv`,
+      [underlyingSymbol, iv, day]
+    );
+  } catch (err) {
+    console.error("[IV Rank] recordDailyIv failed (non-fatal):", err?.message ?? err);
+  }
+}
+async function getIvRank(underlyingSymbol, currentIv) {
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT iv FROM options_iv_history
+       WHERE underlying_symbol = $1 AND observed_date >= (CURRENT_DATE - $2::int)`,
+      [underlyingSymbol, IV_WINDOW_DAYS]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[IV Rank] getIvRank read failed (defaulting to no-data):", err?.message ?? err);
+  }
+  const vals = rows.map((r) => typeof r.iv === "number" ? r.iv : parseFloat(r.iv)).filter((v) => isFinite(v) && v > 0);
+  if (isFinite(currentIv) && currentIv > 0) vals.push(currentIv);
+  if (vals.length < MIN_IV_SAMPLES) {
+    return { ivRank: null, samples: vals.length, min: null, max: null, currentIv };
+  }
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const ivRank = max > min ? Math.round((currentIv - min) / (max - min) * 100) : 50;
+  return { ivRank: Math.max(0, Math.min(100, ivRank)), samples: vals.length, min, max, currentIv };
+}
+var IV_WINDOW_DAYS, MIN_IV_SAMPLES, _recordedToday;
+var init_iv_rank = __esm({
+  "server/services/iv-rank.ts"() {
+    "use strict";
+    init_db();
+    IV_WINDOW_DAYS = 365;
+    MIN_IV_SAMPLES = 20;
+    _recordedToday = /* @__PURE__ */ new Map();
   }
 });
 
@@ -47812,8 +47907,23 @@ async function buildCreditSpread(service, underlyingSymbol, direction, cfg) {
   const sameExpiry = inBand.filter((c) => c.expirationDate === targetExpiry);
   const shortLeg = [...sameExpiry].sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta) - cfg.creditSpreadShortDelta))[0];
   if (!shortLeg) return { spread: null, reason: "could not resolve a short leg near target delta" };
-  if (typeof shortLeg.impliedVolatility === "number" && shortLeg.impliedVolatility < cfg.creditSpreadMinIv) {
-    return { spread: null, reason: `IV ${(shortLeg.impliedVolatility * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor \u2014 premium too cheap to sell` };
+  const { recordDailyIv: recordDailyIv2, getIvRank: getIvRank2 } = await Promise.resolve().then(() => (init_iv_rank(), iv_rank_exports));
+  const atm = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - byExpiryDist[0].strikePrice) - Math.abs(b.strikePrice - byExpiryDist[0].strikePrice))[0];
+  const atmIv = (typeof atm?.impliedVolatility === "number" ? atm.impliedVolatility : shortLeg.impliedVolatility) ?? 0;
+  if (atmIv > 0) await recordDailyIv2(underlyingSymbol, atmIv).catch(() => {
+  });
+  let capturedIvRank = null;
+  const shortIv = shortLeg.impliedVolatility;
+  if (typeof shortIv === "number" && shortIv > 0) {
+    const { ivRank, samples } = await getIvRank2(underlyingSymbol, shortIv).catch(() => ({ ivRank: null, samples: 0 }));
+    capturedIvRank = ivRank;
+    if (ivRank !== null) {
+      if (ivRank < cfg.creditSpreadMinIvRank) {
+        return { spread: null, reason: `IV Rank ${ivRank} below the ${cfg.creditSpreadMinIvRank} floor (${samples} days of history) \u2014 premium not rich enough vs this name's own range` };
+      }
+    } else if (shortIv < cfg.creditSpreadMinIv) {
+      return { spread: null, reason: `IV ${(shortIv * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor (building IV-rank history: ${samples}/20 days)` };
+    }
   }
   const targetLongStrike = spreadType === "bull_put" ? shortLeg.strikePrice - cfg.creditSpreadWidthDollars : shortLeg.strikePrice + cfg.creditSpreadWidthDollars;
   const longLeg = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - targetLongStrike) - Math.abs(b.strikePrice - targetLongStrike))[0];
@@ -47829,7 +47939,7 @@ async function buildCreditSpread(service, underlyingSymbol, direction, cfg) {
   }
   const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
   const dte = daysUntil(shortLeg.expirationDate, now);
-  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte }, reason: "" };
+  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte, ivRank: capturedIvRank }, reason: "" };
 }
 async function executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate) {
   const dir = result.direction;
@@ -47915,7 +48025,7 @@ async function executeCreditSpread(service, connection2, userId, underlyingSymbo
     symbol: underlyingSymbol,
     decision: "signal",
     strategy: `${result.strategy}:credit_spread`,
-    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace("_", " ")} x${quantity} \u2014 sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}\u0394. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
+    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace("_", " ")} x${quantity} \u2014 sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%${spread.ivRank !== null ? ` (IV Rank ${spread.ivRank})` : " (IV-rank history building)"}, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}\u0394. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
     score: result.score,
     price: result.price,
     dailyChangePercent: result.dailyChangePercent,
@@ -80155,6 +80265,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureOptionsBrainOutcomesTable2();
   } catch (err) {
     console.error(`[startup] ensureOptionsBrainOutcomesTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureOptionsIvHistoryTable: ensureOptionsIvHistoryTable2 } = await Promise.resolve().then(() => (init_ensure_options_iv_history_table(), ensure_options_iv_history_table_exports));
+    await ensureOptionsIvHistoryTable2();
+  } catch (err) {
+    console.error(`[startup] ensureOptionsIvHistoryTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensurePersonaContentTables: ensurePersonaContentTables2 } = await Promise.resolve().then(() => (init_ensure_persona_content_tables(), ensure_persona_content_tables_exports));

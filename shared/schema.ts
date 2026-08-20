@@ -1040,6 +1040,7 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   creditSpreadStopMultiple: doublePrecision("credit_spread_stop_multiple").notNull().default(2), // stop when the spread costs Nx the credit to close (loss = credit at 2x)
   creditSpreadRiskPct: doublePrecision("credit_spread_risk_pct").notNull().default(2), // % of equity to risk per spread, off the DEFINED max loss
   creditSpreadMinCreditPct: doublePrecision("credit_spread_min_credit_pct").notNull().default(20), // require credit ≥ this % of width (else risk/reward too poor)
+  creditSpreadMinIvRank: doublePrecision("credit_spread_min_iv_rank").notNull().default(30), // only sell when IV Rank ≥ this (premium rich vs the name's own 1yr range); falls back to creditSpreadMinIv until ≥20 days of IV history exist
 
   // Strategy-specific parameters
   orbRangeMinutes: integer("orb_range_minutes").notNull().default(15), // opening range window length

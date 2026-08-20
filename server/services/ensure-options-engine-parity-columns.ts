@@ -66,6 +66,7 @@ ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_pro
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_stop_multiple" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_risk_pct" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_credit_pct" double precision NOT NULL DEFAULT 20;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_iv_rank" double precision NOT NULL DEFAULT 30;
 
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "spread_type" text;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "long_leg_symbol" text;

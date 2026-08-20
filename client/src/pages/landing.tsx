@@ -69,6 +69,15 @@ const CSS = `
 .vlx .track span{margin:0 22px;color:var(--tx2)}
 .vlx .track .up{color:var(--green)} .vlx .track .dn{color:var(--red)}
 @keyframes vlmarq{to{transform:translateX(-50%)}}
+.vlx .newswire{display:flex;align-items:stretch;gap:0;border-bottom:1px solid var(--line2);background:linear-gradient(90deg,rgba(180,22,13,.16),rgba(255,59,52,.06) 40%,transparent);overflow:hidden;position:relative;z-index:5}
+.vlx .nw-badge{flex:0 0 auto;display:flex;align-items:center;gap:7px;background:var(--red-deep);color:#fff;font:800 11px var(--mono);letter-spacing:.14em;padding:0 14px;text-transform:uppercase;white-space:nowrap}
+.vlx .nw-badge .live-dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:vlblink 1.1s ease-in-out infinite}
+.vlx .nw-view{flex:1 1 auto;overflow:hidden;white-space:nowrap;padding:9px 0}
+.vlx .nw-track{display:inline-block;animation:vlmarq 40s linear infinite;font:600 12.5px var(--mono);letter-spacing:.03em}
+.vlx .nw-track b{color:var(--gold);font-weight:800;margin-right:6px}
+.vlx .nw-track span{margin:0 20px;color:var(--tx)}
+.vlx .nw-track .sep{color:var(--red);margin:0 4px}
+@media(max-width:640px){.vlx .nw-badge{padding:0 10px;font-size:10px}.vlx .nw-track{font-size:11.5px}}
 .vlx section{padding:74px 0}
 .vlx .kicker{font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.22em;color:var(--red);margin-bottom:12px}
 .vlx h2{font-size:clamp(1.8rem,4vw,2.7rem);letter-spacing:-.02em;font-weight:800;margin:0 0 8px;text-wrap:balance}
@@ -211,6 +220,31 @@ export default function LandingPage() {
     <div className="vlx">
       <style>{CSS}</style>
       <div className="ember" id="vl-ember" />
+
+      {/* News-wire feature banner */}
+      <div className="newswire">
+        <div className="nw-badge"><span className="live-dot" /> VEDD Wire</div>
+        <div className="nw-view">
+          <div className="nw-track">
+            {(() => {
+              const items = [
+                ['LIVE ENGINE', 'Trades the markets 24/7 while you sleep — completely hands-off'],
+                ['SELF-LEARNING BRAIN', 'Grades every win and loss and gets sharper with each trade'],
+                ['NEW', 'Options premium-selling — defined-risk credit spreads, IV-rank gated'],
+                ['NEW', 'Kalshi weather engine — GFS-ensemble edge on temperature markets'],
+                ['PROP FIRM', 'Consistency auto-dilution keeps funded accounts on track to pass'],
+                ['ONE BRAIN', 'Across Forex, Kalshi and options — sellable on the brain marketplace'],
+                ['RISK FIRST', 'Every trade defined-risk: hard stops, drawdown shield, ruin guard'],
+              ];
+              const line = items.map(([k, v], i) => (
+                <span key={i}><b>{k}</b>{v}<span className="sep">◆</span></span>
+              ));
+              // duplicate for a seamless marquee loop
+              return <>{line}{line}</>;
+            })()}
+          </div>
+        </div>
+      </div>
 
       <div className="shell">
         <nav>

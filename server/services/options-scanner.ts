@@ -824,6 +824,7 @@ interface BuiltCreditSpread {
   maxLoss: number;       // (width - credit) * 100, per spread
   creditPct: number;     // credit / width * 100
   dte: number;
+  ivRank: number | null; // 0-100, or null when history is still building
 }
 
 async function buildCreditSpread(
@@ -856,9 +857,29 @@ async function buildCreditSpread(
     Math.abs(Math.abs(a.delta!) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta!) - cfg.creditSpreadShortDelta))[0];
   if (!shortLeg) return { spread: null, reason: 'could not resolve a short leg near target delta' };
 
-  // IV floor (proxy for IV-rank): only sell when premium is rich.
-  if (typeof shortLeg.impliedVolatility === 'number' && shortLeg.impliedVolatility < cfg.creditSpreadMinIv) {
-    return { spread: null, reason: `IV ${(shortLeg.impliedVolatility * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor — premium too cheap to sell` };
+  // ── IV gate — prefer true IV Rank, fall back to an absolute IV floor ───────
+  // Snapshot today's ATM IV so IV Rank self-builds, then gate on where current
+  // IV sits within this name's own 1-year range (rich premium = the time to
+  // sell). Until ≥20 days of history exist, getIvRank returns null and we use
+  // the absolute IV floor instead.
+  const { recordDailyIv, getIvRank } = await import('./iv-rank');
+  const atm = [...sameExpiry].sort((a, b) =>
+    Math.abs(a.strikePrice - (byExpiryDist[0].strikePrice)) - Math.abs(b.strikePrice - (byExpiryDist[0].strikePrice)))[0];
+  const atmIv = (typeof atm?.impliedVolatility === 'number' ? atm.impliedVolatility : shortLeg.impliedVolatility) ?? 0;
+  if (atmIv > 0) await recordDailyIv(underlyingSymbol, atmIv).catch(() => {});
+  let capturedIvRank: number | null = null;
+  const shortIv = shortLeg.impliedVolatility;
+  if (typeof shortIv === 'number' && shortIv > 0) {
+    const { ivRank, samples } = await getIvRank(underlyingSymbol, shortIv).catch(() => ({ ivRank: null as number | null, samples: 0 }));
+    capturedIvRank = ivRank;
+    if (ivRank !== null) {
+      if (ivRank < cfg.creditSpreadMinIvRank) {
+        return { spread: null, reason: `IV Rank ${ivRank} below the ${cfg.creditSpreadMinIvRank} floor (${samples} days of history) — premium not rich enough vs this name's own range` };
+      }
+    } else if (shortIv < cfg.creditSpreadMinIv) {
+      // Not enough IV history yet — fall back to the absolute IV floor.
+      return { spread: null, reason: `IV ${(shortIv * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor (building IV-rank history: ${samples}/20 days)` };
+    }
   }
 
   // Long (protective) leg: one width further OTM. Puts → lower strike; calls → higher.
@@ -881,7 +902,7 @@ async function buildCreditSpread(
   }
   const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
   const dte = daysUntil(shortLeg.expirationDate, now);
-  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte }, reason: '' };
+  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte, ivRank: capturedIvRank }, reason: '' };
 }
 
 async function executeCreditSpread(
@@ -944,7 +965,7 @@ async function executeCreditSpread(
 
   await storage.createOptionsEngineActivity({
     userId, symbol: underlyingSymbol, decision: 'signal', strategy: `${result.strategy}:credit_spread`,
-    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace('_', ' ')} x${quantity} — sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}Δ. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
+    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace('_', ' ')} x${quantity} — sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%${spread.ivRank !== null ? ` (IV Rank ${spread.ivRank})` : ' (IV-rank history building)'}, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}Δ. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
     score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
   });
 }
