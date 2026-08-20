@@ -15783,6 +15783,44 @@ Rules:
     }
   });
 
+  // POST /api/options-engine/backtest-credit-spread — model-based backtest of the
+  // premium-selling strategy over historical underlying bars (Black-Scholes; no
+  // real chains — for parameter/stress validation, not exact P&L).
+  app.post("/api/options-engine/backtest-credit-spread", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const conns = await storage.getUserAlpacaConnections(userId);
+      const connection = conns.find(c => c.isActive) || conns[0];
+      if (!connection) return res.status(400).json({ error: "Connect an Alpaca account first (used only to pull historical price bars)." });
+      const { decryptApiSecret } = await import('./alpaca');
+      const service = new AlpacaService(connection.accountType as 'paper' | 'live', connection.apiKeyId, decryptApiSecret(connection.encryptedApiSecret));
+
+      const b = req.body || {};
+      const symbol = String(b.symbol || 'SPY').toUpperCase().trim();
+      const years = Math.max(1, Math.min(6, parseInt(String(b.years ?? 3), 10) || 3));
+      const cfg = await storage.getUserOptionsEngineConfig(userId).catch(() => null) as any;
+      const params = {
+        shortDelta: Number(b.shortDelta ?? cfg?.creditSpreadShortDelta ?? 0.16),
+        widthDollars: Number(b.widthDollars ?? cfg?.creditSpreadWidthDollars ?? 5),
+        dte: Number(b.dte ?? cfg?.creditSpreadDte ?? 35),
+        ivRankMin: Number(b.ivRankMin ?? cfg?.creditSpreadMinIvRank ?? 30),
+        minIv: Number(b.minIv ?? cfg?.creditSpreadMinIv ?? 0.25),
+        profitTakePct: Number(b.profitTakePct ?? cfg?.creditSpreadProfitTakePct ?? 50),
+        stopMultiple: Number(b.stopMultiple ?? cfg?.creditSpreadStopMultiple ?? 2),
+        riskPct: Number(b.riskPct ?? cfg?.creditSpreadRiskPct ?? 2),
+        minCreditPct: Number(b.minCreditPct ?? cfg?.creditSpreadMinCreditPct ?? 20),
+        startingEquity: Number(b.startingEquity ?? 10000),
+      };
+      const { backtestCreditSpread } = await import('./services/options-backtest');
+      const report = await backtestCreditSpread(service, symbol, years, params);
+      res.json(report);
+    } catch (err: any) {
+      console.error('[Options backtest]', err);
+      res.status(500).json({ error: err?.message || 'backtest failed' });
+    }
+  });
+
   app.get("/api/tastytrade/connections", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

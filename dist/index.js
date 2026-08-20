@@ -33233,6 +33233,196 @@ var init_broker_lookup = __esm({
   }
 });
 
+// server/services/options-backtest.ts
+var options_backtest_exports = {};
+__export(options_backtest_exports, {
+  backtestCreditSpread: () => backtestCreditSpread
+});
+function normCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+  let p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? 1 - p : p;
+}
+function bs(type, S, K, T, sigma, r = 0) {
+  if (T <= 0 || sigma <= 0) {
+    const intrinsic = type === "call" ? Math.max(0, S - K) : Math.max(0, K - S);
+    const delta = type === "call" ? S > K ? 1 : 0 : S < K ? -1 : 0;
+    return { price: intrinsic, delta };
+  }
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  if (type === "call") {
+    return { price: S * normCdf(d1) - K * Math.exp(-r * T) * normCdf(d2), delta: normCdf(d1) };
+  }
+  return { price: K * Math.exp(-r * T) * normCdf(-d2) - S * normCdf(-d1), delta: normCdf(d1) - 1 };
+}
+async function fetchDailyBars(service, symbol, years) {
+  const out = [];
+  const now = /* @__PURE__ */ new Date();
+  for (let y = years; y >= 1; y--) {
+    const start = new Date(now);
+    start.setUTCFullYear(now.getUTCFullYear() - y);
+    const end = new Date(now);
+    end.setUTCFullYear(now.getUTCFullYear() - (y - 1));
+    const bars = await service.getBars(symbol, "1Day", start, end, 1e3).catch(() => []);
+    for (const b of bars) out.push({ t: b.t, c: b.c });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  return out.filter((b) => {
+    const d = b.t.slice(0, 10);
+    if (seen.has(d)) return false;
+    seen.add(d);
+    return true;
+  }).sort((a, b) => a.t.localeCompare(b.t));
+}
+function annualizedVol(closes, i, window = 20) {
+  if (i < window) return 0;
+  const rets = [];
+  for (let k = i - window + 1; k <= i; k++) rets.push(Math.log(closes[k] / closes[k - 1]));
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const varr = rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length;
+  return Math.sqrt(varr) * Math.sqrt(252);
+}
+async function backtestCreditSpread(service, symbol, years, p) {
+  const bars = await fetchDailyBars(service, symbol, years);
+  const note = `Model-based (Black-Scholes on daily bars, realized-vol IV proxy, mid fills \u2014 no real chains/slippage). Direction from 20-day SMA. Validate parameters & stress behavior, not exact P&L.`;
+  if (bars.length < 60) {
+    return { symbol, from: bars[0]?.t?.slice(0, 10) ?? "-", to: bars[bars.length - 1]?.t?.slice(0, 10) ?? "-", tradingDays: bars.length, trades: 0, wins: 0, losses: 0, winRate: 0, netPnl: 0, avgPnl: 0, sharpe: 0, maxDrawdownPct: 0, finalEquity: p.startingEquity, returnPct: 0, byYear: {}, byIvRank: {}, note: note + ` INSUFFICIENT DATA (${bars.length} bars from the free IEX feed).`, sampleTrades: [] };
+  }
+  const closes = bars.map((b) => b.c);
+  const iv = closes.map((_, i) => annualizedVol(closes, i));
+  const trades = [];
+  let equity = p.startingEquity;
+  const equityCurve = [equity];
+  let openUntil = -1;
+  for (let i = 30; i < bars.length; i++) {
+    if (i < openUntil) continue;
+    const S = closes[i];
+    const sigma = iv[i];
+    if (sigma <= 0) continue;
+    const lo = Math.max(20, i - 252);
+    const windowIv = iv.slice(lo, i + 1).filter((v) => v > 0);
+    if (windowIv.length < 20) continue;
+    const mn = Math.min(...windowIv), mx = Math.max(...windowIv);
+    const ivRank = mx > mn ? Math.round((sigma - mn) / (mx - mn) * 100) : 50;
+    if (ivRank < p.ivRankMin && sigma < p.minIv) continue;
+    const sma2 = closes.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
+    const spreadType = S >= sma2 ? "bull_put" : "bear_call";
+    const optType = spreadType === "bull_put" ? "put" : "call";
+    const T = p.dte / 365;
+    let shortK = S, best = Infinity;
+    for (let off = 0; off <= S * 0.25; off += 0.5) {
+      const K = spreadType === "bull_put" ? S - off : S + off;
+      if (K <= 0) break;
+      const d = Math.abs(Math.abs(bs(optType, S, K, T, sigma).delta) - p.shortDelta);
+      if (d < best) {
+        best = d;
+        shortK = K;
+      }
+      if (Math.abs(bs(optType, S, K, T, sigma).delta) < p.shortDelta * 0.6) break;
+    }
+    const longK = spreadType === "bull_put" ? shortK - p.widthDollars : shortK + p.widthDollars;
+    if (longK <= 0) continue;
+    const credit = Math.round((bs(optType, S, shortK, T, sigma).price - bs(optType, S, longK, T, sigma).price) * 100) / 100;
+    const width = p.widthDollars;
+    if (credit <= 0 || credit / width * 100 < p.minCreditPct) continue;
+    const maxLoss = (width - credit) * 100;
+    const contracts = Math.max(1, Math.floor(equity * p.riskPct / 100 / maxLoss));
+    let exit = "expiry", pnlPerSpread = 0, held = 0;
+    const expiryIdx = Math.min(bars.length - 1, i + p.dte);
+    for (let j = i + 1; j <= expiryIdx; j++) {
+      held = j - i;
+      const Tj = Math.max(0, (p.dte - held) / 365);
+      const Sj = closes[j];
+      const closeCost = Math.round((bs(optType, Sj, shortK, Tj, iv[j] || sigma).price - bs(optType, Sj, longK, Tj, iv[j] || sigma).price) * 100) / 100;
+      if (closeCost <= credit * (1 - p.profitTakePct / 100)) {
+        exit = "profit_target";
+        pnlPerSpread = (credit - Math.max(0, closeCost)) * 100;
+        break;
+      }
+      if (closeCost >= credit * p.stopMultiple) {
+        exit = "stop_loss";
+        pnlPerSpread = (credit - closeCost) * 100;
+        break;
+      }
+      if (Tj <= 0) {
+        const shortIntrinsic = optType === "call" ? Math.max(0, Sj - shortK) : Math.max(0, shortK - Sj);
+        const longIntrinsic = optType === "call" ? Math.max(0, Sj - longK) : Math.max(0, longK - Sj);
+        const settle = shortIntrinsic - longIntrinsic;
+        pnlPerSpread = (credit - settle) * 100;
+        exit = "expiry";
+        break;
+      }
+    }
+    const pnl = Math.round(pnlPerSpread * contracts * 100) / 100;
+    equity += pnl;
+    equityCurve.push(equity);
+    trades.push({ date: bars[i].t.slice(0, 10), spreadType, shortK: Math.round(shortK * 100) / 100, longK: Math.round(longK * 100) / 100, credit, maxLoss: Math.round(maxLoss), ivRank, contracts, pnl, exit, heldDays: held });
+    openUntil = i + Math.max(1, held);
+  }
+  const wins = trades.filter((t) => t.pnl > 0).length;
+  const losses = trades.filter((t) => t.pnl < 0).length;
+  const netPnl = Math.round(trades.reduce((s, t) => s + t.pnl, 0) * 100) / 100;
+  const rets = trades.map((t) => t.pnl / p.startingEquity);
+  const mean = rets.length ? rets.reduce((a, b) => a + b, 0) / rets.length : 0;
+  const sd = rets.length > 1 ? Math.sqrt(rets.reduce((s, x) => s + (x - mean) ** 2, 0) / (rets.length - 1)) : 0;
+  const sharpe = sd > 0 ? Math.round(mean / sd * Math.sqrt(Math.min(52, rets.length)) * 100) / 100 : 0;
+  let peak = equityCurve[0], maxDd = 0;
+  for (const e of equityCurve) {
+    if (e > peak) peak = e;
+    const dd = (peak - e) / peak;
+    if (dd > maxDd) maxDd = dd;
+  }
+  const byYear = {};
+  const byIvRank = {};
+  for (const t of trades) {
+    const y = t.date.slice(0, 4);
+    byYear[y] ??= { trades: 0, winRate: 0, pnl: 0 };
+    byYear[y].trades++;
+    byYear[y].pnl += t.pnl;
+    if (t.pnl > 0) byYear[y].winRate++;
+    const b = t.ivRank < 30 ? "<30" : t.ivRank < 50 ? "30-49" : t.ivRank < 70 ? "50-69" : "70+";
+    byIvRank[b] ??= { trades: 0, winRate: 0, pnl: 0 };
+    byIvRank[b].trades++;
+    byIvRank[b].pnl += t.pnl;
+    if (t.pnl > 0) byIvRank[b].winRate++;
+  }
+  for (const k of Object.keys(byYear)) {
+    byYear[k].winRate = Math.round(100 * byYear[k].winRate / byYear[k].trades);
+    byYear[k].pnl = Math.round(byYear[k].pnl);
+  }
+  for (const k of Object.keys(byIvRank)) {
+    byIvRank[k].winRate = Math.round(100 * byIvRank[k].winRate / byIvRank[k].trades);
+    byIvRank[k].pnl = Math.round(byIvRank[k].pnl);
+  }
+  return {
+    symbol,
+    from: bars[0].t.slice(0, 10),
+    to: bars[bars.length - 1].t.slice(0, 10),
+    tradingDays: bars.length,
+    trades: trades.length,
+    wins,
+    losses,
+    winRate: trades.length ? Math.round(100 * wins / trades.length) : 0,
+    netPnl,
+    avgPnl: trades.length ? Math.round(netPnl / trades.length * 100) / 100 : 0,
+    sharpe,
+    maxDrawdownPct: Math.round(maxDd * 1e3) / 10,
+    finalEquity: Math.round(equity),
+    returnPct: Math.round((equity - p.startingEquity) / p.startingEquity * 1e3) / 10,
+    byYear,
+    byIvRank,
+    note,
+    sampleTrades: trades.slice(-12)
+  };
+}
+var init_options_backtest = __esm({
+  "server/services/options-backtest.ts"() {
+    "use strict";
+  }
+});
+
 // server/services/options-brain.ts
 var options_brain_exports = {};
 __export(options_brain_exports, {
@@ -66202,6 +66392,39 @@ Rules:
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
       await storage.updateAlpacaConnection(connId, { lastError: errorMsg });
       res.status(400).json({ success: false, error: errorMsg });
+    }
+  });
+  app2.post("/api/options-engine/backtest-credit-spread", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const conns = await storage.getUserAlpacaConnections(userId);
+      const connection2 = conns.find((c) => c.isActive) || conns[0];
+      if (!connection2) return res.status(400).json({ error: "Connect an Alpaca account first (used only to pull historical price bars)." });
+      const { decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_alpaca(), alpaca_exports));
+      const service = new AlpacaService(connection2.accountType, connection2.apiKeyId, decryptApiSecret3(connection2.encryptedApiSecret));
+      const b = req.body || {};
+      const symbol = String(b.symbol || "SPY").toUpperCase().trim();
+      const years = Math.max(1, Math.min(6, parseInt(String(b.years ?? 3), 10) || 3));
+      const cfg = await storage.getUserOptionsEngineConfig(userId).catch(() => null);
+      const params = {
+        shortDelta: Number(b.shortDelta ?? cfg?.creditSpreadShortDelta ?? 0.16),
+        widthDollars: Number(b.widthDollars ?? cfg?.creditSpreadWidthDollars ?? 5),
+        dte: Number(b.dte ?? cfg?.creditSpreadDte ?? 35),
+        ivRankMin: Number(b.ivRankMin ?? cfg?.creditSpreadMinIvRank ?? 30),
+        minIv: Number(b.minIv ?? cfg?.creditSpreadMinIv ?? 0.25),
+        profitTakePct: Number(b.profitTakePct ?? cfg?.creditSpreadProfitTakePct ?? 50),
+        stopMultiple: Number(b.stopMultiple ?? cfg?.creditSpreadStopMultiple ?? 2),
+        riskPct: Number(b.riskPct ?? cfg?.creditSpreadRiskPct ?? 2),
+        minCreditPct: Number(b.minCreditPct ?? cfg?.creditSpreadMinCreditPct ?? 20),
+        startingEquity: Number(b.startingEquity ?? 1e4)
+      };
+      const { backtestCreditSpread: backtestCreditSpread2 } = await Promise.resolve().then(() => (init_options_backtest(), options_backtest_exports));
+      const report = await backtestCreditSpread2(service, symbol, years, params);
+      res.json(report);
+    } catch (err) {
+      console.error("[Options backtest]", err);
+      res.status(500).json({ error: err?.message || "backtest failed" });
     }
   });
   app2.get("/api/tastytrade/connections", async (req, res) => {

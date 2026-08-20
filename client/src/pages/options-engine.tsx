@@ -237,6 +237,17 @@ export default function OptionsEnginePage() {
   const [alpacaForm, setAlpacaForm] = useState({ apiKeyId: '', apiSecret: '', accountType: 'paper' as 'paper' | 'live', autoExecute: false });
   const [tastyForm, setTastyForm] = useState({ username: '', password: '', accountType: 'sandbox' as 'sandbox' | 'live', autoExecute: false });
   const [showCryptocomForm, setShowCryptocomForm] = useState(false);
+  const [btSymbol, setBtSymbol] = useState('SPY');
+  const [btYears, setBtYears] = useState(3);
+  const [btReport, setBtReport] = useState<any>(null);
+  const backtestMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/options-engine/backtest-credit-spread', { symbol: btSymbol, years: btYears });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Backtest failed');
+      return res.json();
+    },
+    onSuccess: (r) => setBtReport(r),
+  });
   const [showCryptocomSecret, setShowCryptocomSecret] = useState(false);
   const [cryptocomForm, setCryptocomForm] = useState({ apiKey: '', apiSecret: '', instrumentType: 'perpetual' as 'perpetual' | 'future' | 'option', autoExecute: false });
 
@@ -1003,6 +1014,46 @@ export default function OptionsEnginePage() {
                           ))}
                         </div>
                       )}
+
+                      {/* Backtest */}
+                      <div className="mt-3 pt-3 border-t border-emerald-500/15">
+                        <div className="flex items-end gap-2 flex-wrap">
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-gray-400">Backtest symbol</Label>
+                            <Input value={btSymbol} onChange={(e) => setBtSymbol(e.target.value.toUpperCase())} className="bg-gray-800 border-gray-700 h-8 text-sm w-24" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-gray-400">Years</Label>
+                            <Input type="number" min={1} max={6} value={btYears} onChange={(e) => setBtYears(parseInt(e.target.value, 10) || 3)} className="bg-gray-800 border-gray-700 h-8 text-sm w-16" />
+                          </div>
+                          <Button onClick={() => backtestMutation.mutate()} disabled={backtestMutation.isPending} className="h-8 bg-emerald-600 hover:bg-emerald-500 text-white text-sm">
+                            {backtestMutation.isPending ? 'Running…' : 'Run backtest'}
+                          </Button>
+                        </div>
+                        {backtestMutation.isError && <p className="text-[11px] text-red-400 mt-2">{(backtestMutation.error as Error)?.message}</p>}
+                        {btReport && (
+                          <div className="mt-3 rounded-lg border border-gray-700 bg-black/30 p-3 text-[11px]">
+                            <p className="text-gray-300 font-semibold mb-1">{btReport.symbol} · {btReport.from} → {btReport.to} · {btReport.trades} trades</p>
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                              <div><span className="text-gray-500">Win rate</span><div className="text-white font-bold">{btReport.winRate}%</div></div>
+                              <div><span className="text-gray-500">Net P&L</span><div className={btReport.netPnl >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>${btReport.netPnl.toLocaleString()}</div></div>
+                              <div><span className="text-gray-500">Return</span><div className={btReport.returnPct >= 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>{btReport.returnPct}%</div></div>
+                              <div><span className="text-gray-500">Sharpe</span><div className="text-white font-bold">{btReport.sharpe}</div></div>
+                              <div><span className="text-gray-500">Max DD</span><div className="text-red-300 font-bold">{btReport.maxDrawdownPct}%</div></div>
+                              <div><span className="text-gray-500">Avg/trade</span><div className="text-white font-bold">${btReport.avgPnl}</div></div>
+                            </div>
+                            {Object.keys(btReport.byYear || {}).length > 0 && (
+                              <div className="mb-2">
+                                <span className="text-gray-500">By year:</span>{' '}
+                                {Object.entries(btReport.byYear).map(([y, v]: any) => (
+                                  <span key={y} className="mr-2">{y} <span className={v.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>${v.pnl}</span> ({v.winRate}%)</span>
+                                ))}
+                              </div>
+                            )}
+                            <p className="text-[10px] text-gray-500 leading-snug">{btReport.note}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Strategy-specific parameters */}
