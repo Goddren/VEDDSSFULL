@@ -18573,6 +18573,22 @@ async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
   const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
   const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
   const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
+  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
+  let feasibility;
+  if (passing) feasibility = "passing";
+  else if (growthMultiple <= 1.5) feasibility = "achievable";
+  else if (growthMultiple <= 2.5) feasibility = "hard";
+  else feasibility = "unrealistic";
+  let recommendation;
+  if (passing) {
+    recommendation = "Consistency requirement met \u2014 request the payout / evaluation pass.";
+  } else if (feasibility === "achievable") {
+    recommendation = `Keep VEDD's auto-dilution on \u2014 small green days at \u2264 $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
+  } else if (feasibility === "hard") {
+    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}\xD7 (grind ~${estDaysNeeded} days at \u2264 $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
+  } else {
+    recommendation = `\u26A0\uFE0F Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}\xD7 (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
+  }
   let summary;
   if (passing) {
     summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
@@ -18590,6 +18606,9 @@ async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
     additionalProfitNeeded: round2(additionalProfitNeeded),
     safeDailyProfitCap,
     estDaysNeeded,
+    growthMultiple: round2(growthMultiple),
+    feasibility,
+    recommendation,
     summary
   };
 }

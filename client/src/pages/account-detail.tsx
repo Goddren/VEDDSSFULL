@@ -33,6 +33,9 @@ interface ConsistencyStatus {
     additionalProfitNeeded: number;
     safeDailyProfitCap: number;
     estDaysNeeded: number;
+    growthMultiple: number;
+    feasibility: 'passing' | 'achievable' | 'hard' | 'unrealistic';
+    recommendation: string;
     summary: string;
   };
 }
@@ -291,18 +294,20 @@ export default function AccountDetailPage() {
                 <p className="text-[11px] text-gray-500 mb-3">{consistency.guidance}</p>
 
                 {consistency.plan && !consistency.plan.passing && consistency.plan.maxDayPnl > 0 && (
-                  <div className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.07] p-3">
-                    <p className="text-[11px] font-bold text-amber-300 mb-2">Path to pass consistency</p>
+                  <div className={`mb-3 rounded-xl border p-3 ${consistency.plan.feasibility === 'unrealistic' ? 'border-red-500/40 bg-red-500/[0.08]' : 'border-amber-500/30 bg-amber-500/[0.07]'}`}>
+                    <p className={`text-[11px] font-bold mb-2 ${consistency.plan.feasibility === 'unrealistic' ? 'text-red-300' : 'text-amber-300'}`}>
+                      {consistency.plan.feasibility === 'unrealistic' ? '⚠️ Reset recommended — dilution impractical' : 'Path to pass consistency'}
+                    </p>
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
                       <div><p className="text-gray-500">Biggest day</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.plan.maxDayPnl)} <span className="text-amber-400">({consistency.plan.maxDayRatioPct.toFixed(1)}%)</span></p></div>
                       <div><p className="text-gray-500">Cap</p><p className="text-white font-semibold mt-0.5">{consistency.plan.thresholdPct}%</p></div>
                       <div><p className="text-gray-500">Total profit needed</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.plan.targetTotalPnl)}</p></div>
                       <div><p className="text-gray-500">More profit to add</p><p className="text-emerald-400 font-semibold mt-0.5">{fmtMoney(consistency.plan.additionalProfitNeeded)}</p></div>
                       <div><p className="text-gray-500">Safe per-day cap</p><p className="text-white font-semibold mt-0.5">{fmtMoney(consistency.plan.safeDailyProfitCap)}/day</p></div>
-                      <div><p className="text-gray-500">Est. days</p><p className="text-white font-semibold mt-0.5">~{consistency.plan.estDaysNeeded}</p></div>
+                      <div><p className="text-gray-500">Est. days / growth</p><p className="text-white font-semibold mt-0.5">~{consistency.plan.estDaysNeeded}d · {consistency.plan.growthMultiple}×</p></div>
                     </div>
-                    <p className="text-[10px] text-amber-200/70 mt-2 leading-snug">
-                      VEDD auto-dilutes: it caps each day's profit at the safe amount and keeps taking small green days, so the biggest day shrinks as a share of your growing total until it clears the {consistency.plan.thresholdPct}% cap — no single day can breach on the way there.
+                    <p className={`text-[10px] mt-2 leading-snug ${consistency.plan.feasibility === 'unrealistic' ? 'text-red-200/80' : 'text-amber-200/70'}`}>
+                      {consistency.plan.recommendation}
                     </p>
                   </div>
                 )}

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import logoImage from '@/assets/IMG_3645.png';
+import BrainVisualization3D from '@/components/brain-visualization-3d';
 
 /* VEDD landing — AI-first: the live engine + self-learning brain are the focus.
    Dark "vault terminal" look, VEDD red accent. All styles scoped under .vlx so
@@ -284,6 +285,20 @@ export default function LandingPage() {
             <div className="fcard hero-feat reveal"><div className="glow" /><div className="tag">Core · Live engine</div><h3>Trades while you sleep</h3><p>The engine reads the markets, takes the trades, and manages them 24/7 — completely hands-off.</p></div>
             <div className="fcard reveal"><div className="tag">Self-learning</div><h3>A brain that improves</h3><p>Grades every win and loss and gets sharper with each trade it takes.</p></div>
             <div className="fcard reveal"><div className="tag">Reads anything</div><h3>Any chart, any market</h3><p>Forex, Kalshi and crypto — one brain across them all.</p></div>
+          </div>
+
+          {/* Live self-learning brain — the same neural visualization from the
+              in-app Brain page, so the landing shows the real thing. */}
+          <div className="reveal" style={{ marginTop: 28, position: 'relative', height: 340, borderRadius: 18, overflow: 'hidden', border: '1px solid var(--line2)', background: 'linear-gradient(160deg,#140d0e,var(--card))' }}>
+            <BrainVisualization3D intensity={1.15} />
+            <div style={{ position: 'absolute', top: 14, left: 16, display: 'inline-flex', alignItems: 'center', gap: 8, pointerEvents: 'none' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', boxShadow: '0 0 10px var(--red)' }} />
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 12, letterSpacing: '.04em', color: '#f6a5a1' }}>LIVE · self-learning brain</span>
+            </div>
+            <div style={{ position: 'absolute', bottom: 14, left: 16, right: 16, pointerEvents: 'none' }}>
+              <div style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--tx)' }}>Watch it think.</div>
+              <div style={{ color: 'var(--tx2)', fontSize: '.9rem' }}>Every trade you take flows through the brain — signals firing across the network as it learns what wins.</div>
+            </div>
           </div>
           <div className="stats">
             <div className="stat reveal"><div className="n">~2<span className="u">s</span></div><div className="l">to read a chart</div></div>

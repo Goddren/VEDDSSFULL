@@ -64,6 +64,12 @@ export interface ConsistencyPlan {
   // max so it can't become a new breach):
   safeDailyProfitCap: number;
   estDaysNeeded: number;
+  // How many times the current total profit must grow to pass (targetTotal/total).
+  growthMultiple: number;
+  // 'passing' | 'achievable' (≤1.5×) | 'hard' (≤2.5×) | 'unrealistic' (>2.5× — the
+  // one big day dwarfs everything; grinding it down is impractical, consider reset).
+  feasibility: 'passing' | 'achievable' | 'hard' | 'unrealistic';
+  recommendation: string;
   summary: string;
 }
 
@@ -119,6 +125,25 @@ export async function getConsistencyPlan(
     ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap)
     : 0;
 
+  // Feasibility: how many times total profit must grow to dilute the big day out.
+  const growthMultiple = totalPositive > 0 && targetTotalPnl > 0 ? targetTotalPnl / totalPositive : 0;
+  let feasibility: ConsistencyPlan['feasibility'];
+  if (passing) feasibility = 'passing';
+  else if (growthMultiple <= 1.5) feasibility = 'achievable';
+  else if (growthMultiple <= 2.5) feasibility = 'hard';
+  else feasibility = 'unrealistic';
+
+  let recommendation: string;
+  if (passing) {
+    recommendation = 'Consistency requirement met — request the payout / evaluation pass.';
+  } else if (feasibility === 'achievable') {
+    recommendation = `Keep VEDD's auto-dilution on — small green days at ≤ $${safeDailyProfitCap}/day will clear the cap in ~${estDaysNeeded} day(s).`;
+  } else if (feasibility === 'hard') {
+    recommendation = `Doable but slow: total profit must ${growthMultiple.toFixed(1)}× (grind ~${estDaysNeeded} days at ≤ $${safeDailyProfitCap}/day). Auto-dilution will handle it, but weigh the days against a fresh reset.`;
+  } else {
+    recommendation = `⚠️ Impractical to dilute: your biggest day ($${round2(maxDayPnl)}) is so large that total profit would have to ${growthMultiple.toFixed(1)}× (to ~$${round2(targetTotalPnl)}) to get it under ${threshold}%. That's ~${estDaysNeeded} more grind days. Consider RESETTING this account and trading smaller, even days from the start so no single day dominates.`;
+  }
+
   let summary: string;
   if (passing) {
     summary = totalPositive > 0
@@ -133,7 +158,8 @@ export async function getConsistencyPlan(
     passing, thresholdPct: threshold, totalPositivePnl: round2(totalPositive),
     maxDayPnl: round2(maxDayPnl), maxDayDate, maxDayRatioPct: round2(maxDayRatioPct),
     targetTotalPnl: round2(targetTotalPnl), additionalProfitNeeded: round2(additionalProfitNeeded),
-    safeDailyProfitCap, estDaysNeeded, summary,
+    safeDailyProfitCap, estDaysNeeded, growthMultiple: round2(growthMultiple),
+    feasibility, recommendation, summary,
   };
 }
 
