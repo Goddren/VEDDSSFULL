@@ -18535,11 +18535,66 @@ var init_tradelocker = __esm({
 var prop_firm_consistency_exports = {};
 __export(prop_firm_consistency_exports, {
   DEFAULT_CONSISTENCY_THRESHOLD_PCT: () => DEFAULT_CONSISTENCY_THRESHOLD_PCT,
+  getConsistencyPlan: () => getConsistencyPlan,
   getConsistencyStatus: () => getConsistencyStatus,
   recordRealizedPnl: () => recordRealizedPnl
 });
 function todayUtcDateStr() {
   return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+async function getConsistencyPlan(connectionId, connectionType, thresholdPct) {
+  const threshold = typeof thresholdPct === "number" && thresholdPct > 0 ? thresholdPct : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const frac = threshold / 100;
+  let rows = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err) {
+    console.error("[Consistency] Plan read failed (defaulting to empty):", err?.message ?? err);
+  }
+  let totalPositive = 0;
+  let maxDayPnl = 0;
+  let maxDayDate = null;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (!isFinite(pnl) || pnl <= 0) continue;
+    totalPositive += pnl;
+    if (pnl > maxDayPnl) {
+      maxDayPnl = pnl;
+      maxDayDate = r.trade_date;
+    }
+  }
+  const maxDayRatioPct = totalPositive > 0 ? maxDayPnl / totalPositive * 100 : 0;
+  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
+  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
+  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
+  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
+  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0 ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap) : 0;
+  let summary;
+  if (passing) {
+    summary = totalPositive > 0 ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).` : `No positive profit recorded yet \u2014 nothing to evaluate.`;
+  } else {
+    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. To pass, grow total to $${round2(targetTotalPnl)} \u2014 about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at \u2264 $${safeDailyProfitCap}/day so no new day breaches the cap.`;
+  }
+  return {
+    passing,
+    thresholdPct: threshold,
+    totalPositivePnl: round2(totalPositive),
+    maxDayPnl: round2(maxDayPnl),
+    maxDayDate,
+    maxDayRatioPct: round2(maxDayRatioPct),
+    targetTotalPnl: round2(targetTotalPnl),
+    additionalProfitNeeded: round2(additionalProfitNeeded),
+    safeDailyProfitCap,
+    estDaysNeeded,
+    summary
+  };
+}
+function round2(n) {
+  return Math.round(n * 100) / 100;
 }
 async function recordRealizedPnl(userId, connectionId, connectionType, realizedPnlDelta, tradeDate) {
   if (!isFinite(realizedPnlDelta) || realizedPnlDelta === 0) return;
@@ -18594,12 +18649,36 @@ async function getConsistencyStatus(connectionId, connectionType, thresholdPct, 
   }
   const todayPositive = Math.max(0, todayPnl);
   const ratioPct = totalPositivePnl > 0 ? todayPositive / totalPositivePnl * 100 : 0;
+  let maxDayPnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === "number" ? r.realized_pnl : parseFloat(r.realized_pnl || "0");
+    if (isFinite(pnl) && pnl > maxDayPnl) maxDayPnl = pnl;
+  }
+  const maxDayRatioPct = totalPositivePnl > 0 ? maxDayPnl / totalPositivePnl * 100 : 0;
+  const stuck = maxDayRatioPct > threshold;
   const taperStartPct = threshold * TAPER_START_FRACTION;
   let status = "safe";
   let sizeMultiplier = 1;
   let hardBlocked = false;
   let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit \u2014 well within the ${threshold}% consistency cap.`;
-  if (ratioPct >= threshold) {
+  if (stuck) {
+    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
+    const targetTotal = maxDayPnl / (threshold / 100);
+    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
+    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
+    if (todayPositive >= dailyCap) {
+      status = "breached";
+      sizeMultiplier = 0;
+      hardBlocked = true;
+      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) \u2014 grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
+    } else {
+      status = "warning";
+      const room = dailyCap - todayPositive;
+      const progress2 = dailyCap > 0 ? todayPositive / dailyCap : 1;
+      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress2 * (1 - TAPER_FLOOR_MULTIPLIER));
+      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days \u2014 up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
+    }
+  } else if (ratioPct >= threshold) {
     status = "breached";
     sizeMultiplier = 0;
     hardBlocked = true;
@@ -18614,17 +18693,21 @@ async function getConsistencyStatus(connectionId, connectionType, thresholdPct, 
   return {
     connectionId,
     connectionType,
+    enabled: true,
     thresholdPct: threshold,
     todayPnl,
     totalPositivePnl,
     ratioPct,
+    maxDayPnl: round2(maxDayPnl),
+    maxDayRatioPct: round2(maxDayRatioPct),
+    dilutionActive: stuck,
     status,
     sizeMultiplier,
     hardBlocked,
     guidance
   };
 }
-var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER;
+var DEFAULT_CONSISTENCY_THRESHOLD_PCT, TAPER_START_FRACTION, TAPER_FLOOR_MULTIPLIER, DILUTION_DAY_FRACTION;
 var init_prop_firm_consistency = __esm({
   "server/services/prop-firm-consistency.ts"() {
     "use strict";
@@ -18632,6 +18715,7 @@ var init_prop_firm_consistency = __esm({
     DEFAULT_CONSISTENCY_THRESHOLD_PCT = 20;
     TAPER_START_FRACTION = 0.7;
     TAPER_FLOOR_MULTIPLIER = 0.25;
+    DILUTION_DAY_FRACTION = 0.8;
   }
 });
 
@@ -65376,12 +65460,17 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
     try {
-      const { getConsistencyStatus: getConsistencyStatus2, DEFAULT_CONSISTENCY_THRESHOLD_PCT: DEFAULT_CONSISTENCY_THRESHOLD_PCT2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
-      const status = await getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct, connection2.consistencyEnabled !== false);
+      const { getConsistencyStatus: getConsistencyStatus2, getConsistencyPlan: getConsistencyPlan2, DEFAULT_CONSISTENCY_THRESHOLD_PCT: DEFAULT_CONSISTENCY_THRESHOLD_PCT2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const [status, plan] = await Promise.all([
+        getConsistencyStatus2(connId, "tradelocker", connection2.consistencyThresholdPct, connection2.consistencyEnabled !== false),
+        getConsistencyPlan2(connId, "tradelocker", connection2.consistencyThresholdPct)
+      ]);
       res.json({
         isPropFirmAccount: !!connection2.isPropFirmAccount,
         defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT2,
-        ...status
+        ...status,
+        plan
+        // how to bring a stuck account's consistency ratio under the cap
       });
     } catch (err) {
       res.status(500).json({ error: `Failed to compute consistency status: ${err?.message || "unknown error"}` });

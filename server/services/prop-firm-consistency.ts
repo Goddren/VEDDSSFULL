@@ -32,6 +32,9 @@ export interface ConsistencyResult {
   todayPnl: number;
   totalPositivePnl: number;
   ratioPct: number; // today's (positive) profit as % of total positive profit
+  maxDayPnl?: number;       // biggest single positive day
+  maxDayRatioPct?: number;  // maxDay / total — the REAL prop-firm consistency ratio
+  dilutionActive?: boolean; // account is stuck (past big day breaches) → daily-cap dilution engaged
   status: ConsistencyStatus;
   sizeMultiplier: number; // 0 (hard block) .. 1 (full size)
   hardBlocked: boolean;
@@ -41,6 +44,100 @@ export interface ConsistencyResult {
 function todayUtcDateStr(): string {
   return new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
 }
+
+// When an account is "stuck" (a past big day already exceeds the cap), each new
+// dilution day is held to this fraction of the biggest day so it never becomes a
+// new max — leaving margin below the historical max while total grows.
+const DILUTION_DAY_FRACTION = 0.8;
+
+export interface ConsistencyPlan {
+  passing: boolean;              // max-day ratio already ≤ threshold
+  thresholdPct: number;
+  totalPositivePnl: number;
+  maxDayPnl: number;             // the single biggest positive day (the binding day)
+  maxDayDate: string | null;
+  maxDayRatioPct: number;        // maxDay / total — the REAL prop-firm consistency ratio
+  // To pass, total must reach this (maxDay becomes exactly threshold% of it):
+  targetTotalPnl: number;
+  additionalProfitNeeded: number;
+  // A safe per-day profit cap for the dilution days (stays under the historical
+  // max so it can't become a new breach):
+  safeDailyProfitCap: number;
+  estDaysNeeded: number;
+  summary: string;
+}
+
+/**
+ * Compute what it takes to bring a STUCK account's consistency ratio under the
+ * cap. The real rule is maxSingleDay / totalProfit ≤ threshold. Since the big
+ * day is already banked and can't be reduced, the only lever is to add profit on
+ * OTHER days — each small enough not to become a new max — until total grows
+ * enough that the big day is ≤ threshold% of it. At a 20% cap that means total
+ * must reach 5× the biggest day.
+ */
+export async function getConsistencyPlan(
+  connectionId: number,
+  connectionType: string,
+  thresholdPct: number | null | undefined,
+): Promise<ConsistencyPlan> {
+  const threshold = (typeof thresholdPct === 'number' && thresholdPct > 0)
+    ? thresholdPct
+    : DEFAULT_CONSISTENCY_THRESHOLD_PCT;
+  const frac = threshold / 100;
+
+  let rows: Array<{ trade_date: string; realized_pnl: string | number }> = [];
+  try {
+    const { rows: r } = await pool.query(
+      `SELECT trade_date, realized_pnl FROM prop_firm_daily_pnl WHERE connection_id = $1 AND connection_type = $2`,
+      [connectionId, connectionType]
+    );
+    rows = r;
+  } catch (err: any) {
+    console.error('[Consistency] Plan read failed (defaulting to empty):', err?.message ?? err);
+  }
+
+  let totalPositive = 0;
+  let maxDayPnl = 0;
+  let maxDayDate: string | null = null;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === 'number' ? r.realized_pnl : parseFloat(r.realized_pnl || '0');
+    if (!isFinite(pnl) || pnl <= 0) continue;
+    totalPositive += pnl;
+    if (pnl > maxDayPnl) { maxDayPnl = pnl; maxDayDate = r.trade_date; }
+  }
+
+  const maxDayRatioPct = totalPositive > 0 ? (maxDayPnl / totalPositive) * 100 : 0;
+  const passing = totalPositive <= 0 || maxDayRatioPct <= threshold;
+
+  // Total needed so the biggest day is exactly threshold% of it.
+  const targetTotalPnl = maxDayPnl > 0 ? maxDayPnl / frac : 0;
+  const additionalProfitNeeded = Math.max(0, targetTotalPnl - totalPositive);
+  // Each dilution day capped below the historical max so it can't become a new
+  // breach (and stays under threshold% of the eventual target total).
+  const safeDailyProfitCap = maxDayPnl > 0 ? Math.max(1, round2(maxDayPnl * DILUTION_DAY_FRACTION)) : 0;
+  const estDaysNeeded = additionalProfitNeeded > 0 && safeDailyProfitCap > 0
+    ? Math.ceil(additionalProfitNeeded / safeDailyProfitCap)
+    : 0;
+
+  let summary: string;
+  if (passing) {
+    summary = totalPositive > 0
+      ? `Consistency PASSING: biggest day $${round2(maxDayPnl)} is ${maxDayRatioPct.toFixed(1)}% of $${round2(totalPositive)} total (cap ${threshold}%).`
+      : `No positive profit recorded yet — nothing to evaluate.`;
+  } else {
+    summary = `Consistency STUCK at ${maxDayRatioPct.toFixed(1)}% (cap ${threshold}%). Biggest day $${round2(maxDayPnl)} of $${round2(totalPositive)} total. `
+      + `To pass, grow total to $${round2(targetTotalPnl)} — about $${round2(additionalProfitNeeded)} more profit, spread across ~${estDaysNeeded} day(s) at ≤ $${safeDailyProfitCap}/day so no new day breaches the cap.`;
+  }
+
+  return {
+    passing, thresholdPct: threshold, totalPositivePnl: round2(totalPositive),
+    maxDayPnl: round2(maxDayPnl), maxDayDate, maxDayRatioPct: round2(maxDayRatioPct),
+    targetTotalPnl: round2(targetTotalPnl), additionalProfitNeeded: round2(additionalProfitNeeded),
+    safeDailyProfitCap, estDaysNeeded, summary,
+  };
+}
+
+function round2(n: number): number { return Math.round(n * 100) / 100; }
 
 /**
  * Record a closed trade's realized P&L against the account's daily ledger.
@@ -120,13 +217,47 @@ export async function getConsistencyStatus(
   const todayPositive = Math.max(0, todayPnl);
   const ratioPct = totalPositivePnl > 0 ? (todayPositive / totalPositivePnl) * 100 : 0;
 
+  // Biggest single day across the whole ledger — this, not today alone, is the
+  // real prop-firm consistency ratio. An account can be "stuck" (a PAST big day
+  // already exceeds the cap) even on a fresh day when today's ratio is tiny.
+  let maxDayPnl = 0;
+  for (const r of rows) {
+    const pnl = typeof r.realized_pnl === 'number' ? r.realized_pnl : parseFloat(r.realized_pnl || '0');
+    if (isFinite(pnl) && pnl > maxDayPnl) maxDayPnl = pnl;
+  }
+  const maxDayRatioPct = totalPositivePnl > 0 ? (maxDayPnl / totalPositivePnl) * 100 : 0;
+  const stuck = maxDayRatioPct > threshold; // a past day already breaches → can only pass by diluting
+
   const taperStartPct = threshold * TAPER_START_FRACTION;
   let status: ConsistencyStatus = 'safe';
   let sizeMultiplier = 1;
   let hardBlocked = false;
   let guidance = `Today's profit is ${ratioPct.toFixed(1)}% of total realized profit — well within the ${threshold}% consistency cap.`;
 
-  if (ratioPct >= threshold) {
+  if (stuck) {
+    // DILUTION MODE. The account can't pass by concentrating — it needs many
+    // small green days so the historical big day shrinks as a share of total.
+    // Enforce a per-day profit cap (a fraction of the big day) so no new day
+    // becomes a fresh breach; once today hits the cap, stop trading for the day
+    // and let tomorrow keep growing the total.
+    const dailyCap = Math.max(1, maxDayPnl * DILUTION_DAY_FRACTION);
+    const targetTotal = maxDayPnl / (threshold / 100);
+    const addNeeded = Math.max(0, targetTotal - totalPositivePnl);
+    const daysLeft = dailyCap > 0 ? Math.ceil(addNeeded / dailyCap) : 0;
+    if (todayPositive >= dailyCap) {
+      status = 'breached';
+      sizeMultiplier = 0;
+      hardBlocked = true;
+      guidance = `Consistency dilution: today's profit ($${todayPositive.toFixed(2)}) hit the per-day cap ($${dailyCap.toFixed(2)}). Trading paused for today so this day doesn't become a new breach. Biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%) — grow total to $${targetTotal.toFixed(0)} (~$${addNeeded.toFixed(0)} more, ~${daysLeft} day(s)) to pass.`;
+    } else {
+      status = 'warning';
+      const room = dailyCap - todayPositive;
+      // Taper as today approaches the daily cap so it lands under it, not over.
+      const progress = dailyCap > 0 ? todayPositive / dailyCap : 1;
+      sizeMultiplier = Math.max(TAPER_FLOOR_MULTIPLIER, 1 - progress * (1 - TAPER_FLOOR_MULTIPLIER));
+      guidance = `Consistency dilution active: biggest day is ${maxDayRatioPct.toFixed(1)}% of total (cap ${threshold}%). Taking small green days — up to $${room.toFixed(2)} more today (cap $${dailyCap.toFixed(2)}). Need ~$${addNeeded.toFixed(0)} more total over ~${daysLeft} day(s) to pass.`;
+    }
+  } else if (ratioPct >= threshold) {
     status = 'breached';
     sizeMultiplier = 0;
     hardBlocked = true;
@@ -143,10 +274,14 @@ export async function getConsistencyStatus(
   return {
     connectionId,
     connectionType,
+    enabled: true,
     thresholdPct: threshold,
     todayPnl,
     totalPositivePnl,
     ratioPct,
+    maxDayPnl: round2(maxDayPnl),
+    maxDayRatioPct: round2(maxDayRatioPct),
+    dilutionActive: stuck,
     status,
     sizeMultiplier,
     hardBlocked,

@@ -15499,12 +15499,16 @@ Rules:
       return res.status(404).json({ error: "No connection found" });
     }
     try {
-      const { getConsistencyStatus, DEFAULT_CONSISTENCY_THRESHOLD_PCT } = await import('./services/prop-firm-consistency');
-      const status = await getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct, (connection as any).consistencyEnabled !== false);
+      const { getConsistencyStatus, getConsistencyPlan, DEFAULT_CONSISTENCY_THRESHOLD_PCT } = await import('./services/prop-firm-consistency');
+      const [status, plan] = await Promise.all([
+        getConsistencyStatus(connId, 'tradelocker', (connection as any).consistencyThresholdPct, (connection as any).consistencyEnabled !== false),
+        getConsistencyPlan(connId, 'tradelocker', (connection as any).consistencyThresholdPct),
+      ]);
       res.json({
         isPropFirmAccount: !!(connection as any).isPropFirmAccount,
         defaultThresholdPct: DEFAULT_CONSISTENCY_THRESHOLD_PCT,
         ...status,
+        plan, // how to bring a stuck account's consistency ratio under the cap
       });
     } catch (err: any) {
       res.status(500).json({ error: `Failed to compute consistency status: ${err?.message || 'unknown error'}` });
