@@ -876,14 +876,19 @@ async function executeSignal(
   }
 
   const dte = daysUntil(contract.expirationDate, new Date());
-  // Theta-safety gate — 0-1 DTE is the most time-decay-hostile a long-premium
-  // position can be; require a materially higher bar than the user's own
-  // minConfidence before taking that risk, rather than treating it the same
-  // as any other expiry.
-  if (dte <= 1 && (result.score ?? 0) < cfg.minConfidence + 15) {
+  // Theta-safety gate — HARD floor, not confidence-gated. The old gate keyed off
+  // (score < minConfidence+15), but the order_flow/composite scores saturate at
+  // ~100, so it never fired and 0-1 DTE long calls flooded in. This account's own
+  // results are unambiguous: 1-DTE won just 29% for -$4,195, and the entire
+  // 2026-08-10→18 drawdown (-$26k) was 1-DTE NVDA calls stopping out, while the
+  // 2-7 DTE band won 74% for +$42,278. Long premium at 0-1 DTE is pure theta
+  // decay + gap risk. Block it outright unless the user has EXPLICITLY chosen a
+  // 0DTE expiry preference (then they own that risk deliberately).
+  const minSafeDte = cfg.expiryPreference === '0dte' ? 0 : 2;
+  if (dte < minSafeDte) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'skipped', strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE — requires ${cfg.minConfidence + 15}%+ confidence for same-day/1-day expiry (this signal: ${result.score}/100).`,
+      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE — below the ${minSafeDte}-DTE theta-safety floor for long premium (0-1 DTE won only 29% / -$4.2k historically; the 2-7 DTE band won 74%). Set expiry preference to "0dte" to override.`,
       score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
     });
     return;

@@ -1266,8 +1266,10 @@ var init_schema = __esm({
       // ── concepts with strike/expiry/premium concepts specific to options) ──────
       expiryPreference: text("expiry_preference").notNull().default("auto"),
       // '0dte' | 'weekly' | 'monthly' | 'auto'
-      minDaysToExpiry: integer("min_days_to_expiry").notNull().default(1),
-      maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(45),
+      minDaysToExpiry: integer("min_days_to_expiry").notNull().default(2),
+      // was 1 — 0-1 DTE long premium bled (29% win); 2-7 DTE is the profitable band
+      maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(14),
+      // was 45 — 30+ DTE long calls lost (21% win); keep entries in the theta sweet spot
       strikeSelectionMode: text("strike_selection_mode").notNull().default("atm"),
       // 'atm' | 'itm' | 'otm' | 'delta_target'
       targetDelta: doublePrecision("target_delta").notNull().default(0.3),
@@ -47782,13 +47784,14 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     return;
   }
   const dte = daysUntil(contract.expirationDate, /* @__PURE__ */ new Date());
-  if (dte <= 1 && (result.score ?? 0) < cfg.minConfidence + 15) {
+  const minSafeDte = cfg.expiryPreference === "0dte" ? 0 : 2;
+  if (dte < minSafeDte) {
     await storage.createOptionsEngineActivity({
       userId,
       symbol: underlyingSymbol,
       decision: "skipped",
       strategy: result.strategy,
-      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE \u2014 requires ${cfg.minConfidence + 15}%+ confidence for same-day/1-day expiry (this signal: ${result.score}/100).`,
+      reasoning: `${underlyingSymbol}: signal confirmed, but the resolved contract is ${dte}-DTE \u2014 below the ${minSafeDte}-DTE theta-safety floor for long premium (0-1 DTE won only 29% / -$4.2k historically; the 2-7 DTE band won 74%). Set expiry preference to "0dte" to override.`,
       score: result.score,
       price: result.price,
       dailyChangePercent: result.dailyChangePercent,

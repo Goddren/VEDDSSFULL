@@ -1009,8 +1009,8 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   // ── Options-native settings (no FX/lots equivalent — these replace pip/lot ──
   // ── concepts with strike/expiry/premium concepts specific to options) ──────
   expiryPreference: text("expiry_preference").notNull().default('auto'), // '0dte' | 'weekly' | 'monthly' | 'auto'
-  minDaysToExpiry: integer("min_days_to_expiry").notNull().default(1),
-  maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(45),
+  minDaysToExpiry: integer("min_days_to_expiry").notNull().default(2), // was 1 — 0-1 DTE long premium bled (29% win); 2-7 DTE is the profitable band
+  maxDaysToExpiry: integer("max_days_to_expiry").notNull().default(14), // was 45 — 30+ DTE long calls lost (21% win); keep entries in the theta sweet spot
   strikeSelectionMode: text("strike_selection_mode").notNull().default('atm'), // 'atm' | 'itm' | 'otm' | 'delta_target'
   targetDelta: doublePrecision("target_delta").notNull().default(0.30), // used when strikeSelectionMode = 'delta_target'
   profitTargetPercent: doublePrecision("profit_target_percent").notNull().default(50), // close at +X% of premium paid
