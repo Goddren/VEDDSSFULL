@@ -93,6 +93,26 @@ export interface AlpacaOrderResponse {
   filledAvgPrice?: number;
 }
 
+// One leg of a multi-leg (mleg) options order — used for defined-risk credit
+// spreads. position_intent must be explicit on each leg so the broker knows it's
+// an opening/closing spread (and applies spread margin, not naked margin).
+export interface AlpacaMultiLegLeg {
+  optionSymbol: string;                 // OCC symbol
+  side: 'buy' | 'sell';
+  ratioQty: number;                     // 1 for a standard vertical
+  positionIntent: 'buy_to_open' | 'sell_to_open' | 'buy_to_close' | 'sell_to_close';
+}
+
+export interface AlpacaMultiLegOrderRequest {
+  legs: AlpacaMultiLegLeg[];
+  quantity: number;                     // number of spreads
+  // Signed net limit price per Alpaca's mleg convention: NEGATIVE = net credit
+  // you receive (opening a credit spread), POSITIVE = net debit you pay
+  // (closing it / debit spreads). Rounded to the penny by the caller.
+  netLimitPrice: number;
+  timeInForce?: 'day' | 'gtc';
+}
+
 const RETRY_DELAYS = [1000, 2000];
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
@@ -288,6 +308,40 @@ export class AlpacaService {
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`Alpaca order placement failed: ${response.status} - ${text}`);
+    }
+    const data = await response.json();
+    return {
+      orderId: data.id,
+      status: data.status,
+      filledQty: data.filled_qty ? parseFloat(data.filled_qty) : undefined,
+      filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : undefined,
+    };
+  }
+
+  // Place a multi-leg (mleg) options order — defined-risk credit/debit spreads.
+  // Requires Alpaca options trading level 3. All legs fill together or not at all
+  // (no legging risk), and the broker applies spread margin off the defined max
+  // loss rather than naked-short margin.
+  async placeMultiLegOrder(order: AlpacaMultiLegOrderRequest): Promise<AlpacaOrderResponse> {
+    const response = await this.request(`${this.baseUrl}/v2/orders`, {
+      method: 'POST',
+      body: JSON.stringify({
+        order_class: 'mleg',
+        qty: String(order.quantity),
+        type: 'limit',
+        time_in_force: order.timeInForce || 'day',
+        limit_price: order.netLimitPrice.toFixed(2),
+        legs: order.legs.map(l => ({
+          symbol: l.optionSymbol,
+          ratio_qty: String(l.ratioQty),
+          side: l.side,
+          position_intent: l.positionIntent,
+        })),
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text}`);
     }
     const data = await response.json();
     return {

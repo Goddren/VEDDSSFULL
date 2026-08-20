@@ -8,7 +8,7 @@
 // the *reasoning* the engine gives, not yet a live order.
 
 import { storage } from '../storage';
-import { AlpacaService, decryptApiSecret, parseOccSymbol, type AlpacaOptionContract } from '../alpaca';
+import { AlpacaService, decryptApiSecret, parseOccSymbol, type AlpacaOptionContract, type AlpacaMultiLegLeg } from '../alpaca';
 import type { OptionsEngineConfig, AlpacaConnection } from '../../shared/schema';
 import { getOrRefreshOptionsBrain } from './options-brain';
 
@@ -490,7 +490,10 @@ async function scanSymbol(service: AlpacaService, symbol: string, cfg: OptionsEn
     }
   }
 
-  if (cfg.strategyMode === 'auto') {
+  // 'credit_spread' isn't a signal generator — it's an execution style. Derive
+  // its directional read from the same 'auto' multi-strategy logic; the credit
+  // spread is then built in executeSignal (creditSpreadEnabled path).
+  if (cfg.strategyMode === 'auto' || cfg.strategyMode === 'credit_spread') {
     // Run all real strategies and take the highest-scoring signal; fall back to momentum's read if none signal.
     const results = await Promise.all(['orb', 'volume_profile', 'breakout', 'momentum', 'order_flow'].map(k => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r): r is StrategyResult => !!r);
@@ -805,6 +808,147 @@ async function checkSafetyGates(
   return { allowed: true, riskMultiplier };
 }
 
+// ── Premium-selling: defined-risk vertical credit spread ─────────────────────
+// Bullish signal → BULL PUT spread (sell a ~16Δ put, buy one width lower).
+// Bearish signal → BEAR CALL spread (sell a ~16Δ call, buy one width higher).
+// The short leg collects premium; the long leg caps the loss. We only sell when
+// IV is elevated (premium is rich) and the credit is a worthwhile fraction of the
+// width, size off the DEFINED max loss, and later buy back at 50% of the credit.
+interface BuiltCreditSpread {
+  spreadType: 'bull_put' | 'bear_call';
+  optType: 'call' | 'put';
+  shortLeg: AlpacaOptionContract;
+  longLeg: AlpacaOptionContract;
+  credit: number;        // net credit per spread (dollars/share)
+  width: number;         // strike distance
+  maxLoss: number;       // (width - credit) * 100, per spread
+  creditPct: number;     // credit / width * 100
+  dte: number;
+}
+
+async function buildCreditSpread(
+  service: AlpacaService, underlyingSymbol: string, direction: 'up' | 'down', cfg: OptionsEngineConfig,
+): Promise<{ spread: BuiltCreditSpread | null; reason: string }> {
+  const spreadType: 'bull_put' | 'bear_call' = direction === 'up' ? 'bull_put' : 'bear_call';
+  const optType: 'call' | 'put' = spreadType === 'bull_put' ? 'put' : 'call';
+  const now = new Date();
+
+  const chain = await service.getOptionsChain(underlyingSymbol);
+  const inBand = chain.filter(c => {
+    if (c.type !== optType) return false;
+    const d = daysUntil(c.expirationDate, now);
+    if (d < cfg.creditSpreadDteMin || d > cfg.creditSpreadDteMax) return false;
+    if (typeof c.delta !== 'number' || typeof c.bid !== 'number' || typeof c.ask !== 'number') return false;
+    if (c.bid <= 0 || c.ask <= 0) return false;
+    if (typeof c.openInterest === 'number' && c.openInterest < cfg.minOpenInterest) return false;
+    return true;
+  });
+  if (!inBand.length) return { spread: null, reason: `no ${optType}s with delta/quotes in the ${cfg.creditSpreadDteMin}-${cfg.creditSpreadDteMax} DTE band` };
+
+  // Pick the single expiry closest to the target DTE, then work within it.
+  const byExpiryDist = [...inBand].sort((a, b) =>
+    Math.abs(daysUntil(a.expirationDate, now) - cfg.creditSpreadDte) - Math.abs(daysUntil(b.expirationDate, now) - cfg.creditSpreadDte));
+  const targetExpiry = byExpiryDist[0].expirationDate;
+  const sameExpiry = inBand.filter(c => c.expirationDate === targetExpiry);
+
+  // Short leg: |delta| closest to the target (~0.16).
+  const shortLeg = [...sameExpiry].sort((a, b) =>
+    Math.abs(Math.abs(a.delta!) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta!) - cfg.creditSpreadShortDelta))[0];
+  if (!shortLeg) return { spread: null, reason: 'could not resolve a short leg near target delta' };
+
+  // IV floor (proxy for IV-rank): only sell when premium is rich.
+  if (typeof shortLeg.impliedVolatility === 'number' && shortLeg.impliedVolatility < cfg.creditSpreadMinIv) {
+    return { spread: null, reason: `IV ${(shortLeg.impliedVolatility * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor — premium too cheap to sell` };
+  }
+
+  // Long (protective) leg: one width further OTM. Puts → lower strike; calls → higher.
+  const targetLongStrike = spreadType === 'bull_put'
+    ? shortLeg.strikePrice - cfg.creditSpreadWidthDollars
+    : shortLeg.strikePrice + cfg.creditSpreadWidthDollars;
+  const longLeg = [...sameExpiry].sort((a, b) =>
+    Math.abs(a.strikePrice - targetLongStrike) - Math.abs(b.strikePrice - targetLongStrike))[0];
+  if (!longLeg || longLeg.strikePrice === shortLeg.strikePrice) {
+    return { spread: null, reason: 'no distinct protective long strike ~1 width OTM available' };
+  }
+
+  const width = Math.abs(shortLeg.strikePrice - longLeg.strikePrice);
+  // Conservative credit: sell the short at its BID, buy the long at its ASK.
+  const credit = Math.round((shortLeg.bid! - longLeg.ask!) * 100) / 100;
+  if (credit <= 0) return { spread: null, reason: `spread would be a net debit (${credit}) — not a credit spread` };
+  const creditPct = (credit / width) * 100;
+  if (creditPct < cfg.creditSpreadMinCreditPct) {
+    return { spread: null, reason: `credit $${credit.toFixed(2)} is only ${creditPct.toFixed(0)}% of the $${width} width (need ≥${cfg.creditSpreadMinCreditPct}%) — reward/risk too poor` };
+  }
+  const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
+  const dte = daysUntil(shortLeg.expirationDate, now);
+  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte }, reason: '' };
+}
+
+async function executeCreditSpread(
+  service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string,
+  result: StrategyResult, cfg: OptionsEngineConfig, account: { equity: number }, gate: { riskMultiplier: number },
+): Promise<void> {
+  const dir = result.direction!;
+  const { spread, reason } = await buildCreditSpread(service, underlyingSymbol, dir, cfg).catch(err => ({ spread: null as BuiltCreditSpread | null, reason: err?.message || 'build error' }));
+  if (!spread) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: underlyingSymbol, decision: 'skipped', strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: credit-spread signal (${dir === 'up' ? 'bull put' : 'bear call'}) but ${reason}.`,
+      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+    });
+    return;
+  }
+
+  // Size off the DEFINED max loss (never full Kelly — options tails punish it).
+  const equity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const riskPct = (cfg.creditSpreadRiskPct / 100) * (gate.riskMultiplier < 1 ? gate.riskMultiplier : 1);
+  const riskDollars = equity * riskPct;
+  const quantity = Math.max(0, Math.floor(riskDollars / spread.maxLoss));
+  if (quantity < 1) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: underlyingSymbol, decision: 'skipped', strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread has max loss $${spread.maxLoss.toFixed(0)}/spread, but ${cfg.creditSpreadRiskPct}% of $${equity.toFixed(0)} ($${riskDollars.toFixed(0)}) doesn't cover even one.`,
+      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+    });
+    return;
+  }
+
+  // mleg open: sell short_to_open + buy long_to_open. Net limit is a CREDIT →
+  // negative per Alpaca's signed convention.
+  const legs: AlpacaMultiLegLeg[] = [
+    { optionSymbol: spread.shortLeg.symbol, side: 'sell', ratioQty: 1, positionIntent: 'sell_to_open' },
+    { optionSymbol: spread.longLeg.symbol, side: 'buy', ratioQty: 1, positionIntent: 'buy_to_open' },
+  ];
+  let order;
+  try {
+    order = await service.placeMultiLegOrder({ legs, quantity, netLimitPrice: -spread.credit, timeInForce: 'day' });
+  } catch (err: any) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: underlyingSymbol, decision: 'error', strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread order failed (${spread.shortLeg.symbol} / ${spread.longLeg.symbol} x${quantity}): ${err.message}`,
+      score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+    });
+    return;
+  }
+
+  await storage.createOptionsEngineTrade({
+    userId, connectionId: connection.id, broker: 'alpaca',
+    underlyingSymbol, optionSymbol: spread.shortLeg.symbol, strategy: `${result.strategy}:credit_spread`,
+    optionType: spread.optType, quantity,
+    entryPrice: spread.credit, entryOrderId: order.orderId, entryReasoning: result.reasoning, status: 'open',
+    entryConfidence: result.score, dte: spread.dte, ivAtEntry: spread.shortLeg.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price, bidAskSpreadPct: null,
+    spreadType: spread.spreadType, longLegSymbol: spread.longLeg.symbol,
+    netCredit: spread.credit, maxLossPerSpread: spread.maxLoss,
+  } as any);
+
+  await storage.createOptionsEngineActivity({
+    userId, symbol: underlyingSymbol, decision: 'signal', strategy: `${result.strategy}:credit_spread`,
+    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace('_', ' ')} x${quantity} — sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}Δ. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
+    score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'alpaca',
+  });
+}
+
 async function executeSignal(
   service: AlpacaService, connection: AlpacaConnection, userId: number, underlyingSymbol: string,
   result: StrategyResult, cfg: OptionsEngineConfig, brainMultiplier: number | null, bestStrategies: string[],
@@ -863,6 +1007,13 @@ async function executeSignal(
       });
       return;
     }
+  }
+
+  // ── Premium-selling mode: sell a defined-risk credit spread instead of ─────
+  // buying a single long option. The proven options edge is short premium.
+  if (cfg.creditSpreadEnabled || cfg.strategyMode === 'credit_spread') {
+    await executeCreditSpread(service, connection, userId, underlyingSymbol, result, cfg, account, gate);
+    return;
   }
 
   const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
@@ -988,6 +1139,93 @@ function computeTrailFloorPercent(cfg: OptionsEngineConfig, peakPnlPercent: numb
 
 // ── Exit management — close open trades on profit target / stop loss, or a
 // per-trade trailing stop once cfg.trailMethod is enabled and armed ─────────
+// Manage one open credit spread: re-quote both legs, compute the net cost to
+// buy it back, and close at the profit target (50% of credit), the stop (cost
+// ≥ Nx credit), or near expiry (assignment/pin guard). Closes via a single
+// buy-to-close mleg order so both legs exit together.
+async function manageCreditSpread(service: AlpacaService, userId: number, cfg: OptionsEngineConfig, connectionId: number, trade: any): Promise<void> {
+  const shortSym: string = trade.optionSymbol;
+  const longSym: string = trade.longLegSymbol;
+  const credit: number = trade.netCredit ?? trade.entryPrice;
+  const qty: number = trade.quantity;
+
+  const [sq, lq] = await Promise.all([
+    service.getOptionQuote(shortSym).catch(() => null),
+    service.getOptionQuote(longSym).catch(() => null),
+  ]);
+
+  // Reconcile expired/settled spreads (broker stops quoting after expiry).
+  if (!sq || !lq || sq.ask <= 0) {
+    const { expirationDate } = parseOccSymbol(shortSym, trade.underlyingSymbol);
+    const isPastExpiry = new Date(expirationDate + 'T21:00:00Z').getTime() < Date.now();
+    if (isPastExpiry) {
+      const live = await service.getPositions().catch(() => [] as any[]);
+      const stillOpen = live.some(p => p.symbol === shortSym || p.symbol === longSym);
+      if (!stillOpen) {
+        await storage.markOptionsEngineTradeFailed(trade.id, `credit spread expired ${expirationDate} — settled by broker; realized P&L not tracked here, check the Alpaca statement`);
+      }
+    }
+    return;
+  }
+
+  // Net cost to buy the spread back now (pay short's ask, sell long's bid).
+  const closeCost = Math.round((sq.ask - lq.bid) * 100) / 100;
+  const closeMid = Math.round(((sq.mid - lq.mid)) * 100) / 100;
+  const capturedPct = credit > 0 ? ((credit - closeCost) / credit) * 100 : 0;
+
+  const dte = daysUntil(parseOccSymbol(shortSym, trade.underlyingSymbol).expirationDate, new Date());
+  let exitReason: string | null = null;
+  if (closeCost <= credit * (1 - cfg.creditSpreadProfitTakePct / 100)) exitReason = 'profit_target';
+  else if (closeCost >= credit * cfg.creditSpreadStopMultiple) exitReason = 'stop_loss';
+  else if (dte <= 1) exitReason = 'expiry_close'; // don't carry short options into expiry (assignment/pin risk)
+  if (!exitReason) return;
+
+  // Buy-to-close mleg: buy back the short, sell the long. Net DEBIT → positive limit.
+  const legs: AlpacaMultiLegLeg[] = [
+    { optionSymbol: shortSym, side: 'buy', ratioQty: 1, positionIntent: 'buy_to_close' },
+    { optionSymbol: longSym, side: 'sell', ratioQty: 1, positionIntent: 'sell_to_close' },
+  ];
+  let closeOrder;
+  try {
+    closeOrder = await service.placeMultiLegOrder({ legs, quantity: qty, netLimitPrice: Math.max(0.01, closeCost), timeInForce: 'day' });
+  } catch (err: any) {
+    await storage.createOptionsEngineActivity({
+      userId, symbol: trade.underlyingSymbol, decision: 'error', strategy: trade.strategy,
+      reasoning: `${trade.underlyingSymbol}: failed to close ${trade.spreadType} spread (${shortSym}/${longSym}): ${err.message}`,
+      score: null, price: null, dailyChangePercent: null, source: 'alpaca',
+    });
+    return;
+  }
+
+  // Realized P&L = (credit received − debit paid to close) × 100 × spreads. Use
+  // the mid as the fill estimate (limit is placed at the ask-based cost).
+  const closeFill = closeMid > 0 ? closeMid : closeCost;
+  const realizedPnl = Math.round((credit - closeFill) * 100 * qty * 100) / 100;
+  await storage.closeOptionsEngineTrade(trade.id, { exitPrice: closeFill, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+  try {
+    const { recordRealizedPnl } = await import('./prop-firm-consistency');
+    await recordRealizedPnl(userId, connectionId, 'alpaca', realizedPnl);
+  } catch { /* non-critical */ }
+  await storage.createOptionsEngineActivity({
+    userId, symbol: trade.underlyingSymbol, decision: 'signal', strategy: trade.strategy,
+    reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.spreadType} x${qty} @ net $${closeFill.toFixed(2)} debit (captured ${capturedPct.toFixed(0)}% of the $${credit.toFixed(2)} credit, ${exitReason.replace('_', ' ')}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+    score: null, price: null, dailyChangePercent: null, source: 'alpaca',
+  });
+  try {
+    const { db } = await import('../db');
+    const { optionsBrainOutcomes } = await import('../../shared/schema');
+    const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+    await db.insert(optionsBrainOutcomes).values({
+      userId, underlyingSymbol: trade.underlyingSymbol, optionType: trade.optionType,
+      strategy: trade.strategy, direction: trade.spreadType === 'bull_put' ? 'bullish' : 'bearish',
+      entryConfidence: trade.entryConfidence ?? null, returnPct: capturedPct,
+      hourUtc: new Date().getUTCHours(), holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 60000)),
+      exitReason, result: realizedPnl > 0 ? 'WIN' : realizedPnl < 0 ? 'LOSS' : 'BREAKEVEN',
+      profitLoss: realizedPnl, contracts: qty, source: 'live', closedAt: new Date(),
+    } as any);
+  } catch { /* non-critical */ }
+}
+
 async function monitorOpenPositions(service: AlpacaService, userId: number, cfg: OptionsEngineConfig, connectionId: number): Promise<void> {
   // Scoped to THIS connection — previously every connection beyond the first
   // was monitored/closed using whichever Alpaca session happened to be
@@ -997,6 +1235,13 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
   const alpacaTrades = openTrades.filter(t => t.broker === 'alpaca');
   for (const trade of alpacaTrades) {
     try {
+      // Credit spreads are managed as a net two-leg position (buy back at 50% of
+      // credit / stop at the credit-multiple), not as a single long option.
+      if ((trade as any).spreadType && (trade as any).longLegSymbol) {
+        await manageCreditSpread(service, userId, cfg, connectionId, trade);
+        continue;
+      }
+
       const quote = await service.getOptionQuote(trade.optionSymbol);
       if (!quote || quote.mid <= 0) {
         // Quote lookups fail permanently once a contract expires (the broker

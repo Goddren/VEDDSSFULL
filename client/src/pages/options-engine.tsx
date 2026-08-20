@@ -158,6 +158,15 @@ type OptionsEngineConfig = {
   profitTargetPercent: number;
   stopLossPercent: number;
   ivRankMax: number;
+  creditSpreadEnabled: boolean;
+  creditSpreadShortDelta: number;
+  creditSpreadWidthDollars: number;
+  creditSpreadDte: number;
+  creditSpreadMinIv: number;
+  creditSpreadProfitTakePct: number;
+  creditSpreadStopMultiple: number;
+  creditSpreadRiskPct: number;
+  creditSpreadMinCreditPct: number;
   sessionFilterEnabled: boolean;
   avoidLastMinutesBeforeClose: number;
   orbRangeMinutes: number;
@@ -939,7 +948,7 @@ export default function OptionsEnginePage() {
                           <SelectItem value="order_flow">Order Flow / CVD Proxy (Scalp)</SelectItem>
                           <SelectItem value="long_call">Long Call (manual)</SelectItem>
                           <SelectItem value="long_put">Long Put (manual)</SelectItem>
-                          <SelectItem value="credit_spread">Credit Spread (roadmap)</SelectItem>
+                          <SelectItem value="credit_spread">Credit Spread — premium selling (defined risk)</SelectItem>
                           <SelectItem value="covered_call">Covered Call (roadmap)</SelectItem>
                         </SelectContent>
                       </Select>
@@ -954,6 +963,44 @@ export default function OptionsEnginePage() {
                           <SelectItem value="puts_only">Puts only</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    {/* Premium-selling (credit spread) */}
+                    <div className="col-span-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.05] p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-sm font-semibold text-emerald-300">Premium selling — credit spreads</Label>
+                          <p className="text-[11px] text-gray-400 mt-0.5">Sell a defined-risk vertical (bull put / bear call) instead of buying premium. The proven options edge. Paper-first — validate multi-leg fills on a paper account before going live.</p>
+                        </div>
+                        <Switch
+                          checked={config.creditSpreadEnabled || config.strategyMode === 'credit_spread'}
+                          onCheckedChange={(v) => updateConfigMutation.mutate({ creditSpreadEnabled: v })}
+                        />
+                      </div>
+                      {(config.creditSpreadEnabled || config.strategyMode === 'credit_spread') && (
+                        <div className="grid grid-cols-2 gap-3">
+                          {([
+                            ['creditSpreadShortDelta', 'Short-leg delta', 0.01, 0.5, 0.01],
+                            ['creditSpreadWidthDollars', 'Strike width ($)', 1, 50, 1],
+                            ['creditSpreadDte', 'Target DTE', 7, 90, 1],
+                            ['creditSpreadMinIv', 'Min IV to sell (0-1)', 0.05, 2, 0.05],
+                            ['creditSpreadProfitTakePct', 'Take profit (% of credit)', 10, 90, 5],
+                            ['creditSpreadStopMultiple', 'Stop (× credit)', 1.5, 5, 0.5],
+                            ['creditSpreadRiskPct', 'Risk % of equity / spread', 0.5, 10, 0.5],
+                            ['creditSpreadMinCreditPct', 'Min credit (% of width)', 10, 50, 5],
+                          ] as const).map(([key, label, min, max, step]) => (
+                            <div key={key} className="space-y-1">
+                              <Label className="text-[11px] text-gray-400">{label}</Label>
+                              <Input
+                                type="number" min={min} max={max} step={step}
+                                defaultValue={(config as any)[key]}
+                                onBlur={(e) => updateConfigMutation.mutate({ [key]: parseFloat(e.target.value) } as any)}
+                                className="bg-gray-800 border-gray-700 h-8 text-sm"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Strategy-specific parameters */}

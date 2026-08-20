@@ -1288,6 +1288,33 @@ var init_schema = __esm({
       // reject a contract if (ask-bid)/mid exceeds this % — wide spreads eat the edge on both entry and exit
       minOpenInterest: integer("min_open_interest").notNull().default(50),
       // reject illiquid contracts below this open interest
+      // ── Premium-selling mode (defined-risk credit spreads) ────────────────────
+      // The proven options edge is SELLING premium (volatility risk premium), not
+      // buying it. This mode sells a vertical credit spread in the signal's direction
+      // (bullish→bull put spread, bearish→bear call spread): short a ~16-delta option,
+      // long one strike-width further OTM for a hard max loss. Gated on elevated IV
+      // (sell when premium is rich), ~30-45 DTE (theta sweet spot), sized off the
+      // DEFINED max loss, and auto-closed at 50% of credit captured. OFF by default;
+      // paper-first (multi-leg execution should be validated on a paper account).
+      creditSpreadEnabled: boolean("credit_spread_enabled").notNull().default(false),
+      creditSpreadShortDelta: doublePrecision("credit_spread_short_delta").notNull().default(0.16),
+      // short-leg target delta (~84% POP)
+      creditSpreadWidthDollars: doublePrecision("credit_spread_width_dollars").notNull().default(5),
+      // strike distance between short and long leg
+      creditSpreadDte: integer("credit_spread_dte").notNull().default(35),
+      // target days-to-expiry for premium selling
+      creditSpreadDteMin: integer("credit_spread_dte_min").notNull().default(25),
+      creditSpreadDteMax: integer("credit_spread_dte_max").notNull().default(50),
+      creditSpreadMinIv: doublePrecision("credit_spread_min_iv").notNull().default(0.25),
+      // IV floor (proxy for IV-rank) — only sell when premium is rich
+      creditSpreadProfitTakePct: doublePrecision("credit_spread_profit_take_pct").notNull().default(50),
+      // buy back at 50% of credit captured
+      creditSpreadStopMultiple: doublePrecision("credit_spread_stop_multiple").notNull().default(2),
+      // stop when the spread costs Nx the credit to close (loss = credit at 2x)
+      creditSpreadRiskPct: doublePrecision("credit_spread_risk_pct").notNull().default(2),
+      // % of equity to risk per spread, off the DEFINED max loss
+      creditSpreadMinCreditPct: doublePrecision("credit_spread_min_credit_pct").notNull().default(20),
+      // require credit ≥ this % of width (else risk/reward too poor)
       // Strategy-specific parameters
       orbRangeMinutes: integer("orb_range_minutes").notNull().default(15),
       // opening range window length
@@ -1443,6 +1470,17 @@ var init_schema = __esm({
       underlyingPriceAtEntry: doublePrecision("underlying_price_at_entry"),
       bidAskSpreadPct: doublePrecision("bid_ask_spread_pct"),
       // (ask-bid)/mid at entry, as a %
+      // ── Credit-spread (multi-leg) fields — null for single-leg trades. ────────
+      // optionSymbol holds the SHORT leg; longLegSymbol the protective long leg.
+      // entryPrice holds the net credit received per spread. P&L is measured off the
+      // credit (close for less than the credit = profit).
+      spreadType: text("spread_type"),
+      // 'bull_put' | 'bear_call' | null (single-leg)
+      longLegSymbol: text("long_leg_symbol"),
+      netCredit: doublePrecision("net_credit"),
+      // credit received per spread (dollars/share)
+      maxLossPerSpread: doublePrecision("max_loss_per_spread"),
+      // (width - credit) * 100
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -21089,6 +21127,39 @@ var init_alpaca = __esm({
         if (!response.ok) {
           const text2 = await response.text();
           throw new Error(`Alpaca order placement failed: ${response.status} - ${text2}`);
+        }
+        const data = await response.json();
+        return {
+          orderId: data.id,
+          status: data.status,
+          filledQty: data.filled_qty ? parseFloat(data.filled_qty) : void 0,
+          filledAvgPrice: data.filled_avg_price ? parseFloat(data.filled_avg_price) : void 0
+        };
+      }
+      // Place a multi-leg (mleg) options order — defined-risk credit/debit spreads.
+      // Requires Alpaca options trading level 3. All legs fill together or not at all
+      // (no legging risk), and the broker applies spread margin off the defined max
+      // loss rather than naked-short margin.
+      async placeMultiLegOrder(order) {
+        const response = await this.request(`${this.baseUrl}/v2/orders`, {
+          method: "POST",
+          body: JSON.stringify({
+            order_class: "mleg",
+            qty: String(order.quantity),
+            type: "limit",
+            time_in_force: order.timeInForce || "day",
+            limit_price: order.netLimitPrice.toFixed(2),
+            legs: order.legs.map((l) => ({
+              symbol: l.optionSymbol,
+              ratio_qty: String(l.ratioQty),
+              side: l.side,
+              position_intent: l.positionIntent
+            }))
+          })
+        });
+        if (!response.ok) {
+          const text2 = await response.text();
+          throw new Error(`Alpaca multi-leg order failed: ${response.status} - ${text2}`);
         }
         const data = await response.json();
         return {
@@ -46264,6 +46335,24 @@ ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "dte" integer;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "iv_at_entry" double precision;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "underlying_price_at_entry" double precision;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "bid_ask_spread_pct" double precision;
+
+-- Premium-selling (defined-risk credit spread) mode
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_short_delta" double precision NOT NULL DEFAULT 0.16;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_width_dollars" double precision NOT NULL DEFAULT 5;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte" integer NOT NULL DEFAULT 35;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte_min" integer NOT NULL DEFAULT 25;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte_max" integer NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_iv" double precision NOT NULL DEFAULT 0.25;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_profit_take_pct" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_stop_multiple" double precision NOT NULL DEFAULT 2;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_risk_pct" double precision NOT NULL DEFAULT 2;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_credit_pct" double precision NOT NULL DEFAULT 20;
+
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "spread_type" text;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "long_leg_symbol" text;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "net_credit" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "max_loss_per_spread" double precision;
 `;
   }
 });
@@ -47498,7 +47587,7 @@ async function scanSymbol(service, symbol, cfg) {
       return { decision: "watching", reasoning: `${symbol}: within the last ${cfg.avoidLastMinutesBeforeClose} minutes before close \u2014 session filter is skipping new entries (pin-risk/illiquidity guard).`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
     }
   }
-  if (cfg.strategyMode === "auto") {
+  if (cfg.strategyMode === "auto" || cfg.strategyMode === "credit_spread") {
     const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k) => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -47703,6 +47792,136 @@ async function checkSafetyGates(userId, cfg, equity, connectionId, connectionTyp
   }
   return { allowed: true, riskMultiplier };
 }
+async function buildCreditSpread(service, underlyingSymbol, direction, cfg) {
+  const spreadType = direction === "up" ? "bull_put" : "bear_call";
+  const optType = spreadType === "bull_put" ? "put" : "call";
+  const now = /* @__PURE__ */ new Date();
+  const chain = await service.getOptionsChain(underlyingSymbol);
+  const inBand = chain.filter((c) => {
+    if (c.type !== optType) return false;
+    const d = daysUntil(c.expirationDate, now);
+    if (d < cfg.creditSpreadDteMin || d > cfg.creditSpreadDteMax) return false;
+    if (typeof c.delta !== "number" || typeof c.bid !== "number" || typeof c.ask !== "number") return false;
+    if (c.bid <= 0 || c.ask <= 0) return false;
+    if (typeof c.openInterest === "number" && c.openInterest < cfg.minOpenInterest) return false;
+    return true;
+  });
+  if (!inBand.length) return { spread: null, reason: `no ${optType}s with delta/quotes in the ${cfg.creditSpreadDteMin}-${cfg.creditSpreadDteMax} DTE band` };
+  const byExpiryDist = [...inBand].sort((a, b) => Math.abs(daysUntil(a.expirationDate, now) - cfg.creditSpreadDte) - Math.abs(daysUntil(b.expirationDate, now) - cfg.creditSpreadDte));
+  const targetExpiry = byExpiryDist[0].expirationDate;
+  const sameExpiry = inBand.filter((c) => c.expirationDate === targetExpiry);
+  const shortLeg = [...sameExpiry].sort((a, b) => Math.abs(Math.abs(a.delta) - cfg.creditSpreadShortDelta) - Math.abs(Math.abs(b.delta) - cfg.creditSpreadShortDelta))[0];
+  if (!shortLeg) return { spread: null, reason: "could not resolve a short leg near target delta" };
+  if (typeof shortLeg.impliedVolatility === "number" && shortLeg.impliedVolatility < cfg.creditSpreadMinIv) {
+    return { spread: null, reason: `IV ${(shortLeg.impliedVolatility * 100).toFixed(0)}% below the ${(cfg.creditSpreadMinIv * 100).toFixed(0)}% floor \u2014 premium too cheap to sell` };
+  }
+  const targetLongStrike = spreadType === "bull_put" ? shortLeg.strikePrice - cfg.creditSpreadWidthDollars : shortLeg.strikePrice + cfg.creditSpreadWidthDollars;
+  const longLeg = [...sameExpiry].sort((a, b) => Math.abs(a.strikePrice - targetLongStrike) - Math.abs(b.strikePrice - targetLongStrike))[0];
+  if (!longLeg || longLeg.strikePrice === shortLeg.strikePrice) {
+    return { spread: null, reason: "no distinct protective long strike ~1 width OTM available" };
+  }
+  const width = Math.abs(shortLeg.strikePrice - longLeg.strikePrice);
+  const credit = Math.round((shortLeg.bid - longLeg.ask) * 100) / 100;
+  if (credit <= 0) return { spread: null, reason: `spread would be a net debit (${credit}) \u2014 not a credit spread` };
+  const creditPct = credit / width * 100;
+  if (creditPct < cfg.creditSpreadMinCreditPct) {
+    return { spread: null, reason: `credit $${credit.toFixed(2)} is only ${creditPct.toFixed(0)}% of the $${width} width (need \u2265${cfg.creditSpreadMinCreditPct}%) \u2014 reward/risk too poor` };
+  }
+  const maxLoss = Math.round((width - credit) * 100 * 100) / 100;
+  const dte = daysUntil(shortLeg.expirationDate, now);
+  return { spread: { spreadType, optType, shortLeg, longLeg, credit, width, maxLoss, creditPct, dte }, reason: "" };
+}
+async function executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate) {
+  const dir = result.direction;
+  const { spread, reason } = await buildCreditSpread(service, underlyingSymbol, dir, cfg).catch((err) => ({ spread: null, reason: err?.message || "build error" }));
+  if (!spread) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: credit-spread signal (${dir === "up" ? "bull put" : "bear call"}) but ${reason}.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const equity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const riskPct = cfg.creditSpreadRiskPct / 100 * (gate.riskMultiplier < 1 ? gate.riskMultiplier : 1);
+  const riskDollars = equity * riskPct;
+  const quantity = Math.max(0, Math.floor(riskDollars / spread.maxLoss));
+  if (quantity < 1) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "skipped",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread has max loss $${spread.maxLoss.toFixed(0)}/spread, but ${cfg.creditSpreadRiskPct}% of $${equity.toFixed(0)} ($${riskDollars.toFixed(0)}) doesn't cover even one.`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  const legs = [
+    { optionSymbol: spread.shortLeg.symbol, side: "sell", ratioQty: 1, positionIntent: "sell_to_open" },
+    { optionSymbol: spread.longLeg.symbol, side: "buy", ratioQty: 1, positionIntent: "buy_to_open" }
+  ];
+  let order;
+  try {
+    order = await service.placeMultiLegOrder({ legs, quantity, netLimitPrice: -spread.credit, timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: underlyingSymbol,
+      decision: "error",
+      strategy: `${result.strategy}:credit_spread`,
+      reasoning: `${underlyingSymbol}: ${spread.spreadType} spread order failed (${spread.shortLeg.symbol} / ${spread.longLeg.symbol} x${quantity}): ${err.message}`,
+      score: result.score,
+      price: result.price,
+      dailyChangePercent: result.dailyChangePercent,
+      source: "alpaca"
+    });
+    return;
+  }
+  await storage.createOptionsEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    broker: "alpaca",
+    underlyingSymbol,
+    optionSymbol: spread.shortLeg.symbol,
+    strategy: `${result.strategy}:credit_spread`,
+    optionType: spread.optType,
+    quantity,
+    entryPrice: spread.credit,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open",
+    entryConfidence: result.score,
+    dte: spread.dte,
+    ivAtEntry: spread.shortLeg.impliedVolatility ?? null,
+    underlyingPriceAtEntry: result.price,
+    bidAskSpreadPct: null,
+    spreadType: spread.spreadType,
+    longLegSymbol: spread.longLeg.symbol,
+    netCredit: spread.credit,
+    maxLossPerSpread: spread.maxLoss
+  });
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: underlyingSymbol,
+    decision: "signal",
+    strategy: `${result.strategy}:credit_spread`,
+    reasoning: `${underlyingSymbol}: EXECUTED ${spread.spreadType.replace("_", " ")} x${quantity} \u2014 sold ${spread.shortLeg.strikePrice}${spread.optType[0].toUpperCase()} / bought ${spread.longLeg.strikePrice}${spread.optType[0].toUpperCase()} exp ${spread.shortLeg.expirationDate} (${spread.dte} DTE). Net credit $${spread.credit.toFixed(2)} on $${spread.width} width (${spread.creditPct.toFixed(0)}% of width), max loss $${spread.maxLoss.toFixed(0)}/spread. Short IV ${((spread.shortLeg.impliedVolatility ?? 0) * 100).toFixed(0)}%, ~${(Math.abs(spread.shortLeg.delta ?? 0) * 100).toFixed(0)}\u0394. Target: buy back at ${cfg.creditSpreadProfitTakePct}% of credit. ${result.reasoning}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "alpaca"
+  });
+}
 async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
   if (!result.direction) return;
   let account;
@@ -47767,6 +47986,10 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
       });
       return;
     }
+  }
+  if (cfg.creditSpreadEnabled || cfg.strategyMode === "credit_spread") {
+    await executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate);
+    return;
   }
   const contract = await resolveContract(service, underlyingSymbol, result.direction, cfg).catch(() => null);
   if (!contract || !contract.ask) {
@@ -47898,11 +48121,109 @@ function computeTrailFloorPercent(cfg, peakPnlPercent) {
       return -Infinity;
   }
 }
+async function manageCreditSpread(service, userId, cfg, connectionId, trade) {
+  const shortSym = trade.optionSymbol;
+  const longSym = trade.longLegSymbol;
+  const credit = trade.netCredit ?? trade.entryPrice;
+  const qty = trade.quantity;
+  const [sq, lq] = await Promise.all([
+    service.getOptionQuote(shortSym).catch(() => null),
+    service.getOptionQuote(longSym).catch(() => null)
+  ]);
+  if (!sq || !lq || sq.ask <= 0) {
+    const { expirationDate } = parseOccSymbol(shortSym, trade.underlyingSymbol);
+    const isPastExpiry = (/* @__PURE__ */ new Date(expirationDate + "T21:00:00Z")).getTime() < Date.now();
+    if (isPastExpiry) {
+      const live = await service.getPositions().catch(() => []);
+      const stillOpen = live.some((p) => p.symbol === shortSym || p.symbol === longSym);
+      if (!stillOpen) {
+        await storage.markOptionsEngineTradeFailed(trade.id, `credit spread expired ${expirationDate} \u2014 settled by broker; realized P&L not tracked here, check the Alpaca statement`);
+      }
+    }
+    return;
+  }
+  const closeCost = Math.round((sq.ask - lq.bid) * 100) / 100;
+  const closeMid = Math.round((sq.mid - lq.mid) * 100) / 100;
+  const capturedPct = credit > 0 ? (credit - closeCost) / credit * 100 : 0;
+  const dte = daysUntil(parseOccSymbol(shortSym, trade.underlyingSymbol).expirationDate, /* @__PURE__ */ new Date());
+  let exitReason = null;
+  if (closeCost <= credit * (1 - cfg.creditSpreadProfitTakePct / 100)) exitReason = "profit_target";
+  else if (closeCost >= credit * cfg.creditSpreadStopMultiple) exitReason = "stop_loss";
+  else if (dte <= 1) exitReason = "expiry_close";
+  if (!exitReason) return;
+  const legs = [
+    { optionSymbol: shortSym, side: "buy", ratioQty: 1, positionIntent: "buy_to_close" },
+    { optionSymbol: longSym, side: "sell", ratioQty: 1, positionIntent: "sell_to_close" }
+  ];
+  let closeOrder;
+  try {
+    closeOrder = await service.placeMultiLegOrder({ legs, quantity: qty, netLimitPrice: Math.max(0.01, closeCost), timeInForce: "day" });
+  } catch (err) {
+    await storage.createOptionsEngineActivity({
+      userId,
+      symbol: trade.underlyingSymbol,
+      decision: "error",
+      strategy: trade.strategy,
+      reasoning: `${trade.underlyingSymbol}: failed to close ${trade.spreadType} spread (${shortSym}/${longSym}): ${err.message}`,
+      score: null,
+      price: null,
+      dailyChangePercent: null,
+      source: "alpaca"
+    });
+    return;
+  }
+  const closeFill = closeMid > 0 ? closeMid : closeCost;
+  const realizedPnl = Math.round((credit - closeFill) * 100 * qty * 100) / 100;
+  await storage.closeOptionsEngineTrade(trade.id, { exitPrice: closeFill, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+  try {
+    const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+    await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
+  } catch {
+  }
+  await storage.createOptionsEngineActivity({
+    userId,
+    symbol: trade.underlyingSymbol,
+    decision: "signal",
+    strategy: trade.strategy,
+    reasoning: `${trade.underlyingSymbol}: CLOSED ${trade.spreadType} x${qty} @ net $${closeFill.toFixed(2)} debit (captured ${capturedPct.toFixed(0)}% of the $${credit.toFixed(2)} credit, ${exitReason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+    score: null,
+    price: null,
+    dailyChangePercent: null,
+    source: "alpaca"
+  });
+  try {
+    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { optionsBrainOutcomes: optionsBrainOutcomes2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+    const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+    await db2.insert(optionsBrainOutcomes2).values({
+      userId,
+      underlyingSymbol: trade.underlyingSymbol,
+      optionType: trade.optionType,
+      strategy: trade.strategy,
+      direction: trade.spreadType === "bull_put" ? "bullish" : "bearish",
+      entryConfidence: trade.entryConfidence ?? null,
+      returnPct: capturedPct,
+      hourUtc: (/* @__PURE__ */ new Date()).getUTCHours(),
+      holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+      exitReason,
+      result: realizedPnl > 0 ? "WIN" : realizedPnl < 0 ? "LOSS" : "BREAKEVEN",
+      profitLoss: realizedPnl,
+      contracts: qty,
+      source: "live",
+      closedAt: /* @__PURE__ */ new Date()
+    });
+  } catch {
+  }
+}
 async function monitorOpenPositions(service, userId, cfg, connectionId) {
   const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
   for (const trade of alpacaTrades) {
     try {
+      if (trade.spreadType && trade.longLegSymbol) {
+        await manageCreditSpread(service, userId, cfg, connectionId, trade);
+        continue;
+      }
       const quote = await service.getOptionQuote(trade.optionSymbol);
       if (!quote || quote.mid <= 0) {
         const { expirationDate } = parseOccSymbol(trade.optionSymbol, trade.underlyingSymbol);

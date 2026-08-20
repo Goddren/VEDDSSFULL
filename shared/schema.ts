@@ -1021,6 +1021,26 @@ export const optionsEngineConfigs = pgTable("options_engine_configs", {
   maxSpreadPct: doublePrecision("max_spread_pct").notNull().default(8), // reject a contract if (ask-bid)/mid exceeds this % — wide spreads eat the edge on both entry and exit
   minOpenInterest: integer("min_open_interest").notNull().default(50), // reject illiquid contracts below this open interest
 
+  // ── Premium-selling mode (defined-risk credit spreads) ────────────────────
+  // The proven options edge is SELLING premium (volatility risk premium), not
+  // buying it. This mode sells a vertical credit spread in the signal's direction
+  // (bullish→bull put spread, bearish→bear call spread): short a ~16-delta option,
+  // long one strike-width further OTM for a hard max loss. Gated on elevated IV
+  // (sell when premium is rich), ~30-45 DTE (theta sweet spot), sized off the
+  // DEFINED max loss, and auto-closed at 50% of credit captured. OFF by default;
+  // paper-first (multi-leg execution should be validated on a paper account).
+  creditSpreadEnabled: boolean("credit_spread_enabled").notNull().default(false),
+  creditSpreadShortDelta: doublePrecision("credit_spread_short_delta").notNull().default(0.16), // short-leg target delta (~84% POP)
+  creditSpreadWidthDollars: doublePrecision("credit_spread_width_dollars").notNull().default(5), // strike distance between short and long leg
+  creditSpreadDte: integer("credit_spread_dte").notNull().default(35), // target days-to-expiry for premium selling
+  creditSpreadDteMin: integer("credit_spread_dte_min").notNull().default(25),
+  creditSpreadDteMax: integer("credit_spread_dte_max").notNull().default(50),
+  creditSpreadMinIv: doublePrecision("credit_spread_min_iv").notNull().default(0.25), // IV floor (proxy for IV-rank) — only sell when premium is rich
+  creditSpreadProfitTakePct: doublePrecision("credit_spread_profit_take_pct").notNull().default(50), // buy back at 50% of credit captured
+  creditSpreadStopMultiple: doublePrecision("credit_spread_stop_multiple").notNull().default(2), // stop when the spread costs Nx the credit to close (loss = credit at 2x)
+  creditSpreadRiskPct: doublePrecision("credit_spread_risk_pct").notNull().default(2), // % of equity to risk per spread, off the DEFINED max loss
+  creditSpreadMinCreditPct: doublePrecision("credit_spread_min_credit_pct").notNull().default(20), // require credit ≥ this % of width (else risk/reward too poor)
+
   // Strategy-specific parameters
   orbRangeMinutes: integer("orb_range_minutes").notNull().default(15), // opening range window length
   volumeProfileLookbackDays: integer("volume_profile_lookback_days").notNull().default(10),
@@ -1170,6 +1190,14 @@ export const optionsEngineTrades = pgTable("options_engine_trades", {
   ivAtEntry: doublePrecision("iv_at_entry"), // raw implied volatility (0-1) at entry
   underlyingPriceAtEntry: doublePrecision("underlying_price_at_entry"),
   bidAskSpreadPct: doublePrecision("bid_ask_spread_pct"), // (ask-bid)/mid at entry, as a %
+  // ── Credit-spread (multi-leg) fields — null for single-leg trades. ────────
+  // optionSymbol holds the SHORT leg; longLegSymbol the protective long leg.
+  // entryPrice holds the net credit received per spread. P&L is measured off the
+  // credit (close for less than the credit = profit).
+  spreadType: text("spread_type"), // 'bull_put' | 'bear_call' | null (single-leg)
+  longLegSymbol: text("long_leg_symbol"),
+  netCredit: doublePrecision("net_credit"), // credit received per spread (dollars/share)
+  maxLossPerSpread: doublePrecision("max_loss_per_spread"), // (width - credit) * 100
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

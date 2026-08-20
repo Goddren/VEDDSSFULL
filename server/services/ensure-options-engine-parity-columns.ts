@@ -53,6 +53,24 @@ ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "dte" integer;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "iv_at_entry" double precision;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "underlying_price_at_entry" double precision;
 ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "bid_ask_spread_pct" double precision;
+
+-- Premium-selling (defined-risk credit spread) mode
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_short_delta" double precision NOT NULL DEFAULT 0.16;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_width_dollars" double precision NOT NULL DEFAULT 5;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte" integer NOT NULL DEFAULT 35;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte_min" integer NOT NULL DEFAULT 25;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_dte_max" integer NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_iv" double precision NOT NULL DEFAULT 0.25;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_profit_take_pct" double precision NOT NULL DEFAULT 50;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_stop_multiple" double precision NOT NULL DEFAULT 2;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_risk_pct" double precision NOT NULL DEFAULT 2;
+ALTER TABLE "options_engine_configs" ADD COLUMN IF NOT EXISTS "credit_spread_min_credit_pct" double precision NOT NULL DEFAULT 20;
+
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "spread_type" text;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "long_leg_symbol" text;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "net_credit" double precision;
+ALTER TABLE "options_engine_trades" ADD COLUMN IF NOT EXISTS "max_loss_per_spread" double precision;
 `;
 
 export async function ensureOptionsEngineParityColumns(): Promise<void> {
