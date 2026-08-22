@@ -40,7 +40,7 @@ import {
   BarChart3, Webhook, Wallet, Scan, Coins, KeyRound, Rocket, Brain, Shirt,
   Radio, Star, CheckCircle2, AlertTriangle, Loader2, ExternalLink, TrendingUp, Code2, Activity,
   DollarSign, Globe, Search, Shield, Flame, Calculator, Target, Link as LinkIcon, RefreshCcw,
-  PowerOff, LayoutDashboard, Copy, Layers, Bot, Server, Heart, Building2, Calendar,
+  PowerOff, LayoutDashboard, Copy, Layers, Bot, Server, Heart, Building2, Calendar, Cable,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 
@@ -351,7 +351,92 @@ const Header: React.FC = () => {
     { name: 'Notification Settings', path: '/notification-settings', active: location === '/notification-settings', icon: <Bell className="h-4 w-4 mr-2" /> },
   ];
 
-  const navItems = [...primaryNavItems, ...moreNavItems];
+  // Grouped tile menu (mobile-app style: colored icon tiles by category) for the
+  // slide-out. Uses lucide icon COMPONENTS (not the mr-2 JSX above) + a color.
+  const menuGroups: { title: string; items: { name: string; path: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }[] }[] = [
+    { title: 'Trading Engines', items: [
+      { name: 'Dashboard', path: '/dashboard', Icon: LayoutDashboard, color: '#ef4444' },
+      { name: 'Player HUD', path: '/vault', Icon: Rocket, color: '#f5c451' },
+      { name: 'AI SS Engine (FX)', path: '/weekly-strategy', Icon: Rocket, color: '#ef4444' },
+      { name: 'Options Engine', path: '/options-engine', Icon: TrendingUp, color: '#22c55e' },
+      { name: 'ORB Breakout', path: '/orb-breakout', Icon: Target, color: '#22c55e' },
+      { name: 'Futures Engine', path: '/futures-engine', Icon: Cable, color: '#f97316' },
+      { name: 'Crypto.com Engine', path: '/crypto-engine', Icon: Coins, color: '#f59e0b' },
+      { name: 'Multi-TF EA', path: '/multi-timeframe', Icon: Clock, color: '#f59e0b' },
+      { name: 'Kalshi Hub', path: '/kalshi', Icon: DollarSign, color: '#6366f1' },
+      { name: 'Predictions', path: '/polymarket-engine', Icon: DollarSign, color: '#3b82f6' },
+      { name: 'Copy Trading', path: '/copy-trading', Icon: Copy, color: '#06b6d4' },
+      { name: 'TradeLocker', path: '/webhooks#tradelocker', Icon: LinkIcon, color: '#06b6d4' },
+    ]},
+    { title: 'AI & Brains', items: [
+      { name: 'Kalshi Brain', path: '/kalshi-brain', Icon: Brain, color: '#a855f7' },
+      { name: 'ABBA', path: '/abba', Icon: Brain, color: '#a855f7' },
+      { name: 'Brain Market', path: '/brain-marketplace', Icon: Brain, color: '#8b5cf6' },
+      { name: 'AI Models', path: '/ai-trading-models', Icon: Brain, color: '#8b5cf6' },
+      { name: 'Analysis', path: '/analysis', Icon: LineChart, color: '#ef4444' },
+      { name: 'Strategy Wizard', path: '/strategy-wizard', Icon: Wand2, color: '#06b6d4' },
+      { name: 'SOL Scanner', path: '/solana-scanner', Icon: Scan, color: '#06b6d4' },
+      { name: 'Market Insights', path: '/market-insights', Icon: Newspaper, color: '#22c55e' },
+    ]},
+    { title: 'Risk & Accounts', items: [
+      { name: 'Ruin Cone', path: '/ruin-cone', Icon: Activity, color: '#ef4444' },
+      { name: 'Prop Firm', path: '/prop-firm-challenge', Icon: Shield, color: '#7c3aed' },
+      { name: 'Live Monitor', path: '/live-monitor', Icon: Radio, color: '#22c55e' },
+      { name: 'My EAs', path: '/my-eas', Icon: Briefcase, color: '#f59e0b' },
+      { name: 'Marketplace', path: '/ea-marketplace', Icon: Zap, color: '#ef4444' },
+      { name: 'MT5 Charts', path: '/mt5-chart-data', Icon: BarChart3, color: '#06b6d4' },
+      { name: 'Webhooks', path: '/webhooks', Icon: Webhook, color: '#3b82f6' },
+      { name: 'Paper Trades', path: '/paper-trades', Icon: BookOpen, color: '#34d399' },
+      { name: 'Historical', path: '/historical', Icon: History, color: '#8b5cf6' },
+      { name: 'What If', path: '/what-if', Icon: Lightbulb, color: '#06b6d4' },
+    ]},
+    { title: 'Wallet & Tokens', items: [
+      { name: 'My Wallet', path: '/my-wallet', Icon: Wallet, color: '#22c55e' },
+      { name: 'VEDD Wallet', path: '/vedd-wallet', Icon: Wallet, color: '#a855f7' },
+      { name: 'Tokenomics', path: '/vedd-tokenomics', Icon: Coins, color: '#f59e0b' },
+      { name: 'Credit Builder', path: '/credit-builder', Icon: Award, color: '#06b6d4' },
+      { name: 'Biz Credit', path: '/biz-builder', Icon: Building2, color: '#3b82f6' },
+      { name: 'Subscriptions', path: '/my-subscriptions', Icon: CreditCard, color: '#ef4444' },
+    ]},
+    { title: 'Community & Learn', items: [
+      { name: 'Community', path: '/community', Icon: Users, color: '#8b5cf6' },
+      { name: 'Activity Hub', path: '/activity', Icon: Flame, color: '#ef4444' },
+      { name: 'Workforce Acad.', path: '/workforce-academy', Icon: GraduationCap, color: '#06b6d4' },
+      { name: 'Achievements', path: '/achievements', Icon: Award, color: '#f59e0b' },
+      { name: 'Content Studio', path: '/ambassador/content-studio', Icon: Zap, color: '#a855f7' },
+      { name: 'Blog', path: '/blog', Icon: Newspaper, color: '#22c55e' },
+      { name: 'Devotional', path: '/devotional', Icon: Heart, color: '#ef4444' },
+      { name: 'VEDD Clothing', path: '/vedd-clothing', Icon: Shirt, color: '#f59e0b' },
+    ]},
+    { title: 'Account', items: [
+      { name: 'Profile', path: '/profile', Icon: User, color: '#9ca3af' },
+      { name: 'AI API Keys', path: '/ai-api-keys', Icon: KeyRound, color: '#06b6d4' },
+      { name: 'Alerts', path: '/mobile-alerts', Icon: Bell, color: '#f59e0b' },
+      { name: 'User Guide', path: '/user-guide', Icon: BookOpen, color: '#3b82f6' },
+      { name: 'Support', path: '/support', Icon: HelpCircle, color: '#a855f7' },
+      { name: 'Pricing', path: '/subscription', Icon: CreditCard, color: '#22c55e' },
+    ]},
+  ];
+
+  const renderTile = (item: { name: string; path: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }) => {
+    const active = location === item.path.split('#')[0];
+    const inner = (
+      <button
+        onClick={handleMobileNavClick}
+        className="flex flex-col items-center gap-1.5 w-full py-2.5 px-1.5 rounded-2xl transition-all active:scale-[0.9]"
+        style={{ background: active ? `${item.color}1a` : 'rgba(255,255,255,0.035)', border: `1.5px solid ${active ? item.color + '55' : 'rgba(255,255,255,0.07)'}`, minHeight: 76 }}
+      >
+        <span className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: `${item.color}20`, boxShadow: active ? `0 0 14px ${item.color}44` : 'none' }}>
+          <item.Icon className="h-[18px] w-[18px]" style={{ color: item.color }} />
+        </span>
+        <span className="text-[10px] font-semibold leading-tight text-center line-clamp-2 px-0.5" style={{ color: active ? item.color : 'rgba(255,255,255,0.65)' }}>{item.name}</span>
+      </button>
+    );
+    if (item.path.includes('#') || item.path.startsWith('http')) {
+      return <a key={item.path + item.name} href={item.path}>{inner}</a>;
+    }
+    return <Link key={item.path + item.name} href={item.path}>{inner}</Link>;
+  };
 
   const getUserInitials = () => {
     if (!user) return '?';
@@ -871,17 +956,14 @@ const Header: React.FC = () => {
                     </div>
                   )}
 
-                  {navItems.map(item => (
-                    <Link
-                      key={item.path}
-                      href={item.path}
-                      onClick={handleMobileNavClick}
-                      className={`text-lg font-medium transition-colors flex items-center ${item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                      data-testid={`mobile-nav-${item.path.substring(1)}`}
-                    >
-                      {item.icon}
-                      {item.name}
-                    </Link>
+                  {/* Section tiles — colored icon grid grouped by category (mobile-app style) */}
+                  {menuGroups.map(group => (
+                    <div key={group.title}>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{group.title}</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {group.items.map(renderTile)}
+                      </div>
+                    </div>
                   ))}
                   <Link
                     href="/profile"
