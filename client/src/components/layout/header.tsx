@@ -794,14 +794,16 @@ const Header: React.FC = () => {
               <SheetTrigger asChild>
                 <Button
                   variant="outline"
-                  size="icon"
-                  className="md:hidden rounded"
+                  size="sm"
+                  className="rounded gap-1.5"
                   data-testid="mobile-menu-button"
+                  title="All sections"
                 >
                   <Menu className="h-5 w-5" />
+                  <span className="hidden md:inline text-sm font-medium">Menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="right">
+              <SheetContent side="right" className="overflow-y-auto w-[88vw] sm:max-w-md">
                 <div className="flex flex-col gap-6 mt-10">
 
                   {/* ── Open in Phantom — deep-link into Phantom's in-app browser (hidden when already inside Phantom) ── */}
