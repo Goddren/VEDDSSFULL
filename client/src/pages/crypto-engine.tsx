@@ -166,9 +166,9 @@ function coinBase(symbol: string): string {
   return symbol.toUpperCase().replace(/[-_]/g, '').replace(/PERP$/, '').replace(/(USDT|USDC|USD)$/, '').toLowerCase() || symbol.toLowerCase();
 }
 
-// Coin logo with graceful fallback. Uses the static spothq cryptocurrency-icons
-// set on jsDelivr (keyed by lowercase symbol, ~500 coins); anything missing 404s
-// and falls back to a colored letter badge so the row never looks broken.
+// Coin logo with graceful fallback. Icons are SELF-HOSTED under /coins/{symbol}.png
+// (bundled in the app, no CDN/CSP dependency at runtime); anything missing falls
+// back to a colored letter badge so the row never looks broken.
 function CoinIcon({ symbol, size = 18 }: { symbol: string; size?: number }) {
   const base = coinBase(symbol);
   const [err, setErr] = useState(false);
@@ -181,7 +181,7 @@ function CoinIcon({ symbol, size = 18 }: { symbol: string; size?: number }) {
   }
   return (
     <img
-      src={`https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@1.0.0/32/color/${base}.png`}
+      src={`/coins/${base}.png`}
       onError={() => setErr(true)}
       width={size} height={size} loading="lazy"
       className="rounded-full shrink-0 bg-gray-800"
