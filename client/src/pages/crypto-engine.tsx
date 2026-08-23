@@ -36,7 +36,7 @@ type CryptocomEngineConfig = {
   isActive: boolean;
   symbols: string[];
   scanIntervalMs: number;
-  strategyMode: 'auto' | 'trend_following' | 'momentum' | 'order_flow';
+  strategyMode: 'auto' | 'trend_following' | 'momentum' | 'order_flow' | 'volume_profile' | 'breakout';
   directionFilter: 'long_only' | 'short_only' | 'both';
   maxOpenTrades: number;
   riskPerTrade: number;
@@ -52,6 +52,13 @@ type CryptocomEngineConfig = {
   useKellyCriterion: boolean;
   brainLearningMode: boolean;
   drawdownShieldThreshold: number;
+  enableCompositeAutonomous: boolean;
+  compositeMinEdgeScore: number;
+  cryptoBrainEnabled: boolean;
+  cryptoBrainGating: boolean;
+  ruinGuardEnabled: boolean;
+  dailyLossLimitPct: number;
+  maxDrawdownLimitPct: number;
   trailMethod: 'none' | 'fixed_r' | 'stepped_fixed' | 'profit_lock' | 'chandelier' | 'parabolic_sar' | 'r_multiple' | 'swing_structure';
   trailActivationR: number;
   trailFixedR: number;
@@ -375,6 +382,8 @@ export default function CryptoEnginePage() {
                               <SelectItem value="trend_following">Trend Following</SelectItem>
                               <SelectItem value="momentum">Momentum</SelectItem>
                               <SelectItem value="order_flow">Order Flow / CVD Proxy</SelectItem>
+                              <SelectItem value="volume_profile">Volume Profile (POC / Value Area)</SelectItem>
+                              <SelectItem value="breakout">Breakout (N-period high/low)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -403,6 +412,37 @@ export default function CryptoEnginePage() {
                               <SelectItem value="rule_based">Rule-based only (no AI cost)</SelectItem>
                             </SelectContent>
                           </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ── Engine Intelligence & Safety (parity with FX/Kalshi/Options) ── */}
+                    <div>
+                      <h4 className="text-[11px] font-bold text-emerald-400 uppercase tracking-wide mb-3">Engine Intelligence & Safety</h4>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/20 px-3 py-2">
+                          <div><Label className="text-xs text-white">Self-learning brain</Label><p className="text-[10px] text-gray-500">Reweights sizing by per-symbol win rate</p></div>
+                          <Switch checked={config.cryptoBrainEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ cryptoBrainEnabled: v })} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/20 px-3 py-2">
+                          <div><Label className="text-xs text-white">Brain gating</Label><p className="text-[10px] text-gray-500">Hard-block proven-losing symbols/hours</p></div>
+                          <Switch checked={config.cryptoBrainGating} onCheckedChange={(v) => updateConfigMutation.mutate({ cryptoBrainGating: v })} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-gray-800 bg-black/20 px-3 py-2">
+                          <div><Label className="text-xs text-white">Composite autonomous</Label><p className="text-[10px] text-gray-500">Trade multi-strategy consensus</p></div>
+                          <Switch checked={config.enableCompositeAutonomous} onCheckedChange={(v) => updateConfigMutation.mutate({ enableCompositeAutonomous: v })} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-gray-400">Composite min edge score</Label>
+                          <Input type="number" min={50} max={100} defaultValue={config.compositeMinEdgeScore} onBlur={(e) => updateConfigMutation.mutate({ compositeMinEdgeScore: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
+                          <div><Label className="text-xs text-white">Ruin Guard</Label><p className="text-[10px] text-gray-500">Hard halt on daily-loss / drawdown limit</p></div>
+                          <Switch checked={config.ruinGuardEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ ruinGuardEnabled: v })} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1"><Label className="text-[11px] text-gray-400">Daily loss %</Label><Input type="number" step="0.5" defaultValue={config.dailyLossLimitPct} onBlur={(e) => updateConfigMutation.mutate({ dailyLossLimitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                          <div className="space-y-1"><Label className="text-[11px] text-gray-400">Max DD %</Label><Input type="number" step="0.5" defaultValue={config.maxDrawdownLimitPct} onBlur={(e) => updateConfigMutation.mutate({ maxDrawdownLimitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                         </div>
                       </div>
                     </div>

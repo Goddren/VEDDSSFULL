@@ -1176,6 +1176,18 @@ var init_schema = __esm({
       maxDailyProfitPctOfTotal: doublePrecision("max_daily_profit_pct_of_total").notNull().default(0),
       smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
       highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
+      // ── Parity with the FX/Kalshi/Options engines ─────────────────────────────
+      enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false),
+      // trade the multi-strategy consensus when no single strategy clears its bar
+      compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
+      cryptoBrainEnabled: boolean("crypto_brain_enabled").notNull().default(true),
+      // self-learning brain reweights sizing (bounded); learning always records
+      cryptoBrainGating: boolean("crypto_brain_gating").notNull().default(false),
+      // opt-in: hard-block symbols/strategies/hours the brain proved lose
+      ruinGuardEnabled: boolean("ruin_guard_enabled").notNull().default(false),
+      // hard circuit breaker (halts new trades) vs the drawdown-shield down-size
+      dailyLossLimitPct: doublePrecision("daily_loss_limit_pct").notNull().default(5),
+      maxDrawdownLimitPct: doublePrecision("max_drawdown_limit_pct").notNull().default(10),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -46840,6 +46852,56 @@ CREATE TABLE IF NOT EXISTS "cryptocom_engine_trades" (
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
 );
+
+-- Parity columns (composite entries, self-learning brain, ruin guard)
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "enable_composite_autonomous" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "composite_min_edge_score" double precision NOT NULL DEFAULT 72;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "crypto_brain_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "crypto_brain_gating" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "ruin_guard_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "daily_loss_limit_pct" double precision NOT NULL DEFAULT 5;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "max_drawdown_limit_pct" double precision NOT NULL DEFAULT 10;
+`;
+  }
+});
+
+// server/services/ensure-crypto-brain-table.ts
+var ensure_crypto_brain_table_exports = {};
+__export(ensure_crypto_brain_table_exports, {
+  ensureCryptoBrainTable: () => ensureCryptoBrainTable
+});
+async function ensureCryptoBrainTable() {
+  try {
+    await pool.query(DDL16);
+    console.log("[startup] Crypto brain feature store ensured (crypto_brain_outcomes) \u2014 per-trade learning now durable.");
+  } catch (err) {
+    console.error("[startup] ensureCryptoBrainTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL16;
+var init_ensure_crypto_brain_table = __esm({
+  "server/services/ensure-crypto-brain-table.ts"() {
+    "use strict";
+    init_db();
+    DDL16 = `
+CREATE TABLE IF NOT EXISTS "crypto_brain_outcomes" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "symbol" text NOT NULL,
+  "strategy" text NOT NULL,
+  "direction" text NOT NULL,
+  "entry_confidence" double precision,
+  "return_pct" double precision,
+  "hour_utc" integer,
+  "holding_minutes" integer,
+  "exit_reason" text,
+  "result" text NOT NULL,
+  "profit_loss" double precision NOT NULL DEFAULT 0,
+  "source" text NOT NULL DEFAULT 'live',
+  "closed_at" timestamp DEFAULT now() NOT NULL,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_crypto_brain_outcomes_user_symbol" ON "crypto_brain_outcomes" ("user_id", "symbol");
 `;
   }
 });
@@ -46851,18 +46913,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL16);
+    await pool.query(DDL17);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL16;
+var DDL17;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL16 = `
+    DDL17 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -46890,18 +46952,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -46923,18 +46985,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -46965,18 +47027,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47000,18 +47062,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47030,18 +47092,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -47058,18 +47120,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -47150,18 +47212,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -48835,6 +48897,155 @@ var init_options_scanner = __esm({
   }
 });
 
+// server/services/crypto-brain.ts
+function bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult(winRate2, rr, trades) {
+  if (trades < MIN_TRADES) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
+     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.realized_pnl) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
+      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromCryptoTrades(userId) {
+  await backfillIfEmpty(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym = r.symbol || "UNKNOWN";
+    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k.totalTrades++;
+    k.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k.wins++;
+      totalWins++;
+      winSum[sym] = (winSum[sym] ?? 0) + pnl;
+      winN[sym] = (winN[sym] ?? 0) + 1;
+    }
+    if (loss) {
+      k.losses++;
+      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
+      lossN[sym] = (lossN[sym] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump(k.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym, k] of Object.entries(symbols)) {
+    const decided = k.wins + k.losses;
+    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
+    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
+    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym, k] of Object.entries(symbols)) {
+    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache3.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshCryptoBrain(userId, force = false) {
+  const hit = _cache3.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
+  return learnFromCryptoTrades(userId);
+}
+function cryptoBrainSizeMultiplier(userId, symbol) {
+  const k = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k ? k.recommendedSizeMultiplier : 1;
+}
+function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
+  const k = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordCryptoBrainOutcome(o) {
+  try {
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction,
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss
+      ]
+    );
+    await learnFromCryptoTrades(o.userId);
+  } catch (err) {
+    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES, REFRESH_TTL_MS2, _cache3;
+var init_crypto_brain = __esm({
+  "server/services/crypto-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES = 10;
+    REFRESH_TTL_MS2 = 60 * 1e3;
+    _cache3 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/cryptocom-scanner.ts
 var cryptocom_scanner_exports = {};
 __export(cryptocom_scanner_exports, {
@@ -48908,12 +49119,124 @@ async function runMomentum2(symbol, cfg) {
   }
   return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
 }
+async function runOrderFlow2(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "5m", 60);
+  if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const win = c.slice(-30);
+  let pv = 0, vv = 0;
+  for (const b of win) {
+    const tp = (b.h + b.l + b.c) / 3;
+    pv += tp * (b.v ?? 0);
+    vv += b.v ?? 0;
+  }
+  const vwap = vv > 0 ? pv / vv : price;
+  const delta = win.map((b) => (b.c >= b.o ? 1 : -1) * (b.v ?? 0));
+  const mid = Math.floor(delta.length / 2);
+  const cvdFirst = delta.slice(0, mid).reduce((s, d) => s + d, 0);
+  const cvdSecond = delta.slice(mid).reduce((s, d) => s + d, 0);
+  const cvdShiftPct = vv > 0 ? (cvdSecond - cvdFirst) / vv * 100 : 0;
+  const rangePct = (Math.max(...win.map((b) => b.h)) - Math.min(...win.map((b) => b.l))) / price * 100;
+  const last = win[win.length - 1];
+  let direction = null;
+  if (rangePct >= 0.8 && price > vwap && cvdShiftPct > 0 && last.c >= last.o) direction = "BUY";
+  else if (rangePct >= 0.8 && price < vwap && cvdShiftPct < 0 && last.c <= last.o) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: order flow balanced (range ${rangePct.toFixed(2)}%, CVD shift ${cvdShiftPct.toFixed(1)}%, price ${price > vwap ? "above" : "below"} VWAP).`, score: 45, price, dailyChangePercent, strategy: "order_flow" };
+  const score = Math.round(Math.min(92, 60 + Math.min(20, Math.abs(cvdShiftPct)) + Math.min(12, rangePct)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} order-flow read, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "order_flow" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} order flow (CVD ${cvdShiftPct.toFixed(1)}%) but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "order_flow" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "order_flow", direction, reasoning: `${symbol}: ${direction} order flow \u2014 CVD shift ${cvdShiftPct.toFixed(1)}%, price ${direction === "BUY" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, ${rangePct.toFixed(2)}% range. Score ${score}/100.` };
+}
+async function runVolumeProfile2(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "15m", 96);
+  if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const hi = Math.max(...c.map((b) => b.h)), lo = Math.min(...c.map((b) => b.l));
+  const bins = 24, binSize = (hi - lo) / bins || 1;
+  const vol = new Array(bins).fill(0);
+  for (const b of c) {
+    const tp = (b.h + b.l + b.c) / 3;
+    let i = Math.floor((tp - lo) / binSize);
+    i = Math.max(0, Math.min(bins - 1, i));
+    vol[i] += b.v ?? 0;
+  }
+  const total = vol.reduce((a, b) => a + b, 0) || 1;
+  let poc = 0;
+  for (let i = 1; i < bins; i++) if (vol[i] > vol[poc]) poc = i;
+  let inc = vol[poc], loI = poc, hiI = poc;
+  while (inc < total * 0.7 && (loI > 0 || hiI < bins - 1)) {
+    const d = loI > 0 ? vol[loI - 1] : -1;
+    const u = hiI < bins - 1 ? vol[hiI + 1] : -1;
+    if (u >= d) {
+      hiI++;
+      inc += vol[hiI];
+    } else {
+      loI--;
+      inc += vol[loI];
+    }
+  }
+  const VAL = lo + loI * binSize, VAH = lo + (hiI + 1) * binSize;
+  const avgVol = total / c.length, recentVol = c.slice(-3).reduce((s, b) => s + (b.v ?? 0), 0) / 3;
+  const volConfirm = recentVol > avgVol;
+  let direction = null;
+  if (price > VAH && volConfirm) direction = "BUY";
+  else if (price < VAL && volConfirm) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside/at value area $${VAL.toFixed(2)}\u2013$${VAH.toFixed(2)} or volume not confirming \u2014 no VP edge.`, score: 46, price, dailyChangePercent, strategy: "volume_profile" };
+  const dist = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
+  const score = Math.round(Math.max(55, Math.min(90, 60 + dist * 8)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} VP breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "volume_profile" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} VP breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "volume_profile" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "volume_profile", direction, reasoning: `${symbol}: ${direction} value-area ${direction === "BUY" ? "breakout above " + VAH.toFixed(2) : "breakdown below " + VAL.toFixed(2)} (POC ~$${(lo + (poc + 0.5) * binSize).toFixed(2)}), volume confirming. Score ${score}/100.` };
+}
+async function runBreakout2(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "1h", 60);
+  if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const lookback = 20;
+  const prior = c.slice(-(lookback + 1), -1);
+  const priorHigh = Math.max(...prior.map((b) => b.h)), priorLow = Math.min(...prior.map((b) => b.l));
+  const avgVol = prior.reduce((s, b) => s + (b.v ?? 0), 0) / prior.length;
+  const last = c[c.length - 1];
+  let direction = null;
+  if (last.c > priorHigh) direction = "BUY";
+  else if (last.c < priorLow) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside its ${lookback}h range $${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)} \u2014 no breakout.`, score: 45, price, dailyChangePercent, strategy: "breakout" };
+  const volConfirm = (last.v ?? 0) > avgVol;
+  if (!volConfirm) return { decision: "watching", reasoning: `${symbol}: ${direction} breakout of ${lookback}h range but volume not confirming (${Math.round(last.v ?? 0)} vs avg ${Math.round(avgVol)}).`, score: 52, price, dailyChangePercent, strategy: "breakout" };
+  const score = Math.round(Math.min(90, 65 + Math.min(20, Math.abs(last.c - (direction === "BUY" ? priorHigh : priorLow)) / price * 2e3)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "breakout" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
+}
 async function scanSymbol2(symbol, cfg) {
   if (cfg.strategyMode === "auto") {
-    const results = await Promise.all(["trend_following", "momentum"].map((k) => STRATEGY_RUNNERS2[k](symbol, cfg).catch(() => null)));
+    const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS2[k](symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
+    if (cfg.enableCompositeAutonomous) {
+      const dir = valid.filter((r) => r.direction);
+      const buys = dir.filter((r) => r.direction === "BUY"), sells = dir.filter((r) => r.direction === "SELL");
+      const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
+      if (side.length >= 2) {
+        const composite = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
+        const floor = cfg.compositeMinEdgeScore ?? 72;
+        if (composite >= floor) {
+          const direction = side[0].direction;
+          const allowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+          if (allowed) return { decision: "signal", score: composite, price: side[0].price, dailyChangePercent: side[0].dailyChangePercent, strategy: "composite_autonomous", direction, reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${side.length} strategies agree ${direction}, blended ${composite}/100 (floor ${floor}).` };
+        }
+      }
+    }
     const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (watching.length > 0) return watching[0];
     return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
@@ -48921,10 +49244,18 @@ async function scanSymbol2(symbol, cfg) {
   const runner = STRATEGY_RUNNERS2[cfg.strategyMode] || runTrendFollowing;
   return runner(symbol, cfg);
 }
-async function computeCryptocomQuantity(userId, cfg, accountBalance, price) {
+async function computeCryptocomQuantity(userId, cfg, accountBalance, price, symbol) {
   if (!price || price <= 0 || accountBalance <= 0) return { quantity: 0, reasoning: "" };
   const riskAmount = accountBalance * (cfg.riskPerTrade / 100) * cfg.leverage;
-  const baseQty = Math.max(0, Math.round(riskAmount / price * 1e3) / 1e3);
+  let baseQty = Math.max(0, Math.round(riskAmount / price * 1e3) / 1e3);
+  let brainNote = "";
+  if (cfg.cryptoBrainEnabled !== false && symbol) {
+    const bm = cryptoBrainSizeMultiplier(userId, symbol);
+    if (bm !== 1) {
+      baseQty = Math.round(baseQty * bm * 1e3) / 1e3;
+      brainNote = ` \u{1F9E0} Brain ${bm}\xD7 (${symbol}).`;
+    }
+  }
   if (cfg.brainLearningMode) {
     const stats = await storage.getCryptocomEngineTradeStats(userId);
     const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
@@ -48933,16 +49264,16 @@ async function computeCryptocomQuantity(userId, cfg, accountBalance, price) {
     }
     if (cfg.useKellyCriterion) {
       const fractionalKelly = stats.winRate / 100 * 0.25;
-      return { quantity: baseQty * (1 + fractionalKelly), reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.` };
+      return { quantity: baseQty * (1 + fractionalKelly), reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.${brainNote}` };
     }
-    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.` };
+    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.${brainNote}` };
   }
   if (cfg.useKellyCriterion) {
     const stats = await storage.getCryptocomEngineTradeStats(userId);
     const fractionalKelly = stats.winRate / 100 * 0.25;
-    return { quantity: baseQty * (1 + fractionalKelly), reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).` };
+    return { quantity: baseQty * (1 + fractionalKelly), reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).${brainNote}` };
   }
-  return { quantity: baseQty, reasoning: "" };
+  return { quantity: baseQty, reasoning: brainNote.trim() };
 }
 function computeTrailFloorR(cfg, peakR) {
   switch (cfg.trailMethod) {
@@ -49022,6 +49353,27 @@ async function closePosition2(userId, trade, currentPrice, reason) {
       dailyChangePercent: null,
       source: "cryptocom"
     });
+    try {
+      await recordRealizedPnl(userId, trade.connectionId, "cryptocom", realizedPnl);
+    } catch {
+    }
+    try {
+      const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
+      const returnPct = notional > 0 ? realizedPnl / notional * 100 : 0;
+      const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+      await recordCryptoBrainOutcome({
+        userId,
+        symbol: trade.symbol,
+        strategy: trade.strategy || "unknown",
+        direction: trade.direction,
+        entryConfidence: trade.entryConfidence ?? null,
+        returnPct,
+        holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+        exitReason: reason,
+        profitLoss: realizedPnl
+      });
+    } catch {
+    }
   } catch (err) {
     console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
   }
@@ -49046,6 +49398,17 @@ async function checkSafetyGates2(userId, cfg, equity) {
     sessionPeakEquity2.set(userId, peak);
     const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.ruinGuardEnabled) {
+      const base = cfg.accountBalance > 0 ? cfg.accountBalance : equity;
+      const dailyLimitPct = cfg.dailyLossLimitPct ?? 5;
+      const maxDdPct = cfg.maxDrawdownLimitPct ?? 10;
+      if (dailyLimitPct > 0 && todayPnl <= -(base * dailyLimitPct / 100)) {
+        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: daily P&L hit the \u2212${dailyLimitPct}% limit \u2014 halted until next UTC day`, riskMultiplier: 1 };
+      }
+      if (maxDdPct > 0 && ddFromPeakPct >= maxDdPct) {
+        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: drawdown ${ddFromPeakPct.toFixed(1)}% from peak hit the ${maxDdPct}% max-DD limit \u2014 halted until equity recovers`, riskMultiplier: 1 };
+      }
+    }
     if (cfg.consistencyEnforcementEnabled) {
       const history = await storage.getCryptocomEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
       const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
@@ -49150,7 +49513,7 @@ async function executeSignal2(service, connection2, userId, symbol, result, cfg)
     return;
   }
   const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price);
+  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price, symbol);
   if (quantity <= 0) {
     await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
     return;
@@ -49212,6 +49575,8 @@ async function scanOneUser2(userId) {
     return;
   }
   await monitorOpenPositions2(userId, config).catch((e) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
+  if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
+  });
   const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
   const symbols = Array.isArray(config.symbols) ? config.symbols : [];
   for (const symbol of symbols) {
@@ -49219,6 +49584,13 @@ async function scanOneUser2(userId) {
       const result = await scanSymbol2(symbol, config);
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: result.decision, reasoning: result.reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom", strategy: result.strategy });
       if (result.decision === "signal" && canAutoExecute) {
+        if (config.cryptoBrainEnabled !== false && config.cryptoBrainGating) {
+          const g = cryptoBrainGate(userId, symbol, result.strategy, (/* @__PURE__ */ new Date()).getUTCHours());
+          if (g.blocked) {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: g.reason, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+            continue;
+          }
+        }
         const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
         if (tradeAllowed) {
           await executeSignal2(service, activeConn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
@@ -49251,19 +49623,25 @@ function startCryptocomEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, STRATEGY_RUNNERS2, sessionPeakEquity2, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started3;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
     init_storage();
     init_cryptocom();
     init_indicators();
+    init_crypto_brain();
+    init_prop_firm_consistency();
     MIN_SCAN_INTERVAL_MS2 = 3e4;
     lastScanAt2 = /* @__PURE__ */ new Map();
     STRATEGY_RUNNERS2 = {
       trend_following: runTrendFollowing,
-      momentum: runMomentum2
+      momentum: runMomentum2,
+      order_flow: runOrderFlow2,
+      volume_profile: runVolumeProfile2,
+      breakout: runBreakout2
     };
+    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
     sessionPeakEquity2 = /* @__PURE__ */ new Map();
     started3 = false;
   }
@@ -80536,6 +80914,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCryptocomEngineTables2();
   } catch (err) {
     console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureCryptoBrainTable: ensureCryptoBrainTable2 } = await Promise.resolve().then(() => (init_ensure_crypto_brain_table(), ensure_crypto_brain_table_exports));
+    await ensureCryptoBrainTable2();
+  } catch (err) {
+    console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));

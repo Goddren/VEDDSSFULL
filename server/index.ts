@@ -354,6 +354,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureCryptocomEngineTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureCryptoBrainTable } = await import('./services/ensure-crypto-brain-table');
+    await ensureCryptoBrainTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {

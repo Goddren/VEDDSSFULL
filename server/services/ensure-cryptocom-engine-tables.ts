@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS "cryptocom_engine_trades" (
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
 );
+
+-- Parity columns (composite entries, self-learning brain, ruin guard)
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "enable_composite_autonomous" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "composite_min_edge_score" double precision NOT NULL DEFAULT 72;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "crypto_brain_enabled" boolean NOT NULL DEFAULT true;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "crypto_brain_gating" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "ruin_guard_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "daily_loss_limit_pct" double precision NOT NULL DEFAULT 5;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "max_drawdown_limit_pct" double precision NOT NULL DEFAULT 10;
 `;
 
 export async function ensureCryptocomEngineTables(): Promise<void> {

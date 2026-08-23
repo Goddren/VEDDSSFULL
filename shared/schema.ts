@@ -924,6 +924,15 @@ export const cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
   smartSymbolEscalation: boolean("smart_symbol_escalation").notNull().default(false),
   highConfidenceOverride: boolean("high_confidence_override").notNull().default(false),
 
+  // ── Parity with the FX/Kalshi/Options engines ─────────────────────────────
+  enableCompositeAutonomous: boolean("enable_composite_autonomous").notNull().default(false), // trade the multi-strategy consensus when no single strategy clears its bar
+  compositeMinEdgeScore: doublePrecision("composite_min_edge_score").notNull().default(72),
+  cryptoBrainEnabled: boolean("crypto_brain_enabled").notNull().default(true),  // self-learning brain reweights sizing (bounded); learning always records
+  cryptoBrainGating: boolean("crypto_brain_gating").notNull().default(false),   // opt-in: hard-block symbols/strategies/hours the brain proved lose
+  ruinGuardEnabled: boolean("ruin_guard_enabled").notNull().default(false),     // hard circuit breaker (halts new trades) vs the drawdown-shield down-size
+  dailyLossLimitPct: doublePrecision("daily_loss_limit_pct").notNull().default(5),
+  maxDrawdownLimitPct: doublePrecision("max_drawdown_limit_pct").notNull().default(10),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
