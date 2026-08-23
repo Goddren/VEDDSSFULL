@@ -161,6 +161,35 @@ const COMMON_SYMBOLS = [
   'ENAUSD-PERP', 'JUPUSD-PERP', 'PYTHUSD-PERP', 'ONDOUSD-PERP', 'JASMYUSD-PERP',
 ];
 
+// Base coin from an engine symbol: 'BTCUSD-PERP' -> 'btc'
+function coinBase(symbol: string): string {
+  return symbol.toUpperCase().replace(/[-_]/g, '').replace(/PERP$/, '').replace(/(USDT|USDC|USD)$/, '').toLowerCase() || symbol.toLowerCase();
+}
+
+// Coin logo with graceful fallback. Uses the static spothq cryptocurrency-icons
+// set on jsDelivr (keyed by lowercase symbol, ~500 coins); anything missing 404s
+// and falls back to a colored letter badge so the row never looks broken.
+function CoinIcon({ symbol, size = 18 }: { symbol: string; size?: number }) {
+  const base = coinBase(symbol);
+  const [err, setErr] = useState(false);
+  if (err) {
+    return (
+      <span style={{ width: size, height: size }} className="inline-flex items-center justify-center rounded-full bg-gray-700 text-[8px] font-bold text-gray-300 shrink-0">
+        {base.slice(0, 3).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={`https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@1.0.0/32/color/${base}.png`}
+      onError={() => setErr(true)}
+      width={size} height={size} loading="lazy"
+      className="rounded-full shrink-0 bg-gray-800"
+      alt={base}
+    />
+  );
+}
+
 export default function CryptoEnginePage() {
   const { toast } = useToast();
 
@@ -1045,6 +1074,7 @@ export default function CryptoEnginePage() {
                                       className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs border text-left ${on ? 'bg-blue-500/15 border-blue-500/50 text-blue-100' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}`}
                                     >
                                       <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] shrink-0 ${on ? 'bg-blue-500 text-white' : 'border border-gray-600'}`}>{on ? '✓' : ''}</span>
+                                      <CoinIcon symbol={s} />
                                       {s.replace('USD-PERP', '')}
                                     </button>
                                   );
@@ -1056,7 +1086,8 @@ export default function CryptoEnginePage() {
                           {(config.symbols || []).length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
                               {config.symbols.map((s) => (
-                                <span key={s} className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[11px] px-2 py-0.5">
+                                <span key={s} className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[11px] pl-1 pr-2 py-0.5">
+                                  <CoinIcon symbol={s} size={14} />
                                   {s.replace('USD-PERP', '')}
                                   <button
                                     type="button"
