@@ -229,10 +229,14 @@ export default function CryptoEnginePage() {
   });
   const dfSave = useMutation({
     mutationFn: async (payload: { address: string; walletType?: string }) => {
-      const r = await apiRequest('POST', '/api/defi/connect', payload);
+      // WalletConnect returns CAIP accounts (e.g. "eip155:1:0xabc…"); extract the
+      // plain 0x…40hex the server expects, else it 400s.
+      const m = String(payload.address || '').match(/0x[a-fA-F0-9]{40}/);
+      if (!m) throw new Error(`Couldn't read a valid 0x address from the wallet (${String(payload.address).slice(0, 40)}).`);
+      const r = await apiRequest('POST', '/api/defi/connect', { ...payload, address: m[0].toLowerCase() });
       if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json();
     },
-    onSuccess: () => { setDfManual(''); setDfMsg(null); queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }); },
+    onSuccess: () => { setDfManual(''); setDfMsg('Wallet added ✓ loading balances…'); queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }); },
     onError: (e: any) => setDfMsg(e.message),
   });
   const dfRemove = useMutation({
