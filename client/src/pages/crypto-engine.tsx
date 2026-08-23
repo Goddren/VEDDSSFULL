@@ -260,21 +260,30 @@ export default function CryptoEnginePage() {
       const cfg = await (await apiRequest('GET', '/api/defi/walletconnect-config')).json();
       if (!cfg?.projectId) { setDfMsg('WalletConnect isn’t configured yet — set WALLETCONNECT_PROJECT_ID in the server env (free at cloud.reown.com), then reload.'); return; }
       const { EthereumProvider } = await import('@walletconnect/ethereum-provider');
-      const provider = await EthereumProvider.init({
+      const provider: any = await EthereumProvider.init({
         projectId: cfg.projectId,
         chains: [1],
         optionalChains: [8453, 42161, 10, 137],
         showQrModal: true,
+        qrModalOptions: { themeMode: 'dark' },
         metadata: {
           name: 'VEDD', description: 'VEDD Trading Vault',
           url: typeof window !== 'undefined' ? window.location.origin : 'https://veddbuild.com',
-          icons: [],
+          icons: ['https://veddbuild.com/icons/icon-192x192.png'],
         },
       });
-      setDfMsg('Scan the QR with your mobile wallet…');
-      await provider.connect();
-      const address = provider.accounts?.[0];
-      if (!address) { setDfMsg('No account returned by WalletConnect.'); return; }
+      // If a stale session is cached, clear it so the QR always shows fresh.
+      if (provider.session) { try { await provider.disconnect(); } catch { /* ignore */ } }
+      setDfMsg('Scan the QR with your mobile wallet, then approve…');
+      // enable() opens the modal AND resolves with the approved accounts.
+      let accts: string[] = [];
+      try { accts = await provider.enable(); } catch (e: any) {
+        setDfMsg(e?.message?.includes('rejected') || e?.message?.includes('closed') ? 'Connection cancelled in the wallet.' : (e?.message || 'WalletConnect handshake failed.'));
+        return;
+      }
+      const address = accts?.[0] || provider.accounts?.[0] || (await provider.request({ method: 'eth_accounts' }).catch(() => []))?.[0];
+      if (!address) { setDfMsg('Connected, but no account was returned. Reopen the wallet and approve account access.'); return; }
+      setDfMsg('Wallet connected ✓ loading balances…');
       dfSave.mutate({ address, walletType: 'WalletConnect' });
     } catch (e: any) {
       setDfMsg(e?.message || 'WalletConnect connection failed.');
