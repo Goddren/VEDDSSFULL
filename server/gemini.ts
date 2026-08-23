@@ -21,9 +21,9 @@ export class GeminiService {
     this.secret = secret;
   }
 
-  private async privatePost(endpoint: string): Promise<any> {
+  private async privatePost(endpoint: string, params: Record<string, any> = {}): Promise<any> {
     const nonce = Date.now();
-    const payload = { request: endpoint, nonce };
+    const payload = { request: endpoint, nonce, ...params };
     const b64 = Buffer.from(JSON.stringify(payload)).toString('base64');
     const signature = crypto.createHmac('sha384', this.secret).update(b64).digest('hex');
     const res = await fetch(`${API_HOST}${endpoint}`, {
@@ -70,6 +70,26 @@ export class GeminiService {
 
     balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
     return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+  }
+
+  /**
+   * Place an order. Requires "Trading" scope on the key. Gemini's API is
+   * limit-only ("exchange limit"); a market-style fill is an immediate-or-cancel
+   * limit at an aggressive price. Caller supplies the limit price either way.
+   *  - symbol: e.g. 'btcusd'
+   *  - side: 'buy' | 'sell'
+   *  - amount: base amount (coin)
+   *  - price: limit price (required by Gemini)
+   *  - immediateOrCancel: true = market-like (fills now or cancels the rest)
+   */
+  async placeOrder(o: { symbol: string; side: 'buy' | 'sell'; amount: number; price: number; immediateOrCancel?: boolean }): Promise<{ orderId: string; executedAmount: number; isLive: boolean; raw: any }> {
+    if (!o.price) throw new Error('Gemini requires a limit price (its API is limit-only)');
+    const params: Record<string, any> = {
+      symbol: o.symbol.toLowerCase(), amount: String(o.amount), price: String(o.price), side: o.side, type: 'exchange limit',
+    };
+    if (o.immediateOrCancel) params.options = ['immediate-or-cancel'];
+    const data = await this.privatePost('/v1/order/new', params);
+    return { orderId: String(data?.order_id ?? ''), executedAmount: parseFloat(data?.executed_amount ?? '0') || 0, isLive: !!data?.is_live, raw: data };
   }
 
   async test(): Promise<{ ok: true; assetCount: number }> {

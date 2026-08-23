@@ -37671,9 +37671,9 @@ var init_gemini = __esm({
         this.apiKey = apiKey;
         this.secret = secret;
       }
-      async privatePost(endpoint) {
+      async privatePost(endpoint, params = {}) {
         const nonce = Date.now();
-        const payload2 = { request: endpoint, nonce };
+        const payload2 = { request: endpoint, nonce, ...params };
         const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
         const signature = crypto11.createHmac("sha384", this.secret).update(b64).digest("hex");
         const res = await fetch(`${API_HOST2}${endpoint}`, {
@@ -37722,6 +37722,29 @@ var init_gemini = __esm({
         }
         balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
         return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+      }
+      /**
+       * Place an order. Requires "Trading" scope on the key. Gemini's API is
+       * limit-only ("exchange limit"); a market-style fill is an immediate-or-cancel
+       * limit at an aggressive price. Caller supplies the limit price either way.
+       *  - symbol: e.g. 'btcusd'
+       *  - side: 'buy' | 'sell'
+       *  - amount: base amount (coin)
+       *  - price: limit price (required by Gemini)
+       *  - immediateOrCancel: true = market-like (fills now or cancels the rest)
+       */
+      async placeOrder(o) {
+        if (!o.price) throw new Error("Gemini requires a limit price (its API is limit-only)");
+        const params = {
+          symbol: o.symbol.toLowerCase(),
+          amount: String(o.amount),
+          price: String(o.price),
+          side: o.side,
+          type: "exchange limit"
+        };
+        if (o.immediateOrCancel) params.options = ["immediate-or-cancel"];
+        const data = await this.privatePost("/v1/order/new", params);
+        return { orderId: String(data?.order_id ?? ""), executedAmount: parseFloat(data?.executed_amount ?? "0") || 0, isLive: !!data?.is_live, raw: data };
       }
       async test() {
         const raw = await this.privatePost("/v1/balances");
@@ -71052,6 +71075,24 @@ Respond with ONLY valid JSON:
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     await pool2.query(`DELETE FROM gemini_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
+  });
+  app2.post("/api/gemini/order", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, symbol, side, amount, price, immediateOrCancel, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!symbol || !["buy", "sell"].includes(side) || !amount || !price) return res.status(400).json({ error: "symbol, side (buy/sell), amount and price required (Gemini is limit-only)" });
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT api_key, encrypted_api_secret FROM gemini_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Gemini connection" });
+    try {
+      const { GeminiService: GeminiService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_gemini(), gemini_exports));
+      const svc = new GeminiService2(rows[0].api_key, decryptApiSecret3(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ symbol: String(symbol), side, amount: Number(amount), price: Number(price), immediateOrCancel: !!immediateOrCancel });
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "order failed" });
+    }
   });
   app2.post("/api/kraken/connect", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

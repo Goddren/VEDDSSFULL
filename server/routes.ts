@@ -19857,6 +19857,27 @@ Respond with ONLY valid JSON:
     res.json({ ok: true });
   });
 
+  // POST /api/gemini/order — place an order (limit / immediate-or-cancel) on the
+  // user's connected key. Requires confirm:true and a key with "Trading" scope.
+  app.post("/api/gemini/order", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, symbol, side, amount, price, immediateOrCancel, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!symbol || !['buy', 'sell'].includes(side) || !amount || !price) return res.status(400).json({ error: "symbol, side (buy/sell), amount and price required (Gemini is limit-only)" });
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT api_key, encrypted_api_secret FROM gemini_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Gemini connection" });
+    try {
+      const { GeminiService, decryptApiSecret } = await import('./gemini');
+      const svc = new GeminiService(rows[0].api_key, decryptApiSecret(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ symbol: String(symbol), side, amount: Number(amount), price: Number(price), immediateOrCancel: !!immediateOrCancel });
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'order failed' });
+    }
+  });
+
   // ── Kraken (read-only wallet balances) — Phase 2 ──────────────────────────
   app.post("/api/kraken/connect", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

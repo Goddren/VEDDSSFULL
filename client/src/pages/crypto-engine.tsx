@@ -203,6 +203,17 @@ export default function CryptoEnginePage() {
     onSuccess: () => { setGmForm({ apiKey: '', apiSecret: '', label: '' }); setShowGmForm(false); queryClient.invalidateQueries({ queryKey: ['/api/gemini/balances'] }); },
   });
 
+  // Gemini order ticket (limit-only; IOC = market-like)
+  const [gmOrder, setGmOrder] = useState({ symbol: 'btcusd', side: 'buy' as 'buy' | 'sell', amount: '', price: '', ioc: true });
+  const [gmConfirm, setGmConfirm] = useState(false);
+  const gmPlace = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest('POST', '/api/gemini/order', { symbol: gmOrder.symbol, side: gmOrder.side, amount: Number(gmOrder.amount), price: Number(gmOrder.price), immediateOrCancel: gmOrder.ioc, confirm: true });
+      if (!r.ok) throw new Error((await r.json()).error || 'Order failed'); return r.json();
+    },
+    onSuccess: () => { setGmConfirm(false); setGmOrder(p => ({ ...p, amount: '', price: '' })); queryClient.invalidateQueries({ queryKey: ['/api/gemini/balances'] }); },
+  });
+
   // ── DeFi self-custody wallet (MetaMask / browser wallets, on-chain) ──────
   const [dfManual, setDfManual] = useState('');
   const [dfMsg, setDfMsg] = useState<string | null>(null);
@@ -517,6 +528,29 @@ export default function CryptoEnginePage() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+                {gmData?.connections?.length > 0 && !gmData.connections[0]?.error && (
+                  <div className="rounded-lg border border-teal-800/30 bg-black/20 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-teal-300">Trade <span className="text-gray-500 font-normal">(limit — Gemini is limit-only)</span></p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input placeholder="Symbol (btcusd)" value={gmOrder.symbol} onChange={(e) => setGmOrder(p => ({ ...p, symbol: e.target.value.toLowerCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      <select value={gmOrder.side} onChange={(e) => setGmOrder(p => ({ ...p, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+                      <Input placeholder="Amount (coin)" value={gmOrder.amount} onChange={(e) => setGmOrder(p => ({ ...p, amount: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      <Input placeholder="Limit price" value={gmOrder.price} onChange={(e) => setGmOrder(p => ({ ...p, price: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] text-gray-400"><input type="checkbox" checked={gmOrder.ioc} onChange={(e) => setGmOrder(p => ({ ...p, ioc: e.target.checked }))} /> Immediate-or-cancel (fill now at/through the price, like market)</label>
+                    {gmPlace.isError && <p className="text-[11px] text-red-400">{(gmPlace.error as Error)?.message}</p>}
+                    {gmPlace.isSuccess && <p className="text-[11px] text-emerald-400">Order placed ✓</p>}
+                    {!gmConfirm ? (
+                      <button onClick={() => setGmConfirm(true)} disabled={!gmOrder.amount || !gmOrder.price} className={`w-full text-sm font-bold py-1.5 rounded-lg ${gmOrder.side === 'buy' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'} text-white disabled:opacity-50`}>{gmOrder.side.toUpperCase()} {gmOrder.symbol.toUpperCase()}</button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button onClick={() => gmPlace.mutate()} disabled={gmPlace.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{gmPlace.isPending ? 'Placing…' : `Confirm ${gmOrder.side} ${gmOrder.amount} @ ${gmOrder.price}`}</button>
+                        <button onClick={() => setGmConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-600">Live order on your Gemini account — requires "Trading" scope on the key.</p>
                   </div>
                 )}
                 {!showGmForm ? (
