@@ -33740,7 +33740,7 @@ async function getAllTimePerformance(userId) {
      GROUP BY day`,
     [userId]
   );
-  const [atr2, opt, crypto13, futures] = await Promise.all([
+  const [atr2, opt, crypto14, futures] = await Promise.all([
     atrQuery.catch(() => ({ rows: [] })),
     optQuery.catch(() => ({ rows: [] })),
     cryptoQuery.catch(() => ({ rows: [] })),
@@ -33759,7 +33759,7 @@ async function getAllTimePerformance(userId) {
   };
   addRows(atr2.rows);
   addRows(opt.rows, "options");
-  addRows(crypto13.rows, "cryptocom");
+  addRows(crypto14.rows, "cryptocom");
   addRows(futures.rows, "futures");
   const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
     const byEngine = Object.entries(engines).map(([engine, v]) => ({
@@ -37385,6 +37385,97 @@ var init_crypto_market_data = __esm({
   }
 });
 
+// server/coinbase.ts
+var coinbase_exports = {};
+__export(coinbase_exports, {
+  CoinbaseService: () => CoinbaseService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto10 from "crypto";
+import jwt from "jsonwebtoken";
+function buildJwt(keyName, privateKeyPem, method, path17) {
+  const uri = `${method} ${API_HOST}${path17}`;
+  const now = Math.floor(Date.now() / 1e3);
+  const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
+  return jwt.sign(payload2, privateKeyPem, {
+    algorithm: "ES256",
+    header: { kid: keyName, nonce: crypto10.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+  });
+}
+var API_HOST, CoinbaseService;
+var init_coinbase = __esm({
+  "server/coinbase.ts"() {
+    "use strict";
+    init_cryptocom();
+    API_HOST = "api.coinbase.com";
+    CoinbaseService = class {
+      keyName;
+      privateKey;
+      constructor(keyName, privateKeyPem) {
+        this.keyName = keyName;
+        this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
+      }
+      async get(path17) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path17);
+        const res = await fetch(`https://${API_HOST}${path17}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!res.ok) {
+          const text2 = await res.text();
+          throw new Error(`Coinbase ${res.status}: ${text2.slice(0, 300)}`);
+        }
+        return res.json();
+      }
+      /** Read-only: list account balances (paginated), valued in USD via public spot. */
+      async getBalances() {
+        const accounts = [];
+        let cursor = "";
+        for (let i = 0; i < 10; i++) {
+          const path17 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path17);
+          for (const a of data?.accounts ?? []) accounts.push(a);
+          if (data?.has_next && data?.cursor) cursor = data.cursor;
+          else break;
+        }
+        const balances = [];
+        for (const a of accounts) {
+          const available = parseFloat(a?.available_balance?.value ?? "0") || 0;
+          const hold = parseFloat(a?.hold?.value ?? "0") || 0;
+          const total = available + hold;
+          if (total <= 0) continue;
+          balances.push({ currency: a?.available_balance?.currency ?? a?.currency ?? "?", available, hold, total });
+        }
+        let totalUsd = 0;
+        try {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          for (const b of balances) {
+            if (b.currency === "USD" || b.currency === "USDC") {
+              b.usdValue = b.total;
+              totalUsd += b.total;
+              continue;
+            }
+            const q = await getAggregatedQuote2(b.currency).catch(() => null);
+            const px = q?.best?.price ?? null;
+            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
+            if (b.usdValue) totalUsd += b.usdValue;
+          }
+        } catch {
+        }
+        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+        return { balances, totalUsd: Math.round(totalUsd * 100) / 100, accountCount: accounts.length };
+      }
+      /** Lightweight auth check for the "Test connection" button. */
+      async test() {
+        const data = await this.get("/api/v3/brokerage/accounts?limit=1");
+        return { ok: true, accountCount: (data?.accounts ?? []).length };
+      }
+    };
+  }
+});
+
 // server/services/ruin-cone.ts
 var ruin_cone_exports = {};
 __export(ruin_cone_exports, {
@@ -37800,21 +37891,21 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq15 } from "drizzle-orm";
-import crypto10 from "crypto";
+import crypto11 from "crypto";
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto10.createHash("sha256").update(seed).digest();
+  return crypto11.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto10.randomBytes(16);
-  const cipher = crypto10.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const iv = crypto11.randomBytes(16);
+  const cipher = crypto11.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto10.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const decipher = crypto11.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -39857,7 +39948,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto11 from "crypto";
+import crypto12 from "crypto";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
   const randomPart = Math.floor(Math.random() * 1e5).toString().padStart(5, "0");
@@ -39871,7 +39962,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto11.createHash("sha256").update(payload2).digest("hex");
+  return crypto12.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   let createCanvas;
@@ -44326,7 +44417,7 @@ __export(ambassador_prime_exports, {
   runAmbassadorPrime: () => runAmbassadorPrime,
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
-import crypto12 from "crypto";
+import crypto13 from "crypto";
 import { eq as eq17, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI7 } from "openai";
 async function logStep(runDate, stepName, status, error) {
@@ -44343,7 +44434,7 @@ function buildOAuthHeader(method, url, params) {
   if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
   const oauthParams = {
     oauth_consumer_key: apiKey,
-    oauth_nonce: crypto12.randomBytes(16).toString("hex"),
+    oauth_nonce: crypto13.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
     oauth_token: accessToken,
@@ -44354,7 +44445,7 @@ function buildOAuthHeader(method, url, params) {
   const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
-  const signature = crypto12.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  const signature = crypto13.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
   const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
   return `OAuth ${headerValue}`;
@@ -46997,6 +47088,42 @@ CREATE INDEX IF NOT EXISTS "idx_crypto_brain_outcomes_user_symbol" ON "crypto_br
   }
 });
 
+// server/services/ensure-coinbase-tables.ts
+var ensure_coinbase_tables_exports = {};
+__export(ensure_coinbase_tables_exports, {
+  ensureCoinbaseTables: () => ensureCoinbaseTables
+});
+async function ensureCoinbaseTables() {
+  try {
+    await pool.query(DDL17);
+    console.log("[startup] Coinbase connections table ensured (coinbase_connections) \u2014 read-only wallet balances.");
+  } catch (err) {
+    console.error("[startup] ensureCoinbaseTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL17;
+var init_ensure_coinbase_tables = __esm({
+  "server/services/ensure-coinbase-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL17 = `
+CREATE TABLE IF NOT EXISTS "coinbase_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "api_key_name" text NOT NULL,
+  "encrypted_api_secret" text NOT NULL,
+  "label" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_coinbase_connections_user" ON "coinbase_connections" ("user_id");
+`;
+  }
+});
+
 // server/services/ensure-engine-consensus-table.ts
 var ensure_engine_consensus_table_exports = {};
 __export(ensure_engine_consensus_table_exports, {
@@ -47004,18 +47131,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL17);
+    await pool.query(DDL18);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL17;
+var DDL18;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL17 = `
+    DDL18 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47043,18 +47170,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47076,18 +47203,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47118,18 +47245,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47153,18 +47280,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47183,18 +47310,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -47211,18 +47338,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -47303,18 +47430,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -70253,6 +70380,70 @@ Respond with ONLY valid JSON:
       res.status(500).json({ error: err?.message || "backfill failed" });
     }
   });
+  app2.post("/api/coinbase/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { apiKeyName, privateKey, label } = req.body || {};
+    if (!apiKeyName || !privateKey) return res.status(400).json({ error: "apiKeyName and privateKey are required" });
+    try {
+      const { CoinbaseService: CoinbaseService2, encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_coinbase(), coinbase_exports));
+      await new CoinbaseService2(String(apiKeyName), String(privateKey)).test();
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const enc = encryptApiSecret3(String(privateKey));
+      const { rows } = await pool2.query(
+        `INSERT INTO coinbase_connections (user_id, api_key_name, encrypted_api_secret, label, last_connected_at)
+         VALUES ($1,$2,$3,$4, now()) RETURNING id`,
+        [userId, String(apiKeyName), enc, label ? String(label) : null]
+      );
+      res.json({ ok: true, id: rows[0].id });
+    } catch (err) {
+      res.status(400).json({ error: `Couldn't verify Coinbase key: ${err?.message || "unknown error"}` });
+    }
+  });
+  app2.get("/api/coinbase/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(
+      `SELECT id, api_key_name, label, is_active, last_connected_at, last_error FROM coinbase_connections WHERE user_id=$1 ORDER BY id`,
+      [userId]
+    );
+    res.json(rows.map((r) => ({ id: r.id, apiKeyName: String(r.api_key_name).slice(0, 14) + "\u2026", label: r.label, isActive: r.is_active, lastConnectedAt: r.last_connected_at, lastError: r.last_error })));
+  });
+  app2.get("/api/coinbase/balances", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT id, api_key_name, encrypted_api_secret FROM coinbase_connections WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    if (!rows.length) return res.json({ connections: [], totalUsd: 0 });
+    try {
+      const { CoinbaseService: CoinbaseService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_coinbase(), coinbase_exports));
+      const out = [];
+      let totalUsd = 0;
+      for (const r of rows) {
+        try {
+          const svc = new CoinbaseService2(r.api_key_name, decryptApiSecret3(r.encrypted_api_secret));
+          const summary = await svc.getBalances();
+          out.push({ id: r.id, ...summary });
+          totalUsd += summary.totalUsd;
+          await pool2.query(`UPDATE coinbase_connections SET last_connected_at=now(), last_error=NULL WHERE id=$1`, [r.id]);
+        } catch (e) {
+          out.push({ id: r.id, error: e.message, balances: [], totalUsd: 0 });
+          await pool2.query(`UPDATE coinbase_connections SET last_error=$2 WHERE id=$1`, [r.id, e.message]);
+        }
+      }
+      res.json({ connections: out, totalUsd: Math.round(totalUsd * 100) / 100 });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || "balance fetch failed" });
+    }
+  });
+  app2.delete("/api/coinbase/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    await pool2.query(`DELETE FROM coinbase_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
+    res.json({ ok: true });
+  });
   app2.get("/api/crypto/prices", async (req, res) => {
     try {
       const raw = String(req.query.symbols ?? "BTC,ETH,SOL").split(",").map((s) => s.trim()).filter(Boolean);
@@ -79914,7 +80105,7 @@ import { Strategy as LocalStrategy } from "passport-local";
 import session2 from "express-session";
 import { scrypt as scrypt2, randomBytes as randomBytes2, timingSafeEqual } from "crypto";
 import { promisify as promisify2 } from "util";
-import jwt from "jsonwebtoken";
+import jwt2 from "jsonwebtoken";
 var scryptAsync2 = promisify2(scrypt2);
 async function hashPassword(password) {
   const salt = randomBytes2(16).toString("hex");
@@ -80080,7 +80271,7 @@ function setupAuth(app2) {
     try {
       const user = await storage.getUserByEmail(email);
       if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
-      const token = jwt.sign({ userId: user.id, purpose: "password-reset" }, JWT_SECRET, { expiresIn: "1h" });
+      const token = jwt2.sign({ userId: user.id, purpose: "password-reset" }, JWT_SECRET, { expiresIn: "1h" });
       const baseUrl = process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:5000";
       const resetLink = `${baseUrl}/reset-password?token=${token}`;
       sendPasswordResetEmail(user.email || email, resetLink).catch(() => {
@@ -80096,7 +80287,7 @@ function setupAuth(app2) {
     if (!token || !password) return res.status(400).json({ message: "Token and password are required" });
     if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
     try {
-      const payload2 = jwt.verify(token, JWT_SECRET);
+      const payload2 = jwt2.verify(token, JWT_SECRET);
       if (payload2.purpose !== "password-reset") throw new Error("Invalid token purpose");
       const hashed = await hashPassword(password);
       await storage.updateUser(payload2.userId, { password: hashed });
@@ -81022,6 +81213,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCryptoBrainTable2();
   } catch (err) {
     console.error(`[startup] ensureCryptoBrainTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureCoinbaseTables: ensureCoinbaseTables2 } = await Promise.resolve().then(() => (init_ensure_coinbase_tables(), ensure_coinbase_tables_exports));
+    await ensureCoinbaseTables2();
+  } catch (err) {
+    console.error(`[startup] ensureCoinbaseTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));

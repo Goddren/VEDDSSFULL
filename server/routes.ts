@@ -19632,6 +19632,77 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── Coinbase (read-only wallet balances) — Phase 2 ────────────────────────
+  // Save a CDP API key (key name + EC private key). The private key is stored
+  // AES-encrypted and never returned. Read-only: balances only, no trading.
+  app.post("/api/coinbase/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { apiKeyName, privateKey, label } = req.body || {};
+    if (!apiKeyName || !privateKey) return res.status(400).json({ error: "apiKeyName and privateKey are required" });
+    try {
+      const { CoinbaseService, encryptApiSecret } = await import('./coinbase');
+      // Validate before saving so a bad key fails fast.
+      await new CoinbaseService(String(apiKeyName), String(privateKey)).test();
+      const { pool } = await import('./db');
+      const enc = encryptApiSecret(String(privateKey));
+      const { rows } = await pool.query(
+        `INSERT INTO coinbase_connections (user_id, api_key_name, encrypted_api_secret, label, last_connected_at)
+         VALUES ($1,$2,$3,$4, now()) RETURNING id`,
+        [userId, String(apiKeyName), enc, label ? String(label) : null]
+      );
+      res.json({ ok: true, id: rows[0].id });
+    } catch (err: any) {
+      res.status(400).json({ error: `Couldn't verify Coinbase key: ${err?.message || 'unknown error'}` });
+    }
+  });
+
+  app.get("/api/coinbase/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(
+      `SELECT id, api_key_name, label, is_active, last_connected_at, last_error FROM coinbase_connections WHERE user_id=$1 ORDER BY id`, [userId]);
+    // Mask the key name; never return the secret.
+    res.json(rows.map((r: any) => ({ id: r.id, apiKeyName: String(r.api_key_name).slice(0, 14) + '…', label: r.label, isActive: r.is_active, lastConnectedAt: r.last_connected_at, lastError: r.last_error })));
+  });
+
+  app.get("/api/coinbase/balances", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT id, api_key_name, encrypted_api_secret FROM coinbase_connections WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    if (!rows.length) return res.json({ connections: [], totalUsd: 0 });
+    try {
+      const { CoinbaseService, decryptApiSecret } = await import('./coinbase');
+      const out: any[] = [];
+      let totalUsd = 0;
+      for (const r of rows) {
+        try {
+          const svc = new CoinbaseService(r.api_key_name, decryptApiSecret(r.encrypted_api_secret));
+          const summary = await svc.getBalances();
+          out.push({ id: r.id, ...summary });
+          totalUsd += summary.totalUsd;
+          await pool.query(`UPDATE coinbase_connections SET last_connected_at=now(), last_error=NULL WHERE id=$1`, [r.id]);
+        } catch (e: any) {
+          out.push({ id: r.id, error: e.message, balances: [], totalUsd: 0 });
+          await pool.query(`UPDATE coinbase_connections SET last_error=$2 WHERE id=$1`, [r.id, e.message]);
+        }
+      }
+      res.json({ connections: out, totalUsd: Math.round(totalUsd * 100) / 100 });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'balance fetch failed' });
+    }
+  });
+
+  app.delete("/api/coinbase/connection/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    await pool.query(`DELETE FROM coinbase_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
+    res.json({ ok: true });
+  });
+
   // GET /api/crypto/prices?symbols=BTC,ETH,SOL — unified live prices across the
   // top US venues (Coinbase, Kraken, Gemini, Crypto.com). Public, read-only,
   // 15s cached; returns per-venue prices + the best price + cross-venue spread%.

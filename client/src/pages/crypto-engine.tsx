@@ -136,6 +136,19 @@ export default function CryptoEnginePage() {
   const [showCryptocomSecret, setShowCryptocomSecret] = useState(false);
   const [cryptocomForm, setCryptocomForm] = useState({ apiKey: '', apiSecret: '', instrumentType: 'perpetual' as 'perpetual' | 'future' | 'option', autoExecute: false });
 
+  // ── Coinbase (read-only wallet) ──────────────────────────────────────────
+  const [showCbForm, setShowCbForm] = useState(false);
+  const [cbForm, setCbForm] = useState({ apiKeyName: '', privateKey: '', label: '' });
+  const { data: cbData, isLoading: cbLoading } = useQuery<any>({
+    queryKey: ['/api/coinbase/balances'],
+    queryFn: async () => (await apiRequest('GET', '/api/coinbase/balances')).json(),
+    retry: false,
+  });
+  const cbConnect = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/coinbase/connect', cbForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => { setCbForm({ apiKeyName: '', privateKey: '', label: '' }); setShowCbForm(false); queryClient.invalidateQueries({ queryKey: ['/api/coinbase/balances'] }); },
+  });
+
   // ── Crypto.com connection ────────────────────────────────────────────────
   const { data: cryptocomConnections = [], isLoading: cryptocomLoading } = useQuery<CryptocomConnection[]>({
     queryKey: ['/api/cryptocom/connections'],
@@ -238,6 +251,57 @@ export default function CryptoEnginePage() {
 
           {/* ══════════════════════ SETUP & CONFIG ══════════════════════ */}
           <TabsContent value="setup" className="mt-0 space-y-6">
+            {/* Coinbase read-only wallet */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Coinbase Wallet</span>
+                  <Badge variant="outline" className="text-[10px] border-blue-700 text-blue-400">Read-only balances</Badge>
+                </CardTitle>
+                <CardDescription>Connect a Coinbase CDP API key (key name + EC private key) to see balances. Read-only — no trading. Your private key is encrypted at rest and never shown again.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {cbData?.connections?.length > 0 && (
+                  <div className="rounded-lg border border-blue-800/40 bg-blue-500/[0.06] p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-blue-300">Total ≈ ${(cbData.totalUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-[10px] text-gray-500">{cbLoading ? 'refreshing…' : 'live'}</span>
+                    </div>
+                    {cbData.connections.map((c: any) => (
+                      <div key={c.id} className="mb-2">
+                        {c.error ? <p className="text-[11px] text-red-400">Error: {c.error}</p> : (
+                          <div className="space-y-1">
+                            {(c.balances ?? []).slice(0, 8).map((b: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-300 font-medium">{b.currency}</span>
+                                <span className="text-gray-400 font-mono">{b.total.toLocaleString(undefined, { maximumFractionDigits: 6 })}{b.usdValue != null && <span className="text-gray-500"> · ${b.usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}</span>
+                              </div>
+                            ))}
+                            {(c.balances ?? []).length === 0 && <p className="text-[11px] text-gray-500">No non-zero balances.</p>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!showCbForm ? (
+                  <button onClick={() => setShowCbForm(true)} className="text-sm text-blue-400 hover:text-blue-300">+ Connect Coinbase (read-only)</button>
+                ) : (
+                  <div className="space-y-2">
+                    <Input placeholder="API key name (organizations/…/apiKeys/…)" value={cbForm.apiKeyName} onChange={(e) => setCbForm(p => ({ ...p, apiKeyName: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <textarea placeholder="EC private key (-----BEGIN EC PRIVATE KEY----- …)" value={cbForm.privateKey} onChange={(e) => setCbForm(p => ({ ...p, privateKey: e.target.value }))} rows={4} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs font-mono text-white" />
+                    <Input placeholder="Label (optional)" value={cbForm.label} onChange={(e) => setCbForm(p => ({ ...p, label: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    {cbConnect.isError && <p className="text-[11px] text-red-400">{(cbConnect.error as Error)?.message}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => cbConnect.mutate()} disabled={cbConnect.isPending || !cbForm.apiKeyName || !cbForm.privateKey} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">{cbConnect.isPending ? 'Verifying…' : 'Connect'}</button>
+                      <button onClick={() => setShowCbForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                    </div>
+                    <p className="text-[10px] text-gray-500">Create a read-only CDP key at coinbase.com → Developer Platform. Grant only "view" permissions.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
                 <CardTitle className="text-base flex items-center justify-between">
