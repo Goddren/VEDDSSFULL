@@ -71243,6 +71243,9 @@ Respond with ONLY valid JSON:
   app2.get("/api/defi/walletconnect-config", async (_req, res) => {
     res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || "" });
   });
+  app2.get("/api/defi/indexer-status", async (_req, res) => {
+    res.json({ indexer: !!process.env.ALCHEMY_API_KEY, coverage: process.env.ALCHEMY_API_KEY ? "full" : "native+majors" });
+  });
   app2.get("/api/defi/wallets", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

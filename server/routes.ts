@@ -19755,6 +19755,12 @@ Respond with ONLY valid JSON:
     res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || '' });
   });
 
+  // Whether the full-token indexer (Alchemy) is configured. Boolean only — never
+  // exposes the key. Lets the UI show "full coverage" vs "native+majors".
+  app.get("/api/defi/indexer-status", async (_req: Request, res: Response) => {
+    res.json({ indexer: !!process.env.ALCHEMY_API_KEY, coverage: process.env.ALCHEMY_API_KEY ? 'full' : 'native+majors' });
+  });
+
   app.get("/api/defi/wallets", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
