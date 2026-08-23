@@ -134,6 +134,18 @@ function extractErrorMsg(error: any): string {
   return msg;
 }
 
+// Curated list of liquid Crypto.com perpetual symbols the scanner can pull candles
+// for. The scanner always reads candles from Crypto.com; execution is then routed
+// to the chosen venue (base coin mapped per exchange), so these perp symbols work
+// regardless of whether orders land on Crypto.com perps or a CeFi/DeFi spot venue.
+const COMMON_SYMBOLS = [
+  'BTCUSD-PERP', 'ETHUSD-PERP', 'SOLUSD-PERP', 'XRPUSD-PERP', 'DOGEUSD-PERP',
+  'ADAUSD-PERP', 'AVAXUSD-PERP', 'LINKUSD-PERP', 'MATICUSD-PERP', 'DOTUSD-PERP',
+  'LTCUSD-PERP', 'BCHUSD-PERP', 'ATOMUSD-PERP', 'NEARUSD-PERP', 'APTUSD-PERP',
+  'ARBUSD-PERP', 'OPUSD-PERP', 'INJUSD-PERP', 'SUIUSD-PERP', 'TIAUSD-PERP',
+  'SEIUSD-PERP', 'WLDUSD-PERP', 'PEPEUSD-PERP', 'SHIBUSD-PERP', 'UNIUSD-PERP',
+];
+
 export default function CryptoEnginePage() {
   const { toast } = useToast();
 
@@ -916,11 +928,46 @@ export default function CryptoEnginePage() {
                       <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-3">Tokens & Strategy</h4>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2 md:col-span-2">
-                          <Label className="text-xs text-gray-400">Tokens/symbols to scan (comma-separated)</Label>
+                          <Label className="text-xs text-gray-400">Tokens/symbols to scan</Label>
+                          {/* Quick-pick dropdown — adds a common symbol to the scan list */}
+                          <select
+                            value=""
+                            onChange={(e) => {
+                              const s = e.target.value;
+                              if (!s) return;
+                              const cur = config.symbols || [];
+                              if (!cur.includes(s)) updateConfigMutation.mutate({ symbols: [...cur, s] });
+                              e.currentTarget.value = '';
+                            }}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"
+                          >
+                            <option value="">+ Add a symbol from the list…</option>
+                            {COMMON_SYMBOLS.filter(s => !(config.symbols || []).includes(s)).map(s => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                          {/* Selected symbols as removable chips */}
+                          {(config.symbols || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {config.symbols.map((s) => (
+                                <span key={s} className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[11px] px-2 py-0.5">
+                                  {s}
+                                  <button
+                                    type="button"
+                                    onClick={() => updateConfigMutation.mutate({ symbols: config.symbols.filter(x => x !== s) })}
+                                    className="text-blue-400/70 hover:text-red-400 leading-none"
+                                    title={`Remove ${s}`}
+                                  >×</button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {/* Power-user manual entry (comma-separated) still supported */}
                           <Input
                             defaultValue={config.symbols.join(', ')}
+                            key={config.symbols.join(',')}
                             onBlur={(e) => updateConfigMutation.mutate({ symbols: e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) })}
-                            placeholder="BTCUSD-PERP, ETHUSD-PERP, SOLUSD-PERP"
+                            placeholder="Or type/paste: BTCUSD-PERP, ETHUSD-PERP, SOLUSD-PERP"
                             className="bg-gray-800 border-gray-700 h-8 text-sm"
                           />
                         </div>
@@ -972,13 +1019,31 @@ export default function CryptoEnginePage() {
                       <h4 className="text-[11px] font-bold text-blue-400 uppercase tracking-wide mb-3">Execution Venue</h4>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label className="text-xs text-gray-400">Where to place orders</Label>
-                          <select value={config.executionVenue} onChange={(e) => updateConfigMutation.mutate({ executionVenue: e.target.value })} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">
-                            <option value="cryptocom">Crypto.com (perps — full engine)</option>
-                            <option value="coinbase">Coinbase (spot, long-only)</option>
-                            <option value="kraken">Kraken (spot, long-only)</option>
-                            <option value="gemini">Gemini (spot, long-only)</option>
-                          </select>
+                          <Label className="text-xs text-gray-400">Connected wallet to auto-trade</Label>
+                          {(() => {
+                            const ccOk = (cryptocomConnections || []).some((c: any) => c.isActive);
+                            const cbOk = (cbData?.connections?.length ?? 0) > 0;
+                            const krOk = (krData?.connections?.length ?? 0) > 0;
+                            const gmOk = (gmData?.connections?.length ?? 0) > 0;
+                            const venues = [
+                              { v: 'cryptocom', label: 'Crypto.com (perps — full engine)', ok: ccOk },
+                              { v: 'coinbase', label: 'Coinbase (spot, long-only)', ok: cbOk },
+                              { v: 'kraken', label: 'Kraken (spot, long-only)', ok: krOk },
+                              { v: 'gemini', label: 'Gemini (spot, long-only)', ok: gmOk },
+                            ];
+                            return (
+                              <select value={config.executionVenue} onChange={(e) => updateConfigMutation.mutate({ executionVenue: e.target.value })} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">
+                                {venues.map(({ v, label, ok }) => (
+                                  <option key={v} value={v} disabled={!ok}>
+                                    {label}{ok ? '' : ' — not connected'}
+                                  </option>
+                                ))}
+                                <option value="defi" disabled title="Wire the hot wallet into auto-trade (Phase B) to enable">
+                                  DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}…) — auto-trade coming` : '— not connected'}
+                                </option>
+                              </select>
+                            );
+                          })()}
                         </div>
                         {config.executionVenue !== 'cryptocom' && (
                           <>
