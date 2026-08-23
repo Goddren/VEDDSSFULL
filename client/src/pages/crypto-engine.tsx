@@ -655,7 +655,7 @@ export default function CryptoEnginePage() {
                   <button onClick={() => dfManual && dfSave.mutate({ address: dfManual.trim(), walletType: 'Watched' })} disabled={dfSave.isPending || !dfManual} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 disabled:opacity-60 shrink-0">Add</button>
                 </div>
                 {dfMsg && <p className="text-[11px] text-amber-400">{dfMsg}</p>}
-                <p className="text-[10px] text-gray-500">Covers native coins + majors (USDC/USDT/DAI/WBTC) per chain via public RPCs. WalletConnect (mobile wallets) is a follow-up.</p>
+                <p className="text-[10px] text-gray-500">Scans Ethereum, Base, Arbitrum, Optimism &amp; Polygon. With an Alchemy key set (ALCHEMY_API_KEY) it shows EVERY token you hold; otherwise native coins + majors (USDC/USDT/DAI/WBTC) via public RPCs.</p>
               </CardContent>
             </Card>
 

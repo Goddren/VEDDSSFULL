@@ -61,9 +61,21 @@ export function isValidEvmAddress(addr: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(addr);
 }
 
-/** Read native + major-token balances for an address across the main EVM chains. */
+/** Read native + major-token balances for an address across the main EVM chains.
+ *  When an Alchemy key is configured, delegates to the full-token indexer
+ *  (every ERC-20, not just the curated majors); otherwise uses the key-free
+ *  public-RPC native+majors path below. */
 export async function getOnchainBalances(address: string): Promise<OnchainSummary> {
   if (!isValidEvmAddress(address)) throw new Error('Invalid EVM address');
+
+  try {
+    const { isIndexerAvailable, getIndexedBalances } = await import('./onchain-indexer');
+    if (isIndexerAvailable()) {
+      const idx = await getIndexedBalances(address);
+      return { address, holdings: idx.holdings, totalUsd: idx.totalUsd, chainsScanned: idx.chainsScanned };
+    }
+  } catch { /* fall back to the curated public-RPC path below */ }
+
   const holdings: OnchainHolding[] = [];
   const scanned: string[] = [];
 
