@@ -138,20 +138,17 @@ export async function executeDefiSwap(opts: {
     if (current < BigInt(sellAmount)) {
       const aTx = await erc.approve(spender, ethers.MaxUint256);
       approveTxHash = aTx.hash;
-      await aTx.wait();
+      // Approve MUST be mined before the swap tx (else it reverts), but bound the
+      // wait so a slow RPC can't hang the request. If it doesn't confirm in time,
+      // bail with a clear retry message instead of sending a doomed swap.
+      const mined = await Promise.race([aTx.wait().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 30000))]);
+      if (!mined) return { ok: false, approveTxHash, reason: 'token approval is still confirming on-chain — wait ~30s and run the swap again (approval only happens once per token)' };
     }
   }
 
-  const t = quote.transaction;
-  if (!t?.to || !t?.data) return { ok: false, reason: 'quote returned no transaction' };
-  const txResp = await wallet.sendTransaction({
-    to: t.to, data: t.data, value: t.value ? BigInt(t.value) : BigInt(0),
-    ...(t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}),
-  });
-  await txResp.wait();
-  // Convert the received buyAmount (base units) to a human number using the buy
-  // token's real decimals (WBTC=8, USDC=6, WETH=18 …), so callers track the
-  // correct on-chain quantity for the eventual exit swap.
+  // Convert the quoted buyAmount (base units) to a human number using the buy
+  // token's real decimals (WBTC=8, USDC=6, WETH=18 …). Taken from the QUOTE, so
+  // no need to wait for the tx to confirm to know the expected amount.
   let buyAmountHuman: number | undefined;
   if (quote.buyAmount) {
     try {
@@ -160,6 +157,18 @@ export async function executeDefiSwap(opts: {
       buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
     } catch { /* leave undefined; caller falls back to notional/price */ }
   }
+
+  const t = quote.transaction;
+  if (!t?.to || !t?.data) return { ok: false, reason: 'quote returned no transaction' };
+  const txResp = await wallet.sendTransaction({
+    to: t.to, data: t.data, value: t.value ? BigInt(t.value) : BigInt(0),
+    ...(t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}),
+  });
+  // Return as soon as the swap is BROADCAST (we have the hash). We do NOT block on
+  // full confirmation — awaiting it here overran the HTTP gateway timeout (→ 502)
+  // even though the tx landed. Best-effort short wait so a fast chain (Base ~2s)
+  // usually returns confirmed; on timeout we still return the hash as submitted.
+  try { await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8000))]); } catch { /* revert/other — hash still returned; verify on explorer */ }
   return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
 }
 

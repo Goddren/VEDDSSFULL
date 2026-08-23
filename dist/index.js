@@ -37883,7 +37883,17 @@ async function executeDefiSwap(opts) {
     if (current < BigInt(sellAmount)) {
       const aTx = await erc.approve(spender, ethers.MaxUint256);
       approveTxHash = aTx.hash;
-      await aTx.wait();
+      const mined = await Promise.race([aTx.wait().then(() => true), new Promise((r) => setTimeout(() => r(false), 3e4))]);
+      if (!mined) return { ok: false, approveTxHash, reason: "token approval is still confirming on-chain \u2014 wait ~30s and run the swap again (approval only happens once per token)" };
+    }
+  }
+  let buyAmountHuman;
+  if (quote.buyAmount) {
+    try {
+      let bDec = 18;
+      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
+      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+    } catch {
     }
   }
   const t = quote.transaction;
@@ -37894,15 +37904,9 @@ async function executeDefiSwap(opts) {
     value: t.value ? BigInt(t.value) : BigInt(0),
     ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
   });
-  await txResp.wait();
-  let buyAmountHuman;
-  if (quote.buyAmount) {
-    try {
-      let bDec = 18;
-      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
-      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
-    } catch {
-    }
+  try {
+    await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
+  } catch {
   }
   return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
 }
