@@ -22,8 +22,41 @@ const ERC20_ABI = ['function allowance(address,address) view returns (uint256)',
 
 export function isDefiSwapAvailable(): boolean { return !!process.env.ZEROX_API_KEY; }
 
-/** Resolve a token identifier ('ETH'/'USDC'/'WETH' or a 0x address) to an address. */
-export function resolveToken(chainKey: string, token: string): string {
+// ── Canonical token resolution ──────────────────────────────────────────────
+// Rather than hardcode fragile per-chain ERC-20 addresses (a wrong address burns
+// funds), we resolve unknown symbols at runtime from the canonical Uniswap token
+// list (chainId + symbol → address). Fast-paths for native/USDC/WETH stay hard-
+// coded (those are pinned in DEFI_CHAINS). Cached in-process after first load.
+let tokenIndexCache: Map<string, string> | null = null;
+let tokenIndexLoadedAt = 0;
+const TOKEN_LIST_URL = 'https://tokens.uniswap.org';
+
+async function loadTokenIndex(): Promise<Map<string, string>> {
+  // 6h cache; on failure keep any prior cache (or an empty map → symbols just skip).
+  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 3600_000) return tokenIndexCache;
+  try {
+    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(10000) });
+    const data: any = await res.json();
+    const idx = new Map<string, string>();
+    for (const t of (data?.tokens ?? [])) {
+      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
+    }
+    if (idx.size > 0) { tokenIndexCache = idx; tokenIndexLoadedAt = Date.now(); }
+    return tokenIndexCache ?? idx;
+  } catch {
+    return tokenIndexCache ?? new Map();
+  }
+}
+
+// Aliases: engine "base coins" → the on-chain wrapped symbol(s) to try, in order.
+const SYMBOL_ALIASES: Record<string, string[]> = {
+  ETH: ['WETH'], WETH: ['WETH'],
+  BTC: ['WBTC', 'CBBTC', 'BTCB'], WBTC: ['WBTC', 'CBBTC'],
+  MATIC: ['WMATIC', 'POL'], POL: ['POL', 'WMATIC'],
+};
+
+/** Resolve a token identifier ('ETH'/'USDC'/'WETH', a known symbol, or a 0x address) to an address. */
+export async function resolveToken(chainKey: string, token: string): Promise<string> {
   const c = DEFI_CHAINS[chainKey];
   const t = token.trim();
   if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
@@ -31,7 +64,19 @@ export function resolveToken(chainKey: string, token: string): string {
   if (up === c.native || up === 'ETH' || up === 'NATIVE' || up === 'POL' || up === 'MATIC') return NATIVE_PSEUDO;
   if (up === 'USDC') return c.usdc;
   if (up === 'WETH') return c.weth;
-  throw new Error(`Unknown token "${token}" on ${chainKey} — use USDC/WETH/native or a 0x address`);
+  // Everything else: look up by (chainId, symbol) in the canonical token list.
+  const idx = await loadTokenIndex();
+  const candidates = SYMBOL_ALIASES[up] ?? [up];
+  for (const sym of candidates) {
+    const addr = idx.get(`${c.chainId}:${sym}`);
+    if (addr) return addr;
+  }
+  throw new Error(`Token "${token}" isn't listed on ${chainKey} — it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
+}
+
+/** True if `token` (symbol/base coin) can be resolved to an address on `chainKey`. */
+export async function isTokenTradeable(chainKey: string, token: string): Promise<boolean> {
+  try { await resolveToken(chainKey, token); return true; } catch { return false; }
 }
 
 async function zeroXQuote(chainId: number, params: Record<string, string>): Promise<any> {
@@ -45,7 +90,7 @@ async function zeroXQuote(chainId: number, params: Record<string, string>): Prom
   return data;
 }
 
-export interface SwapResult { ok: boolean; txHash?: string; buyAmount?: string; approveTxHash?: string; reason?: string; }
+export interface SwapResult { ok: boolean; txHash?: string; buyAmount?: string; buyAmountHuman?: number; approveTxHash?: string; reason?: string; }
 
 /**
  * Execute a swap of `sellAmountHuman` of sellToken -> buyToken on `chainKey`,
@@ -61,8 +106,13 @@ export async function executeDefiSwap(opts: {
 
   const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
   const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
-  const sellToken = resolveToken(opts.chainKey, opts.sellToken);
-  const buyToken = resolveToken(opts.chainKey, opts.buyToken);
+  let sellToken: string, buyToken: string;
+  try {
+    sellToken = await resolveToken(opts.chainKey, opts.sellToken);
+    buyToken = await resolveToken(opts.chainKey, opts.buyToken);
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || 'token resolution failed' };
+  }
 
   // Determine sell amount in base units (decimals of the sell token; 18 for native).
   let decimals = 18;
@@ -99,7 +149,18 @@ export async function executeDefiSwap(opts: {
     ...(t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}),
   });
   await txResp.wait();
-  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount };
+  // Convert the received buyAmount (base units) to a human number using the buy
+  // token's real decimals (WBTC=8, USDC=6, WETH=18 …), so callers track the
+  // correct on-chain quantity for the eventual exit swap.
+  let buyAmountHuman: number | undefined;
+  if (quote.buyAmount) {
+    try {
+      let bDec = 18;
+      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
+      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+    } catch { /* leave undefined; caller falls back to notional/price */ }
+  }
+  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
 }
 
 /** Derive the address for a raw private key (for storing a hot wallet). */

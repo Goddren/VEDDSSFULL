@@ -1179,7 +1179,7 @@ export default function CryptoEnginePage() {
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">SL %</Label><Input type="number" step="0.5" defaultValue={config.cefiStopLossPct} onBlur={(e) => updateConfigMutation.mutate({ cefiStopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">Slippage bps</Label><Input type="number" defaultValue={config.defiSlippageBps} onBlur={(e) => updateConfigMutation.mutate({ defiSlippageBps: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                             </div>
-                            <p className="text-[10px] text-red-300/70 md:col-span-2">⚠️ Unattended on-chain swaps from your burner wallet. Long-only, USDC↔token. Currently trades ETH/WETH only (other tokens are skipped). Needs ZEROX_API_KEY set + USDC funded on {config.defiChain}. Validate a manual swap first, then keep "USD per swap" small.</p>
+                            <p className="text-[10px] text-red-300/70 md:col-span-2">⚠️ Unattended on-chain swaps from your burner wallet. Long-only, USDC↔token. Trades any token that exists on {config.defiChain} (resolved from the canonical token list — ETH→WETH, BTC→WBTC/cbBTC); tokens not on the chain are skipped. Needs ZEROX_API_KEY set + USDC funded on {config.defiChain}. Validate a manual swap first, then keep "USD per swap" small.</p>
                           </>
                         )}
                       </div>

@@ -37787,13 +37787,32 @@ __export(defi_swap_exports, {
   addressFromPrivateKey: () => addressFromPrivateKey,
   executeDefiSwap: () => executeDefiSwap,
   isDefiSwapAvailable: () => isDefiSwapAvailable,
+  isTokenTradeable: () => isTokenTradeable,
   resolveToken: () => resolveToken
 });
 import { ethers } from "ethers";
 function isDefiSwapAvailable() {
   return !!process.env.ZEROX_API_KEY;
 }
-function resolveToken(chainKey, token) {
+async function loadTokenIndex() {
+  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 36e5) return tokenIndexCache;
+  try {
+    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(1e4) });
+    const data = await res.json();
+    const idx = /* @__PURE__ */ new Map();
+    for (const t of data?.tokens ?? []) {
+      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
+    }
+    if (idx.size > 0) {
+      tokenIndexCache = idx;
+      tokenIndexLoadedAt = Date.now();
+    }
+    return tokenIndexCache ?? idx;
+  } catch {
+    return tokenIndexCache ?? /* @__PURE__ */ new Map();
+  }
+}
+async function resolveToken(chainKey, token) {
   const c = DEFI_CHAINS[chainKey];
   const t = token.trim();
   if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
@@ -37801,7 +37820,21 @@ function resolveToken(chainKey, token) {
   if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
   if (up === "USDC") return c.usdc;
   if (up === "WETH") return c.weth;
-  throw new Error(`Unknown token "${token}" on ${chainKey} \u2014 use USDC/WETH/native or a 0x address`);
+  const idx = await loadTokenIndex();
+  const candidates = SYMBOL_ALIASES[up] ?? [up];
+  for (const sym of candidates) {
+    const addr = idx.get(`${c.chainId}:${sym}`);
+    if (addr) return addr;
+  }
+  throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
+}
+async function isTokenTradeable(chainKey, token) {
+  try {
+    await resolveToken(chainKey, token);
+    return true;
+  } catch {
+    return false;
+  }
 }
 async function zeroXQuote(chainId, params) {
   const qs = new URLSearchParams({ chainId: String(chainId), ...params });
@@ -37819,8 +37852,13 @@ async function executeDefiSwap(opts) {
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
   const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
   const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
-  const sellToken = resolveToken(opts.chainKey, opts.sellToken);
-  const buyToken = resolveToken(opts.chainKey, opts.buyToken);
+  let sellToken, buyToken;
+  try {
+    sellToken = await resolveToken(opts.chainKey, opts.sellToken);
+    buyToken = await resolveToken(opts.chainKey, opts.buyToken);
+  } catch (e) {
+    return { ok: false, reason: e?.message || "token resolution failed" };
+  }
   let decimals = 18;
   if (sellToken !== NATIVE_PSEUDO) {
     const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
@@ -37857,12 +37895,21 @@ async function executeDefiSwap(opts) {
     ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
   });
   await txResp.wait();
-  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount };
+  let buyAmountHuman;
+  if (quote.buyAmount) {
+    try {
+      let bDec = 18;
+      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
+      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+    } catch {
+    }
+  }
+  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
 }
 function addressFromPrivateKey(pk) {
   return new ethers.Wallet(pk.trim()).address;
 }
-var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI;
+var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TOKEN_LIST_URL, SYMBOL_ALIASES;
 var init_defi_swap = __esm({
   "server/services/defi-swap.ts"() {
     "use strict";
@@ -37876,6 +37923,17 @@ var init_defi_swap = __esm({
     };
     NATIVE_PSEUDO = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
     ERC20_ABI = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)"];
+    tokenIndexCache = null;
+    tokenIndexLoadedAt = 0;
+    TOKEN_LIST_URL = "https://tokens.uniswap.org";
+    SYMBOL_ALIASES = {
+      ETH: ["WETH"],
+      WETH: ["WETH"],
+      BTC: ["WBTC", "CBBTC", "BTCB"],
+      WBTC: ["WBTC", "CBBTC"],
+      MATIC: ["WMATIC", "POL"],
+      POL: ["POL", "WMATIC"]
+    };
   }
 });
 
@@ -50106,9 +50164,6 @@ var init_cefi_executor = __esm({
 });
 
 // server/services/defi-executor.ts
-function defiTradeableToken(symbol) {
-  return DEFI_TRADEABLE[baseCoin(symbol)] ?? null;
-}
 async function loadHotWallet(userId) {
   const { rows } = await pool.query(
     `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
@@ -50118,16 +50173,19 @@ async function loadHotWallet(userId) {
   return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
 }
 async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
-  const token = defiTradeableToken(base);
-  if (!token) return { ok: false, token: "", qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${baseCoin(base)} yet \u2014 only ETH/WETH is wired for on-chain swaps` };
+  const token = baseCoin(base);
+  const chain = chainKey || "base";
+  if (!await isTokenTradeable(chain, token)) {
+    return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${token} on ${chain} \u2014 not on the chain's token list (try a token that exists on ${chain}, or a different chain)` };
+  }
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: "no active DeFi hot wallet connected" };
-  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+  const q = await getAggregatedQuote(token).catch(() => null);
   const price = q?.best?.price ?? 0;
-  if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${baseCoin(base)}` };
+  if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey,
-    chainKey: chainKey || hw.chain,
+    chainKey: chain,
     sellToken: "USDC",
     buyToken: token,
     sellAmountHuman: notionalUsd,
@@ -50135,16 +50193,12 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
   });
   if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
   let qtyBase = notionalUsd / price;
-  if (r.buyAmount) {
-    const n = Number(r.buyAmount) / 1e18;
-    if (Number.isFinite(n) && n > 0) qtyBase = n;
-  }
+  if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
   qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
   return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
 }
 async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
-  const token = defiTradeableToken(base);
-  if (!token) return { ok: false, exitPrice: 0, reason: `no DeFi token mapping for ${baseCoin(base)}` };
+  const token = baseCoin(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
   const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
@@ -50160,7 +50214,6 @@ async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
   return { ok: true, exitPrice: price, txHash: r.txHash };
 }
-var DEFI_TRADEABLE;
 var init_defi_executor = __esm({
   "server/services/defi-executor.ts"() {
     "use strict";
@@ -50168,7 +50221,6 @@ var init_defi_executor = __esm({
     init_crypto_market_data();
     init_defi_swap();
     init_cefi_executor();
-    DEFI_TRADEABLE = { ETH: "WETH", WETH: "WETH" };
   }
 });
 
