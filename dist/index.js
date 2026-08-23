@@ -50501,7 +50501,7 @@ function quantVerdictFromScore2(score) {
   if (score >= 40) return "WATCH";
   return "SKIP";
 }
-async function getCryptocomAiConfirmation(userId, symbol, result) {
+async function getCryptocomAiConfirmationLite(userId, symbol, result) {
   try {
     const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
     const client2 = await getUniversalAIClientForUser2(userId);
@@ -50524,6 +50524,47 @@ Reasoning: ${result.reasoning}`;
     return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || "") };
   } catch (err) {
     return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+async function getCryptocomAiConfirmation(userId, symbol, result) {
+  try {
+    const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+    if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
+    const candles = convertToCandles3(bars);
+    const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
+    const { getAiVisionConfirmation: getAiVisionConfirmation2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const proposedSignal = result.direction === "BUY" ? "BUY" : result.direction === "SELL" ? "SELL" : "NEUTRAL";
+    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
+    const conf = await getAiVisionConfirmation2(
+      candles,
+      indicators,
+      proposedSignal,
+      Math.max(0, Math.min(100, result.score ?? 0)),
+      tradePlan,
+      symbol,
+      "M5",
+      userId,
+      void 0,
+      null,
+      null,
+      void 0,
+      null,
+      void 0,
+      void 0,
+      `crypto-${result.strategy}`,
+      false
+    );
+    if (!conf || conf.aiConfidence === void 0 && conf.confirmed === void 0) {
+      return getCryptocomAiConfirmationLite(userId, symbol, result);
+    }
+    const dirOk = !conf.aiDirection || conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
+    return {
+      confirmed: !!conf.confirmed && dirOk,
+      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
+      reasoning: `[SS AI${conf.modelUsed ? ` \xB7 ${conf.modelUsed}` : ""}] ${String(conf.reasoning || "no reasoning returned")}${dirOk ? "" : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} \u2014 skipped)`}`
+    };
+  } catch (err) {
+    return getCryptocomAiConfirmationLite(userId, symbol, result);
   }
 }
 function pushConsensus(userId, entry) {

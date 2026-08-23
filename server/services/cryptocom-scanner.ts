@@ -430,7 +430,9 @@ function quantVerdictFromScore(score: number | null): QuantVerdict {
   return 'SKIP';
 }
 
-async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+// Lightweight numeric second-opinion — used as the FALLBACK when the full SS AI
+// reasoner can't run (no candles, model error, etc.). Text-from-numbers only.
+async function getCryptocomAiConfirmationLite(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
   try {
     const { getUniversalAIClientForUser } = await import('../openai');
     const client = await getUniversalAIClientForUser(userId);
@@ -446,6 +448,43 @@ async function getCryptocomAiConfirmation(userId: number, symbol: string, result
     return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || '') };
   } catch (err: any) {
     return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+
+// SS AI reasoning for crypto — reuses the EXACT same confirmation brain the FX
+// SS AI Engine runs (getAiVisionConfirmation), fed this pair's live candles +
+// full indicator suite. Despite the "vision" name that function reasons from a
+// text-serialized candle/indicator context (not a screenshot), so it drops in
+// cleanly for crypto pairs. On any failure it degrades to the lite numeric
+// second-opinion above so the gate never silently hard-blocks (vision + fallback).
+async function getCryptocomAiConfirmation(userId: number, symbol: string, result: StrategyResult): Promise<{ confirmed: boolean; confidence: number; reasoning: string }> {
+  try {
+    const bars = await CryptoComService.getCandles(symbol, '5m', 100);
+    if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
+    const candles = convertToCandles(bars);
+    const indicators = computeAllAdvancedIndicators(candles, 0, symbol, 'M5');
+    const { getAiVisionConfirmation } = await import('../openai');
+    const proposedSignal = result.direction === 'BUY' ? 'BUY' : result.direction === 'SELL' ? 'SELL' : 'NEUTRAL';
+    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
+    const conf: any = await getAiVisionConfirmation(
+      candles, indicators, proposedSignal, Math.max(0, Math.min(100, result.score ?? 0)),
+      tradePlan, symbol, 'M5', userId,
+      undefined, null, null, undefined, null, undefined, undefined,
+      `crypto-${result.strategy}`, false,
+    );
+    if (!conf || (conf.aiConfidence === undefined && conf.confirmed === undefined)) {
+      return getCryptocomAiConfirmationLite(userId, symbol, result);
+    }
+    // SS AI must agree on DIRECTION too — a confirmed long on a SELL signal is a skip.
+    const dirOk = !conf.aiDirection || conf.aiDirection === 'NEUTRAL' || conf.aiDirection === proposedSignal;
+    return {
+      confirmed: !!conf.confirmed && dirOk,
+      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
+      reasoning: `[SS AI${conf.modelUsed ? ` · ${conf.modelUsed}` : ''}] ${String(conf.reasoning || 'no reasoning returned')}${dirOk ? '' : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} — skipped)`}`,
+    };
+  } catch (err: any) {
+    // Never hard-fail the gate on an SS AI error — fall back to the numeric opinion.
+    return getCryptocomAiConfirmationLite(userId, symbol, result);
   }
 }
 
