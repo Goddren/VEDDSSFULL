@@ -1176,11 +1176,16 @@ export default function CryptoEnginePage() {
                                   </option>
                                 ))}
                                 <option value="defi" disabled={!hwData?.address} title={hwData?.address ? 'Auto-swap on-chain via the hot wallet' : 'Connect a DeFi hot wallet below to enable'}>
-                                  DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}… · ${hwData.chain})` : '— not connected'}
+                                  DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}… · ${hwData.chain})` : '— connect a burner below'}
                                 </option>
                               </select>
                             );
                           })()}
+                          {!hwData?.address && (
+                            <p className="text-[10px] text-amber-400/80">
+                              DeFi auto-trade is greyed out until you connect a <span className="font-semibold">burner hot wallet</span> — open <span className="font-semibold">Wallets &amp; connections → DeFi Auto-Trade Wallet</span> and add the burner's private key. (The read-only WalletConnect wallet can't sign swaps.)
+                            </p>
+                          )}
                         </div>
                         {/* CeFi spot venue controls */}
                         {config.executionVenue !== 'cryptocom' && config.executionVenue !== 'defi' && (
