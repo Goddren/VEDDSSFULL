@@ -283,7 +283,13 @@ export default function CryptoEnginePage() {
       });
       let accts: string[] = [];
       try { accts = await provider.enable(); } catch (e: any) {
-        setDfMsg(e?.message?.match(/reject|close|cancel/i) ? 'Connection cancelled in the wallet.' : (e?.message || 'WalletConnect handshake failed.'));
+        // Surface the REAL error (don't mask everything as "cancelled").
+        console.error('[WalletConnect] enable() failed:', e);
+        const raw = String(e?.message || e || 'unknown');
+        const msg = /user rejected|user disapproved/i.test(raw) ? 'You declined the request in your wallet.'
+          : /expired/i.test(raw) ? 'The QR expired — tap WalletConnect again for a fresh code.'
+          : `WalletConnect error: ${raw.slice(0, 160)}`;
+        setDfMsg(msg);
         return;
       }
       const address = accts?.[0] || provider.accounts?.[0] || (await provider.request({ method: 'eth_accounts' }).catch(() => []))?.[0];
