@@ -253,9 +253,11 @@ export default function CryptoEnginePage() {
   };
 
   const [wcConnecting, setWcConnecting] = useState(false);
+  const [wcQr, setWcQr] = useState<string | null>(null);
+  const [wcUri, setWcUri] = useState<string | null>(null);
   const connectWalletConnect = async () => {
     try {
-      setWcConnecting(true);
+      setWcConnecting(true); setWcQr(null); setWcUri(null);
       setDfMsg('Loading WalletConnect…');
       const cfg = await (await apiRequest('GET', '/api/defi/walletconnect-config')).json();
       if (!cfg?.projectId) { setDfMsg('WalletConnect isn’t configured yet — set WALLETCONNECT_PROJECT_ID in the server env (free at cloud.reown.com), then reload.'); return; }
@@ -264,21 +266,24 @@ export default function CryptoEnginePage() {
         projectId: cfg.projectId,
         chains: [1],
         optionalChains: [8453, 42161, 10, 137],
-        showQrModal: true,
-        qrModalOptions: { themeMode: 'dark' },
+        showQrModal: false, // we render our own QR + link — more reliable than the bundled modal
         metadata: {
           name: 'VEDD', description: 'VEDD Trading Vault',
           url: typeof window !== 'undefined' ? window.location.origin : 'https://veddbuild.com',
           icons: ['https://veddbuild.com/icons/icon-192x192.png'],
         },
       });
-      // If a stale session is cached, clear it so the QR always shows fresh.
       if (provider.session) { try { await provider.disconnect(); } catch { /* ignore */ } }
-      setDfMsg('Scan the QR with your mobile wallet, then approve…');
-      // enable() opens the modal AND resolves with the approved accounts.
+      // The pairing URI arrives via this event — render it as a QR + copyable link.
+      provider.on('display_uri', async (uri: string) => {
+        setWcUri(uri);
+        // @ts-ignore — no @types/qrcode; runtime module is present.
+        try { const QR: any = (await import('qrcode')).default; setWcQr(await QR.toDataURL(uri, { width: 240, margin: 1 })); } catch { /* URI/link still shown */ }
+        setDfMsg('Scan the QR, or tap “Open in wallet” on mobile, then approve.');
+      });
       let accts: string[] = [];
       try { accts = await provider.enable(); } catch (e: any) {
-        setDfMsg(e?.message?.includes('rejected') || e?.message?.includes('closed') ? 'Connection cancelled in the wallet.' : (e?.message || 'WalletConnect handshake failed.'));
+        setDfMsg(e?.message?.match(/reject|close|cancel/i) ? 'Connection cancelled in the wallet.' : (e?.message || 'WalletConnect handshake failed.'));
         return;
       }
       const address = accts?.[0] || provider.accounts?.[0] || (await provider.request({ method: 'eth_accounts' }).catch(() => []))?.[0];
@@ -287,7 +292,7 @@ export default function CryptoEnginePage() {
       dfSave.mutate({ address, walletType: 'WalletConnect' });
     } catch (e: any) {
       setDfMsg(e?.message || 'WalletConnect connection failed.');
-    } finally { setWcConnecting(false); }
+    } finally { setWcConnecting(false); setWcQr(null); setWcUri(null); }
   };
 
   // ── Crypto.com connection ────────────────────────────────────────────────
@@ -659,6 +664,16 @@ export default function CryptoEnginePage() {
                     {wcConnecting ? 'Opening…' : 'WalletConnect (mobile)'}
                   </button>
                 </div>
+                {(wcQr || wcUri) && (
+                  <div className="rounded-lg border border-[#3b99fc]/30 bg-[#3b99fc]/[0.06] p-3 flex flex-col items-center gap-2">
+                    {wcQr && <img src={wcQr} alt="WalletConnect QR" className="w-44 h-44 rounded-lg bg-white p-1" />}
+                    <p className="text-[11px] text-gray-400 text-center">Scan with your wallet app, or on mobile:</p>
+                    <div className="flex gap-2">
+                      {wcUri && <a href={wcUri} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-[#3b99fc] text-white">Open in wallet</a>}
+                      {wcUri && <button onClick={() => navigator.clipboard?.writeText(wcUri)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300">Copy link</button>}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <Input placeholder="…or paste any 0x address to watch" value={dfManual} onChange={(e) => setDfManual(e.target.value)} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
                   <button onClick={() => dfManual && dfSave.mutate({ address: dfManual.trim(), walletType: 'Watched' })} disabled={dfSave.isPending || !dfManual} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 disabled:opacity-60 shrink-0">Add</button>
