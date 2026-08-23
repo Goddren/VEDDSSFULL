@@ -389,6 +389,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureDefiWalletsTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureDefiHotWalletTable } = await import('./services/ensure-defi-hotwallet-table');
+    await ensureDefiHotWalletTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureDefiHotWalletTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {

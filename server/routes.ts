@@ -19749,6 +19749,75 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── DeFi hot wallet (unattended swaps) — HIGH RISK, encrypted key ─────────
+  app.get("/api/defi/swap-status", async (_req: Request, res: Response) => {
+    const { isDefiSwapAvailable, DEFI_CHAINS } = await import('./services/defi-swap');
+    res.json({ zeroxConfigured: isDefiSwapAvailable(), chains: Object.keys(DEFI_CHAINS) });
+  });
+
+  app.post("/api/defi/hotwallet/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { privateKey, label, chain } = req.body || {};
+    if (!privateKey) return res.status(400).json({ error: "privateKey required" });
+    try {
+      const { addressFromPrivateKey } = await import('./services/defi-swap');
+      const { encryptApiSecret } = await import('./cryptocom');
+      const address = addressFromPrivateKey(String(privateKey));
+      const enc = encryptApiSecret(String(privateKey).trim());
+      const { pool } = await import('./db');
+      await pool.query(
+        `INSERT INTO defi_hot_wallets (user_id, address, encrypted_private_key, label, chain)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (user_id) DO UPDATE SET address=$2, encrypted_private_key=$3, label=$4, chain=$5, is_active=true`,
+        [userId, address, enc, label ? String(label) : null, chain ? String(chain) : 'base']
+      );
+      res.json({ ok: true, address });
+    } catch (err: any) {
+      res.status(400).json({ error: `Invalid private key: ${err?.message || 'unknown'}` });
+    }
+  });
+
+  app.get("/api/defi/hotwallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT address, label, chain, is_active FROM defi_hot_wallets WHERE user_id=$1`, [userId]);
+    res.json(rows[0] ? { address: rows[0].address, label: rows[0].label, chain: rows[0].chain, isActive: rows[0].is_active } : null);
+  });
+
+  app.delete("/api/defi/hotwallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    await pool.query(`DELETE FROM defi_hot_wallets WHERE user_id=$1`, [userId]);
+    res.json({ ok: true });
+  });
+
+  // Manual, confirm-gated swap — proves the pipeline before any autonomy.
+  app.post("/api/defi/hotwallet/swap", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { sellToken, buyToken, sellAmount, slippageBps, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live swap" });
+    if (!sellToken || !buyToken || !(Number(sellAmount) > 0)) return res.status(400).json({ error: "sellToken, buyToken and a positive sellAmount required" });
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT encrypted_private_key, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true`, [userId]);
+    if (!rows.length) return res.status(404).json({ error: "No DeFi hot wallet connected" });
+    try {
+      const { executeDefiSwap } = await import('./services/defi-swap');
+      const r = await executeDefiSwap({
+        encryptedPrivateKey: rows[0].encrypted_private_key, chainKey: rows[0].chain,
+        sellToken: String(sellToken), buyToken: String(buyToken),
+        sellAmountHuman: Number(sellAmount), slippageBps: Math.max(10, Math.min(500, Number(slippageBps) || 100)),
+      });
+      if (!r.ok) return res.status(400).json({ error: r.reason || 'swap failed' });
+      res.json(r);
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'swap failed' });
+    }
+  });
+
   // WalletConnect config for the client (projectId from server env so it can be
   // set in the host env without a rebuild). Empty projectId => feature disabled.
   app.get("/api/defi/walletconnect-config", async (_req: Request, res: Response) => {

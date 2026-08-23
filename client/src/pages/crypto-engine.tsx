@@ -243,6 +243,28 @@ export default function CryptoEnginePage() {
     mutationFn: async (id: number) => (await apiRequest('DELETE', `/api/defi/wallet/${id}`)).json(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }),
   });
+
+  // ── DeFi hot wallet (unattended swaps) ───────────────────────────────────
+  const [showHwForm, setShowHwForm] = useState(false);
+  const [hwForm, setHwForm] = useState({ privateKey: '', chain: 'base', label: '' });
+  const [hwMsg, setHwMsg] = useState<string | null>(null);
+  const { data: hwData } = useQuery<any>({ queryKey: ['/api/defi/hotwallet'], queryFn: async () => (await apiRequest('GET', '/api/defi/hotwallet')).json(), retry: false });
+  const { data: swapStatus } = useQuery<any>({ queryKey: ['/api/defi/swap-status'], queryFn: async () => (await apiRequest('GET', '/api/defi/swap-status')).json(), retry: false });
+  const hwConnect = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/defi/hotwallet/connect', hwForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => { setHwForm({ privateKey: '', chain: 'base', label: '' }); setShowHwForm(false); setHwMsg(null); queryClient.invalidateQueries({ queryKey: ['/api/defi/hotwallet'] }); },
+    onError: (e: any) => setHwMsg(e.message),
+  });
+  const hwRemove = useMutation({
+    mutationFn: async () => (await apiRequest('DELETE', '/api/defi/hotwallet')).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/defi/hotwallet'] }),
+  });
+  const [swap, setSwap] = useState({ sellToken: 'USDC', buyToken: 'WETH', sellAmount: '', slippageBps: '100' });
+  const [swapConfirm, setSwapConfirm] = useState(false);
+  const swapMut = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/defi/hotwallet/swap', { ...swap, sellAmount: Number(swap.sellAmount), slippageBps: Number(swap.slippageBps), confirm: true }); if (!r.ok) throw new Error((await r.json()).error || 'Swap failed'); return r.json(); },
+    onSuccess: () => { setSwapConfirm(false); setSwap(p => ({ ...p, sellAmount: '' })); },
+  });
   const connectBrowserWallet = async () => {
     const eth = (typeof window !== 'undefined' ? (window as any).ethereum : null);
     if (!eth) { setDfMsg('No browser wallet found. Install MetaMask, use WalletConnect below, or paste an address to watch it.'); return; }
@@ -702,6 +724,68 @@ export default function CryptoEnginePage() {
                 </div>
                 {dfMsg && <p className="text-[11px] text-amber-400">{dfMsg}</p>}
                 <p className="text-[10px] text-gray-500">Scans Ethereum, Base, Arbitrum, Optimism &amp; Polygon. With an Alchemy key set (ALCHEMY_API_KEY) it shows EVERY token you hold; otherwise native coins + majors (USDC/USDT/DAI/WBTC) via public RPCs.</p>
+              </CardContent>
+            </Card>
+
+            {/* DeFi hot wallet — unattended swaps (HIGH RISK) */}
+            <Card className="bg-gray-900 border-red-800/40">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>DeFi Auto-Trade Wallet</span>
+                  <Badge variant="outline" className="text-[10px] border-red-700 text-red-400">Hot wallet · signs swaps</Badge>
+                </CardTitle>
+                <CardDescription className="text-red-300/80">⚠️ This stores an encrypted PRIVATE KEY so the engine can swap on its own. Use a dedicated burner wallet funded with a small amount you can afford to lose — never your main wallet. {swapStatus && !swapStatus.zeroxConfigured && <span className="text-amber-400">0x not configured — set ZEROX_API_KEY in the server env to enable swaps.</span>}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {hwData?.address ? (
+                  <>
+                    <div className="flex items-center justify-between rounded-lg border border-red-800/40 bg-red-500/[0.05] px-3 py-2">
+                      <div><p className="text-xs font-mono text-gray-300">{hwData.address.slice(0, 8)}…{hwData.address.slice(-6)}</p><p className="text-[10px] text-gray-500">chain: {hwData.chain}</p></div>
+                      <button onClick={() => hwRemove.mutate()} className="text-[11px] text-gray-500 hover:text-red-400">remove</button>
+                    </div>
+                    {/* Manual test swap — prove the pipeline before enabling autonomy */}
+                    <div className="rounded-lg border border-gray-800 bg-black/20 p-3 space-y-2">
+                      <p className="text-[11px] font-bold text-red-300">Manual test swap</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="Sell (USDC / WETH / 0x…)" value={swap.sellToken} onChange={(e) => setSwap(p => ({ ...p, sellToken: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        <Input placeholder="Buy (WETH / USDC / 0x…)" value={swap.buyToken} onChange={(e) => setSwap(p => ({ ...p, buyToken: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        <Input placeholder="Sell amount" value={swap.sellAmount} onChange={(e) => setSwap(p => ({ ...p, sellAmount: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        <Input placeholder="Slippage bps (100=1%)" value={swap.slippageBps} onChange={(e) => setSwap(p => ({ ...p, slippageBps: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      </div>
+                      {swapMut.isError && <p className="text-[11px] text-red-400">{(swapMut.error as Error)?.message}</p>}
+                      {swapMut.isSuccess && <p className="text-[11px] text-emerald-400">Swap sent ✓ tx {(swapMut.data as any)?.txHash?.slice(0, 12)}…</p>}
+                      {!swapConfirm ? (
+                        <button onClick={() => setSwapConfirm(true)} disabled={!swap.sellAmount || (swapStatus && !swapStatus.zeroxConfigured)} className="w-full text-sm font-bold py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">Swap {swap.sellToken} → {swap.buyToken}</button>
+                      ) : (
+                        <div className="flex gap-2">
+                          <button onClick={() => swapMut.mutate()} disabled={swapMut.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{swapMut.isPending ? 'Swapping…' : `Confirm: sell ${swap.sellAmount} ${swap.sellToken}`}</button>
+                          <button onClick={() => setSwapConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-gray-600">Live on-chain swap via 0x on {hwData.chain}. Start with a tiny amount to validate the pipeline. Autonomous engine wiring comes after this works.</p>
+                    </div>
+                  </>
+                ) : !showHwForm ? (
+                  <button onClick={() => setShowHwForm(true)} className="text-sm text-red-400 hover:text-red-300">+ Connect a hot wallet (burner only)</button>
+                ) : (
+                  <div className="space-y-2">
+                    <select value={hwForm.chain} onChange={(e) => setHwForm(p => ({ ...p, chain: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">
+                      <option value="base">Base (low gas — recommended)</option>
+                      <option value="arbitrum">Arbitrum</option>
+                      <option value="optimism">Optimism</option>
+                      <option value="polygon">Polygon</option>
+                      <option value="ethereum">Ethereum (high gas)</option>
+                    </select>
+                    <Input placeholder="Burner wallet private key (0x…)" value={hwForm.privateKey} onChange={(e) => setHwForm(p => ({ ...p, privateKey: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
+                    <Input placeholder="Label (optional)" value={hwForm.label} onChange={(e) => setHwForm(p => ({ ...p, label: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    {hwMsg && <p className="text-[11px] text-red-400">{hwMsg}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => hwConnect.mutate()} disabled={hwConnect.isPending || !hwForm.privateKey} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-60">{hwConnect.isPending ? 'Saving…' : 'Save hot wallet'}</button>
+                      <button onClick={() => setShowHwForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                    </div>
+                    <p className="text-[10px] text-red-300/70">The key is encrypted at rest. Only ever use a dedicated burner funded with a small, capped amount.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

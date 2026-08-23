@@ -34279,8 +34279,8 @@ function _loadPolymarketPrivateKey(userId) {
 }
 async function _signAndSubmitClobOrder(privateKey, tokenId, side, makerAmt, takerAmt) {
   try {
-    const { ethers } = await import("ethers");
-    const wallet = new ethers.Wallet(privateKey);
+    const { ethers: ethers2 } = await import("ethers");
+    const wallet = new ethers2.Wallet(privateKey);
     const salt = BigInt(Math.floor(Math.random() * 1e15));
     const now = BigInt(Math.floor(Date.now() / 1e3));
     const expiry = now + BigInt(3600);
@@ -37768,6 +37768,105 @@ var init_onchain_balances = __esm({
         ]
       }
     ];
+  }
+});
+
+// server/services/defi-swap.ts
+var defi_swap_exports = {};
+__export(defi_swap_exports, {
+  DEFI_CHAINS: () => DEFI_CHAINS,
+  addressFromPrivateKey: () => addressFromPrivateKey,
+  executeDefiSwap: () => executeDefiSwap,
+  isDefiSwapAvailable: () => isDefiSwapAvailable,
+  resolveToken: () => resolveToken
+});
+import { ethers } from "ethers";
+function isDefiSwapAvailable() {
+  return !!process.env.ZEROX_API_KEY;
+}
+function resolveToken(chainKey, token) {
+  const c = DEFI_CHAINS[chainKey];
+  const t = token.trim();
+  if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
+  const up = t.toUpperCase();
+  if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
+  if (up === "USDC") return c.usdc;
+  if (up === "WETH") return c.weth;
+  throw new Error(`Unknown token "${token}" on ${chainKey} \u2014 use USDC/WETH/native or a 0x address`);
+}
+async function zeroXQuote(chainId, params) {
+  const qs = new URLSearchParams({ chainId: String(chainId), ...params });
+  const res = await fetch(`https://api.0x.org/swap/allowance-holder/quote?${qs.toString()}`, {
+    headers: { "0x-api-key": process.env.ZEROX_API_KEY || "", "0x-version": "v2" },
+    signal: AbortSignal.timeout(15e3)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`0x ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+  return data;
+}
+async function executeDefiSwap(opts) {
+  if (!isDefiSwapAvailable()) return { ok: false, reason: "ZEROX_API_KEY not set on the server" };
+  const chain = DEFI_CHAINS[opts.chainKey];
+  if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
+  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
+  const sellToken = resolveToken(opts.chainKey, opts.sellToken);
+  const buyToken = resolveToken(opts.chainKey, opts.buyToken);
+  let decimals = 18;
+  if (sellToken !== NATIVE_PSEUDO) {
+    const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
+    decimals = Number(await erc.decimals());
+  }
+  const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
+  const quote = await zeroXQuote(chain.chainId, {
+    sellToken,
+    buyToken,
+    sellAmount,
+    taker: wallet.address,
+    slippageBps: String(opts.slippageBps)
+  });
+  if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
+    return { ok: false, reason: "no liquidity for this pair/size" };
+  }
+  let approveTxHash;
+  const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
+  if (sellToken !== NATIVE_PSEUDO && spender) {
+    const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
+    const current = await erc.allowance(wallet.address, spender);
+    if (current < BigInt(sellAmount)) {
+      const aTx = await erc.approve(spender, ethers.MaxUint256);
+      approveTxHash = aTx.hash;
+      await aTx.wait();
+    }
+  }
+  const t = quote.transaction;
+  if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
+  const txResp = await wallet.sendTransaction({
+    to: t.to,
+    data: t.data,
+    value: t.value ? BigInt(t.value) : BigInt(0),
+    ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
+  });
+  await txResp.wait();
+  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount };
+}
+function addressFromPrivateKey(pk) {
+  return new ethers.Wallet(pk.trim()).address;
+}
+var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI;
+var init_defi_swap = __esm({
+  "server/services/defi-swap.ts"() {
+    "use strict";
+    init_cryptocom();
+    DEFI_CHAINS = {
+      ethereum: { chainId: 1, rpc: "https://ethereum-rpc.publicnode.com", name: "Ethereum", native: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" },
+      base: { chainId: 8453, rpc: "https://base-rpc.publicnode.com", name: "Base", native: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", weth: "0x4200000000000000000000000000000000000006" },
+      arbitrum: { chainId: 42161, rpc: "https://arbitrum-one-rpc.publicnode.com", name: "Arbitrum", native: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", weth: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1" },
+      optimism: { chainId: 10, rpc: "https://optimism-rpc.publicnode.com", name: "Optimism", native: "ETH", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", weth: "0x4200000000000000000000000000000000000006" },
+      polygon: { chainId: 137, rpc: "https://polygon-bor-rpc.publicnode.com", name: "Polygon", native: "POL", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", weth: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619" }
+    };
+    NATIVE_PSEUDO = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+    ERC20_ABI = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)"];
   }
 });
 
@@ -47745,6 +47844,40 @@ CREATE INDEX IF NOT EXISTS "idx_defi_wallets_user" ON "defi_wallets" ("user_id")
   }
 });
 
+// server/services/ensure-defi-hotwallet-table.ts
+var ensure_defi_hotwallet_table_exports = {};
+__export(ensure_defi_hotwallet_table_exports, {
+  ensureDefiHotWalletTable: () => ensureDefiHotWalletTable
+});
+async function ensureDefiHotWalletTable() {
+  try {
+    await pool.query(DDL21);
+    console.log("[startup] DeFi hot-wallet table ensured (defi_hot_wallets) \u2014 encrypted key for unattended swaps.");
+  } catch (err) {
+    console.error("[startup] ensureDefiHotWalletTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL21;
+var init_ensure_defi_hotwallet_table = __esm({
+  "server/services/ensure-defi-hotwallet-table.ts"() {
+    "use strict";
+    init_db();
+    DDL21 = `
+CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "address" text NOT NULL,
+  "encrypted_private_key" text NOT NULL,
+  "label" text,
+  "chain" text NOT NULL DEFAULT 'base',
+  "is_active" boolean NOT NULL DEFAULT true,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "defi_hot_wallets_user_unique" UNIQUE ("user_id")
+);
+`;
+  }
+});
+
 // server/services/ensure-engine-consensus-table.ts
 var ensure_engine_consensus_table_exports = {};
 __export(ensure_engine_consensus_table_exports, {
@@ -47752,18 +47885,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47791,18 +47924,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47824,18 +47957,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47866,18 +47999,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47901,18 +48034,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47931,18 +48064,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -47959,18 +48092,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -48051,18 +48184,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -71240,6 +71373,71 @@ Respond with ONLY valid JSON:
       res.status(400).json({ error: err?.message || "connect failed" });
     }
   });
+  app2.get("/api/defi/swap-status", async (_req, res) => {
+    const { isDefiSwapAvailable: isDefiSwapAvailable2, DEFI_CHAINS: DEFI_CHAINS2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+    res.json({ zeroxConfigured: isDefiSwapAvailable2(), chains: Object.keys(DEFI_CHAINS2) });
+  });
+  app2.post("/api/defi/hotwallet/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { privateKey, label, chain } = req.body || {};
+    if (!privateKey) return res.status(400).json({ error: "privateKey required" });
+    try {
+      const { addressFromPrivateKey: addressFromPrivateKey2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+      const { encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+      const address = addressFromPrivateKey2(String(privateKey));
+      const enc = encryptApiSecret3(String(privateKey).trim());
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await pool2.query(
+        `INSERT INTO defi_hot_wallets (user_id, address, encrypted_private_key, label, chain)
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (user_id) DO UPDATE SET address=$2, encrypted_private_key=$3, label=$4, chain=$5, is_active=true`,
+        [userId, address, enc, label ? String(label) : null, chain ? String(chain) : "base"]
+      );
+      res.json({ ok: true, address });
+    } catch (err) {
+      res.status(400).json({ error: `Invalid private key: ${err?.message || "unknown"}` });
+    }
+  });
+  app2.get("/api/defi/hotwallet", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT address, label, chain, is_active FROM defi_hot_wallets WHERE user_id=$1`, [userId]);
+    res.json(rows[0] ? { address: rows[0].address, label: rows[0].label, chain: rows[0].chain, isActive: rows[0].is_active } : null);
+  });
+  app2.delete("/api/defi/hotwallet", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    await pool2.query(`DELETE FROM defi_hot_wallets WHERE user_id=$1`, [userId]);
+    res.json({ ok: true });
+  });
+  app2.post("/api/defi/hotwallet/swap", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { sellToken, buyToken, sellAmount, slippageBps, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live swap" });
+    if (!sellToken || !buyToken || !(Number(sellAmount) > 0)) return res.status(400).json({ error: "sellToken, buyToken and a positive sellAmount required" });
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT encrypted_private_key, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true`, [userId]);
+    if (!rows.length) return res.status(404).json({ error: "No DeFi hot wallet connected" });
+    try {
+      const { executeDefiSwap: executeDefiSwap2 } = await Promise.resolve().then(() => (init_defi_swap(), defi_swap_exports));
+      const r = await executeDefiSwap2({
+        encryptedPrivateKey: rows[0].encrypted_private_key,
+        chainKey: rows[0].chain,
+        sellToken: String(sellToken),
+        buyToken: String(buyToken),
+        sellAmountHuman: Number(sellAmount),
+        slippageBps: Math.max(10, Math.min(500, Number(slippageBps) || 100))
+      });
+      if (!r.ok) return res.status(400).json({ error: r.reason || "swap failed" });
+      res.json(r);
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "swap failed" });
+    }
+  });
   app2.get("/api/defi/walletconnect-config", async (_req, res) => {
     res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || "" });
   });
@@ -82236,6 +82434,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureDefiWalletsTable2();
   } catch (err) {
     console.error(`[startup] ensureDefiWalletsTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureDefiHotWalletTable: ensureDefiHotWalletTable2 } = await Promise.resolve().then(() => (init_ensure_defi_hotwallet_table(), ensure_defi_hotwallet_table_exports));
+    await ensureDefiHotWalletTable2();
+  } catch (err) {
+    console.error(`[startup] ensureDefiHotWalletTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));
