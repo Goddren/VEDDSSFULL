@@ -375,6 +375,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureKrakenTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureGeminiTables } = await import('./services/ensure-gemini-tables');
+    await ensureGeminiTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureGeminiTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {

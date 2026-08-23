@@ -162,6 +162,19 @@ export default function CryptoEnginePage() {
     onSuccess: () => { setKrForm({ apiKey: '', apiSecret: '', label: '' }); setShowKrForm(false); queryClient.invalidateQueries({ queryKey: ['/api/kraken/balances'] }); },
   });
 
+  // ── Gemini (read-only wallet) ────────────────────────────────────────────
+  const [showGmForm, setShowGmForm] = useState(false);
+  const [gmForm, setGmForm] = useState({ apiKey: '', apiSecret: '', label: '' });
+  const { data: gmData, isLoading: gmLoading } = useQuery<any>({
+    queryKey: ['/api/gemini/balances'],
+    queryFn: async () => (await apiRequest('GET', '/api/gemini/balances')).json(),
+    retry: false,
+  });
+  const gmConnect = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/gemini/connect', gmForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => { setGmForm({ apiKey: '', apiSecret: '', label: '' }); setShowGmForm(false); queryClient.invalidateQueries({ queryKey: ['/api/gemini/balances'] }); },
+  });
+
   // ── Crypto.com connection ────────────────────────────────────────────────
   const { data: cryptocomConnections = [], isLoading: cryptocomLoading } = useQuery<CryptocomConnection[]>({
     queryKey: ['/api/cryptocom/connections'],
@@ -361,6 +374,57 @@ export default function CryptoEnginePage() {
                       <button onClick={() => setShowKrForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
                     </div>
                     <p className="text-[10px] text-gray-500">Create an API key at kraken.com → Settings → API. Enable only "Query Funds".</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Gemini read-only wallet */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Gemini Wallet</span>
+                  <Badge variant="outline" className="text-[10px] border-teal-700 text-teal-400">Read-only balances</Badge>
+                </CardTitle>
+                <CardDescription>Connect a Gemini API key (key + secret) with "Auditor" (read-only) scope. No trading. Your secret is encrypted at rest.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {gmData?.connections?.length > 0 && (
+                  <div className="rounded-lg border border-teal-800/40 bg-teal-500/[0.06] p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-teal-300">Total ≈ ${(gmData.totalUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-[10px] text-gray-500">{gmLoading ? 'refreshing…' : 'live'}</span>
+                    </div>
+                    {gmData.connections.map((c: any) => (
+                      <div key={c.id}>
+                        {c.error ? <p className="text-[11px] text-red-400">Error: {c.error}</p> : (
+                          <div className="space-y-1">
+                            {(c.balances ?? []).slice(0, 8).map((b: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-300 font-medium">{b.currency}</span>
+                                <span className="text-gray-400 font-mono">{b.total.toLocaleString(undefined, { maximumFractionDigits: 6 })}{b.usdValue != null && <span className="text-gray-500"> · ${b.usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}</span>
+                              </div>
+                            ))}
+                            {(c.balances ?? []).length === 0 && <p className="text-[11px] text-gray-500">No non-zero balances.</p>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!showGmForm ? (
+                  <button onClick={() => setShowGmForm(true)} className="text-sm text-teal-400 hover:text-teal-300">+ Connect Gemini (read-only)</button>
+                ) : (
+                  <div className="space-y-2">
+                    <Input placeholder="API key (account-…)" value={gmForm.apiKey} onChange={(e) => setGmForm(p => ({ ...p, apiKey: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <Input placeholder="API secret" value={gmForm.apiSecret} onChange={(e) => setGmForm(p => ({ ...p, apiSecret: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <Input placeholder="Label (optional)" value={gmForm.label} onChange={(e) => setGmForm(p => ({ ...p, label: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    {gmConnect.isError && <p className="text-[11px] text-red-400">{(gmConnect.error as Error)?.message}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => gmConnect.mutate()} disabled={gmConnect.isPending || !gmForm.apiKey || !gmForm.apiSecret} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-60">{gmConnect.isPending ? 'Verifying…' : 'Connect'}</button>
+                      <button onClick={() => setShowGmForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                    </div>
+                    <p className="text-[10px] text-gray-500">Create an API key at gemini.com → Settings → API. Use "Auditor" (read-only) scope.</p>
                   </div>
                 )}
               </CardContent>
