@@ -932,6 +932,15 @@ export const cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
   ruinGuardEnabled: boolean("ruin_guard_enabled").notNull().default(false),     // hard circuit breaker (halts new trades) vs the drawdown-shield down-size
   dailyLossLimitPct: doublePrecision("daily_loss_limit_pct").notNull().default(5),
   maxDrawdownLimitPct: doublePrecision("max_drawdown_limit_pct").notNull().default(10),
+  // ── Multi-venue execution routing ─────────────────────────────────────────
+  // Where the engine places its signals. 'cryptocom' = the existing perp path;
+  // 'coinbase'/'kraken'/'gemini' = spot (long-only) via the CeFi router. Spot
+  // routing requires cefiAutoTradeEnabled (explicit opt-in) + a connected key.
+  executionVenue: text("execution_venue").notNull().default('cryptocom'), // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini'
+  cefiAutoTradeEnabled: boolean("cefi_auto_trade_enabled").notNull().default(false),
+  cefiNotionalUsd: doublePrecision("cefi_notional_usd").notNull().default(25), // USD per spot entry on a CeFi venue
+  cefiTakeProfitPct: doublePrecision("cefi_take_profit_pct").notNull().default(3), // spot exit: +% from entry
+  cefiStopLossPct: doublePrecision("cefi_stop_loss_pct").notNull().default(2),   // spot exit: -% from entry
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -963,6 +972,7 @@ export const cryptocomEngineTrades = pgTable("cryptocom_engine_trades", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
   connectionId: integer("connection_id").notNull(),
+  venue: text("venue").notNull().default('cryptocom'), // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini'
   symbol: text("symbol").notNull(),
   strategy: text("strategy").notNull(),
   direction: text("direction").notNull(), // 'long' | 'short'

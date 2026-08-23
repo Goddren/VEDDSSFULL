@@ -59,6 +59,11 @@ type CryptocomEngineConfig = {
   ruinGuardEnabled: boolean;
   dailyLossLimitPct: number;
   maxDrawdownLimitPct: number;
+  executionVenue: 'cryptocom' | 'coinbase' | 'kraken' | 'gemini';
+  cefiAutoTradeEnabled: boolean;
+  cefiNotionalUsd: number;
+  cefiTakeProfitPct: number;
+  cefiStopLossPct: number;
   trailMethod: 'none' | 'fixed_r' | 'stepped_fixed' | 'profit_lock' | 'chandelier' | 'parabolic_sar' | 'r_multiple' | 'swing_structure';
   trailActivationR: number;
   trailFixedR: number;
@@ -797,6 +802,36 @@ export default function CryptoEnginePage() {
                             </SelectContent>
                           </Select>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* ── Execution venue routing ── */}
+                    <div>
+                      <h4 className="text-[11px] font-bold text-blue-400 uppercase tracking-wide mb-3">Execution Venue</h4>
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs text-gray-400">Where to place orders</Label>
+                          <select value={config.executionVenue} onChange={(e) => updateConfigMutation.mutate({ executionVenue: e.target.value })} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">
+                            <option value="cryptocom">Crypto.com (perps — full engine)</option>
+                            <option value="coinbase">Coinbase (spot, long-only)</option>
+                            <option value="kraken">Kraken (spot, long-only)</option>
+                            <option value="gemini">Gemini (spot, long-only)</option>
+                          </select>
+                        </div>
+                        {config.executionVenue !== 'cryptocom' && (
+                          <>
+                            <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
+                              <div><Label className="text-xs text-white">Enable live CeFi auto-trade</Label><p className="text-[10px] text-gray-500">Auto-places REAL spot orders on {config.executionVenue}</p></div>
+                              <Switch checked={config.cefiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ cefiAutoTradeEnabled: v })} />
+                            </div>
+                            <div className="space-y-1"><Label className="text-[11px] text-gray-400">USD per entry</Label><Input type="number" defaultValue={config.cefiNotionalUsd} onBlur={(e) => updateConfigMutation.mutate({ cefiNotionalUsd: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Take profit %</Label><Input type="number" step="0.5" defaultValue={config.cefiTakeProfitPct} onBlur={(e) => updateConfigMutation.mutate({ cefiTakeProfitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Stop loss %</Label><Input type="number" step="0.5" defaultValue={config.cefiStopLossPct} onBlur={(e) => updateConfigMutation.mutate({ cefiStopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                            </div>
+                            <p className="text-[10px] text-gray-500 md:col-span-2">Spot is long-only (BUY signals only). Requires a connected {config.executionVenue} key with trade permission. Start with a small "USD per entry".</p>
+                          </>
+                        )}
                       </div>
                     </div>
 

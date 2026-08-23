@@ -13,6 +13,7 @@ import { computeAllAdvancedIndicators, type CandleData } from '../indicators';
 import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/schema';
 import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
+import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
 
 const MIN_SCAN_INTERVAL_MS = 30000;
 const lastScanAt = new Map<number, number>();
@@ -278,10 +279,21 @@ function computeTrailFloorR(cfg: CryptocomEngineConfig, peakR: number): number {
 
 async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig): Promise<void> {
   const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
-  if (openTrades.length === 0 || cfg.trailMethod === 'none') return;
+  if (openTrades.length === 0) return;
 
   for (const trade of openTrades) {
     try {
+      // CeFi spot trades: fixed %-TP/%-SL against the public price, always checked.
+      if ((trade as any).venue && (trade as any).venue !== 'cryptocom') {
+        const { getAggregatedQuote } = await import('./crypto-market-data');
+        const q = await getAggregatedQuote(baseCoin(trade.symbol)).catch(() => null);
+        const px = q?.best?.price ?? 0;
+        if (!px) continue;
+        if (trade.takeProfit && px >= trade.takeProfit) { await closePosition(userId, trade, px, 'take_profit'); continue; }
+        if (trade.stopLoss && px <= trade.stopLoss) { await closePosition(userId, trade, px, 'stop_loss'); continue; }
+        continue;
+      }
+      if (cfg.trailMethod === 'none') continue; // perp trailing only when enabled
       const currentPrice = await CryptoComService.getTicker(trade.symbol);
       if (!currentPrice || !trade.stopLoss) continue;
       const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
@@ -310,11 +322,18 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
 
 async function closePosition(userId: number, trade: any, currentPrice: number, reason: string): Promise<void> {
   try {
-    const connection = await storage.getUserCryptocomConnections(userId).then(c => c.find(x => x.id === trade.connectionId));
-    if (connection) {
-      const service = new CryptoComService(connection.apiKey, decryptApiSecret(connection.encryptedApiSecret));
-      const closeSide = trade.direction === 'long' ? 'SELL' : 'BUY';
-      await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: 'MARKET' }).catch(() => {});
+    const venue = trade.venue && trade.venue !== 'cryptocom' ? trade.venue : null;
+    if (venue) {
+      // CeFi spot exit — sell the held base amount on the venue.
+      const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
+      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+    } else {
+      const connection = await storage.getUserCryptocomConnections(userId).then(c => c.find(x => x.id === trade.connectionId));
+      if (connection) {
+        const service = new CryptoComService(connection.apiKey, decryptApiSecret(connection.encryptedApiSecret));
+        const closeSide = trade.direction === 'long' ? 'SELL' : 'BUY';
+        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: 'MARKET' }).catch(() => {});
+      }
     }
     const realizedPnl = (trade.direction === 'long' ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
     await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
@@ -479,6 +498,43 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
 
 async function executeSignal(service: CryptoComService, connection: CryptocomConnection, userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<void> {
   if (!result.direction || !result.price) return;
+
+  // ── CeFi spot routing (Coinbase / Kraken / Gemini) ─────────────────────────
+  // When the engine is set to a spot venue AND CeFi auto-trade is explicitly on,
+  // route the signal there instead of Crypto.com perps. Spot is long-only.
+  const venue = (cfg as any).executionVenue as string;
+  if (venue && venue !== 'cryptocom' && (cfg as any).cefiAutoTradeEnabled) {
+    if (result.direction !== 'BUY') {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: ${venue} is spot (long-only) — SELL/short signals aren't traded on this venue.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+      return;
+    }
+    // Respect max-open + daily caps via the same gate (equity=configured balance).
+    const gateC = await checkSafetyGates(userId, cfg, cfg.accountBalance);
+    if (!gateC.allowed) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked — ${gateC.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+      return;
+    }
+    const base = baseCoin(symbol);
+    const notional = Math.max(1, (cfg as any).cefiNotionalUsd ?? 25) * (gateC.riskMultiplier < 1 ? gateC.riskMultiplier : 1);
+    try {
+      const r = await cefiEntryBuy(userId, venue as CefiVenue, base, notional);
+      if (!r.ok) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', strategy: result.strategy, reasoning: `${symbol}: ${venue} spot entry failed — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+        return;
+      }
+      await storage.createCryptocomEngineTrade({
+        userId, connectionId: connection?.id ?? 0, venue, symbol: r.venueSymbol, strategy: result.strategy,
+        direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice,
+        stopLoss: r.entryPrice * (1 - ((cfg as any).cefiStopLossPct ?? 2) / 100),
+        takeProfit: r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100),
+        entryOrderId: r.orderId, entryReasoning: result.reasoning, status: 'open',
+      } as any);
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: EXECUTED on ${venue.toUpperCase()} — spot BUY ${r.qtyBase} ${base} (~$${notional.toFixed(0)}) @ ~$${r.entryPrice.toFixed(2)}. TP +${(cfg as any).cefiTakeProfitPct ?? 3}% / SL -${(cfg as any).cefiStopLossPct ?? 2}%. ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+    } catch (err: any) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', strategy: result.strategy, reasoning: `${symbol}: ${venue} spot order error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+    }
+    return;
+  }
 
   let account;
   try {
