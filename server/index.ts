@@ -382,6 +382,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureGeminiTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureDefiWalletsTable } = await import('./services/ensure-defi-wallets-table');
+    await ensureDefiWalletsTable();
+  } catch (err: any) {
+    console.error(`[startup] ensureDefiWalletsTable import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {

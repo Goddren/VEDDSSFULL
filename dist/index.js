@@ -37476,6 +37476,141 @@ var init_coinbase = __esm({
   }
 });
 
+// server/services/onchain-balances.ts
+var onchain_balances_exports = {};
+__export(onchain_balances_exports, {
+  getOnchainBalances: () => getOnchainBalances,
+  isValidEvmAddress: () => isValidEvmAddress
+});
+async function rpc(url, method, params) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(9e3)
+  });
+  if (!res.ok) throw new Error(`RPC ${res.status}`);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message || "rpc error");
+  return d.result;
+}
+function hexToNum(hex, decimals) {
+  if (!hex || hex === "0x") return 0;
+  try {
+    return Number(BigInt(hex)) / Math.pow(10, decimals);
+  } catch {
+    return 0;
+  }
+}
+function isValidEvmAddress(addr) {
+  return /^0x[a-fA-F0-9]{40}$/.test(addr);
+}
+async function getOnchainBalances(address) {
+  if (!isValidEvmAddress(address)) throw new Error("Invalid EVM address");
+  const holdings = [];
+  const scanned = [];
+  await Promise.all(CHAINS.map(async (chain) => {
+    try {
+      const nativeHex = await rpc(chain.rpc, "eth_getBalance", [address, "latest"]);
+      const nativeAmt = hexToNum(nativeHex, 18);
+      if (nativeAmt > 0) holdings.push({ chain: chain.name, symbol: chain.nativeSymbol, amount: nativeAmt });
+      for (const t of chain.tokens) {
+        try {
+          const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+          const raw = await rpc(chain.rpc, "eth_call", [{ to: t.address, data }, "latest"]);
+          const amt = hexToNum(raw, t.decimals);
+          if (amt > 0) holdings.push({ chain: chain.name, symbol: t.symbol, amount: amt });
+        } catch {
+        }
+      }
+      scanned.push(chain.name);
+    } catch {
+    }
+  }));
+  let totalUsd = 0;
+  try {
+    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+    const priceCache3 = /* @__PURE__ */ new Map();
+    for (const h of holdings) {
+      if (["USDC", "USDT", "DAI", "GUSD"].includes(h.symbol)) {
+        h.usdValue = h.amount;
+        totalUsd += h.amount;
+        continue;
+      }
+      const priceSym = h.symbol === "WBTC" ? "BTC" : h.symbol === "POL" ? "MATIC" : h.symbol;
+      if (!priceCache3.has(priceSym)) {
+        const q = await getAggregatedQuote2(priceSym).catch(() => null);
+        priceCache3.set(priceSym, q?.best?.price ?? null);
+      }
+      const px = priceCache3.get(priceSym) ?? null;
+      h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
+      if (h.usdValue) totalUsd += h.usdValue;
+    }
+  } catch {
+  }
+  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned };
+}
+var CHAINS;
+var init_onchain_balances = __esm({
+  "server/services/onchain-balances.ts"() {
+    "use strict";
+    CHAINS = [
+      {
+        key: "ethereum",
+        name: "Ethereum",
+        rpc: "https://ethereum-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://etherscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+          { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+          { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
+          { symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 }
+        ]
+      },
+      {
+        key: "base",
+        name: "Base",
+        rpc: "https://base-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://basescan.org",
+        tokens: [{ symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }]
+      },
+      {
+        key: "arbitrum",
+        name: "Arbitrum",
+        rpc: "https://arbitrum-one-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://arbiscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
+          { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 }
+        ]
+      },
+      {
+        key: "optimism",
+        name: "Optimism",
+        rpc: "https://optimism-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://optimistic.etherscan.io",
+        tokens: [{ symbol: "USDC", address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6 }]
+      },
+      {
+        key: "polygon",
+        name: "Polygon",
+        rpc: "https://polygon-bor-rpc.publicnode.com",
+        nativeSymbol: "POL",
+        explorer: "https://polygonscan.com",
+        tokens: [
+          { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+          { symbol: "USDT", address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 }
+        ]
+      }
+    ];
+  }
+});
+
 // server/gemini.ts
 var gemini_exports = {};
 __export(gemini_exports, {
@@ -47369,6 +47504,41 @@ CREATE INDEX IF NOT EXISTS "idx_gemini_connections_user" ON "gemini_connections"
   }
 });
 
+// server/services/ensure-defi-wallets-table.ts
+var ensure_defi_wallets_table_exports = {};
+__export(ensure_defi_wallets_table_exports, {
+  ensureDefiWalletsTable: () => ensureDefiWalletsTable
+});
+async function ensureDefiWalletsTable() {
+  try {
+    await pool.query(DDL20);
+    console.log("[startup] DeFi wallets table ensured (defi_wallets) \u2014 public addresses only, on-chain read-only.");
+  } catch (err) {
+    console.error("[startup] ensureDefiWalletsTable failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL20;
+var init_ensure_defi_wallets_table = __esm({
+  "server/services/ensure-defi-wallets-table.ts"() {
+    "use strict";
+    init_db();
+    DDL20 = `
+CREATE TABLE IF NOT EXISTS "defi_wallets" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "address" text NOT NULL,
+  "label" text,
+  "wallet_type" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "last_synced_at" timestamp,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  CONSTRAINT "defi_wallets_user_address_unique" UNIQUE ("user_id", "address")
+);
+CREATE INDEX IF NOT EXISTS "idx_defi_wallets_user" ON "defi_wallets" ("user_id");
+`;
+  }
+});
+
 // server/services/ensure-engine-consensus-table.ts
 var ensure_engine_consensus_table_exports = {};
 __export(ensure_engine_consensus_table_exports, {
@@ -47376,18 +47546,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47415,18 +47585,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47448,18 +47618,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47490,18 +47660,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47525,18 +47695,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47555,18 +47725,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -47583,18 +47753,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -47675,18 +47845,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -70689,6 +70859,65 @@ Respond with ONLY valid JSON:
     await pool2.query(`DELETE FROM coinbase_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
   });
+  app2.post("/api/defi/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { address, label, walletType } = req.body || {};
+    try {
+      const { isValidEvmAddress: isValidEvmAddress2 } = await Promise.resolve().then(() => (init_onchain_balances(), onchain_balances_exports));
+      if (!address || !isValidEvmAddress2(String(address))) return res.status(400).json({ error: "A valid 0x wallet address is required" });
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `INSERT INTO defi_wallets (user_id, address, label, wallet_type, last_synced_at)
+         VALUES ($1,$2,$3,$4, now())
+         ON CONFLICT (user_id, address) DO UPDATE SET is_active=true, label=COALESCE(EXCLUDED.label, defi_wallets.label)
+         RETURNING id`,
+        [userId, String(address).toLowerCase(), label ? String(label) : null, walletType ? String(walletType) : null]
+      );
+      res.json({ ok: true, id: rows[0].id });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "connect failed" });
+    }
+  });
+  app2.get("/api/defi/wallets", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT id, address, label, wallet_type, is_active, last_synced_at FROM defi_wallets WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    res.json(rows.map((r) => ({ id: r.id, address: r.address, label: r.label, walletType: r.wallet_type, lastSyncedAt: r.last_synced_at })));
+  });
+  app2.get("/api/defi/balances", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT id, address FROM defi_wallets WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    if (!rows.length) return res.json({ wallets: [], totalUsd: 0 });
+    try {
+      const { getOnchainBalances: getOnchainBalances2 } = await Promise.resolve().then(() => (init_onchain_balances(), onchain_balances_exports));
+      const out = [];
+      let totalUsd = 0;
+      for (const r of rows) {
+        try {
+          const summary = await getOnchainBalances2(r.address);
+          out.push({ id: r.id, ...summary });
+          totalUsd += summary.totalUsd;
+          await pool2.query(`UPDATE defi_wallets SET last_synced_at=now() WHERE id=$1`, [r.id]);
+        } catch (e) {
+          out.push({ id: r.id, address: r.address, error: e.message, holdings: [], totalUsd: 0 });
+        }
+      }
+      res.json({ wallets: out, totalUsd: Math.round(totalUsd * 100) / 100 });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || "balance fetch failed" });
+    }
+  });
+  app2.delete("/api/defi/wallet/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    await pool2.query(`DELETE FROM defi_wallets WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
+    res.json({ ok: true });
+  });
   app2.post("/api/gemini/connect", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -81598,6 +81827,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureGeminiTables2();
   } catch (err) {
     console.error(`[startup] ensureGeminiTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureDefiWalletsTable: ensureDefiWalletsTable2 } = await Promise.resolve().then(() => (init_ensure_defi_wallets_table(), ensure_defi_wallets_table_exports));
+    await ensureDefiWalletsTable2();
+  } catch (err) {
+    console.error(`[startup] ensureDefiWalletsTable import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));

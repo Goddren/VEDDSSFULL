@@ -19703,6 +19703,72 @@ Respond with ONLY valid JSON:
     res.json({ ok: true });
   });
 
+  // ── DeFi self-custody wallets (WalletConnect/MetaMask) — Phase 3 ──────────
+  // We store only the PUBLIC address the user connects in their browser wallet.
+  // Balances are read on-chain via public RPCs. No private keys ever touch us.
+  app.post("/api/defi/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { address, label, walletType } = req.body || {};
+    try {
+      const { isValidEvmAddress } = await import('./services/onchain-balances');
+      if (!address || !isValidEvmAddress(String(address))) return res.status(400).json({ error: "A valid 0x wallet address is required" });
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `INSERT INTO defi_wallets (user_id, address, label, wallet_type, last_synced_at)
+         VALUES ($1,$2,$3,$4, now())
+         ON CONFLICT (user_id, address) DO UPDATE SET is_active=true, label=COALESCE(EXCLUDED.label, defi_wallets.label)
+         RETURNING id`,
+        [userId, String(address).toLowerCase(), label ? String(label) : null, walletType ? String(walletType) : null]
+      );
+      res.json({ ok: true, id: rows[0].id });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'connect failed' });
+    }
+  });
+
+  app.get("/api/defi/wallets", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT id, address, label, wallet_type, is_active, last_synced_at FROM defi_wallets WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    res.json(rows.map((r: any) => ({ id: r.id, address: r.address, label: r.label, walletType: r.wallet_type, lastSyncedAt: r.last_synced_at })));
+  });
+
+  app.get("/api/defi/balances", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT id, address FROM defi_wallets WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    if (!rows.length) return res.json({ wallets: [], totalUsd: 0 });
+    try {
+      const { getOnchainBalances } = await import('./services/onchain-balances');
+      const out: any[] = [];
+      let totalUsd = 0;
+      for (const r of rows) {
+        try {
+          const summary = await getOnchainBalances(r.address);
+          out.push({ id: r.id, ...summary });
+          totalUsd += summary.totalUsd;
+          await pool.query(`UPDATE defi_wallets SET last_synced_at=now() WHERE id=$1`, [r.id]);
+        } catch (e: any) {
+          out.push({ id: r.id, address: r.address, error: e.message, holdings: [], totalUsd: 0 });
+        }
+      }
+      res.json({ wallets: out, totalUsd: Math.round(totalUsd * 100) / 100 });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'balance fetch failed' });
+    }
+  });
+
+  app.delete("/api/defi/wallet/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { pool } = await import('./db');
+    await pool.query(`DELETE FROM defi_wallets WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
+    res.json({ ok: true });
+  });
+
   // ── Gemini (read-only wallet balances) — Phase 2 ──────────────────────────
   app.post("/api/gemini/connect", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

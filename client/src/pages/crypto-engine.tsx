@@ -175,6 +175,39 @@ export default function CryptoEnginePage() {
     onSuccess: () => { setGmForm({ apiKey: '', apiSecret: '', label: '' }); setShowGmForm(false); queryClient.invalidateQueries({ queryKey: ['/api/gemini/balances'] }); },
   });
 
+  // ── DeFi self-custody wallet (MetaMask / browser wallets, on-chain) ──────
+  const [dfManual, setDfManual] = useState('');
+  const [dfMsg, setDfMsg] = useState<string | null>(null);
+  const { data: dfData, isLoading: dfLoading } = useQuery<any>({
+    queryKey: ['/api/defi/balances'],
+    queryFn: async () => (await apiRequest('GET', '/api/defi/balances')).json(),
+    retry: false,
+  });
+  const dfSave = useMutation({
+    mutationFn: async (payload: { address: string; walletType?: string }) => {
+      const r = await apiRequest('POST', '/api/defi/connect', payload);
+      if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json();
+    },
+    onSuccess: () => { setDfManual(''); setDfMsg(null); queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }); },
+    onError: (e: any) => setDfMsg(e.message),
+  });
+  const dfRemove = useMutation({
+    mutationFn: async (id: number) => (await apiRequest('DELETE', `/api/defi/wallet/${id}`)).json(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }),
+  });
+  const connectBrowserWallet = async () => {
+    const eth = (typeof window !== 'undefined' ? (window as any).ethereum : null);
+    if (!eth) { setDfMsg('No browser wallet found. Install MetaMask, or paste an address below to watch it.'); return; }
+    try {
+      setDfMsg('Approve the connection in your wallet…');
+      const accounts = await eth.request({ method: 'eth_requestAccounts' });
+      const address = accounts?.[0];
+      if (!address) { setDfMsg('No account returned by the wallet.'); return; }
+      const walletType = eth.isMetaMask ? 'MetaMask' : eth.isCoinbaseWallet ? 'Coinbase Wallet' : 'Browser wallet';
+      dfSave.mutate({ address, walletType });
+    } catch (e: any) { setDfMsg(e?.message || 'Wallet connection rejected.'); }
+  };
+
   // ── Crypto.com connection ────────────────────────────────────────────────
   const { data: cryptocomConnections = [], isLoading: cryptocomLoading } = useQuery<CryptocomConnection[]>({
     queryKey: ['/api/cryptocom/connections'],
@@ -427,6 +460,57 @@ export default function CryptoEnginePage() {
                     <p className="text-[10px] text-gray-500">Create an API key at gemini.com → Settings → API. Use "Auditor" (read-only) scope.</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* DeFi self-custody wallet (on-chain, read-only) */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>DeFi Wallet</span>
+                  <Badge variant="outline" className="text-[10px] border-orange-700 text-orange-400">On-chain · read-only</Badge>
+                </CardTitle>
+                <CardDescription>Connect MetaMask or a browser wallet (or paste any address to watch). Reads native + major token balances across Ethereum, Base, Arbitrum, Optimism & Polygon. Self-custody — only your public address is stored, never keys.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {dfData?.wallets?.length > 0 && (
+                  <div className="rounded-lg border border-orange-800/40 bg-orange-500/[0.06] p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-orange-300">Total ≈ ${(dfData.totalUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-[10px] text-gray-500">{dfLoading ? 'syncing…' : 'on-chain'}</span>
+                    </div>
+                    {dfData.wallets.map((w: any) => (
+                      <div key={w.id} className="border-t border-orange-800/20 pt-2 first:border-0 first:pt-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-mono text-gray-400">{w.address?.slice(0, 6)}…{w.address?.slice(-4)}</span>
+                          <button onClick={() => dfRemove.mutate(w.id)} className="text-[10px] text-gray-600 hover:text-red-400">remove</button>
+                        </div>
+                        {w.error ? <p className="text-[11px] text-red-400">{w.error}</p> : (
+                          <div className="space-y-1">
+                            {(w.holdings ?? []).slice(0, 12).map((h: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-300 font-medium">{h.symbol} <span className="text-gray-600 text-[10px]">{h.chain}</span></span>
+                                <span className="text-gray-400 font-mono">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}{h.usdValue != null && <span className="text-gray-500"> · ${h.usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}</span>
+                              </div>
+                            ))}
+                            {(w.holdings ?? []).length === 0 && <p className="text-[11px] text-gray-500">No balances found on the scanned chains.</p>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex gap-2 flex-wrap">
+                  <button onClick={connectBrowserWallet} disabled={dfSave.isPending} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-60">
+                    {dfSave.isPending ? 'Connecting…' : 'Connect MetaMask / browser wallet'}
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <Input placeholder="…or paste any 0x address to watch" value={dfManual} onChange={(e) => setDfManual(e.target.value)} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
+                  <button onClick={() => dfManual && dfSave.mutate({ address: dfManual.trim(), walletType: 'Watched' })} disabled={dfSave.isPending || !dfManual} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 disabled:opacity-60 shrink-0">Add</button>
+                </div>
+                {dfMsg && <p className="text-[11px] text-amber-400">{dfMsg}</p>}
+                <p className="text-[10px] text-gray-500">Covers native coins + majors (USDC/USDT/DAI/WBTC) per chain via public RPCs. WalletConnect (mobile wallets) is a follow-up.</p>
               </CardContent>
             </Card>
 
