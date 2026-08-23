@@ -18,6 +18,11 @@ import { defiEntryBuy, defiExitSell } from './defi-executor';
 
 const MIN_SCAN_INTERVAL_MS = 30000;
 const lastScanAt = new Map<number, number>();
+// Cap how many symbols are processed per scan cycle to bound per-cycle memory/CPU
+// (candle fetch + full indicator suite per symbol). Large watchlists are covered
+// by ROTATING through them across cycles instead of scanning all at once.
+const MAX_SYMBOLS_PER_CYCLE = 12;
+const scanCursor = new Map<number, number>();
 
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';
 interface StrategyResult {
@@ -706,7 +711,18 @@ async function scanOneUser(userId: number): Promise<void> {
   if ((config as any).cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {});
 
   const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
-  const symbols: string[] = Array.isArray(config.symbols) ? config.symbols : [];
+  const allSymbols: string[] = Array.isArray(config.symbols) ? config.symbols : [];
+
+  // Rotate through a bounded slice each cycle so a large watchlist doesn't build a
+  // big working set in one pass (candles + indicators per symbol). The cursor
+  // advances each cycle, wrapping, so every symbol is still scanned over time.
+  let symbols = allSymbols;
+  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+    const start = (scanCursor.get(userId) || 0) % allSymbols.length;
+    symbols = [];
+    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+  }
 
   for (const symbol of symbols) {
     try {

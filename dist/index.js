@@ -50908,7 +50908,14 @@ async function scanOneUser2(userId) {
   if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
   });
   const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
-  const symbols = Array.isArray(config.symbols) ? config.symbols : [];
+  const allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+  let symbols = allSymbols;
+  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+    const start = (scanCursor.get(userId) || 0) % allSymbols.length;
+    symbols = [];
+    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+  }
   for (const symbol of symbols) {
     try {
       const result = await scanSymbol2(symbol, config);
@@ -50953,7 +50960,7 @@ function startCryptocomEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started3;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -50966,6 +50973,8 @@ var init_cryptocom_scanner = __esm({
     init_defi_executor();
     MIN_SCAN_INTERVAL_MS2 = 3e4;
     lastScanAt2 = /* @__PURE__ */ new Map();
+    MAX_SYMBOLS_PER_CYCLE = 12;
+    scanCursor = /* @__PURE__ */ new Map();
     STRATEGY_RUNNERS2 = {
       trend_following: runTrendFollowing,
       momentum: runMomentum2,
