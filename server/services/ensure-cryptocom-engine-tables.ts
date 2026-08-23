@@ -98,6 +98,10 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_notional_u
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_take_profit_pct" double precision NOT NULL DEFAULT 3;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_stop_loss_pct" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "venue" text NOT NULL DEFAULT 'cryptocom';
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_auto_trade_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" text NOT NULL DEFAULT 'base';
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 `;
 
 export async function ensureCryptocomEngineTables(): Promise<void> {

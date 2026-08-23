@@ -59,11 +59,15 @@ type CryptocomEngineConfig = {
   ruinGuardEnabled: boolean;
   dailyLossLimitPct: number;
   maxDrawdownLimitPct: number;
-  executionVenue: 'cryptocom' | 'coinbase' | 'kraken' | 'gemini';
+  executionVenue: 'cryptocom' | 'coinbase' | 'kraken' | 'gemini' | 'defi';
   cefiAutoTradeEnabled: boolean;
   cefiNotionalUsd: number;
   cefiTakeProfitPct: number;
   cefiStopLossPct: number;
+  defiAutoTradeEnabled: boolean;
+  defiChain: string;
+  defiNotionalUsd: number;
+  defiSlippageBps: number;
   trailMethod: 'none' | 'fixed_r' | 'stepped_fixed' | 'profit_lock' | 'chandelier' | 'parabolic_sar' | 'r_multiple' | 'swing_structure';
   trailActivationR: number;
   trailFixedR: number;
@@ -1129,14 +1133,15 @@ export default function CryptoEnginePage() {
                                     {label}{ok ? '' : ' — not connected'}
                                   </option>
                                 ))}
-                                <option value="defi" disabled title="Wire the hot wallet into auto-trade (Phase B) to enable">
-                                  DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}…) — auto-trade coming` : '— not connected'}
+                                <option value="defi" disabled={!hwData?.address} title={hwData?.address ? 'Auto-swap on-chain via the hot wallet' : 'Connect a DeFi hot wallet below to enable'}>
+                                  DeFi hot wallet {hwData?.address ? `(${String(hwData.address).slice(0, 6)}… · ${hwData.chain})` : '— not connected'}
                                 </option>
                               </select>
                             );
                           })()}
                         </div>
-                        {config.executionVenue !== 'cryptocom' && (
+                        {/* CeFi spot venue controls */}
+                        {config.executionVenue !== 'cryptocom' && config.executionVenue !== 'defi' && (
                           <>
                             <div className="flex items-center justify-between rounded-lg border border-red-500/25 bg-red-500/[0.05] px-3 py-2">
                               <div><Label className="text-xs text-white">Enable live CeFi auto-trade</Label><p className="text-[10px] text-gray-500">Auto-places REAL spot orders on {config.executionVenue}</p></div>
@@ -1148,6 +1153,33 @@ export default function CryptoEnginePage() {
                               <div className="space-y-1"><Label className="text-[11px] text-gray-400">Stop loss %</Label><Input type="number" step="0.5" defaultValue={config.cefiStopLossPct} onBlur={(e) => updateConfigMutation.mutate({ cefiStopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
                             </div>
                             <p className="text-[10px] text-gray-500 md:col-span-2">Spot is long-only (BUY signals only). Requires a connected {config.executionVenue} key with trade permission. Start with a small "USD per entry".</p>
+                          </>
+                        )}
+                        {/* DeFi hot-wallet auto-trade controls (Phase B) */}
+                        {config.executionVenue === 'defi' && (
+                          <>
+                            <div className="flex items-center justify-between rounded-lg border border-red-500/30 bg-red-500/[0.06] px-3 py-2">
+                              <div><Label className="text-xs text-white">Enable DeFi auto-swap</Label><p className="text-[10px] text-gray-500">Engine signs REAL on-chain 0x swaps with your burner hot wallet</p></div>
+                              <Switch checked={config.defiAutoTradeEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ defiAutoTradeEnabled: v })} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Chain</Label>
+                                <select value={config.defiChain} onChange={(e) => updateConfigMutation.mutate({ defiChain: e.target.value })} className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2">
+                                  <option value="base">Base (low gas)</option>
+                                  <option value="arbitrum">Arbitrum</option>
+                                  <option value="optimism">Optimism</option>
+                                  <option value="polygon">Polygon</option>
+                                  <option value="ethereum">Ethereum (high gas)</option>
+                                </select>
+                              </div>
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">USD (USDC) per swap</Label><Input type="number" defaultValue={config.defiNotionalUsd} onBlur={(e) => updateConfigMutation.mutate({ defiNotionalUsd: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">TP %</Label><Input type="number" step="0.5" defaultValue={config.cefiTakeProfitPct} onBlur={(e) => updateConfigMutation.mutate({ cefiTakeProfitPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">SL %</Label><Input type="number" step="0.5" defaultValue={config.cefiStopLossPct} onBlur={(e) => updateConfigMutation.mutate({ cefiStopLossPct: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                              <div className="space-y-1"><Label className="text-[11px] text-gray-400">Slippage bps</Label><Input type="number" defaultValue={config.defiSlippageBps} onBlur={(e) => updateConfigMutation.mutate({ defiSlippageBps: Number(e.target.value) })} className="bg-gray-800 border-gray-700 h-8 text-sm" /></div>
+                            </div>
+                            <p className="text-[10px] text-red-300/70 md:col-span-2">⚠️ Unattended on-chain swaps from your burner wallet. Long-only, USDC↔token. Currently trades ETH/WETH only (other tokens are skipped). Needs ZEROX_API_KEY set + USDC funded on {config.defiChain}. Validate a manual swap first, then keep "USD per swap" small.</p>
                           </>
                         )}
                       </div>

@@ -1193,7 +1193,7 @@ var init_schema = __esm({
       // 'coinbase'/'kraken'/'gemini' = spot (long-only) via the CeFi router. Spot
       // routing requires cefiAutoTradeEnabled (explicit opt-in) + a connected key.
       executionVenue: text("execution_venue").notNull().default("cryptocom"),
-      // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini'
+      // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini' | 'defi'
       cefiAutoTradeEnabled: boolean("cefi_auto_trade_enabled").notNull().default(false),
       cefiNotionalUsd: doublePrecision("cefi_notional_usd").notNull().default(25),
       // USD per spot entry on a CeFi venue
@@ -1201,6 +1201,15 @@ var init_schema = __esm({
       // spot exit: +% from entry
       cefiStopLossPct: doublePrecision("cefi_stop_loss_pct").notNull().default(2),
       // spot exit: -% from entry
+      // ── DeFi hot-wallet auto-trade (Phase B) — unattended on-chain swaps via 0x ──
+      // Long-only spot: USDC -> token on entry, token -> USDC on exit. Requires a
+      // connected hot wallet (defi_hot_wallets) + ZEROX_API_KEY + explicit opt-in.
+      defiAutoTradeEnabled: boolean("defi_auto_trade_enabled").notNull().default(false),
+      defiChain: text("defi_chain").notNull().default("base"),
+      defiNotionalUsd: doublePrecision("defi_notional_usd").notNull().default(25),
+      // USD (USDC) per swap entry
+      defiSlippageBps: integer("defi_slippage_bps").notNull().default(100),
+      // 100 = 1%
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -47656,6 +47665,10 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_notional_u
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_take_profit_pct" double precision NOT NULL DEFAULT 3;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "cefi_stop_loss_pct" double precision NOT NULL DEFAULT 2;
 ALTER TABLE "cryptocom_engine_trades" ADD COLUMN IF NOT EXISTS "venue" text NOT NULL DEFAULT 'cryptocom';
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_auto_trade_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" text NOT NULL DEFAULT 'base';
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
 `;
   }
 });
@@ -50092,6 +50105,73 @@ var init_cefi_executor = __esm({
   }
 });
 
+// server/services/defi-executor.ts
+function defiTradeableToken(symbol) {
+  return DEFI_TRADEABLE[baseCoin(symbol)] ?? null;
+}
+async function loadHotWallet(userId) {
+  const { rows } = await pool.query(
+    `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
+    [userId]
+  );
+  if (!rows.length) return null;
+  return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
+}
+async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
+  const token = defiTradeableToken(base);
+  if (!token) return { ok: false, token: "", qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${baseCoin(base)} yet \u2014 only ETH/WETH is wired for on-chain swaps` };
+  const hw = await loadHotWallet(userId);
+  if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: "no active DeFi hot wallet connected" };
+  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${baseCoin(base)}` };
+  const r = await executeDefiSwap({
+    encryptedPrivateKey: hw.encryptedKey,
+    chainKey: chainKey || hw.chain,
+    sellToken: "USDC",
+    buyToken: token,
+    sellAmountHuman: notionalUsd,
+    slippageBps
+  });
+  if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
+  let qtyBase = notionalUsd / price;
+  if (r.buyAmount) {
+    const n = Number(r.buyAmount) / 1e18;
+    if (Number.isFinite(n) && n > 0) qtyBase = n;
+  }
+  qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
+  return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
+}
+async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
+  const token = defiTradeableToken(base);
+  if (!token) return { ok: false, exitPrice: 0, reason: `no DeFi token mapping for ${baseCoin(base)}` };
+  const hw = await loadHotWallet(userId);
+  if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
+  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  const r = await executeDefiSwap({
+    encryptedPrivateKey: hw.encryptedKey,
+    chainKey: chainKey || hw.chain,
+    sellToken: token,
+    buyToken: "USDC",
+    sellAmountHuman: qtyBase,
+    slippageBps
+  });
+  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
+  return { ok: true, exitPrice: price, txHash: r.txHash };
+}
+var DEFI_TRADEABLE;
+var init_defi_executor = __esm({
+  "server/services/defi-executor.ts"() {
+    "use strict";
+    init_db();
+    init_crypto_market_data();
+    init_defi_swap();
+    init_cefi_executor();
+    DEFI_TRADEABLE = { ETH: "WETH", WETH: "WETH" };
+  }
+});
+
 // server/services/cryptocom-scanner.ts
 var cryptocom_scanner_exports = {};
 __export(cryptocom_scanner_exports, {
@@ -50396,7 +50476,11 @@ async function monitorOpenPositions2(userId, cfg) {
 async function closePosition2(userId, trade, currentPrice, reason) {
   try {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
-    if (venue) {
+    if (venue === "defi") {
+      const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      const exit = await defiExitSell(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
+      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+    } else if (venue) {
       const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
       if (exit?.exitPrice) currentPrice = exit.exitPrice;
     } else {
@@ -50609,7 +50693,49 @@ async function assembleConsensus(userId, symbol, result, cfg) {
 async function executeSignal2(service, connection2, userId, symbol, result, cfg) {
   if (!result.direction || !result.price) return;
   const venue = cfg.executionVenue;
-  if (venue && venue !== "cryptocom" && cfg.cefiAutoTradeEnabled) {
+  if (venue === "defi" && cfg.defiAutoTradeEnabled) {
+    if (result.direction !== "BUY") {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only \u2014 SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const gateD = await checkSafetyGates2(userId, cfg, cfg.accountBalance);
+    if (!gateD.allowed) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gateD.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const chain = cfg.defiChain || "base";
+    const slip = cfg.defiSlippageBps ?? 100;
+    const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    try {
+      const r = await defiEntryBuy(userId, chain, symbol, notionalD, slip);
+      if (!r.ok) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        return;
+      }
+      const tp = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
+      const sl = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
+      await storage.createCryptocomEngineTrade({
+        userId,
+        connectionId: connection2?.id ?? 0,
+        venue: "defi",
+        symbol,
+        strategy: result.strategy,
+        direction: "long",
+        quantity: r.qtyBase,
+        entryPrice: r.entryPrice,
+        stopLoss: sl,
+        takeProfit: tp,
+        entryOrderId: r.txHash ?? "",
+        entryReasoning: result.reasoning,
+        status: "open"
+      });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    } catch (err) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    }
+    return;
+  }
+  if (venue && venue !== "cryptocom" && venue !== "defi" && cfg.cefiAutoTradeEnabled) {
     if (result.direction !== "BUY") {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: ${venue} is spot (long-only) \u2014 SELL/short signals aren't traded on this venue.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
       return;
@@ -50782,6 +50908,7 @@ var init_cryptocom_scanner = __esm({
     init_crypto_brain();
     init_prop_firm_consistency();
     init_cefi_executor();
+    init_defi_executor();
     MIN_SCAN_INTERVAL_MS2 = 3e4;
     lastScanAt2 = /* @__PURE__ */ new Map();
     STRATEGY_RUNNERS2 = {

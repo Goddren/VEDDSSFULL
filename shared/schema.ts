@@ -936,11 +936,19 @@ export const cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
   // Where the engine places its signals. 'cryptocom' = the existing perp path;
   // 'coinbase'/'kraken'/'gemini' = spot (long-only) via the CeFi router. Spot
   // routing requires cefiAutoTradeEnabled (explicit opt-in) + a connected key.
-  executionVenue: text("execution_venue").notNull().default('cryptocom'), // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini'
+  executionVenue: text("execution_venue").notNull().default('cryptocom'), // 'cryptocom' | 'coinbase' | 'kraken' | 'gemini' | 'defi'
   cefiAutoTradeEnabled: boolean("cefi_auto_trade_enabled").notNull().default(false),
   cefiNotionalUsd: doublePrecision("cefi_notional_usd").notNull().default(25), // USD per spot entry on a CeFi venue
   cefiTakeProfitPct: doublePrecision("cefi_take_profit_pct").notNull().default(3), // spot exit: +% from entry
   cefiStopLossPct: doublePrecision("cefi_stop_loss_pct").notNull().default(2),   // spot exit: -% from entry
+
+  // ── DeFi hot-wallet auto-trade (Phase B) — unattended on-chain swaps via 0x ──
+  // Long-only spot: USDC -> token on entry, token -> USDC on exit. Requires a
+  // connected hot wallet (defi_hot_wallets) + ZEROX_API_KEY + explicit opt-in.
+  defiAutoTradeEnabled: boolean("defi_auto_trade_enabled").notNull().default(false),
+  defiChain: text("defi_chain").notNull().default('base'),
+  defiNotionalUsd: doublePrecision("defi_notional_usd").notNull().default(25), // USD (USDC) per swap entry
+  defiSlippageBps: integer("defi_slippage_bps").notNull().default(100),        // 100 = 1%
 
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

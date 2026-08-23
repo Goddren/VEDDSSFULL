@@ -14,6 +14,7 @@ import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/sc
 import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
+import { defiEntryBuy, defiExitSell } from './defi-executor';
 
 const MIN_SCAN_INTERVAL_MS = 30000;
 const lastScanAt = new Map<number, number>();
@@ -323,7 +324,12 @@ async function monitorOpenPositions(userId: number, cfg: CryptocomEngineConfig):
 async function closePosition(userId: number, trade: any, currentPrice: number, reason: string): Promise<void> {
   try {
     const venue = trade.venue && trade.venue !== 'cryptocom' ? trade.venue : null;
-    if (venue) {
+    if (venue === 'defi') {
+      // DeFi exit — swap the held token back to USDC via the hot wallet.
+      const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', baseCoin(trade.symbol), trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch(() => null);
+      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+    } else if (venue) {
       // CeFi spot exit — sell the held base amount on the venue.
       const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
       if (exit?.exitPrice) currentPrice = exit.exitPrice;
@@ -538,11 +544,48 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
 async function executeSignal(service: CryptoComService, connection: CryptocomConnection, userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<void> {
   if (!result.direction || !result.price) return;
 
+  const venue = (cfg as any).executionVenue as string;
+
+  // ── DeFi hot-wallet routing (Phase B) — unattended on-chain 0x swaps ────────
+  // When the engine is set to the DeFi venue AND defiAutoTradeEnabled is on, route
+  // BUY signals as USDC->token swaps signed by the burner hot wallet. Long-only.
+  if (venue === 'defi' && (cfg as any).defiAutoTradeEnabled) {
+    if (result.direction !== 'BUY') {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only — SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+      return;
+    }
+    const gateD = await checkSafetyGates(userId, cfg, cfg.accountBalance);
+    if (!gateD.allowed) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked — ${gateD.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+      return;
+    }
+    const chain = (cfg as any).defiChain || 'base';
+    const slip = (cfg as any).defiSlippageBps ?? 100;
+    const notionalD = Math.max(1, (cfg as any).defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    try {
+      const r = await defiEntryBuy(userId, chain, symbol, notionalD, slip);
+      if (!r.ok) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+        return;
+      }
+      const tp = r.entryPrice * (1 + ((cfg as any).cefiTakeProfitPct ?? 3) / 100);
+      const sl = r.entryPrice * (1 - ((cfg as any).cefiStopLossPct ?? 2) / 100);
+      await storage.createCryptocomEngineTrade({
+        userId, connectionId: connection?.id ?? 0, venue: 'defi', symbol, strategy: result.strategy,
+        direction: 'long', quantity: r.qtyBase, entryPrice: r.entryPrice, stopLoss: sl, takeProfit: tp,
+        entryOrderId: r.txHash ?? '', entryReasoning: result.reasoning, status: 'open',
+      } as any);
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'signal', strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) — swapped ~$${notionalD.toFixed(0)} USDC → ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${(cfg as any).cefiTakeProfitPct ?? 3}% / SL -${(cfg as any).cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ''}… ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+    } catch (err: any) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
+    }
+    return;
+  }
+
   // ── CeFi spot routing (Coinbase / Kraken / Gemini) ─────────────────────────
   // When the engine is set to a spot venue AND CeFi auto-trade is explicitly on,
   // route the signal there instead of Crypto.com perps. Spot is long-only.
-  const venue = (cfg as any).executionVenue as string;
-  if (venue && venue !== 'cryptocom' && (cfg as any).cefiAutoTradeEnabled) {
+  if (venue && venue !== 'cryptocom' && venue !== 'defi' && (cfg as any).cefiAutoTradeEnabled) {
     if (result.direction !== 'BUY') {
       await storage.createCryptocomEngineActivity({ userId, symbol, decision: 'skipped', strategy: result.strategy, reasoning: `${symbol}: ${venue} is spot (long-only) — SELL/short signals aren't traded on this venue.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });
       return;
