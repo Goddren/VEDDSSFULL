@@ -664,16 +664,28 @@ export default function CryptoEnginePage() {
                     {wcConnecting ? 'Opening…' : 'WalletConnect (mobile)'}
                   </button>
                 </div>
-                {(wcQr || wcUri) && (
-                  <div className="rounded-lg border border-[#3b99fc]/30 bg-[#3b99fc]/[0.06] p-3 flex flex-col items-center gap-2">
-                    {wcQr && <img src={wcQr} alt="WalletConnect QR" className="w-44 h-44 rounded-lg bg-white p-1" />}
-                    <p className="text-[11px] text-gray-400 text-center">Scan with your wallet app, or on mobile:</p>
-                    <div className="flex gap-2">
-                      {wcUri && <a href={wcUri} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-[#3b99fc] text-white">Open in wallet</a>}
-                      {wcUri && <button onClick={() => navigator.clipboard?.writeText(wcUri)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300">Copy link</button>}
+                {(wcQr || wcUri) && (() => {
+                  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  return (
+                    <div className="rounded-lg border border-[#3b99fc]/30 bg-[#3b99fc]/[0.06] p-3 flex flex-col items-center gap-2">
+                      {isMobile ? (
+                        <>
+                          <p className="text-[12px] text-white font-semibold text-center">Open your wallet app to approve</p>
+                          {wcUri && <a href={wcUri} className="text-sm font-bold px-4 py-2 rounded-lg bg-[#3b99fc] text-white">Open in wallet</a>}
+                          {wcQr && <p className="text-[10px] text-gray-500 text-center mt-1">…or scan this from another device:</p>}
+                          {wcQr && <img src={wcQr} alt="WalletConnect QR" className="w-40 h-40 rounded-lg bg-white p-1" />}
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[12px] text-white font-semibold text-center">📱 Scan with your phone’s wallet app</p>
+                          <p className="text-[10px] text-gray-400 text-center">Open MetaMask/Rainbow/Trust on your phone → tap the scan (QR) icon → scan this. (“Open in wallet” only works on mobile.)</p>
+                          {wcQr ? <img src={wcQr} alt="WalletConnect QR" className="w-48 h-48 rounded-lg bg-white p-1" /> : <p className="text-[11px] text-gray-500">Generating QR…</p>}
+                          {wcUri && <button onClick={() => navigator.clipboard?.writeText(wcUri)} className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300">Copy link (paste in wallet)</button>}
+                        </>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 <div className="flex gap-2">
                   <Input placeholder="…or paste any 0x address to watch" value={dfManual} onChange={(e) => setDfManual(e.target.value)} className="bg-gray-800 border-gray-700 h-8 text-sm font-mono" />
                   <button onClick={() => dfManual && dfSave.mutate({ address: dfManual.trim(), walletType: 'Watched' })} disabled={dfSave.isPending || !dfManual} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-300 disabled:opacity-60 shrink-0">Add</button>
