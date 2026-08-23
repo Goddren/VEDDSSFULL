@@ -143,11 +143,22 @@ function extractErrorMsg(error: any): string {
 // to the chosen venue (base coin mapped per exchange), so these perp symbols work
 // regardless of whether orders land on Crypto.com perps or a CeFi/DeFi spot venue.
 const COMMON_SYMBOLS = [
+  // Majors
   'BTCUSD-PERP', 'ETHUSD-PERP', 'SOLUSD-PERP', 'XRPUSD-PERP', 'DOGEUSD-PERP',
   'ADAUSD-PERP', 'AVAXUSD-PERP', 'LINKUSD-PERP', 'MATICUSD-PERP', 'DOTUSD-PERP',
   'LTCUSD-PERP', 'BCHUSD-PERP', 'ATOMUSD-PERP', 'NEARUSD-PERP', 'APTUSD-PERP',
   'ARBUSD-PERP', 'OPUSD-PERP', 'INJUSD-PERP', 'SUIUSD-PERP', 'TIAUSD-PERP',
-  'SEIUSD-PERP', 'WLDUSD-PERP', 'PEPEUSD-PERP', 'SHIBUSD-PERP', 'UNIUSD-PERP',
+  'SEIUSD-PERP', 'WLDUSD-PERP', 'UNIUSD-PERP', 'AAVEUSD-PERP', 'MKRUSD-PERP',
+  // DeFi / L1-L2 / infra
+  'ETCUSD-PERP', 'FILUSD-PERP', 'ICPUSD-PERP', 'HBARUSD-PERP', 'STXUSD-PERP',
+  'IMXUSD-PERP', 'RNDRUSD-PERP', 'GRTUSD-PERP', 'CRVUSD-PERP', 'LDOUSD-PERP',
+  'DYDXUSD-PERP', 'ENSUSD-PERP', 'ALGOUSD-PERP', 'FTMUSD-PERP', 'EGLDUSD-PERP',
+  'THETAUSD-PERP', 'XLMUSD-PERP', 'VETUSD-PERP', 'FLOWUSD-PERP', 'KASUSD-PERP',
+  // Gaming / metaverse
+  'SANDUSD-PERP', 'MANAUSD-PERP', 'AXSUSD-PERP', 'GALAUSD-PERP', 'CHZUSD-PERP',
+  // Memes / newer
+  'PEPEUSD-PERP', 'SHIBUSD-PERP', 'BONKUSD-PERP', 'WIFUSD-PERP', 'FLOKIUSD-PERP',
+  'ENAUSD-PERP', 'JUPUSD-PERP', 'PYTHUSD-PERP', 'ONDOUSD-PERP', 'JASMYUSD-PERP',
 ];
 
 export default function CryptoEnginePage() {
