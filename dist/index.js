@@ -71134,6 +71134,9 @@ Respond with ONLY valid JSON:
       res.status(400).json({ error: err?.message || "connect failed" });
     }
   });
+  app2.get("/api/defi/walletconnect-config", async (_req, res) => {
+    res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || "" });
+  });
   app2.get("/api/defi/wallets", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

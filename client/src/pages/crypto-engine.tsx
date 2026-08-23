@@ -241,7 +241,7 @@ export default function CryptoEnginePage() {
   });
   const connectBrowserWallet = async () => {
     const eth = (typeof window !== 'undefined' ? (window as any).ethereum : null);
-    if (!eth) { setDfMsg('No browser wallet found. Install MetaMask, or paste an address below to watch it.'); return; }
+    if (!eth) { setDfMsg('No browser wallet found. Install MetaMask, use WalletConnect below, or paste an address to watch it.'); return; }
     try {
       setDfMsg('Approve the connection in your wallet…');
       const accounts = await eth.request({ method: 'eth_requestAccounts' });
@@ -250,6 +250,35 @@ export default function CryptoEnginePage() {
       const walletType = eth.isMetaMask ? 'MetaMask' : eth.isCoinbaseWallet ? 'Coinbase Wallet' : 'Browser wallet';
       dfSave.mutate({ address, walletType });
     } catch (e: any) { setDfMsg(e?.message || 'Wallet connection rejected.'); }
+  };
+
+  const [wcConnecting, setWcConnecting] = useState(false);
+  const connectWalletConnect = async () => {
+    try {
+      setWcConnecting(true);
+      setDfMsg('Loading WalletConnect…');
+      const cfg = await (await apiRequest('GET', '/api/defi/walletconnect-config')).json();
+      if (!cfg?.projectId) { setDfMsg('WalletConnect isn’t configured yet — set WALLETCONNECT_PROJECT_ID in the server env (free at cloud.reown.com), then reload.'); return; }
+      const { EthereumProvider } = await import('@walletconnect/ethereum-provider');
+      const provider = await EthereumProvider.init({
+        projectId: cfg.projectId,
+        chains: [1],
+        optionalChains: [8453, 42161, 10, 137],
+        showQrModal: true,
+        metadata: {
+          name: 'VEDD', description: 'VEDD Trading Vault',
+          url: typeof window !== 'undefined' ? window.location.origin : 'https://veddbuild.com',
+          icons: [],
+        },
+      });
+      setDfMsg('Scan the QR with your mobile wallet…');
+      await provider.connect();
+      const address = provider.accounts?.[0];
+      if (!address) { setDfMsg('No account returned by WalletConnect.'); return; }
+      dfSave.mutate({ address, walletType: 'WalletConnect' });
+    } catch (e: any) {
+      setDfMsg(e?.message || 'WalletConnect connection failed.');
+    } finally { setWcConnecting(false); }
   };
 
   // ── Crypto.com connection ────────────────────────────────────────────────
@@ -616,6 +645,9 @@ export default function CryptoEnginePage() {
                 <div className="flex gap-2 flex-wrap">
                   <button onClick={connectBrowserWallet} disabled={dfSave.isPending} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-60">
                     {dfSave.isPending ? 'Connecting…' : 'Connect MetaMask / browser wallet'}
+                  </button>
+                  <button onClick={connectWalletConnect} disabled={wcConnecting || dfSave.isPending} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-[#3b99fc] hover:bg-[#2f86e0] text-white disabled:opacity-60">
+                    {wcConnecting ? 'Opening…' : 'WalletConnect (mobile)'}
                   </button>
                 </div>
                 <div className="flex gap-2">

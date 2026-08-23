@@ -19749,6 +19749,12 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // WalletConnect config for the client (projectId from server env so it can be
+  // set in the host env without a rebuild). Empty projectId => feature disabled.
+  app.get("/api/defi/walletconnect-config", async (_req: Request, res: Response) => {
+    res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || '' });
+  });
+
   app.get("/api/defi/wallets", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
