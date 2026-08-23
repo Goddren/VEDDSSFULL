@@ -65,6 +65,46 @@ export class CoinbaseService {
     return res.json();
   }
 
+  private async post(path: string, body: any): Promise<any> {
+    const token = buildJwt(this.keyName, this.privateKey, 'POST', path);
+    const res = await fetch(`https://${API_HOST}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`Coinbase ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+    return data;
+  }
+
+  /**
+   * Place a spot order (Advanced Trade). Requires "trade" permission on the key.
+   *  - product: e.g. 'BTC-USD'
+   *  - side: 'BUY' | 'SELL'
+   *  - type: 'market' | 'limit'
+   *  - quoteSize: USD to spend (market BUY); baseSize: coin amount (SELL / limit)
+   *  - limitPrice: required for limit orders
+   */
+  async placeOrder(o: { product: string; side: 'BUY' | 'SELL'; type: 'market' | 'limit'; quoteSize?: number; baseSize?: number; limitPrice?: number }): Promise<{ orderId: string; success: boolean; raw: any }> {
+    const clientOrderId = crypto.randomUUID();
+    let order_configuration: any;
+    if (o.type === 'market') {
+      order_configuration = o.side === 'BUY' && o.quoteSize
+        ? { market_market_ioc: { quote_size: String(o.quoteSize) } }
+        : { market_market_ioc: { base_size: String(o.baseSize) } };
+    } else {
+      if (!o.limitPrice || !o.baseSize) throw new Error('limit orders require baseSize and limitPrice');
+      order_configuration = { limit_limit_gtc: { base_size: String(o.baseSize), limit_price: String(o.limitPrice) } };
+    }
+    const data = await this.post('/api/v3/brokerage/orders', {
+      client_order_id: clientOrderId, product_id: o.product, side: o.side, order_configuration,
+    });
+    const success = !!data?.success;
+    if (!success) throw new Error(`Coinbase order rejected: ${JSON.stringify(data?.error_response || data).slice(0, 300)}`);
+    return { orderId: data?.success_response?.order_id ?? clientOrderId, success, raw: data };
+  }
+
   /** Read-only: list account balances (paginated), valued in USD via public spot. */
   async getBalances(): Promise<CoinbaseAccountSummary> {
     const accounts: any[] = [];

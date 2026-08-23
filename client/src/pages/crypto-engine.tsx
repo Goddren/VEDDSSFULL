@@ -149,6 +149,21 @@ export default function CryptoEnginePage() {
     onSuccess: () => { setCbForm({ apiKeyName: '', privateKey: '', label: '' }); setShowCbForm(false); queryClient.invalidateQueries({ queryKey: ['/api/coinbase/balances'] }); },
   });
 
+  // Coinbase order ticket
+  const [cbOrder, setCbOrder] = useState({ product: 'BTC-USD', side: 'BUY' as 'BUY' | 'SELL', type: 'market' as 'market' | 'limit', amount: '', limitPrice: '' });
+  const [cbConfirm, setCbConfirm] = useState(false);
+  const cbPlace = useMutation({
+    mutationFn: async () => {
+      const body: any = { product: cbOrder.product, side: cbOrder.side, type: cbOrder.type, confirm: true };
+      if (cbOrder.type === 'market' && cbOrder.side === 'BUY') body.quoteSize = Number(cbOrder.amount);
+      else body.baseSize = Number(cbOrder.amount);
+      if (cbOrder.type === 'limit') body.limitPrice = Number(cbOrder.limitPrice);
+      const r = await apiRequest('POST', '/api/coinbase/order', body);
+      if (!r.ok) throw new Error((await r.json()).error || 'Order failed'); return r.json();
+    },
+    onSuccess: () => { setCbConfirm(false); setCbOrder(p => ({ ...p, amount: '', limitPrice: '' })); queryClient.invalidateQueries({ queryKey: ['/api/coinbase/balances'] }); },
+  });
+
   // ── Kraken (read-only wallet) ────────────────────────────────────────────
   const [showKrForm, setShowKrForm] = useState(false);
   const [krForm, setKrForm] = useState({ apiKey: '', apiSecret: '', label: '' });
@@ -160,6 +175,19 @@ export default function CryptoEnginePage() {
   const krConnect = useMutation({
     mutationFn: async () => { const r = await apiRequest('POST', '/api/kraken/connect', krForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
     onSuccess: () => { setKrForm({ apiKey: '', apiSecret: '', label: '' }); setShowKrForm(false); queryClient.invalidateQueries({ queryKey: ['/api/kraken/balances'] }); },
+  });
+
+  // Kraken order ticket
+  const [krOrder, setKrOrder] = useState({ pair: 'XBTUSD', type: 'buy' as 'buy' | 'sell', ordertype: 'market' as 'market' | 'limit', volume: '', price: '' });
+  const [krConfirm, setKrConfirm] = useState(false);
+  const krPlace = useMutation({
+    mutationFn: async () => {
+      const body: any = { pair: krOrder.pair, type: krOrder.type, ordertype: krOrder.ordertype, volume: Number(krOrder.volume), confirm: true };
+      if (krOrder.ordertype === 'limit') body.price = Number(krOrder.price);
+      const r = await apiRequest('POST', '/api/kraken/order', body);
+      if (!r.ok) throw new Error((await r.json()).error || 'Order failed'); return r.json();
+    },
+    onSuccess: () => { setKrConfirm(false); setKrOrder(p => ({ ...p, volume: '', price: '' })); queryClient.invalidateQueries({ queryKey: ['/api/kraken/balances'] }); },
   });
 
   // ── Gemini (read-only wallet) ────────────────────────────────────────────
@@ -343,6 +371,29 @@ export default function CryptoEnginePage() {
                     ))}
                   </div>
                 )}
+                {cbData?.connections?.length > 0 && !cbData.connections[0]?.error && (
+                  <div className="rounded-lg border border-blue-800/30 bg-black/20 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-blue-300">Trade (spot)</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input placeholder="Product (BTC-USD)" value={cbOrder.product} onChange={(e) => setCbOrder(p => ({ ...p, product: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      <select value={cbOrder.side} onChange={(e) => setCbOrder(p => ({ ...p, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Buy</option><option value="SELL">Sell</option></select>
+                      <select value={cbOrder.type} onChange={(e) => setCbOrder(p => ({ ...p, type: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="market">Market</option><option value="limit">Limit</option></select>
+                      <Input placeholder={cbOrder.type === 'market' && cbOrder.side === 'BUY' ? 'USD to spend' : 'Coin amount'} value={cbOrder.amount} onChange={(e) => setCbOrder(p => ({ ...p, amount: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      {cbOrder.type === 'limit' && <Input placeholder="Limit price" value={cbOrder.limitPrice} onChange={(e) => setCbOrder(p => ({ ...p, limitPrice: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm col-span-2" />}
+                    </div>
+                    {cbPlace.isError && <p className="text-[11px] text-red-400">{(cbPlace.error as Error)?.message}</p>}
+                    {cbPlace.isSuccess && <p className="text-[11px] text-emerald-400">Order placed ✓</p>}
+                    {!cbConfirm ? (
+                      <button onClick={() => setCbConfirm(true)} disabled={!cbOrder.amount} className={`w-full text-sm font-bold py-1.5 rounded-lg ${cbOrder.side === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'} text-white disabled:opacity-50`}>{cbOrder.side} {cbOrder.product}</button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button onClick={() => cbPlace.mutate()} disabled={cbPlace.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{cbPlace.isPending ? 'Placing…' : `Confirm ${cbOrder.side} ${cbOrder.amount}${cbOrder.type === 'market' && cbOrder.side === 'BUY' ? ' USD' : ''}`}</button>
+                        <button onClick={() => setCbConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-600">Live order on your Coinbase account — requires "trade" permission on the key.</p>
+                  </div>
+                )}
                 {!showCbForm ? (
                   <button onClick={() => setShowCbForm(true)} className="text-sm text-blue-400 hover:text-blue-300">+ Connect Coinbase (read-only)</button>
                 ) : (
@@ -392,6 +443,29 @@ export default function CryptoEnginePage() {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+                {krData?.connections?.length > 0 && !krData.connections[0]?.error && (
+                  <div className="rounded-lg border border-violet-800/30 bg-black/20 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-violet-300">Trade</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input placeholder="Pair (XBTUSD)" value={krOrder.pair} onChange={(e) => setKrOrder(p => ({ ...p, pair: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      <select value={krOrder.type} onChange={(e) => setKrOrder(p => ({ ...p, type: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+                      <select value={krOrder.ordertype} onChange={(e) => setKrOrder(p => ({ ...p, ordertype: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="market">Market</option><option value="limit">Limit</option></select>
+                      <Input placeholder="Volume (coin)" value={krOrder.volume} onChange={(e) => setKrOrder(p => ({ ...p, volume: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                      {krOrder.ordertype === 'limit' && <Input placeholder="Limit price" value={krOrder.price} onChange={(e) => setKrOrder(p => ({ ...p, price: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm col-span-2" />}
+                    </div>
+                    {krPlace.isError && <p className="text-[11px] text-red-400">{(krPlace.error as Error)?.message}</p>}
+                    {krPlace.isSuccess && <p className="text-[11px] text-emerald-400">Order placed ✓</p>}
+                    {!krConfirm ? (
+                      <button onClick={() => setKrConfirm(true)} disabled={!krOrder.volume} className={`w-full text-sm font-bold py-1.5 rounded-lg ${krOrder.type === 'buy' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'} text-white disabled:opacity-50`}>{krOrder.type.toUpperCase()} {krOrder.pair}</button>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button onClick={() => krPlace.mutate()} disabled={krPlace.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{krPlace.isPending ? 'Placing…' : `Confirm ${krOrder.type} ${krOrder.volume}`}</button>
+                        <button onClick={() => setKrConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-600">Live order on your Kraken account — requires "Create & modify orders" permission.</p>
                   </div>
                 )}
                 {!showKrForm ? (

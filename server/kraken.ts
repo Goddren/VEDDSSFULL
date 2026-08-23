@@ -41,10 +41,10 @@ export class KrakenService {
     return crypto.createHmac('sha512', key).update(message).digest('base64');
   }
 
-  private async privatePost(endpoint: string): Promise<any> {
+  private async privatePost(endpoint: string, params: Record<string, string> = {}): Promise<any> {
     const path = `/0/private/${endpoint}`;
     const nonce = String(Date.now() * 1000);
-    const body = new URLSearchParams({ nonce });
+    const body = new URLSearchParams({ nonce, ...params });
     const postData = body.toString();
     const res = await fetch(`${API_HOST}${path}`, {
       method: 'POST',
@@ -88,6 +88,24 @@ export class KrakenService {
 
     balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
     return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+  }
+
+  /**
+   * Place an order. Requires "Create & modify orders" permission on the key.
+   *  - pair: Kraken pair, e.g. 'XBTUSD' (BTC) or 'ETHUSD'
+   *  - type: 'buy' | 'sell'
+   *  - ordertype: 'market' | 'limit'
+   *  - volume: base amount (in the traded coin)
+   *  - price: required for limit orders
+   */
+  async placeOrder(o: { pair: string; type: 'buy' | 'sell'; ordertype: 'market' | 'limit'; volume: number; price?: number }): Promise<{ txids: string[]; descr: string; raw: any }> {
+    const params: Record<string, string> = { pair: o.pair, type: o.type, ordertype: o.ordertype, volume: String(o.volume) };
+    if (o.ordertype === 'limit') {
+      if (!o.price) throw new Error('limit orders require a price');
+      params.price = String(o.price);
+    }
+    const res = await this.privatePost('AddOrder', params);
+    return { txids: res?.txid ?? [], descr: res?.descr?.order ?? '', raw: res };
   }
 
   async test(): Promise<{ ok: true; assetCount: number }> {

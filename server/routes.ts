@@ -19703,6 +19703,28 @@ Respond with ONLY valid JSON:
     res.json({ ok: true });
   });
 
+  // POST /api/coinbase/order — place a spot order on the user's connected key.
+  // Requires an explicit confirm:true (the UI double-confirms) and a key with
+  // "trade" permission. User-initiated only.
+  app.post("/api/coinbase/order", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, product, side, type, quoteSize, baseSize, limitPrice, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!product || !['BUY', 'SELL'].includes(side) || !['market', 'limit'].includes(type)) return res.status(400).json({ error: "product, side (BUY/SELL) and type (market/limit) required" });
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT api_key_name, encrypted_api_secret FROM coinbase_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Coinbase connection" });
+    try {
+      const { CoinbaseService, decryptApiSecret } = await import('./coinbase');
+      const svc = new CoinbaseService(rows[0].api_key_name, decryptApiSecret(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ product: String(product), side, type, quoteSize: quoteSize ? Number(quoteSize) : undefined, baseSize: baseSize ? Number(baseSize) : undefined, limitPrice: limitPrice ? Number(limitPrice) : undefined });
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'order failed' });
+    }
+  });
+
   // ── DeFi self-custody wallets (WalletConnect/MetaMask) — Phase 3 ──────────
   // We store only the PUBLIC address the user connects in their browser wallet.
   // Balances are read on-chain via public RPCs. No private keys ever touch us.
@@ -19899,6 +19921,27 @@ Respond with ONLY valid JSON:
     const { pool } = await import('./db');
     await pool.query(`DELETE FROM kraken_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
+  });
+
+  // POST /api/kraken/order — place an order on the user's connected key. Requires
+  // confirm:true and a key with "Create & modify orders" permission.
+  app.post("/api/kraken/order", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, pair, type, ordertype, volume, price, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!pair || !['buy', 'sell'].includes(type) || !['market', 'limit'].includes(ordertype) || !volume) return res.status(400).json({ error: "pair, type (buy/sell), ordertype (market/limit) and volume required" });
+    const { pool } = await import('./db');
+    const { rows } = await pool.query(`SELECT api_key, encrypted_api_secret FROM kraken_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Kraken connection" });
+    try {
+      const { KrakenService, decryptApiSecret } = await import('./kraken');
+      const svc = new KrakenService(rows[0].api_key, decryptApiSecret(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ pair: String(pair), type, ordertype, volume: Number(volume), price: price ? Number(price) : undefined });
+      res.json({ ok: true, ...result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'order failed' });
+    }
   });
 
   // GET /api/crypto/prices?symbols=BTC,ETH,SOL — unified live prices across the

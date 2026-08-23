@@ -37429,6 +37429,45 @@ var init_coinbase = __esm({
         }
         return res.json();
       }
+      async post(path17, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path17);
+        const res = await fetch(`https://${API_HOST}${path17}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12e3)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`Coinbase ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+        return data;
+      }
+      /**
+       * Place a spot order (Advanced Trade). Requires "trade" permission on the key.
+       *  - product: e.g. 'BTC-USD'
+       *  - side: 'BUY' | 'SELL'
+       *  - type: 'market' | 'limit'
+       *  - quoteSize: USD to spend (market BUY); baseSize: coin amount (SELL / limit)
+       *  - limitPrice: required for limit orders
+       */
+      async placeOrder(o) {
+        const clientOrderId = crypto10.randomUUID();
+        let order_configuration;
+        if (o.type === "market") {
+          order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
+        } else {
+          if (!o.limitPrice || !o.baseSize) throw new Error("limit orders require baseSize and limitPrice");
+          order_configuration = { limit_limit_gtc: { base_size: String(o.baseSize), limit_price: String(o.limitPrice) } };
+        }
+        const data = await this.post("/api/v3/brokerage/orders", {
+          client_order_id: clientOrderId,
+          product_id: o.product,
+          side: o.side,
+          order_configuration
+        });
+        const success = !!data?.success;
+        if (!success) throw new Error(`Coinbase order rejected: ${JSON.stringify(data?.error_response || data).slice(0, 300)}`);
+        return { orderId: data?.success_response?.order_id ?? clientOrderId, success, raw: data };
+      }
       /** Read-only: list account balances (paginated), valued in USD via public spot. */
       async getBalances() {
         const accounts = [];
@@ -37726,10 +37765,10 @@ var init_kraken = __esm({
         const key = Buffer.from(this.secret, "base64");
         return crypto12.createHmac("sha512", key).update(message).digest("base64");
       }
-      async privatePost(endpoint) {
+      async privatePost(endpoint, params = {}) {
         const path17 = `/0/private/${endpoint}`;
         const nonce = String(Date.now() * 1e3);
-        const body = new URLSearchParams({ nonce });
+        const body = new URLSearchParams({ nonce, ...params });
         const postData = body.toString();
         const res = await fetch(`${API_HOST3}${path17}`, {
           method: "POST",
@@ -37775,6 +37814,23 @@ var init_kraken = __esm({
         }
         balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
         return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+      }
+      /**
+       * Place an order. Requires "Create & modify orders" permission on the key.
+       *  - pair: Kraken pair, e.g. 'XBTUSD' (BTC) or 'ETHUSD'
+       *  - type: 'buy' | 'sell'
+       *  - ordertype: 'market' | 'limit'
+       *  - volume: base amount (in the traded coin)
+       *  - price: required for limit orders
+       */
+      async placeOrder(o) {
+        const params = { pair: o.pair, type: o.type, ordertype: o.ordertype, volume: String(o.volume) };
+        if (o.ordertype === "limit") {
+          if (!o.price) throw new Error("limit orders require a price");
+          params.price = String(o.price);
+        }
+        const res = await this.privatePost("AddOrder", params);
+        return { txids: res?.txid ?? [], descr: res?.descr?.order ?? "", raw: res };
       }
       async test() {
         const raw = await this.privatePost("Balance");
@@ -70859,6 +70915,24 @@ Respond with ONLY valid JSON:
     await pool2.query(`DELETE FROM coinbase_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
   });
+  app2.post("/api/coinbase/order", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, product, side, type, quoteSize, baseSize, limitPrice, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!product || !["BUY", "SELL"].includes(side) || !["market", "limit"].includes(type)) return res.status(400).json({ error: "product, side (BUY/SELL) and type (market/limit) required" });
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT api_key_name, encrypted_api_secret FROM coinbase_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Coinbase connection" });
+    try {
+      const { CoinbaseService: CoinbaseService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_coinbase(), coinbase_exports));
+      const svc = new CoinbaseService2(rows[0].api_key_name, decryptApiSecret3(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ product: String(product), side, type, quoteSize: quoteSize ? Number(quoteSize) : void 0, baseSize: baseSize ? Number(baseSize) : void 0, limitPrice: limitPrice ? Number(limitPrice) : void 0 });
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "order failed" });
+    }
+  });
   app2.post("/api/defi/connect", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -71039,6 +71113,24 @@ Respond with ONLY valid JSON:
     const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     await pool2.query(`DELETE FROM kraken_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
+  });
+  app2.post("/api/kraken/order", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, pair, type, ordertype, volume, price, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!pair || !["buy", "sell"].includes(type) || !["market", "limit"].includes(ordertype) || !volume) return res.status(400).json({ error: "pair, type (buy/sell), ordertype (market/limit) and volume required" });
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT api_key, encrypted_api_secret FROM kraken_connections WHERE user_id=$1 AND ($2::int IS NULL OR id=$2) AND is_active=true ORDER BY id LIMIT 1`, [userId, connectionId ?? null]);
+    if (!rows.length) return res.status(404).json({ error: "No active Kraken connection" });
+    try {
+      const { KrakenService: KrakenService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_kraken(), kraken_exports));
+      const svc = new KrakenService2(rows[0].api_key, decryptApiSecret3(rows[0].encrypted_api_secret));
+      const result = await svc.placeOrder({ pair: String(pair), type, ordertype, volume: Number(volume), price: price ? Number(price) : void 0 });
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "order failed" });
+    }
   });
   app2.get("/api/crypto/prices", async (req, res) => {
     try {
