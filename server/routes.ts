@@ -19632,6 +19632,21 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // GET /api/crypto/prices?symbols=BTC,ETH,SOL — unified live prices across the
+  // top US venues (Coinbase, Kraken, Gemini, Crypto.com). Public, read-only,
+  // 15s cached; returns per-venue prices + the best price + cross-venue spread%.
+  app.get("/api/crypto/prices", async (req: Request, res: Response) => {
+    try {
+      const raw = String(req.query.symbols ?? 'BTC,ETH,SOL').split(',').map(s => s.trim()).filter(Boolean);
+      const { getAggregatedQuotes } = await import('./services/crypto-market-data');
+      const quotes = await getAggregatedQuotes(raw.length ? raw : ['BTC', 'ETH', 'SOL']);
+      res.json({ quotes, venues: ['coinbase', 'kraken', 'gemini', 'cryptocom'] });
+    } catch (err: any) {
+      console.error('[crypto/prices]', err);
+      res.status(500).json({ error: err?.message || 'price fetch failed' });
+    }
+  });
+
   // GET /api/kalshi/weather-picks — KXHIGH temperature-market edges (GFS ensemble
   // model vs market), read-only preview. Shows the bias-guard reasons too.
   app.get("/api/kalshi/weather-picks", async (req: Request, res: Response) => {

@@ -37294,6 +37294,97 @@ var init_polymarket_us_engine = __esm({
   }
 });
 
+// server/services/crypto-market-data.ts
+var crypto_market_data_exports = {};
+__export(crypto_market_data_exports, {
+  getAggregatedQuote: () => getAggregatedQuote,
+  getAggregatedQuotes: () => getAggregatedQuotes
+});
+function krakenPair(sym) {
+  const s = sym.toUpperCase();
+  return (s === "BTC" ? "XBT" : s) + "USD";
+}
+async function coinbaseSpot(sym) {
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.data?.amount);
+    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
+  } catch (e) {
+    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
+  }
+}
+async function krakenTicker(sym) {
+  try {
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const first = Object.values(d?.result || {})[0];
+    const p = parseFloat(first?.c?.[0]);
+    const v = parseFloat(first?.v?.[1]);
+    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+  } catch (e) {
+    return { venue: "kraken", symbol: sym, price: null, error: e.message };
+  }
+}
+async function geminiTicker(sym) {
+  try {
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.last);
+    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
+    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "gemini", symbol: sym, price: null, error: e.message };
+  }
+}
+async function cryptocomTicker(sym) {
+  try {
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const t = d?.result?.data;
+    const row = Array.isArray(t) ? t[0] : t;
+    const p = parseFloat(row?.a ?? row?.k);
+    const v = parseFloat(row?.v);
+    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
+  }
+}
+async function getAggregatedQuote(symbol) {
+  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache2.get(sym);
+  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
+  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
+  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
+  let best = null;
+  let spreadPct = null;
+  if (priced.length) {
+    const lo = priced.reduce((a, b) => b.price < a.price ? b : a);
+    const hi = priced.reduce((a, b) => b.price > a.price ? b : a);
+    best = { venue: lo.venue, price: lo.price };
+    spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
+  }
+  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache2.set(sym, { q, ts: Date.now() });
+  return q;
+}
+async function getAggregatedQuotes(symbols) {
+  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
+  return Promise.all(uniq.map(getAggregatedQuote));
+}
+var TTL_MS, _cache2;
+var init_crypto_market_data = __esm({
+  "server/services/crypto-market-data.ts"() {
+    "use strict";
+    TTL_MS = 15e3;
+    _cache2 = /* @__PURE__ */ new Map();
+  }
+});
+
 // server/services/ruin-cone.ts
 var ruin_cone_exports = {};
 __export(ruin_cone_exports, {
@@ -37337,7 +37428,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache2.get(_cacheKey(userId, resolved));
+    const hit = _cache3.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -37385,7 +37476,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache2.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
+    _cache3.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -37485,10 +37576,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache2.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
+  _cache3.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache2;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache3;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -37509,7 +37600,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS6 = 5 * 60 * 1e3;
-    _cache2 = /* @__PURE__ */ new Map();
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -48984,20 +49075,20 @@ async function learnFromCryptoTrades(userId) {
     else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache3.set(userId, { brain, at: Date.now() });
+  _cache4.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache3.get(userId);
+  const hit = _cache4.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
   return learnFromCryptoTrades(userId);
 }
 function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
   return k ? k.recommendedSizeMultiplier : 1;
 }
 function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache3.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
   if (!k) return { blocked: false, reason: "" };
   const decided = k.wins + k.losses;
   if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
@@ -49035,14 +49126,14 @@ async function recordCryptoBrainOutcome(o) {
     console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES, REFRESH_TTL_MS2, _cache3;
+var MIN_TRADES, REFRESH_TTL_MS2, _cache4;
 var init_crypto_brain = __esm({
   "server/services/crypto-brain.ts"() {
     "use strict";
     init_db();
     MIN_TRADES = 10;
     REFRESH_TTL_MS2 = 60 * 1e3;
-    _cache3 = /* @__PURE__ */ new Map();
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -70160,6 +70251,17 @@ Respond with ONLY valid JSON:
     } catch (err) {
       console.error("[Consistency backfill]", err);
       res.status(500).json({ error: err?.message || "backfill failed" });
+    }
+  });
+  app2.get("/api/crypto/prices", async (req, res) => {
+    try {
+      const raw = String(req.query.symbols ?? "BTC,ETH,SOL").split(",").map((s) => s.trim()).filter(Boolean);
+      const { getAggregatedQuotes: getAggregatedQuotes2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+      const quotes = await getAggregatedQuotes2(raw.length ? raw : ["BTC", "ETH", "SOL"]);
+      res.json({ quotes, venues: ["coinbase", "kraken", "gemini", "cryptocom"] });
+    } catch (err) {
+      console.error("[crypto/prices]", err);
+      res.status(500).json({ error: err?.message || "price fetch failed" });
     }
   });
   app2.get("/api/kalshi/weather-picks", async (req, res) => {
