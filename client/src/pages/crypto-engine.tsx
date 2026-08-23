@@ -149,6 +149,19 @@ export default function CryptoEnginePage() {
     onSuccess: () => { setCbForm({ apiKeyName: '', privateKey: '', label: '' }); setShowCbForm(false); queryClient.invalidateQueries({ queryKey: ['/api/coinbase/balances'] }); },
   });
 
+  // ── Kraken (read-only wallet) ────────────────────────────────────────────
+  const [showKrForm, setShowKrForm] = useState(false);
+  const [krForm, setKrForm] = useState({ apiKey: '', apiSecret: '', label: '' });
+  const { data: krData, isLoading: krLoading } = useQuery<any>({
+    queryKey: ['/api/kraken/balances'],
+    queryFn: async () => (await apiRequest('GET', '/api/kraken/balances')).json(),
+    retry: false,
+  });
+  const krConnect = useMutation({
+    mutationFn: async () => { const r = await apiRequest('POST', '/api/kraken/connect', krForm); if (!r.ok) throw new Error((await r.json()).error || 'Failed'); return r.json(); },
+    onSuccess: () => { setKrForm({ apiKey: '', apiSecret: '', label: '' }); setShowKrForm(false); queryClient.invalidateQueries({ queryKey: ['/api/kraken/balances'] }); },
+  });
+
   // ── Crypto.com connection ────────────────────────────────────────────────
   const { data: cryptocomConnections = [], isLoading: cryptocomLoading } = useQuery<CryptocomConnection[]>({
     queryKey: ['/api/cryptocom/connections'],
@@ -297,6 +310,57 @@ export default function CryptoEnginePage() {
                       <button onClick={() => setShowCbForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
                     </div>
                     <p className="text-[10px] text-gray-500">Create a read-only CDP key at coinbase.com → Developer Platform. Grant only "view" permissions.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Kraken read-only wallet */}
+            <Card className="bg-gray-900 border-gray-800">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center justify-between">
+                  <span>Kraken Wallet</span>
+                  <Badge variant="outline" className="text-[10px] border-violet-700 text-violet-400">Read-only balances</Badge>
+                </CardTitle>
+                <CardDescription>Connect a Kraken API key (key + private key) with "Query Funds" permission only. Read-only — no trading. Your secret is encrypted at rest.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {krData?.connections?.length > 0 && (
+                  <div className="rounded-lg border border-violet-800/40 bg-violet-500/[0.06] p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-violet-300">Total ≈ ${(krData.totalUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className="text-[10px] text-gray-500">{krLoading ? 'refreshing…' : 'live'}</span>
+                    </div>
+                    {krData.connections.map((c: any) => (
+                      <div key={c.id}>
+                        {c.error ? <p className="text-[11px] text-red-400">Error: {c.error}</p> : (
+                          <div className="space-y-1">
+                            {(c.balances ?? []).slice(0, 8).map((b: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-gray-300 font-medium">{b.currency}</span>
+                                <span className="text-gray-400 font-mono">{b.total.toLocaleString(undefined, { maximumFractionDigits: 6 })}{b.usdValue != null && <span className="text-gray-500"> · ${b.usdValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>}</span>
+                              </div>
+                            ))}
+                            {(c.balances ?? []).length === 0 && <p className="text-[11px] text-gray-500">No non-zero balances.</p>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!showKrForm ? (
+                  <button onClick={() => setShowKrForm(true)} className="text-sm text-violet-400 hover:text-violet-300">+ Connect Kraken (read-only)</button>
+                ) : (
+                  <div className="space-y-2">
+                    <Input placeholder="API key" value={krForm.apiKey} onChange={(e) => setKrForm(p => ({ ...p, apiKey: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <Input placeholder="Private key (base64 secret)" value={krForm.apiSecret} onChange={(e) => setKrForm(p => ({ ...p, apiSecret: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    <Input placeholder="Label (optional)" value={krForm.label} onChange={(e) => setKrForm(p => ({ ...p, label: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                    {krConnect.isError && <p className="text-[11px] text-red-400">{(krConnect.error as Error)?.message}</p>}
+                    <div className="flex gap-2">
+                      <button onClick={() => krConnect.mutate()} disabled={krConnect.isPending || !krForm.apiKey || !krForm.apiSecret} className="text-sm font-bold px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-60">{krConnect.isPending ? 'Verifying…' : 'Connect'}</button>
+                      <button onClick={() => setShowKrForm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                    </div>
+                    <p className="text-[10px] text-gray-500">Create an API key at kraken.com → Settings → API. Enable only "Query Funds".</p>
                   </div>
                 )}
               </CardContent>

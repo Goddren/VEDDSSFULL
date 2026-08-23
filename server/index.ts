@@ -368,6 +368,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureCoinbaseTables import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureKrakenTables } = await import('./services/ensure-kraken-tables');
+    await ensureKrakenTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureKrakenTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {

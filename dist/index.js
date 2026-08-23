@@ -33740,7 +33740,7 @@ async function getAllTimePerformance(userId) {
      GROUP BY day`,
     [userId]
   );
-  const [atr2, opt, crypto14, futures] = await Promise.all([
+  const [atr2, opt, crypto15, futures] = await Promise.all([
     atrQuery.catch(() => ({ rows: [] })),
     optQuery.catch(() => ({ rows: [] })),
     cryptoQuery.catch(() => ({ rows: [] })),
@@ -33759,7 +33759,7 @@ async function getAllTimePerformance(userId) {
   };
   addRows(atr2.rows);
   addRows(opt.rows, "options");
-  addRows(crypto14.rows, "cryptocom");
+  addRows(crypto15.rows, "cryptocom");
   addRows(futures.rows, "futures");
   const dailyHistory = Object.entries(byDay).map(([date2, engines]) => {
     const byEngine = Object.entries(engines).map(([engine, v]) => ({
@@ -37476,6 +37476,98 @@ var init_coinbase = __esm({
   }
 });
 
+// server/kraken.ts
+var kraken_exports = {};
+__export(kraken_exports, {
+  KrakenService: () => KrakenService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto11 from "crypto";
+function normalizeAsset(code) {
+  const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
+  const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
+  if (map[c]) return map[c];
+  if (c.length === 4 && (c[0] === "X" || c[0] === "Z")) return c.slice(1);
+  return c;
+}
+var API_HOST2, KrakenService;
+var init_kraken = __esm({
+  "server/kraken.ts"() {
+    "use strict";
+    init_cryptocom();
+    API_HOST2 = "https://api.kraken.com";
+    KrakenService = class {
+      apiKey;
+      secret;
+      constructor(apiKey, secret) {
+        this.apiKey = apiKey;
+        this.secret = secret;
+      }
+      sign(path17, nonce, postData) {
+        const sha256 = crypto11.createHash("sha256").update(nonce + postData).digest();
+        const message = Buffer.concat([Buffer.from(path17, "utf8"), sha256]);
+        const key = Buffer.from(this.secret, "base64");
+        return crypto11.createHmac("sha512", key).update(message).digest("base64");
+      }
+      async privatePost(endpoint) {
+        const path17 = `/0/private/${endpoint}`;
+        const nonce = String(Date.now() * 1e3);
+        const body = new URLSearchParams({ nonce });
+        const postData = body.toString();
+        const res = await fetch(`${API_HOST2}${path17}`, {
+          method: "POST",
+          headers: {
+            "API-Key": this.apiKey,
+            "API-Sign": this.sign(path17, nonce, postData),
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "VEDD/1.0"
+          },
+          body: postData,
+          signal: AbortSignal.timeout(12e3)
+        });
+        const data = await res.json();
+        if (data?.error?.length) throw new Error(`Kraken: ${data.error.join(", ")}`);
+        return data?.result ?? {};
+      }
+      /** Read-only: account balances, valued in USD via the public price layer. */
+      async getBalances() {
+        const raw = await this.privatePost("Balance");
+        const merged = /* @__PURE__ */ new Map();
+        for (const [code, valStr] of Object.entries(raw)) {
+          const amt = parseFloat(String(valStr));
+          if (!isFinite(amt) || amt <= 0) continue;
+          const cur = normalizeAsset(code);
+          merged.set(cur, (merged.get(cur) ?? 0) + amt);
+        }
+        const balances = Array.from(merged, ([currency, total]) => ({ currency, total }));
+        let totalUsd = 0;
+        try {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          for (const b of balances) {
+            if (b.currency === "USD" || b.currency === "USDC" || b.currency === "USDT") {
+              b.usdValue = b.total;
+              totalUsd += b.total;
+              continue;
+            }
+            const q = await getAggregatedQuote2(b.currency).catch(() => null);
+            const px = q?.best?.price ?? null;
+            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
+            if (b.usdValue) totalUsd += b.usdValue;
+          }
+        } catch {
+        }
+        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+        return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+      }
+      async test() {
+        const raw = await this.privatePost("Balance");
+        return { ok: true, assetCount: Object.keys(raw).length };
+      }
+    };
+  }
+});
+
 // server/services/ruin-cone.ts
 var ruin_cone_exports = {};
 __export(ruin_cone_exports, {
@@ -37891,21 +37983,21 @@ __export(sol_engine_exports, {
   updateSolPortfolioValue: () => updateSolPortfolioValue
 });
 import { eq as eq15 } from "drizzle-orm";
-import crypto11 from "crypto";
+import crypto12 from "crypto";
 function getEncryptionKey6() {
   const seed = (process.env.DATABASE_URL || "vedd-sol-engine-fallback") + "sol-v1";
-  return crypto11.createHash("sha256").update(seed).digest();
+  return crypto12.createHash("sha256").update(seed).digest();
 }
 function encryptWalletKey(plain) {
-  const iv = crypto11.randomBytes(16);
-  const cipher = crypto11.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const iv = crypto12.randomBytes(16);
+  const cipher = crypto12.createCipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const enc = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   return iv.toString("hex") + ":" + enc.toString("hex");
 }
 function decryptWalletKey(ciphertext) {
   const [ivHex, encHex] = ciphertext.split(":");
   const iv = Buffer.from(ivHex, "hex");
-  const decipher = crypto11.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
+  const decipher = crypto12.createDecipheriv("aes-256-cbc", getEncryptionKey6(), iv);
   const dec = Buffer.concat([decipher.update(Buffer.from(encHex, "hex")), decipher.final()]);
   return dec.toString("utf8");
 }
@@ -39948,7 +40040,7 @@ __export(certificate_service_exports, {
   getTierFromScore: () => getTierFromScore,
   verifyCertificate: () => verifyCertificate
 });
-import crypto12 from "crypto";
+import crypto13 from "crypto";
 function generateCertificateNumber() {
   const year = (/* @__PURE__ */ new Date()).getFullYear();
   const randomPart = Math.floor(Math.random() * 1e5).toString().padStart(5, "0");
@@ -39962,7 +40054,7 @@ function generateVerificationHash(data) {
     finalScore: data.finalScore,
     modulesCompleted: data.modulesCompleted
   });
-  return crypto12.createHash("sha256").update(payload2).digest("hex");
+  return crypto13.createHash("sha256").update(payload2).digest("hex");
 }
 async function generateCertificateImage(data) {
   let createCanvas;
@@ -44417,7 +44509,7 @@ __export(ambassador_prime_exports, {
   runAmbassadorPrime: () => runAmbassadorPrime,
   startAmbassadorPrimeScheduler: () => startAmbassadorPrimeScheduler
 });
-import crypto13 from "crypto";
+import crypto14 from "crypto";
 import { eq as eq17, sql as drizzleSql } from "drizzle-orm";
 import { OpenAI as OpenAI7 } from "openai";
 async function logStep(runDate, stepName, status, error) {
@@ -44434,7 +44526,7 @@ function buildOAuthHeader(method, url, params) {
   if (!apiKey || !apiSecret || !accessToken || !accessSecret) return "";
   const oauthParams = {
     oauth_consumer_key: apiKey,
-    oauth_nonce: crypto13.randomBytes(16).toString("hex"),
+    oauth_nonce: crypto14.randomBytes(16).toString("hex"),
     oauth_signature_method: "HMAC-SHA1",
     oauth_timestamp: Math.floor(Date.now() / 1e3).toString(),
     oauth_token: accessToken,
@@ -44445,7 +44537,7 @@ function buildOAuthHeader(method, url, params) {
   const paramStr = sortedKeys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(allParams[k])}`).join("&");
   const sigBase = [method.toUpperCase(), encodeURIComponent(url), encodeURIComponent(paramStr)].join("&");
   const sigKey = `${encodeURIComponent(apiSecret)}&${encodeURIComponent(accessSecret)}`;
-  const signature = crypto13.createHmac("sha1", sigKey).update(sigBase).digest("base64");
+  const signature = crypto14.createHmac("sha1", sigKey).update(sigBase).digest("base64");
   oauthParams["oauth_signature"] = signature;
   const headerValue = Object.keys(oauthParams).sort().map((k) => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`).join(", ");
   return `OAuth ${headerValue}`;
@@ -47124,6 +47216,42 @@ CREATE INDEX IF NOT EXISTS "idx_coinbase_connections_user" ON "coinbase_connecti
   }
 });
 
+// server/services/ensure-kraken-tables.ts
+var ensure_kraken_tables_exports = {};
+__export(ensure_kraken_tables_exports, {
+  ensureKrakenTables: () => ensureKrakenTables
+});
+async function ensureKrakenTables() {
+  try {
+    await pool.query(DDL18);
+    console.log("[startup] Kraken connections table ensured (kraken_connections) \u2014 read-only wallet balances.");
+  } catch (err) {
+    console.error("[startup] ensureKrakenTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL18;
+var init_ensure_kraken_tables = __esm({
+  "server/services/ensure-kraken-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL18 = `
+CREATE TABLE IF NOT EXISTS "kraken_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "api_key" text NOT NULL,
+  "encrypted_api_secret" text NOT NULL,
+  "label" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "idx_kraken_connections_user" ON "kraken_connections" ("user_id");
+`;
+  }
+});
+
 // server/services/ensure-engine-consensus-table.ts
 var ensure_engine_consensus_table_exports = {};
 __export(ensure_engine_consensus_table_exports, {
@@ -47131,18 +47259,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL18);
+    await pool.query(DDL19);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL18;
+var DDL19;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL18 = `
+    DDL19 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47170,18 +47298,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL19);
+    await pool.query(DDL20);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL19;
+var DDL20;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL19 = `
+    DDL20 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47203,18 +47331,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL20);
+    await pool.query(DDL21);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL20;
+var DDL21;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL20 = `
+    DDL21 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47245,18 +47373,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL21);
+    await pool.query(DDL22);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL21;
+var DDL22;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL21 = `
+    DDL22 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -47280,18 +47408,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -47310,18 +47438,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -47338,18 +47466,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -47430,18 +47558,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -70444,6 +70572,67 @@ Respond with ONLY valid JSON:
     await pool2.query(`DELETE FROM coinbase_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
     res.json({ ok: true });
   });
+  app2.post("/api/kraken/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { apiKey, apiSecret, label } = req.body || {};
+    if (!apiKey || !apiSecret) return res.status(400).json({ error: "apiKey and apiSecret are required" });
+    try {
+      const { KrakenService: KrakenService2, encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_kraken(), kraken_exports));
+      await new KrakenService2(String(apiKey), String(apiSecret)).test();
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const enc = encryptApiSecret3(String(apiSecret));
+      const { rows } = await pool2.query(
+        `INSERT INTO kraken_connections (user_id, api_key, encrypted_api_secret, label, last_connected_at)
+         VALUES ($1,$2,$3,$4, now()) RETURNING id`,
+        [userId, String(apiKey), enc, label ? String(label) : null]
+      );
+      res.json({ ok: true, id: rows[0].id });
+    } catch (err) {
+      res.status(400).json({ error: `Couldn't verify Kraken key: ${err?.message || "unknown error"}` });
+    }
+  });
+  app2.get("/api/kraken/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT id, api_key, label, is_active, last_connected_at, last_error FROM kraken_connections WHERE user_id=$1 ORDER BY id`, [userId]);
+    res.json(rows.map((r) => ({ id: r.id, apiKey: String(r.api_key).slice(0, 8) + "\u2026", label: r.label, isActive: r.is_active, lastConnectedAt: r.last_connected_at, lastError: r.last_error })));
+  });
+  app2.get("/api/kraken/balances", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    const { rows } = await pool2.query(`SELECT id, api_key, encrypted_api_secret FROM kraken_connections WHERE user_id=$1 AND is_active=true ORDER BY id`, [userId]);
+    if (!rows.length) return res.json({ connections: [], totalUsd: 0 });
+    try {
+      const { KrakenService: KrakenService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_kraken(), kraken_exports));
+      const out = [];
+      let totalUsd = 0;
+      for (const r of rows) {
+        try {
+          const svc = new KrakenService2(r.api_key, decryptApiSecret3(r.encrypted_api_secret));
+          const summary = await svc.getBalances();
+          out.push({ id: r.id, ...summary });
+          totalUsd += summary.totalUsd;
+          await pool2.query(`UPDATE kraken_connections SET last_connected_at=now(), last_error=NULL WHERE id=$1`, [r.id]);
+        } catch (e) {
+          out.push({ id: r.id, error: e.message, balances: [], totalUsd: 0 });
+          await pool2.query(`UPDATE kraken_connections SET last_error=$2 WHERE id=$1`, [r.id, e.message]);
+        }
+      }
+      res.json({ connections: out, totalUsd: Math.round(totalUsd * 100) / 100 });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || "balance fetch failed" });
+    }
+  });
+  app2.delete("/api/kraken/connection/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+    await pool2.query(`DELETE FROM kraken_connections WHERE id=$1 AND user_id=$2`, [parseInt(req.params.id, 10), userId]);
+    res.json({ ok: true });
+  });
   app2.get("/api/crypto/prices", async (req, res) => {
     try {
       const raw = String(req.query.symbols ?? "BTC,ETH,SOL").split(",").map((s) => s.trim()).filter(Boolean);
@@ -81219,6 +81408,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureCoinbaseTables2();
   } catch (err) {
     console.error(`[startup] ensureCoinbaseTables import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureKrakenTables: ensureKrakenTables2 } = await Promise.resolve().then(() => (init_ensure_kraken_tables(), ensure_kraken_tables_exports));
+    await ensureKrakenTables2();
+  } catch (err) {
+    console.error(`[startup] ensureKrakenTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));
