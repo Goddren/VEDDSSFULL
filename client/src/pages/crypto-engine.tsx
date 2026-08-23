@@ -1313,23 +1313,42 @@ export default function CryptoEnginePage() {
                 ) : (
                   <>
                     <div className="grid grid-cols-4 gap-2">
-                      <div className="p-2.5 rounded-lg bg-emerald-900/10 border border-emerald-700/30 text-center">
-                        <p className="text-lg font-bold text-emerald-400">{consensusData?.summary.strongConfirm ?? 0}</p>
-                        <p className="text-[9px] uppercase tracking-wide text-gray-500">✅ Strong Confirm</p>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-amber-900/10 border border-amber-700/30 text-center">
-                        <p className="text-lg font-bold text-amber-400">{consensusData?.summary.caution ?? 0}</p>
-                        <p className="text-[9px] uppercase tracking-wide text-gray-500">⚠️ Caution</p>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-cyan-900/10 border border-cyan-700/30 text-center">
-                        <p className="text-lg font-bold text-cyan-400">{consensusData?.summary.watch ?? 0}</p>
-                        <p className="text-[9px] uppercase tracking-wide text-gray-500">👁️ Watch</p>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-red-900/10 border border-red-700/30 text-center">
-                        <p className="text-lg font-bold text-red-400">{consensusData?.summary.strongSkip ?? 0}</p>
-                        <p className="text-[9px] uppercase tracking-wide text-gray-500">🚫 Strong Skip</p>
-                      </div>
+                      {[
+                        { n: consensusData?.summary.strongConfirm ?? 0, label: 'Strong Confirm', emoji: '✅', ring: 'border-emerald-600/40 bg-emerald-500/[0.08]', text: 'text-emerald-400' },
+                        { n: consensusData?.summary.caution ?? 0, label: 'Caution', emoji: '⚠️', ring: 'border-amber-600/40 bg-amber-500/[0.08]', text: 'text-amber-400' },
+                        { n: consensusData?.summary.watch ?? 0, label: 'Watch', emoji: '👁️', ring: 'border-cyan-600/40 bg-cyan-500/[0.08]', text: 'text-cyan-400' },
+                        { n: consensusData?.summary.strongSkip ?? 0, label: 'Strong Skip', emoji: '🚫', ring: 'border-red-600/40 bg-red-500/[0.08]', text: 'text-red-400' },
+                      ].map((t) => (
+                        <div key={t.label} className={`p-2.5 rounded-xl border text-center ${t.ring} ${t.n > 0 ? '' : 'opacity-60'}`}>
+                          <p className="text-[15px] leading-none mb-1">{t.emoji}</p>
+                          <p className={`text-xl font-bold tabular-nums ${t.text}`}>{t.n}</p>
+                          <p className="text-[9px] uppercase tracking-wide text-gray-500 mt-0.5">{t.label}</p>
+                        </div>
+                      ))}
                     </div>
+
+                    {/* Signal spotlight — the strongest tradeable consensus right now */}
+                    {(() => {
+                      const top = (consensusData?.consensus ?? []).find(c => c.consensus === 'STRONG_CONFIRM' && c.tradeAllowed);
+                      if (!top) return null;
+                      return (
+                        <div className="relative overflow-hidden rounded-xl border border-emerald-500/50 bg-gradient-to-br from-emerald-500/[0.14] to-gray-900 p-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1">⭐ Top signal</span>
+                            <span className="text-[10px] text-gray-500">{new Date(top.timestamp).toLocaleTimeString()}</span>
+                          </div>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-lg font-bold text-white">{top.symbol.replace('USD-PERP', '')}</span>
+                            <span className="text-[11px] text-gray-400">{top.strategy.replace('_', ' ')}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] mt-1">
+                            <span className="text-emerald-400 flex items-center gap-1"><TrendingUp className="w-3 h-3" /> Quant {top.quantScore}/100</span>
+                            <span className="text-emerald-400 flex items-center gap-1"><Brain className="w-3 h-3" /> AI {top.aiConfidence}%</span>
+                            <span className="ml-auto text-[10px] font-bold text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded">READY TO FIRE</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {!consensusData || consensusData.consensus.length === 0 ? (
                       <div className="text-center py-8">
@@ -1361,16 +1380,27 @@ export default function CryptoEnginePage() {
                                 </div>
                                 <span className="text-[10px] text-gray-500 shrink-0">{new Date(c.timestamp).toLocaleTimeString()}</span>
                               </div>
-                              <div className="flex items-center gap-3 text-[11px]">
-                                <span className={`flex items-center gap-1 ${c.quantVerdict === 'CONFIRM' ? 'text-emerald-400' : c.quantVerdict === 'SKIP' ? 'text-red-400' : 'text-amber-400'}`}>
-                                  <TrendingUp className="w-3 h-3" /> Quant: {c.quantVerdict} ({c.quantScore}/100)
-                                </span>
-                                <span className={`flex items-center gap-1 ${c.aiVerdict === 'CONFIRM' ? 'text-emerald-400' : 'text-red-400'}`}>
-                                  <Brain className="w-3 h-3" /> AI: {c.aiVerdict} ({c.aiConfidence}%)
-                                </span>
-                                <span className={c.tradeAllowed ? 'text-emerald-400' : 'text-red-400'}>
-                                  {c.tradeAllowed ? '✓ Allowed' : '✗ Blocked'}
-                                </span>
+                              {/* Quant vs AI — mini battle bars */}
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2 text-[10px]">
+                                  <span className="w-10 shrink-0 text-gray-400 flex items-center gap-0.5"><TrendingUp className="w-3 h-3" /> Quant</span>
+                                  <div className="flex-1 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                                    <div className={`h-full rounded-full ${c.quantVerdict === 'CONFIRM' ? 'bg-emerald-500' : c.quantVerdict === 'SKIP' ? 'bg-red-500' : 'bg-amber-500'}`} style={{ width: `${Math.min(100, c.quantScore)}%` }} />
+                                  </div>
+                                  <span className={`w-16 text-right shrink-0 ${c.quantVerdict === 'CONFIRM' ? 'text-emerald-400' : c.quantVerdict === 'SKIP' ? 'text-red-400' : 'text-amber-400'}`}>{c.quantVerdict} {c.quantScore}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px]">
+                                  <span className="w-10 shrink-0 text-gray-400 flex items-center gap-0.5"><Brain className="w-3 h-3" /> AI</span>
+                                  <div className="flex-1 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                                    <div className={`h-full rounded-full ${c.aiVerdict === 'CONFIRM' ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, c.aiConfidence)}%` }} />
+                                  </div>
+                                  <span className={`w-16 text-right shrink-0 ${c.aiVerdict === 'CONFIRM' ? 'text-emerald-400' : 'text-red-400'}`}>{c.aiVerdict} {c.aiConfidence}%</span>
+                                </div>
+                                <div className="flex justify-end">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${c.tradeAllowed ? 'text-emerald-300 bg-emerald-500/15' : 'text-red-300 bg-red-500/15'}`}>
+                                    {c.tradeAllowed ? '✓ TRADE ALLOWED' : '✗ BLOCKED'}
+                                  </span>
+                                </div>
                               </div>
                               {c.aiReasoning && <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{c.aiReasoning}</p>}
                             </div>
@@ -1398,6 +1428,37 @@ export default function CryptoEnginePage() {
                   <p className="text-xs text-gray-500">Loading trades...</p>
                 ) : (
                   <>
+                    {/* Gamified scoreboard */}
+                    {(() => {
+                      const settled = closedTrades.filter(t => t.realizedPnl != null);
+                      const wins = settled.filter(t => (t.realizedPnl ?? 0) > 0).length;
+                      const losses = settled.length - wins;
+                      const net = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+                      // Current streak from most-recent settled trades (feed is newest-first)
+                      let streak = 0; let streakWin = false;
+                      for (const t of settled) {
+                        const w = (t.realizedPnl ?? 0) > 0;
+                        if (streak === 0) { streakWin = w; streak = 1; }
+                        else if (w === streakWin) streak++;
+                        else break;
+                      }
+                      const tiles = [
+                        { label: 'Wins', value: String(wins), tone: 'text-emerald-400' },
+                        { label: 'Losses', value: String(losses), tone: 'text-red-400' },
+                        { label: 'Net', value: `${net >= 0 ? '+' : ''}$${net.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, tone: net >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                        { label: 'Streak', value: settled.length === 0 ? '—' : `${streak}${streakWin ? '🔥' : '❄️'}`, tone: streakWin ? 'text-emerald-400' : 'text-blue-300' },
+                      ];
+                      return (
+                        <div className="grid grid-cols-4 gap-2">
+                          {tiles.map(t => (
+                            <div key={t.label} className="rounded-xl bg-black/30 border border-white/5 px-2 py-2 text-center">
+                              <p className={`text-base font-bold tabular-nums ${t.tone}`}>{t.value}</p>
+                              <p className="text-[9px] text-gray-500 uppercase tracking-wide">{t.label}</p>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <div>
                       <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Open ({openTrades.length})</h4>
                       {openTrades.length === 0 ? (
@@ -1444,7 +1505,14 @@ export default function CryptoEnginePage() {
             <Card className="bg-gray-900 border-gray-800 mt-6">
               <CardHeader>
                 <CardTitle className="text-base flex items-center justify-between">
-                  <span className="flex items-center gap-2"><Radar className="w-4 h-4 text-amber-400" /> Live Feed</span>
+                  <span className="flex items-center gap-2">
+                    <Radar className="w-4 h-4 text-amber-400" /> Live Feed
+                    {config?.isActive && (
+                      <span className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live
+                      </span>
+                    )}
+                  </span>
                   <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => refetchActivity()}>
                     <RefreshCw className="w-3.5 h-3.5" />
                   </Button>
