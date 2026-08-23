@@ -37883,8 +37883,7 @@ async function executeDefiSwap(opts) {
     if (current < BigInt(sellAmount)) {
       const aTx = await erc.approve(spender, ethers.MaxUint256);
       approveTxHash = aTx.hash;
-      const mined = await Promise.race([aTx.wait().then(() => true), new Promise((r) => setTimeout(() => r(false), 3e4))]);
-      if (!mined) return { ok: false, approveTxHash, reason: "token approval is still confirming on-chain \u2014 wait ~30s and run the swap again (approval only happens once per token)" };
+      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
     }
   }
   let buyAmountHuman;
@@ -68639,7 +68638,26 @@ Rules:
       "consistencyPeriodDays",
       "maxDailyProfitPctOfTotal",
       "smartSymbolEscalation",
-      "highConfidenceOverride"
+      "highConfidenceOverride",
+      // Engine intelligence & safety (parity fields — were missing, so these toggles silently didn't save)
+      "enableCompositeAutonomous",
+      "compositeMinEdgeScore",
+      "cryptoBrainEnabled",
+      "cryptoBrainGating",
+      "ruinGuardEnabled",
+      "dailyLossLimitPct",
+      "maxDrawdownLimitPct",
+      // CeFi spot venue routing
+      "executionVenue",
+      "cefiAutoTradeEnabled",
+      "cefiNotionalUsd",
+      "cefiTakeProfitPct",
+      "cefiStopLossPct",
+      // DeFi hot-wallet auto-trade (Phase B)
+      "defiAutoTradeEnabled",
+      "defiChain",
+      "defiNotionalUsd",
+      "defiSlippageBps"
     ];
     const updateData = {};
     for (const key of allowed) {

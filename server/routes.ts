@@ -16287,6 +16287,14 @@ Rules:
       'trailSarInitialAF', 'trailSarMaxAF', 'breakevenBufferR',
       'consistencyEnforcementEnabled', 'consistencyMinProfitableDays', 'consistencyPeriodDays',
       'maxDailyProfitPctOfTotal', 'smartSymbolEscalation', 'highConfidenceOverride',
+      // Engine intelligence & safety (parity fields — were missing, so these toggles silently didn't save)
+      'enableCompositeAutonomous', 'compositeMinEdgeScore',
+      'cryptoBrainEnabled', 'cryptoBrainGating',
+      'ruinGuardEnabled', 'dailyLossLimitPct', 'maxDrawdownLimitPct',
+      // CeFi spot venue routing
+      'executionVenue', 'cefiAutoTradeEnabled', 'cefiNotionalUsd', 'cefiTakeProfitPct', 'cefiStopLossPct',
+      // DeFi hot-wallet auto-trade (Phase B)
+      'defiAutoTradeEnabled', 'defiChain', 'defiNotionalUsd', 'defiSlippageBps',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {

@@ -136,13 +136,13 @@ export async function executeDefiSwap(opts: {
     const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
     const current: bigint = await erc.allowance(wallet.address, spender);
     if (current < BigInt(sellAmount)) {
+      // One-time approval per token. Approve MUST be mined before the swap tx (else
+      // it reverts), and waiting for it inside the HTTP request overruns the gateway
+      // timeout (→ 502). So we BROADCAST the approve and return immediately with a
+      // clear retry message — the next attempt sees the allowance and swaps fast.
       const aTx = await erc.approve(spender, ethers.MaxUint256);
       approveTxHash = aTx.hash;
-      // Approve MUST be mined before the swap tx (else it reverts), but bound the
-      // wait so a slow RPC can't hang the request. If it doesn't confirm in time,
-      // bail with a clear retry message instead of sending a doomed swap.
-      const mined = await Promise.race([aTx.wait().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 30000))]);
-      if (!mined) return { ok: false, approveTxHash, reason: 'token approval is still confirming on-chain — wait ~30s and run the swap again (approval only happens once per token)' };
+      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}…). Wait ~20s for it to confirm, then run the swap again — this only happens once per token.` };
     }
   }
 
