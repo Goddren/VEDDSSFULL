@@ -256,6 +256,10 @@ export default function CryptoEnginePage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/defi/balances'] }),
   });
 
+  // ── Page UX state (redesign) ─────────────────────────────────────────────
+  const [showSymbolPicker, setShowSymbolPicker] = useState(false);
+  const [walletsOpen, setWalletsOpen] = useState(false);
+
   // ── DeFi hot wallet (unattended swaps) ───────────────────────────────────
   const [showHwForm, setShowHwForm] = useState(false);
   const [hwForm, setHwForm] = useState({ privateKey: '', chain: 'base', label: '' });
@@ -424,23 +428,89 @@ export default function CryptoEnginePage() {
           <ArrowLeft className="w-3.5 h-3.5" /> Back to AI Trading Engines
         </Link>
 
-        <div className="flex items-center gap-2.5 mb-1">
-          <Coins className="w-6 h-6 text-amber-400" />
-          <h1 className="text-xl font-bold">Crypto AI Engine</h1>
-        </div>
-        <p className="text-sm text-gray-500 mb-6">
-          Full FX SS AI Engine parity for crypto — trade across CeFi (Coinbase, Kraken, Gemini, Crypto.com perps) and DeFi. Pick your tokens, strategy, and risk per trade, then watch the live decision feed.
-        </p>
+        {/* ══════════════ GAMIFIED MISSION-CONTROL HERO ══════════════ */}
+        {(() => {
+          const active = !!config?.isActive;
+          const walletTotal = (cbData?.totalUsd ?? 0) + (krData?.totalUsd ?? 0) + (gmData?.totalUsd ?? 0) + (dfData?.totalUsd ?? 0);
+          const settled = closedTrades.filter(t => t.realizedPnl != null);
+          const netPnl = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+          const wins = settled.filter(t => (t.realizedPnl ?? 0) > 0).length;
+          const winRate = settled.length ? Math.round((wins / settled.length) * 100) : null;
+          const venueLabel: Record<string, string> = { cryptocom: 'Crypto.com', coinbase: 'Coinbase', kraken: 'Kraken', gemini: 'Gemini', defi: 'DeFi' };
+          const tiles = [
+            { label: 'Open trades', value: String(openTrades.length), tone: 'text-white' },
+            { label: 'Net P&L', value: `${netPnl >= 0 ? '+' : ''}$${netPnl.toLocaleString(undefined, { maximumFractionDigits: 2 })}`, tone: netPnl >= 0 ? 'text-emerald-400' : 'text-red-400' },
+            { label: 'Win rate', value: winRate == null ? '—' : `${winRate}%`, tone: winRate != null && winRate >= 50 ? 'text-emerald-400' : 'text-amber-300' },
+            { label: 'Wallets', value: `$${walletTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, tone: 'text-blue-300' },
+          ];
+          return (
+            <div className={`relative overflow-hidden rounded-2xl border mb-5 p-4 sm:p-5 ${active ? 'border-emerald-500/40 bg-gradient-to-br from-emerald-500/[0.10] via-gray-900 to-gray-900' : 'border-gray-800 bg-gradient-to-br from-amber-500/[0.06] via-gray-900 to-gray-900'}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-xl shrink-0 ${active ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`}>
+                    <Coins className={`w-5 h-5 ${active ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="text-lg sm:text-xl font-bold leading-tight">Crypto AI Engine</h1>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className={`w-2 h-2 rounded-full ${active ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
+                      <span className={`text-[11px] font-semibold uppercase tracking-wide ${active ? 'text-emerald-400' : 'text-gray-500'}`}>{active ? 'Live · hunting setups' : 'Paused'}</span>
+                    </div>
+                  </div>
+                </div>
+                {config && (
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Switch checked={active} onCheckedChange={(v) => updateConfigMutation.mutate({ isActive: v, enableAutoExecution: v })} />
+                    <span className="text-[10px] text-gray-500">{active ? 'ON' : 'OFF'}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* KPI tiles — 2-up on mobile, 4-up on wider screens */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+                {tiles.map((t) => (
+                  <div key={t.label} className="rounded-xl bg-black/30 border border-white/5 px-3 py-2">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">{t.label}</p>
+                    <p className={`text-base font-bold tabular-nums ${t.tone}`}>{t.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {config && (
+                <div className="flex flex-wrap items-center gap-2 mt-3 text-[11px]">
+                  <Badge variant="outline" className="border-blue-600/40 text-blue-300">Venue: {venueLabel[config.executionVenue] ?? config.executionVenue}</Badge>
+                  <Badge variant="outline" className="border-gray-700 text-gray-400">{config.symbols.length} symbol{config.symbols.length === 1 ? '' : 's'}</Badge>
+                  <Badge variant="outline" className="border-gray-700 text-gray-400">Scan {Math.round(config.scanIntervalMs / 1000)}s</Badge>
+                  {config.cryptoBrainEnabled && <Badge variant="outline" className="border-purple-600/40 text-purple-300 flex items-center gap-1"><Brain className="w-3 h-3" /> Brain</Badge>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <Tabs defaultValue="setup" className="w-full">
-          <TabsList className="grid grid-cols-3 mb-6">
-            <TabsTrigger value="setup" className="flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" /> Setup & Config</TabsTrigger>
-            <TabsTrigger value="consensus" className="flex items-center gap-1.5"><Swords className="w-3.5 h-3.5" /> Consensus</TabsTrigger>
-            <TabsTrigger value="feed" className="flex items-center gap-1.5"><Radar className="w-3.5 h-3.5" /> Live Feed</TabsTrigger>
+          <TabsList className="grid grid-cols-3 mb-6 sticky top-0 z-20 h-auto bg-black/95 backdrop-blur-sm py-1 rounded-xl">
+            <TabsTrigger value="setup" className="flex items-center justify-center gap-1.5 py-2 text-xs sm:text-sm"><Settings2 className="w-3.5 h-3.5" /> <span className="hidden xs:inline sm:inline">Setup</span></TabsTrigger>
+            <TabsTrigger value="consensus" className="flex items-center justify-center gap-1.5 py-2 text-xs sm:text-sm"><Swords className="w-3.5 h-3.5" /> Consensus</TabsTrigger>
+            <TabsTrigger value="feed" className="flex items-center justify-center gap-1.5 py-2 text-xs sm:text-sm"><Radar className="w-3.5 h-3.5" /> Live Feed</TabsTrigger>
           </TabsList>
 
           {/* ══════════════════════ SETUP & CONFIG ══════════════════════ */}
           <TabsContent value="setup" className="mt-0 space-y-6">
+            {/* Collapsible wallets & connections — keeps the mobile setup tab short */}
+            <button
+              type="button"
+              onClick={() => setWalletsOpen(v => !v)}
+              className="w-full flex items-center justify-between rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-left hover:border-gray-700"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-white">Wallets & connections</span>
+                <Badge variant="outline" className="text-[10px] border-gray-700 text-gray-400">Coinbase · Kraken · Gemini · DeFi</Badge>
+              </span>
+              <span className={`text-gray-500 transition-transform ${walletsOpen ? 'rotate-180' : ''}`}>▾</span>
+            </button>
+            {walletsOpen && (
+            <div className="space-y-6">
             {/* Coinbase read-only wallet */}
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
@@ -800,6 +870,8 @@ export default function CryptoEnginePage() {
                 )}
               </CardContent>
             </Card>
+            </div>
+            )}
 
             <Card className="bg-gray-900 border-gray-800">
               <CardHeader>
@@ -929,29 +1001,48 @@ export default function CryptoEnginePage() {
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2 md:col-span-2">
                           <Label className="text-xs text-gray-400">Tokens/symbols to scan</Label>
-                          {/* Quick-pick dropdown — adds a common symbol to the scan list */}
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              const s = e.target.value;
-                              if (!s) return;
-                              const cur = config.symbols || [];
-                              if (!cur.includes(s)) updateConfigMutation.mutate({ symbols: [...cur, s] });
-                              e.currentTarget.value = '';
-                            }}
-                            className="w-full bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"
+                          {/* Multi-select picker — tap to toggle several at once (mobile-friendly) */}
+                          <button
+                            type="button"
+                            onClick={() => setShowSymbolPicker(v => !v)}
+                            className="w-full flex items-center justify-between rounded-lg border border-gray-700 bg-gray-800 h-9 px-3 text-sm text-white"
                           >
-                            <option value="">+ Add a symbol from the list…</option>
-                            {COMMON_SYMBOLS.filter(s => !(config.symbols || []).includes(s)).map(s => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </select>
+                            <span>{config.symbols.length > 0 ? `${config.symbols.length} selected` : 'Choose symbols to scan'}</span>
+                            <span className={`text-gray-500 transition-transform ${showSymbolPicker ? 'rotate-180' : ''}`}>▾</span>
+                          </button>
+                          {showSymbolPicker && (
+                            <div className="rounded-lg border border-gray-700 bg-black/40 p-2">
+                              <div className="flex items-center justify-between px-1 pb-2">
+                                <span className="text-[11px] text-gray-500">Tap to toggle — pick as many as you like</span>
+                                <button type="button" onClick={() => updateConfigMutation.mutate({ symbols: [] })} className="text-[11px] text-gray-500 hover:text-red-400">Clear all</button>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-60 overflow-y-auto">
+                                {COMMON_SYMBOLS.map((s) => {
+                                  const on = (config.symbols || []).includes(s);
+                                  return (
+                                    <button
+                                      key={s}
+                                      type="button"
+                                      onClick={() => {
+                                        const cur = config.symbols || [];
+                                        updateConfigMutation.mutate({ symbols: on ? cur.filter(x => x !== s) : [...cur, s] });
+                                      }}
+                                      className={`flex items-center gap-2 rounded-lg px-2 py-2 text-xs border text-left ${on ? 'bg-blue-500/15 border-blue-500/50 text-blue-100' : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                      <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] shrink-0 ${on ? 'bg-blue-500 text-white' : 'border border-gray-600'}`}>{on ? '✓' : ''}</span>
+                                      {s.replace('USD-PERP', '')}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                           {/* Selected symbols as removable chips */}
                           {(config.symbols || []).length > 0 && (
                             <div className="flex flex-wrap gap-1.5 pt-1">
                               {config.symbols.map((s) => (
                                 <span key={s} className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300 text-[11px] px-2 py-0.5">
-                                  {s}
+                                  {s.replace('USD-PERP', '')}
                                   <button
                                     type="button"
                                     onClick={() => updateConfigMutation.mutate({ symbols: config.symbols.filter(x => x !== s) })}
