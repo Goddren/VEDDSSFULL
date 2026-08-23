@@ -414,10 +414,10 @@ export default function CryptoEnginePage() {
 
         <div className="flex items-center gap-2.5 mb-1">
           <Coins className="w-6 h-6 text-amber-400" />
-          <h1 className="text-xl font-bold">Crypto.com Perpetuals AI Engine</h1>
+          <h1 className="text-xl font-bold">Crypto AI Engine</h1>
         </div>
         <p className="text-sm text-gray-500 mb-6">
-          Full FX SS AI Engine parity for crypto perpetuals — pick your tokens, strategy, and risk per trade, then watch the live decision feed.
+          Full FX SS AI Engine parity for crypto — trade across CeFi (Coinbase, Kraken, Gemini, Crypto.com perps) and DeFi. Pick your tokens, strategy, and risk per trade, then watch the live decision feed.
         </p>
 
         <Tabs defaultValue="setup" className="w-full">
@@ -916,7 +916,7 @@ export default function CryptoEnginePage() {
                       <h4 className="text-[11px] font-bold text-amber-400 uppercase tracking-wide mb-3">Tokens & Strategy</h4>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2 md:col-span-2">
-                          <Label className="text-xs text-gray-400">Perpetuals to scan (comma-separated)</Label>
+                          <Label className="text-xs text-gray-400">Tokens/symbols to scan (comma-separated)</Label>
                           <Input
                             defaultValue={config.symbols.join(', ')}
                             onBlur={(e) => updateConfigMutation.mutate({ symbols: e.target.value.split(',').map(s => s.trim().toUpperCase()).filter(Boolean) })}

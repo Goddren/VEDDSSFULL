@@ -2308,8 +2308,12 @@ export default function MT5ChartDataPage() {
                         <Badge variant="outline" className={`text-[10px] mr-1 ${log.aiDirection === 'BUY' ? 'text-green-400 border-green-500/40' : log.aiDirection === 'SELL' ? 'text-red-400 border-red-500/40' : 'text-gray-400 border-gray-500/40'}`}>
                           {log.aiDirection}
                         </Badge>
-                        {log.aiConfidence}% confidence
+                        <span className={log.aiConfidence < 30 ? 'text-amber-400 font-semibold' : ''}>{log.aiConfidence}% confidence</span>
                       </p>
+                      {log.modelUsed && <p className="text-gray-500 text-[11px]">via {log.modelUsed}</p>}
+                      {log.aiConfidence < 30 && (
+                        <p className="text-amber-400/80 text-[11px] leading-tight">⚠ Low AI conviction — see reasoning below (a chart-blind model or missing key shows here).</p>
+                      )}
                       {log.adjustedEntry && <p className="text-amber-400">Entry: {log.adjustedEntry} (adjusted)</p>}
                       {log.adjustedSL && <p className="text-amber-400">SL: {log.adjustedSL} (adjusted)</p>}
                       {log.adjustedTP && <p className="text-amber-400">TP: {log.adjustedTP} (adjusted)</p>}
