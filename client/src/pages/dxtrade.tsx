@@ -19,6 +19,20 @@ export default function DxtradePage() {
   const [orderConfirm, setOrderConfirm] = useState(false);
   const [instrQuery, setInstrQuery] = useState("");
   const [instrResult, setInstrResult] = useState<any>(null);
+  const [mod, setMod] = useState({ instrument: "BTCUSD", positionSide: "BUY" as "BUY" | "SELL", quantity: "", stopLoss: "", takeProfit: "" });
+  const [modConnId, setModConnId] = useState<number | null>(null);
+  const modify = useMutation({
+    mutationFn: async (connectionId: number) => {
+      const r = await apiRequest("POST", "/api/dxtrade/modify", {
+        connectionId, instrument: mod.instrument, positionSide: mod.positionSide, quantity: Number(mod.quantity),
+        stopLoss: mod.stopLoss || undefined, takeProfit: mod.takeProfit || undefined, confirm: true,
+      });
+      if (!r.ok) throw new Error((await r.json()).error || "Modify failed");
+      return r.json();
+    },
+    onSuccess: () => toast({ title: "SL/TP updated ✓", description: "Check your DXtrade platform to confirm the protective orders." }),
+    onError: (e: any) => toast({ title: "Modify failed", description: e.message, variant: "destructive" }),
+  });
   const searchInstruments = useMutation({
     mutationFn: async (connectionId: number) => {
       const r = await apiRequest("GET", `/api/dxtrade/instruments?connectionId=${connectionId}&q=${encodeURIComponent(instrQuery)}`);
@@ -190,6 +204,23 @@ export default function DxtradePage() {
                           </div>
                         )}
                         <p className="text-[10px] text-gray-600">Live order on your Velotrade account. Use a tiny quantity to validate before the SS AI engine auto-executes (Phase 2b).</p>
+                      </div>
+
+                      {/* Modify SL/TP on an open position */}
+                      <div className="mt-3 rounded-lg border border-amber-800/30 bg-black/20 p-3 space-y-2">
+                        <p className="text-[11px] font-bold text-amber-300">Modify SL / TP on an open position</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input placeholder="Symbol (BTCUSD)" value={mod.instrument} onChange={(e) => setMod((m) => ({ ...m, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <select value={mod.positionSide} onChange={(e) => setMod((m) => ({ ...m, positionSide: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Position: Long</option><option value="SELL">Position: Short</option></select>
+                          <Input placeholder="Quantity (of the position)" value={mod.quantity} onChange={(e) => setMod((m) => ({ ...m, quantity: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <div />
+                          <Input placeholder="New stop loss" value={mod.stopLoss} onChange={(e) => setMod((m) => ({ ...m, stopLoss: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <Input placeholder="New take profit" value={mod.takeProfit} onChange={(e) => setMod((m) => ({ ...m, takeProfit: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        </div>
+                        {modify.isError && modConnId === c.id && <p className="text-[11px] text-red-400">{(modify.error as Error)?.message}</p>}
+                        {modify.isSuccess && modConnId === c.id && <p className="text-[11px] text-emerald-400">SL/TP updated ✓</p>}
+                        <button onClick={() => { setModConnId(c.id); modify.mutate(c.id); }} disabled={modify.isPending || !mod.quantity || (!mod.stopLoss && !mod.takeProfit)} className="w-full text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50">{modify.isPending ? "Updating…" : "Update SL/TP"}</button>
+                        <p className="text-[10px] text-gray-600">Places protective STOP (SL) + LIMIT (TP) orders on the position. Enter the position's symbol, direction and quantity.</p>
                       </div>
                     </>
                   )}

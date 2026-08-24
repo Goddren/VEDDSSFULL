@@ -19921,6 +19921,42 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // Modify SL/TP on an open DXtrade position (confirm-gated). Places protective
+  // STOP (SL) + LIMIT (TP) close-effect orders on the position.
+  app.post("/api/dxtrade/modify", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, instrument, positionSide, quantity, stopLoss, takeProfit, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required" });
+    if (!connectionId || !instrument || !positionSide || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, positionSide and quantity are required" });
+    }
+    if (!(Number(stopLoss) > 0) && !(Number(takeProfit) > 0)) {
+      return res.status(400).json({ error: "provide a stopLoss and/or takeProfit" });
+    }
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionId), userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
+      const svc = new DxtradeService(c.host, c.username, decryptApiSecret(c.encrypted_password), c.domain);
+      await svc.login();
+      const acct = c.account_code || extractAccountCode(await svc.getAccounts());
+      if (!acct) return res.status(400).json({ error: "could not resolve account code" });
+      const result = await svc.modifyProtection(acct, {
+        instrument: String(instrument).replace(/\//g, '').trim(),
+        positionSide: positionSide === 'BUY' ? 'BUY' : 'SELL',
+        quantity: Number(quantity),
+        stopLoss: Number(stopLoss) > 0 ? Number(stopLoss) : undefined,
+        takeProfit: Number(takeProfit) > 0 ? Number(takeProfit) : undefined,
+      });
+      res.json({ ok: true, accountCode: acct, result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'modify failed' });
+    }
+  });
+
   // Search tradable DXtrade instruments (to find the exact symbol format).
   app.get("/api/dxtrade/instruments", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

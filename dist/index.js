@@ -28081,6 +28081,10 @@ var init_dxtrade = __esm({
           tif: o.tif || "GTC"
         };
         if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
+        if (o.type === "STOP" && o.stopPrice != null) {
+          body.stopPrice = o.stopPrice;
+          body.price = o.stopPrice;
+        }
         if (o.stopLoss != null) body.stopLoss = o.stopLoss;
         if (o.takeProfit != null) body.takeProfit = o.takeProfit;
         const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
@@ -28096,6 +28100,21 @@ var init_dxtrade = __esm({
           data = { raw: text2 };
         }
         return { ...data, _sent: body };
+      }
+      /** Set/replace SL & TP on an open position by placing protective CLOSE-effect
+       *  orders: SL as a STOP, TP as a LIMIT, on the opposite side of the position.
+       *  (positionBased dxsca accounts attach these to the open position.) Returns
+       *  both raw results so callers can confirm/calibrate. */
+      async modifyProtection(accountCode, o) {
+        const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
+        const out = {};
+        if (o.stopLoss != null && o.stopLoss > 0) {
+          out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC" });
+        }
+        if (o.takeProfit != null && o.takeProfit > 0) {
+          out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC" });
+        }
+        return out;
       }
       /** Close (or reduce) a position by placing an opposite-side market order. */
       async closePosition(accountCode, instrument, side, quantity) {
@@ -72117,6 +72136,39 @@ Respond with ONLY valid JSON:
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err?.message || "update failed" });
+    }
+  });
+  app2.post("/api/dxtrade/modify", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, instrument, positionSide, quantity, stopLoss, takeProfit, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required" });
+    if (!connectionId || !instrument || !positionSide || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, positionSide and quantity are required" });
+    }
+    if (!(Number(stopLoss) > 0) && !(Number(takeProfit) > 0)) {
+      return res.status(400).json({ error: "provide a stopLoss and/or takeProfit" });
+    }
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(`SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [Number(connectionId), userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = new DxtradeService2(c.host, c.username, decryptApiSecret3(c.encrypted_password), c.domain);
+      await svc.login();
+      const acct = c.account_code || extractAccountCode2(await svc.getAccounts());
+      if (!acct) return res.status(400).json({ error: "could not resolve account code" });
+      const result = await svc.modifyProtection(acct, {
+        instrument: String(instrument).replace(/\//g, "").trim(),
+        positionSide: positionSide === "BUY" ? "BUY" : "SELL",
+        quantity: Number(quantity),
+        stopLoss: Number(stopLoss) > 0 ? Number(stopLoss) : void 0,
+        takeProfit: Number(takeProfit) > 0 ? Number(takeProfit) : void 0
+      });
+      res.json({ ok: true, accountCode: acct, result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "modify failed" });
     }
   });
   app2.get("/api/dxtrade/instruments", async (req, res) => {

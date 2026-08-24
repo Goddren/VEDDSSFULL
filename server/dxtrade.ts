@@ -165,6 +165,7 @@ export class DxtradeService {
     quantity: number;
     type?: 'MARKET' | 'LIMIT' | 'STOP';
     limitPrice?: number;
+    stopPrice?: number;
     positionEffect?: 'OPEN' | 'CLOSE';
     tif?: 'GTC' | 'DAY' | 'IOC' | 'FOK';
     stopLoss?: number;                // optional protective stop price
@@ -181,6 +182,7 @@ export class DxtradeService {
       tif: o.tif || 'GTC',
     };
     if (o.type === 'LIMIT' && o.limitPrice != null) body.limitPrice = o.limitPrice;
+    if (o.type === 'STOP' && o.stopPrice != null) { body.stopPrice = o.stopPrice; body.price = o.stopPrice; }
     if (o.stopLoss != null) body.stopLoss = o.stopLoss;
     if (o.takeProfit != null) body.takeProfit = o.takeProfit;
     const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
@@ -190,6 +192,24 @@ export class DxtradeService {
     if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text.slice(0, 300)}`);
     let data: any; try { data = JSON.parse(text); } catch { data = { raw: text }; }
     return { ...data, _sent: body };
+  }
+
+  /** Set/replace SL & TP on an open position by placing protective CLOSE-effect
+   *  orders: SL as a STOP, TP as a LIMIT, on the opposite side of the position.
+   *  (positionBased dxsca accounts attach these to the open position.) Returns
+   *  both raw results so callers can confirm/calibrate. */
+  async modifyProtection(accountCode: string, o: {
+    instrument: string; positionSide: 'BUY' | 'SELL'; quantity: number; stopLoss?: number; takeProfit?: number;
+  }): Promise<{ stop?: any; takeProfit?: any }> {
+    const closeSide = o.positionSide === 'BUY' ? 'SELL' : 'BUY';
+    const out: { stop?: any; takeProfit?: any } = {};
+    if (o.stopLoss != null && o.stopLoss > 0) {
+      out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'STOP', stopPrice: o.stopLoss, positionEffect: 'CLOSE', tif: 'GTC' });
+    }
+    if (o.takeProfit != null && o.takeProfit > 0) {
+      out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC' });
+    }
+    return out;
   }
 
   /** Close (or reduce) a position by placing an opposite-side market order. */
