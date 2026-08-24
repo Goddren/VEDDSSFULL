@@ -18560,7 +18560,7 @@ var init_tradelocker = __esm({
         if (Object.keys(body).length === 0) {
           return { success: false, error: "No SL or TP provided to modify" };
         }
-        const url = `${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}`;
+        const url = `${this.baseUrl}/trade/positions/${positionId}`;
         console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
         try {
           const response = await fetch(url, {

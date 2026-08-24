@@ -1452,7 +1452,10 @@ export class TradeLockerService {
       return { success: false, error: 'No SL or TP provided to modify' };
     }
 
-    const url = `${this.baseUrl}/trade/accounts/${this.accountId}/positions/${positionId}`;
+    // TradeLocker modify endpoint is PATCH /trade/positions/{id} — NOT nested under
+    // /accounts/{accountId} (that path 404s and was the cause of MODIFY failures).
+    // Ref: https://public-api.tradelocker.com/reference/modifyposition
+    const url = `${this.baseUrl}/trade/positions/${positionId}`;
     console.log(`[TradeLocker Modify] PATCH ${url} | SL=${stopLoss} TP=${takeProfit} accNum=${this.accNum}`);
 
     try {
