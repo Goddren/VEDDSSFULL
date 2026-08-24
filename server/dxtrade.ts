@@ -75,11 +75,13 @@ export class DxtradeService {
     return res;
   }
 
-  /** List account codes on this login. dxsca account codes look like 'default:12345'. */
+  /** Current user + their accounts. dxsca exposes this at /users/self (there is no
+   *  bare /accounts list endpoint — that path 404s). Account codes look like
+   *  'default:12345' and appear in the returned `accounts` array. */
   async getAccounts(): Promise<any> {
-    const res = await this.authed('/accounts');
+    const res = await this.authed('/users/self');
     const text = await res.text();
-    if (!res.ok) throw new Error(`DXtrade accounts ${res.status}: ${text.slice(0, 200)}`);
+    if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text.slice(0, 200)}`);
     try { return JSON.parse(text); } catch { return { raw: text }; }
   }
 

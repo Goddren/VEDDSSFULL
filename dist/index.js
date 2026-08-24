@@ -38006,11 +38006,13 @@ var init_dxtrade = __esm({
         }
         return res;
       }
-      /** List account codes on this login. dxsca account codes look like 'default:12345'. */
+      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
+       *  bare /accounts list endpoint — that path 404s). Account codes look like
+       *  'default:12345' and appear in the returned `accounts` array. */
       async getAccounts() {
-        const res = await this.authed("/accounts");
+        const res = await this.authed("/users/self");
         const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade accounts ${res.status}: ${text2.slice(0, 200)}`);
+        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
         try {
           return JSON.parse(text2);
         } catch {
@@ -71863,7 +71865,10 @@ Respond with ONLY valid JSON:
       let accountCode = null;
       try {
         const accs = check.accounts?.accounts ?? check.accounts;
-        if (Array.isArray(accs) && accs.length) accountCode = accs[0]?.account ?? accs[0]?.accountCode ?? null;
+        if (Array.isArray(accs) && accs.length) {
+          const a0 = accs[0];
+          accountCode = typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+        }
       } catch {
       }
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
@@ -71894,7 +71899,8 @@ Respond with ONLY valid JSON:
           const svc = new DxtradeService2(c.host, c.username, pw, c.domain);
           await svc.login();
           const accounts = await svc.getAccounts();
-          const accCode = c.account_code || (Array.isArray(accounts?.accounts) ? accounts.accounts[0]?.account : null);
+          const _a0 = Array.isArray(accounts?.accounts) ? accounts.accounts[0] : null;
+          const accCode = c.account_code || (typeof _a0 === "string" ? _a0 : _a0?.account ?? _a0?.accountCode ?? _a0?.code ?? null);
           let portfolio = null, metrics = null;
           if (accCode) {
             portfolio = await svc.getPortfolio(accCode).catch((e) => ({ error: e.message }));

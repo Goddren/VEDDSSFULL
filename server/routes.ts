@@ -19844,7 +19844,10 @@ Respond with ONLY valid JSON:
       let accountCode: string | null = null;
       try {
         const accs = check.accounts?.accounts ?? check.accounts;
-        if (Array.isArray(accs) && accs.length) accountCode = accs[0]?.account ?? accs[0]?.accountCode ?? null;
+        if (Array.isArray(accs) && accs.length) {
+          const a0 = accs[0];
+          accountCode = typeof a0 === 'string' ? a0 : (a0?.account ?? a0?.accountCode ?? a0?.code ?? null);
+        }
       } catch { /* ignore */ }
       const { pool } = await import('./db');
       const enc = encryptApiSecret(String(password));
@@ -19876,7 +19879,8 @@ Respond with ONLY valid JSON:
           const svc = new DxtradeService(c.host, c.username, pw, c.domain);
           await svc.login();
           const accounts = await svc.getAccounts();
-          const accCode = c.account_code || (Array.isArray(accounts?.accounts) ? accounts.accounts[0]?.account : null);
+          const _a0 = Array.isArray(accounts?.accounts) ? accounts.accounts[0] : null;
+          const accCode = c.account_code || (typeof _a0 === 'string' ? _a0 : (_a0?.account ?? _a0?.accountCode ?? _a0?.code ?? null));
           let portfolio: any = null, metrics: any = null;
           if (accCode) { portfolio = await svc.getPortfolio(accCode).catch((e: any) => ({ error: e.message })); metrics = await svc.getMetrics(accCode).catch(() => null); }
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };
