@@ -31,6 +31,43 @@ export function extractAccountCode(usersSelf: any): string | null {
   return typeof a0 === 'string' ? a0 : (a0?.account ?? a0?.accountCode ?? a0?.code ?? null);
 }
 
+/** Pull an account balance/equity number from a dxsca /metrics payload (tolerant
+ *  of nesting + field naming: balance / equity / availableFunds / cashBalance). */
+export function extractBalance(metrics: any): number | null {
+  if (!metrics) return null;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...(Array.isArray(metrics?.metrics) ? metrics.metrics : [])].filter(Boolean);
+  const keys = ['equity', 'balance', 'availableFunds', 'cashBalance', 'netLiquidatingValue', 'availableBalance'];
+  for (const n of nodes) {
+    if (Array.isArray(n)) { for (const el of n) { const v = pickNum(el, keys); if (v != null) return v; } }
+    const v = pickNum(n, keys); if (v != null) return v;
+  }
+  return null;
+}
+function pickNum(obj: any, keys: string[]): number | null {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const k of keys) { const v = Number(obj[k]); if (Number.isFinite(v) && v > 0) return v; }
+  return null;
+}
+
+/** Compute order quantity from % -of-account risk. loss/unit = |entry-stop| ×
+ *  multiplier; qty = (balance × risk%) / loss-per-unit, snapped to the
+ *  instrument's quantity increment. Returns the qty + a breakdown for review. */
+export function computeRiskQuantity(opts: {
+  balance: number; riskPercent: number; entryPrice: number; stopPrice: number; instrument: any;
+}): { quantity: number; riskAmount: number; stopDistance: number; note: string } {
+  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const riskAmount = balance * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
+  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement)
+    : (Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0);
+  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: 'need a valid balance, risk% and stop distance' };
+  let qty = riskAmount / (stopDistance * multiplier);
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;      // snap down to increment
+  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} ÷ (stop ${stopDistance} × mult ${multiplier})${incr ? ` snapped to ${incr}` : ''}` };
+}
+
 /** Normalize a host into the dxsca-web base URL (no trailing slash). */
 export function dxBase(host: string): string {
   let h = (host || '').trim().replace(/\/+$/, '');
@@ -176,6 +213,16 @@ export class DxtradeService {
       last = `${res.status}: ${text.slice(0, 150)}`;
     }
     throw new Error(`DXtrade instruments ${last}`);
+  }
+
+  /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
+  async getInstrument(symbol: string): Promise<any | null> {
+    try {
+      const data = await this.getInstruments(symbol);
+      const list = data?.instruments ?? data;
+      if (Array.isArray(list)) return list.find((i: any) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
+      return null;
+    } catch { return null; }
   }
 
   /** One-shot connectivity check used by the connect/test routes. */

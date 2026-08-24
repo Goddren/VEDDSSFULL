@@ -37944,10 +37944,12 @@ var init_defi_swap = __esm({
 var dxtrade_exports = {};
 __export(dxtrade_exports, {
   DxtradeService: () => DxtradeService,
+  computeRiskQuantity: () => computeRiskQuantity,
   decryptApiSecret: () => decryptApiSecret2,
   dxBase: () => dxBase,
   encryptApiSecret: () => encryptApiSecret2,
-  extractAccountCode: () => extractAccountCode
+  extractAccountCode: () => extractAccountCode,
+  extractBalance: () => extractBalance
 });
 function extractAccountCode(usersSelf) {
   const ud = usersSelf?.userDetails;
@@ -37956,6 +37958,42 @@ function extractAccountCode(usersSelf) {
   if (!Array.isArray(accs) || !accs.length) return null;
   const a0 = accs[0];
   return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+}
+function extractBalance(metrics) {
+  if (!metrics) return null;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
+  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
+  for (const n of nodes) {
+    if (Array.isArray(n)) {
+      for (const el of n) {
+        const v2 = pickNum(el, keys);
+        if (v2 != null) return v2;
+      }
+    }
+    const v = pickNum(n, keys);
+    if (v != null) return v;
+  }
+  return null;
+}
+function pickNum(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) {
+    const v = Number(obj[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+function computeRiskQuantity(opts) {
+  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const riskAmount = balance * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
+  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
+  let qty = riskAmount / (stopDistance * multiplier);
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;
+  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier})${incr ? ` snapped to ${incr}` : ""}` };
 }
 function dxBase(host) {
   let h = (host || "").trim().replace(/\/+$/, "");
@@ -38110,6 +38148,17 @@ var init_dxtrade = __esm({
           last = `${res.status}: ${text2.slice(0, 150)}`;
         }
         throw new Error(`DXtrade instruments ${last}`);
+      }
+      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
+      async getInstrument(symbol) {
+        try {
+          const data = await this.getInstruments(symbol);
+          const list = data?.instruments ?? data;
+          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
+          return null;
+        } catch {
+          return null;
+        }
       }
       /** One-shot connectivity check used by the connect/test routes. */
       async verify() {
@@ -72015,10 +72064,17 @@ Respond with ONLY valid JSON:
   app2.post("/api/dxtrade/order", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm } = req.body || {};
+    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm, riskPercent, entryPrice } = req.body || {};
     if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
-    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
-      return res.status(400).json({ error: "connectionId, instrument, side and a positive quantity are required" });
+    const usingRisk = Number(riskPercent) > 0;
+    if (!connectionId || !instrument || !side) {
+      return res.status(400).json({ error: "connectionId, instrument and side are required" });
+    }
+    if (!usingRisk && !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "provide a positive quantity, or a riskPercent + stopLoss to auto-size" });
+    }
+    if (usingRisk && !(Number(stopLoss) > 0)) {
+      return res.status(400).json({ error: "risk-% sizing needs a stopLoss price" });
     }
     if (side !== "BUY" && side !== "SELL") return res.status(400).json({ error: "side must be BUY or SELL" });
     try {
@@ -72044,16 +72100,30 @@ Respond with ONLY valid JSON:
       }
       if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
       const normInstrument = String(instrument).replace(/\//g, "").trim();
+      let finalQty = Number(quantity);
+      let sizing = null;
+      if (usingRisk) {
+        const { extractBalance: extractBalance2, computeRiskQuantity: computeRiskQuantity2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const metrics = await svc.getMetrics(accountCode).catch(() => null);
+        const balance = extractBalance2(metrics);
+        const spec = await svc.getInstrument(normInstrument);
+        const entryRef = Number(entryPrice) > 0 ? Number(entryPrice) : Number(limitPrice) > 0 ? Number(limitPrice) : 0;
+        if (!balance) return res.status(400).json({ error: "couldn't read account balance for risk sizing \u2014 enter quantity manually", metrics });
+        if (!(entryRef > 0)) return res.status(400).json({ error: "risk sizing needs an entry reference price (entryPrice or a limit price)" });
+        sizing = computeRiskQuantity2({ balance, riskPercent: Number(riskPercent), entryPrice: entryRef, stopPrice: Number(stopLoss), instrument: spec });
+        if (!(sizing.quantity > 0)) return res.status(400).json({ error: `risk sizing produced 0 quantity (${sizing.note})`, sizing });
+        finalQty = sizing.quantity;
+      }
       const result = await svc.placeOrder(accountCode, {
         instrument: normInstrument,
         side,
-        quantity: Number(quantity),
+        quantity: finalQty,
         type: type === "LIMIT" ? "LIMIT" : "MARKET",
         limitPrice: limitPrice != null ? Number(limitPrice) : void 0,
         stopLoss: stopLoss != null && stopLoss !== "" ? Number(stopLoss) : void 0,
         takeProfit: takeProfit != null && takeProfit !== "" ? Number(takeProfit) : void 0
       });
-      res.json({ ok: true, accountCode, result });
+      res.json({ ok: true, accountCode, quantity: finalQty, sizing, result });
     } catch (err) {
       res.status(400).json({ error: err?.message || "DXtrade order failed" });
     }

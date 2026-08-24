@@ -14,7 +14,7 @@ export default function DxtradePage() {
   const [form, setForm] = useState({ host: "https://dx.velotrade.com", username: "", password: "", domain: "default", label: "" });
   const [showPw, setShowPw] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [order, setOrder] = useState({ instrument: "BTCUSD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "" });
+  const [order, setOrder] = useState({ instrument: "BTCUSD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "", riskPercent: "", entryPrice: "" });
   const [orderConnId, setOrderConnId] = useState<number | null>(null);
   const [orderConfirm, setOrderConfirm] = useState(false);
   const [instrQuery, setInstrQuery] = useState("");
@@ -34,6 +34,7 @@ export default function DxtradePage() {
       const r = await apiRequest("POST", "/api/dxtrade/order", {
         connectionId, instrument: order.instrument, side: order.side, quantity: Number(order.quantity),
         type: order.type, limitPrice: order.limitPrice || undefined, stopLoss: order.stopLoss || undefined, takeProfit: order.takeProfit || undefined,
+        riskPercent: order.riskPercent || undefined, entryPrice: order.entryPrice || undefined,
         confirm: true,
       });
       if (!r.ok) throw new Error((await r.json()).error || "Order failed");
@@ -136,10 +137,19 @@ export default function DxtradePage() {
                           <Input placeholder="Stop loss (optional)" value={order.stopLoss} onChange={(e) => setOrder((o) => ({ ...o, stopLoss: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                           <Input placeholder="Take profit (optional)" value={order.takeProfit} onChange={(e) => setOrder((o) => ({ ...o, takeProfit: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                         </div>
+                        {/* Risk-% sizing (optional) — auto-computes quantity from account balance */}
+                        <div className="rounded border border-blue-800/20 bg-blue-500/[0.04] p-2 space-y-1">
+                          <p className="text-[10px] text-blue-300 font-semibold">Auto-size by risk % (optional — overrides quantity)</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input placeholder="Risk % of account (e.g. 1)" value={order.riskPercent} onChange={(e) => setOrder((o) => ({ ...o, riskPercent: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                            <Input placeholder="Entry ref price" value={order.entryPrice} onChange={(e) => setOrder((o) => ({ ...o, entryPrice: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          </div>
+                          <p className="text-[9px] text-gray-500">Needs a stop loss + entry ref price. Quantity is computed from your balance × risk% ÷ stop distance and shown in the result.</p>
+                        </div>
                         {placeOrder.isError && orderConnId === c.id && <p className="text-[11px] text-red-400">{(placeOrder.error as Error)?.message}</p>}
                         {placeOrder.isSuccess && orderConnId === c.id && <p className="text-[11px] text-emerald-400">Order placed ✓</p>}
                         {!(orderConfirm && orderConnId === c.id) ? (
-                          <button onClick={() => { setOrderConnId(c.id); setOrderConfirm(true); }} disabled={!order.quantity || Number(order.quantity) <= 0} className={`w-full text-sm font-bold py-1.5 rounded-lg ${order.side === "BUY" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-red-600 hover:bg-red-500"} text-white disabled:opacity-50`}>{order.side} {order.instrument}</button>
+                          <button onClick={() => { setOrderConnId(c.id); setOrderConfirm(true); }} disabled={!(Number(order.quantity) > 0 || (Number(order.riskPercent) > 0 && Number(order.stopLoss) > 0))} className={`w-full text-sm font-bold py-1.5 rounded-lg ${order.side === "BUY" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-red-600 hover:bg-red-500"} text-white disabled:opacity-50`}>{order.side} {order.instrument}</button>
                         ) : (
                           <div className="flex gap-2">
                             <button onClick={() => placeOrder.mutate(c.id)} disabled={placeOrder.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{placeOrder.isPending ? "Placing…" : `Confirm ${order.side} ${order.quantity} ${order.instrument}`}</button>

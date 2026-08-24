@@ -19928,10 +19928,17 @@ Respond with ONLY valid JSON:
   app.post("/api/dxtrade/order", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm } = req.body || {};
+    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm, riskPercent, entryPrice } = req.body || {};
     if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
-    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
-      return res.status(400).json({ error: "connectionId, instrument, side and a positive quantity are required" });
+    const usingRisk = Number(riskPercent) > 0;
+    if (!connectionId || !instrument || !side) {
+      return res.status(400).json({ error: "connectionId, instrument and side are required" });
+    }
+    if (!usingRisk && !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "provide a positive quantity, or a riskPercent + stopLoss to auto-size" });
+    }
+    if (usingRisk && !(Number(stopLoss) > 0)) {
+      return res.status(400).json({ error: "risk-% sizing needs a stopLoss price" });
     }
     if (side !== 'BUY' && side !== 'SELL') return res.status(400).json({ error: "side must be BUY or SELL" });
     try {
@@ -19955,14 +19962,32 @@ Respond with ONLY valid JSON:
       // Velotrade symbols are concatenated with no slash (EURUSD, BTCUSD) — strip
       // any slash the user typed so 'EUR/USD' resolves to 'EURUSD'.
       const normInstrument = String(instrument).replace(/\//g, '').trim();
+
+      // % -of-account risk sizing: compute quantity from balance + stop distance +
+      // instrument spec. Requires stopLoss and an entry reference (entryPrice, else
+      // limitPrice). The result is returned so the (confirm-gated) caller sees it.
+      let finalQty = Number(quantity);
+      let sizing: any = null;
+      if (usingRisk) {
+        const { extractBalance, computeRiskQuantity } = await import('./dxtrade');
+        const metrics = await svc.getMetrics(accountCode).catch(() => null);
+        const balance = extractBalance(metrics);
+        const spec = await svc.getInstrument(normInstrument);
+        const entryRef = Number(entryPrice) > 0 ? Number(entryPrice) : (Number(limitPrice) > 0 ? Number(limitPrice) : 0);
+        if (!balance) return res.status(400).json({ error: "couldn't read account balance for risk sizing — enter quantity manually", metrics });
+        if (!(entryRef > 0)) return res.status(400).json({ error: "risk sizing needs an entry reference price (entryPrice or a limit price)" });
+        sizing = computeRiskQuantity({ balance, riskPercent: Number(riskPercent), entryPrice: entryRef, stopPrice: Number(stopLoss), instrument: spec });
+        if (!(sizing.quantity > 0)) return res.status(400).json({ error: `risk sizing produced 0 quantity (${sizing.note})`, sizing });
+        finalQty = sizing.quantity;
+      }
       const result = await svc.placeOrder(accountCode, {
-        instrument: normInstrument, side, quantity: Number(quantity),
+        instrument: normInstrument, side, quantity: finalQty,
         type: type === 'LIMIT' ? 'LIMIT' : 'MARKET',
         limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
         stopLoss: stopLoss != null && stopLoss !== '' ? Number(stopLoss) : undefined,
         takeProfit: takeProfit != null && takeProfit !== '' ? Number(takeProfit) : undefined,
       });
-      res.json({ ok: true, accountCode, result });
+      res.json({ ok: true, accountCode, quantity: finalQty, sizing, result });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'DXtrade order failed' });
     }
