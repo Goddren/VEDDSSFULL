@@ -46648,6 +46648,53 @@ copyrighted songs. Never fabricate engagement numbers or results.`;
   }
 });
 
+// server/services/ensure-tokenomics-migration.ts
+var ensure_tokenomics_migration_exports = {};
+__export(ensure_tokenomics_migration_exports, {
+  ensureTokenomicsMigration: () => ensureTokenomicsMigration
+});
+async function ensureTokenomicsMigration() {
+  try {
+    await pool.query(`
+      UPDATE vedd_reward_config SET action_type = 'referral_subscription'
+      WHERE action_type = 'referral_subscribes'
+        AND NOT EXISTS (SELECT 1 FROM vedd_reward_config WHERE action_type = 'referral_subscription')
+    `);
+    for (const [action, amount] of Object.entries(TOKEN_REWARDS)) {
+      await pool.query(
+        `INSERT INTO vedd_reward_config (action_type, base_amount, is_active)
+         VALUES ($1, $2, true)
+         ON CONFLICT (action_type) DO UPDATE SET base_amount = EXCLUDED.base_amount, updated_at = now()`,
+        [action, amount]
+      );
+    }
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 5000`, [SUBSCRIPTION_PRICE_CENTS.starter]);
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 15000`, [SUBSCRIPTION_PRICE_CENTS.premium]);
+    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 100000`, [SUBSCRIPTION_PRICE_CENTS.yearly]);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS "vedd_transfer_jobs_idempotency_key_uniq" ON "vedd_transfer_jobs" ("idempotency_key")`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "internal_wallet_earnings" (
+        "id" serial PRIMARY KEY NOT NULL,
+        "user_id" integer NOT NULL REFERENCES "users"("id"),
+        "amount" real NOT NULL,
+        "source" text NOT NULL,
+        "created_at" timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS "idx_internal_wallet_earnings_user_time" ON "internal_wallet_earnings" ("user_id", "created_at")`);
+    console.log("[startup] Tokenomics migration applied \u2014 reward config + plan prices aligned to shared/token-rewards.ts.");
+  } catch (err) {
+    console.error("[startup] ensureTokenomicsMigration failed (non-fatal):", err?.message ?? err);
+  }
+}
+var init_ensure_tokenomics_migration = __esm({
+  "server/services/ensure-tokenomics-migration.ts"() {
+    "use strict";
+    init_db();
+    init_token_rewards();
+  }
+});
+
 // server/services/ensure-kalshi-engine-config-table.ts
 var ensure_kalshi_engine_config_table_exports = {};
 __export(ensure_kalshi_engine_config_table_exports, {
@@ -46761,53 +46808,6 @@ CREATE TABLE IF NOT EXISTS "kalshi_brain_outcomes" (
 );
 CREATE INDEX IF NOT EXISTS "idx_kalshi_brain_outcomes_user_coin" ON "kalshi_brain_outcomes" ("user_id", "coin");
 `;
-  }
-});
-
-// server/services/ensure-tokenomics-migration.ts
-var ensure_tokenomics_migration_exports = {};
-__export(ensure_tokenomics_migration_exports, {
-  ensureTokenomicsMigration: () => ensureTokenomicsMigration
-});
-async function ensureTokenomicsMigration() {
-  try {
-    await pool.query(`
-      UPDATE vedd_reward_config SET action_type = 'referral_subscription'
-      WHERE action_type = 'referral_subscribes'
-        AND NOT EXISTS (SELECT 1 FROM vedd_reward_config WHERE action_type = 'referral_subscription')
-    `);
-    for (const [action, amount] of Object.entries(TOKEN_REWARDS)) {
-      await pool.query(
-        `INSERT INTO vedd_reward_config (action_type, base_amount, is_active)
-         VALUES ($1, $2, true)
-         ON CONFLICT (action_type) DO UPDATE SET base_amount = EXCLUDED.base_amount, updated_at = now()`,
-        [action, amount]
-      );
-    }
-    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 5000`, [SUBSCRIPTION_PRICE_CENTS.starter]);
-    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 15000`, [SUBSCRIPTION_PRICE_CENTS.premium]);
-    await pool.query(`UPDATE subscription_plans SET price = $1 WHERE price = 100000`, [SUBSCRIPTION_PRICE_CENTS.yearly]);
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS "vedd_transfer_jobs_idempotency_key_uniq" ON "vedd_transfer_jobs" ("idempotency_key")`);
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS "internal_wallet_earnings" (
-        "id" serial PRIMARY KEY NOT NULL,
-        "user_id" integer NOT NULL REFERENCES "users"("id"),
-        "amount" real NOT NULL,
-        "source" text NOT NULL,
-        "created_at" timestamp NOT NULL DEFAULT now()
-      )
-    `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS "idx_internal_wallet_earnings_user_time" ON "internal_wallet_earnings" ("user_id", "created_at")`);
-    console.log("[startup] Tokenomics migration applied \u2014 reward config + plan prices aligned to shared/token-rewards.ts.");
-  } catch (err) {
-    console.error("[startup] ensureTokenomicsMigration failed (non-fatal):", err?.message ?? err);
-  }
-}
-var init_ensure_tokenomics_migration = __esm({
-  "server/services/ensure-tokenomics-migration.ts"() {
-    "use strict";
-    init_db();
-    init_token_rewards();
   }
 });
 
@@ -82548,35 +82548,49 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     console.error(`[startup] restoreDurableFiles error (non-fatal):`, err?.message ?? err);
   }
   try {
-    const { ensureKalshiEngineConfigTable: ensureKalshiEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_kalshi_engine_config_table(), ensure_kalshi_engine_config_table_exports));
-    await ensureKalshiEngineConfigTable2();
-    const { hydratePersistedKalshiConfigs: hydratePersistedKalshiConfigs2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
-    await hydratePersistedKalshiConfigs2();
-    const { ensureKalshiBrainTables: ensureKalshiBrainTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_brain_tables(), ensure_kalshi_brain_tables_exports));
-    await ensureKalshiBrainTables2();
     const { ensureTokenomicsMigration: ensureTokenomicsMigration2 } = await Promise.resolve().then(() => (init_ensure_tokenomics_migration(), ensure_tokenomics_migration_exports));
     await ensureTokenomicsMigration2();
   } catch (err) {
-    console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
+    console.error(`[startup] ensureTokenomicsMigration error (non-fatal):`, err?.message ?? err);
   }
-  try {
-    const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-    const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21 } = await import("drizzle-orm");
-    const runningRows = await db2.select().from(engineRunState2).where(eq21(engineRunState2.isRunning, true));
-    if (runningRows.length > 0) {
-      const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
-      const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
-      const { restorePmUsEngineStateFromDb: restorePmUsEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
-      for (const row of runningRows) {
-        if (row.engine === "polymarket") await restoreEngineStateFromDb2(row.userId);
-        if (row.engine === "kalshi") await restoreKalshiEngineStateFromDb2(row.userId);
-        if (row.engine === "polymarket-us") await restorePmUsEngineStateFromDb2(row.userId);
-      }
-      console.log(`[startup] Restored ${runningRows.length} engine(s) from DB`);
+  if (process.env.ENABLE_KALSHI === "true") {
+    try {
+      const { ensureKalshiEngineConfigTable: ensureKalshiEngineConfigTable2 } = await Promise.resolve().then(() => (init_ensure_kalshi_engine_config_table(), ensure_kalshi_engine_config_table_exports));
+      await ensureKalshiEngineConfigTable2();
+      const { hydratePersistedKalshiConfigs: hydratePersistedKalshiConfigs2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+      await hydratePersistedKalshiConfigs2();
+      const { ensureKalshiBrainTables: ensureKalshiBrainTables2 } = await Promise.resolve().then(() => (init_ensure_kalshi_brain_tables(), ensure_kalshi_brain_tables_exports));
+      await ensureKalshiBrainTables2();
+    } catch (err) {
+      console.error(`[startup] Kalshi init error (non-fatal):`, err?.message ?? err);
     }
-  } catch (err) {
-    console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+  }
+  if (process.env.ENABLE_KALSHI === "true" || process.env.ENABLE_POLYMARKET === "true") {
+    try {
+      const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { engineRunState: engineRunState2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
+      const { eq: eq21 } = await import("drizzle-orm");
+      const runningRows = await db2.select().from(engineRunState2).where(eq21(engineRunState2.isRunning, true));
+      if (runningRows.length > 0) {
+        for (const row of runningRows) {
+          if (process.env.ENABLE_POLYMARKET === "true" && row.engine === "polymarket") {
+            const { restoreEngineStateFromDb: restoreEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_autonomous_engine(), polymarket_autonomous_engine_exports));
+            await restoreEngineStateFromDb2(row.userId);
+          }
+          if (process.env.ENABLE_KALSHI === "true" && row.engine === "kalshi") {
+            const { restoreKalshiEngineStateFromDb: restoreKalshiEngineStateFromDb2 } = await Promise.resolve().then(() => (init_kalshi_engine(), kalshi_engine_exports));
+            await restoreKalshiEngineStateFromDb2(row.userId);
+          }
+          if (process.env.ENABLE_POLYMARKET === "true" && row.engine === "polymarket-us") {
+            const { restorePmUsEngineStateFromDb: restorePmUsEngineStateFromDb2 } = await Promise.resolve().then(() => (init_polymarket_us_engine(), polymarket_us_engine_exports));
+            await restorePmUsEngineStateFromDb2(row.userId);
+          }
+        }
+        console.log(`[startup] Restored engine(s) from DB (gated)`);
+      }
+    } catch (err) {
+      console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+    }
   }
   try {
     const { ensureOptionsTables: ensureOptionsTables2 } = await Promise.resolve().then(() => (init_ensure_options_tables(), ensure_options_tables_exports));
@@ -83691,8 +83705,10 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startOptionsEngineScanner2();
     const { startFuturesEngineScanner: startFuturesEngineScanner2 } = await Promise.resolve().then(() => (init_futures_scanner(), futures_scanner_exports));
     startFuturesEngineScanner2();
-    const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
-    startCryptocomEngineScanner2();
+    if (process.env.ENABLE_CRYPTO_ENGINE === "true") {
+      const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
+      startCryptocomEngineScanner2();
+    }
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
   });

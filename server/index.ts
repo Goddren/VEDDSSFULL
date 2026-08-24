@@ -209,39 +209,50 @@ async function withRetry<T>(
   // coin-selection/strategy/risk settings BEFORE the run-state restore below
   // fires the engine back up — otherwise a running engine would restart with
   // symbols reset to BTC-only until the override cache caught up.
+  // Tokenomics/rewards migration — always runs (unrelated to prediction engines).
   try {
-    const { ensureKalshiEngineConfigTable } = await import('./services/ensure-kalshi-engine-config-table');
-    await ensureKalshiEngineConfigTable();
-    const { hydratePersistedKalshiConfigs } = await import('./services/kalshi-engine');
-    await hydratePersistedKalshiConfigs();
-    const { ensureKalshiBrainTables } = await import('./services/ensure-kalshi-brain-tables');
-    await ensureKalshiBrainTables();
     const { ensureTokenomicsMigration } = await import('./services/ensure-tokenomics-migration');
     await ensureTokenomicsMigration();
   } catch (err: any) {
-    console.error(`[startup] ensureKalshiEngineConfigTable import error (non-fatal):`, err?.message ?? err);
+    console.error(`[startup] ensureTokenomicsMigration error (non-fatal):`, err?.message ?? err);
   }
 
-  // Restore Polymarket + Kalshi engine run-state for all users that had engines
-  // running before the last Render redeploy (persisted to DB on start/stop).
-  try {
-    const { db } = await import('./db');
-    const { engineRunState } = await import('../shared/schema');
-    const { eq } = await import('drizzle-orm');
-    const runningRows = await db.select().from(engineRunState).where(eq(engineRunState.isRunning, true));
-    if (runningRows.length > 0) {
-      const { restoreEngineStateFromDb } = await import('./services/polymarket-autonomous-engine');
-      const { restoreKalshiEngineStateFromDb } = await import('./services/kalshi-engine');
-      const { restorePmUsEngineStateFromDb } = await import('./services/polymarket-us-engine');
-      for (const row of runningRows) {
-        if (row.engine === 'polymarket')    await restoreEngineStateFromDb(row.userId);
-        if (row.engine === 'kalshi')        await restoreKalshiEngineStateFromDb(row.userId);
-        if (row.engine === 'polymarket-us') await restorePmUsEngineStateFromDb(row.userId);
-      }
-      console.log(`[startup] Restored ${runningRows.length} engine(s) from DB`);
+  // Kalshi engine — gated OFF by default to save memory (set ENABLE_KALSHI=true in
+  // the env to turn it back on). Importing/hydrating it loads modules + config
+  // caches even when unused, which this instance can't afford right now.
+  if (process.env.ENABLE_KALSHI === 'true') {
+    try {
+      const { ensureKalshiEngineConfigTable } = await import('./services/ensure-kalshi-engine-config-table');
+      await ensureKalshiEngineConfigTable();
+      const { hydratePersistedKalshiConfigs } = await import('./services/kalshi-engine');
+      await hydratePersistedKalshiConfigs();
+      const { ensureKalshiBrainTables } = await import('./services/ensure-kalshi-brain-tables');
+      await ensureKalshiBrainTables();
+    } catch (err: any) {
+      console.error(`[startup] Kalshi init error (non-fatal):`, err?.message ?? err);
     }
-  } catch (err: any) {
-    console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+  }
+
+  // Restore Polymarket/Kalshi engine run-state — only when those engines are
+  // enabled (ENABLE_KALSHI / ENABLE_POLYMARKET). Skipped entirely otherwise so
+  // those heavy engine modules are never imported on this instance.
+  if (process.env.ENABLE_KALSHI === 'true' || process.env.ENABLE_POLYMARKET === 'true') {
+    try {
+      const { db } = await import('./db');
+      const { engineRunState } = await import('../shared/schema');
+      const { eq } = await import('drizzle-orm');
+      const runningRows = await db.select().from(engineRunState).where(eq(engineRunState.isRunning, true));
+      if (runningRows.length > 0) {
+        for (const row of runningRows) {
+          if (process.env.ENABLE_POLYMARKET === 'true' && row.engine === 'polymarket')    { const { restoreEngineStateFromDb } = await import('./services/polymarket-autonomous-engine'); await restoreEngineStateFromDb(row.userId); }
+          if (process.env.ENABLE_KALSHI === 'true' && row.engine === 'kalshi')             { const { restoreKalshiEngineStateFromDb } = await import('./services/kalshi-engine'); await restoreKalshiEngineStateFromDb(row.userId); }
+          if (process.env.ENABLE_POLYMARKET === 'true' && row.engine === 'polymarket-us')  { const { restorePmUsEngineStateFromDb } = await import('./services/polymarket-us-engine'); await restorePmUsEngineStateFromDb(row.userId); }
+        }
+        console.log(`[startup] Restored engine(s) from DB (gated)`);
+      }
+    } catch (err: any) {
+      console.error(`[startup] Engine state restore error (non-fatal):`, err?.message ?? err);
+    }
   }
 
   // Ensure Options AI Engine broker tables exist (idempotent, self-provisioning
@@ -1500,9 +1511,14 @@ async function withRetry<T>(
     const { startFuturesEngineScanner } = await import('./services/futures-scanner');
     startFuturesEngineScanner();
 
-    // Start Crypto.com Perpetuals AI Engine scan loop
-    const { startCryptocomEngineScanner } = await import('./services/cryptocom-scanner');
-    startCryptocomEngineScanner();
+    // Crypto engine — gated OFF by default (set ENABLE_CRYPTO_ENGINE=true to run).
+    // Importing the scanner pulls in ethers + the DeFi stack; keeping it out of the
+    // boot path frees memory while the crypto engine is paused. Re-enable after the
+    // instance has more RAM.
+    if (process.env.ENABLE_CRYPTO_ENGINE === 'true') {
+      const { startCryptocomEngineScanner } = await import('./services/cryptocom-scanner');
+      startCryptocomEngineScanner();
+    }
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);
   });
