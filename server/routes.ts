@@ -19906,6 +19906,49 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // Manual, confirm-gated DXtrade order — Phase 2a. Proves the dxsca order body
+  // works before the SS AI engine auto-executes (Phase 2b). User-initiated only.
+  app.post("/api/dxtrade/order", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, side and a positive quantity are required" });
+    }
+    if (side !== 'BUY' && side !== 'SELL') return res.status(400).json({ error: "side must be BUY or SELL" });
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(connectionId), userId],
+      );
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService, decryptApiSecret } = await import('./dxtrade');
+      const svc = new DxtradeService(c.host, c.username, decryptApiSecret(c.encrypted_password), c.domain);
+      await svc.login();
+      // Resolve account code: stored, else from /users/self.
+      let accountCode = c.account_code;
+      if (!accountCode) {
+        const self = await svc.getAccounts();
+        const a0 = Array.isArray(self?.accounts) ? self.accounts[0] : null;
+        accountCode = typeof a0 === 'string' ? a0 : (a0?.account ?? a0?.accountCode ?? a0?.code ?? null);
+      }
+      if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
+      const result = await svc.placeOrder(accountCode, {
+        instrument: String(instrument), side, quantity: Number(quantity),
+        type: type === 'LIMIT' ? 'LIMIT' : 'MARKET',
+        limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
+        stopLoss: stopLoss != null && stopLoss !== '' ? Number(stopLoss) : undefined,
+        takeProfit: takeProfit != null && takeProfit !== '' ? Number(takeProfit) : undefined,
+      });
+      res.json({ ok: true, accountCode, result });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'DXtrade order failed' });
+    }
+  });
+
   // WalletConnect config for the client (projectId from server env so it can be
   // set in the host env without a rebuild). Empty projectId => feature disabled.
   app.get("/api/defi/walletconnect-config", async (_req: Request, res: Response) => {

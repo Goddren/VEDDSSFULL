@@ -103,6 +103,52 @@ export class DxtradeService {
     try { return JSON.parse(text); } catch { return { raw: text }; }
   }
 
+  /**
+   * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
+   * Velotrade-documented body fields: instrument, side, type, quantity,
+   * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
+   * only include optional legs (SL/TP) when provided. Returns the raw response so
+   * callers can inspect status; throws on a non-2xx HTTP.
+   */
+  async placeOrder(accountCode: string, o: {
+    instrument: string;               // e.g. 'EUR/USD'
+    side: 'BUY' | 'SELL';
+    quantity: number;
+    type?: 'MARKET' | 'LIMIT' | 'STOP';
+    limitPrice?: number;
+    positionEffect?: 'OPEN' | 'CLOSE';
+    tif?: 'GTC' | 'DAY' | 'IOC' | 'FOK';
+    stopLoss?: number;                // optional protective stop price
+    takeProfit?: number;              // optional protective take-profit price
+    orderCode?: string;
+  }): Promise<any> {
+    const body: any = {
+      orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+      instrument: o.instrument,
+      side: o.side,
+      type: o.type || 'MARKET',
+      quantity: o.quantity,
+      positionEffect: o.positionEffect || 'OPEN',
+      tif: o.tif || 'GTC',
+    };
+    if (o.type === 'LIMIT' && o.limitPrice != null) body.limitPrice = o.limitPrice;
+    if (o.stopLoss != null) body.stopLoss = o.stopLoss;
+    if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+    const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text.slice(0, 300)}`);
+    let data: any; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { ...data, _sent: body };
+  }
+
+  /** Close (or reduce) a position by placing an opposite-side market order. */
+  async closePosition(accountCode: string, instrument: string, side: 'BUY' | 'SELL', quantity: number): Promise<any> {
+    const opposite = side === 'BUY' ? 'SELL' : 'BUY';
+    return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE' });
+  }
+
   /** One-shot connectivity check used by the connect/test routes. */
   async verify(): Promise<{ ok: boolean; accounts?: any; error?: string }> {
     try {

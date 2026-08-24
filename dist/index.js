@@ -38043,6 +38043,45 @@ var init_dxtrade = __esm({
           return { raw: text2 };
         }
       }
+      /**
+       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
+       * Velotrade-documented body fields: instrument, side, type, quantity,
+       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
+       * only include optional legs (SL/TP) when provided. Returns the raw response so
+       * callers can inspect status; throws on a non-2xx HTTP.
+       */
+      async placeOrder(accountCode, o) {
+        const body = {
+          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+          instrument: o.instrument,
+          side: o.side,
+          type: o.type || "MARKET",
+          quantity: o.quantity,
+          positionEffect: o.positionEffect || "OPEN",
+          tif: o.tif || "GTC"
+        };
+        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
+        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
+        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
+        let data;
+        try {
+          data = JSON.parse(text2);
+        } catch {
+          data = { raw: text2 };
+        }
+        return { ...data, _sent: body };
+      }
+      /** Close (or reduce) a position by placing an opposite-side market order. */
+      async closePosition(accountCode, instrument, side, quantity) {
+        const opposite = side === "BUY" ? "SELL" : "BUY";
+        return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE" });
+      }
       /** One-shot connectivity check used by the connect/test routes. */
       async verify() {
         try {
@@ -71925,6 +71964,47 @@ Respond with ONLY valid JSON:
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err?.message || "delete failed" });
+    }
+  });
+  app2.post("/api/dxtrade/order", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { connectionId, instrument, side, quantity, type, limitPrice, stopLoss, takeProfit, confirm } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ error: "confirm:true required to place a live order" });
+    if (!connectionId || !instrument || !side || !(Number(quantity) > 0)) {
+      return res.status(400).json({ error: "connectionId, instrument, side and a positive quantity are required" });
+    }
+    if (side !== "BUY" && side !== "SELL") return res.status(400).json({ error: "side must be BUY or SELL" });
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`,
+        [Number(connectionId), userId]
+      );
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = new DxtradeService2(c.host, c.username, decryptApiSecret3(c.encrypted_password), c.domain);
+      await svc.login();
+      let accountCode = c.account_code;
+      if (!accountCode) {
+        const self = await svc.getAccounts();
+        const a0 = Array.isArray(self?.accounts) ? self.accounts[0] : null;
+        accountCode = typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+      }
+      if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
+      const result = await svc.placeOrder(accountCode, {
+        instrument: String(instrument),
+        side,
+        quantity: Number(quantity),
+        type: type === "LIMIT" ? "LIMIT" : "MARKET",
+        limitPrice: limitPrice != null ? Number(limitPrice) : void 0,
+        stopLoss: stopLoss != null && stopLoss !== "" ? Number(stopLoss) : void 0,
+        takeProfit: takeProfit != null && takeProfit !== "" ? Number(takeProfit) : void 0
+      });
+      res.json({ ok: true, accountCode, result });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "DXtrade order failed" });
     }
   });
   app2.get("/api/defi/walletconnect-config", async (_req, res) => {

@@ -14,6 +14,23 @@ export default function DxtradePage() {
   const [form, setForm] = useState({ host: "https://dx.velotrade.com", username: "", password: "", domain: "default", label: "" });
   const [showPw, setShowPw] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [order, setOrder] = useState({ instrument: "EUR/USD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "" });
+  const [orderConnId, setOrderConnId] = useState<number | null>(null);
+  const [orderConfirm, setOrderConfirm] = useState(false);
+
+  const placeOrder = useMutation({
+    mutationFn: async (connectionId: number) => {
+      const r = await apiRequest("POST", "/api/dxtrade/order", {
+        connectionId, instrument: order.instrument, side: order.side, quantity: Number(order.quantity),
+        type: order.type, limitPrice: order.limitPrice || undefined, stopLoss: order.stopLoss || undefined, takeProfit: order.takeProfit || undefined,
+        confirm: true,
+      });
+      if (!r.ok) throw new Error((await r.json()).error || "Order failed");
+      return r.json();
+    },
+    onSuccess: () => { toast({ title: "DXtrade order placed ✓", description: "Check your DXtrade platform to confirm the fill." }); setOrderConfirm(false); },
+    onError: (e: any) => toast({ title: "DXtrade order failed", description: e.message, variant: "destructive" }),
+  });
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/dxtrade/connections"],
@@ -87,6 +104,31 @@ export default function DxtradePage() {
                       {c.metrics && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">{JSON.stringify(c.metrics, null, 2).slice(0, 800)}</pre>}
                       {c.portfolio && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2">{JSON.stringify(c.portfolio, null, 2).slice(0, 1200)}</pre>}
                       {!c.metrics && !c.portfolio && <p className="text-gray-500">Connected. No portfolio/metrics returned — send me this account's response so I can map the fields.</p>}
+
+                      {/* Manual order ticket (Phase 2a) — validate live order placement */}
+                      <div className="mt-3 rounded-lg border border-blue-800/30 bg-black/20 p-3 space-y-2">
+                        <p className="text-[11px] font-bold text-blue-300">Place a test order <span className="text-gray-500 font-normal">(live — start tiny)</span></p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input placeholder="Instrument (EUR/USD)" value={order.instrument} onChange={(e) => setOrder((o) => ({ ...o, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <select value={order.side} onChange={(e) => setOrder((o) => ({ ...o, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Buy</option><option value="SELL">Sell</option></select>
+                          <select value={order.type} onChange={(e) => setOrder((o) => ({ ...o, type: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
+                          <Input placeholder="Quantity (lots/units)" value={order.quantity} onChange={(e) => setOrder((o) => ({ ...o, quantity: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          {order.type === "LIMIT" && <Input placeholder="Limit price" value={order.limitPrice} onChange={(e) => setOrder((o) => ({ ...o, limitPrice: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm col-span-2" />}
+                          <Input placeholder="Stop loss (optional)" value={order.stopLoss} onChange={(e) => setOrder((o) => ({ ...o, stopLoss: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <Input placeholder="Take profit (optional)" value={order.takeProfit} onChange={(e) => setOrder((o) => ({ ...o, takeProfit: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                        </div>
+                        {placeOrder.isError && orderConnId === c.id && <p className="text-[11px] text-red-400">{(placeOrder.error as Error)?.message}</p>}
+                        {placeOrder.isSuccess && orderConnId === c.id && <p className="text-[11px] text-emerald-400">Order placed ✓</p>}
+                        {!(orderConfirm && orderConnId === c.id) ? (
+                          <button onClick={() => { setOrderConnId(c.id); setOrderConfirm(true); }} disabled={!order.quantity || Number(order.quantity) <= 0} className={`w-full text-sm font-bold py-1.5 rounded-lg ${order.side === "BUY" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-red-600 hover:bg-red-500"} text-white disabled:opacity-50`}>{order.side} {order.instrument}</button>
+                        ) : (
+                          <div className="flex gap-2">
+                            <button onClick={() => placeOrder.mutate(c.id)} disabled={placeOrder.isPending} className="flex-1 text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">{placeOrder.isPending ? "Placing…" : `Confirm ${order.side} ${order.quantity} ${order.instrument}`}</button>
+                            <button onClick={() => setOrderConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
+                          </div>
+                        )}
+                        <p className="text-[10px] text-gray-600">Live order on your Velotrade account. Use a tiny quantity to validate before the SS AI engine auto-executes (Phase 2b).</p>
+                      </div>
                     </>
                   )}
                 </CardContent>
