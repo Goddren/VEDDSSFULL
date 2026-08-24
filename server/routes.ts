@@ -19881,6 +19881,10 @@ Respond with ONLY valid JSON:
           const accounts = await svc.getAccounts();
           const _a0 = Array.isArray(accounts?.accounts) ? accounts.accounts[0] : null;
           const accCode = c.account_code || (typeof _a0 === 'string' ? _a0 : (_a0?.account ?? _a0?.accountCode ?? _a0?.code ?? null));
+          // Backfill the resolved account code so order placement can find it.
+          if (accCode && accCode !== c.account_code) {
+            try { await pool.query(`UPDATE dxtrade_connections SET account_code=$1 WHERE id=$2`, [accCode, c.id]); } catch { /* non-fatal */ }
+          }
           let portfolio: any = null, metrics: any = null;
           if (accCode) { portfolio = await svc.getPortfolio(accCode).catch((e: any) => ({ error: e.message })); metrics = await svc.getMetrics(accCode).catch(() => null); }
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };

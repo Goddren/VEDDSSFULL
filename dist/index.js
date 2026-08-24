@@ -71940,6 +71940,12 @@ Respond with ONLY valid JSON:
           const accounts = await svc.getAccounts();
           const _a0 = Array.isArray(accounts?.accounts) ? accounts.accounts[0] : null;
           const accCode = c.account_code || (typeof _a0 === "string" ? _a0 : _a0?.account ?? _a0?.accountCode ?? _a0?.code ?? null);
+          if (accCode && accCode !== c.account_code) {
+            try {
+              await pool2.query(`UPDATE dxtrade_connections SET account_code=$1 WHERE id=$2`, [accCode, c.id]);
+            } catch {
+            }
+          }
           let portfolio = null, metrics = null;
           if (accCode) {
             portfolio = await svc.getPortfolio(accCode).catch((e) => ({ error: e.message }));

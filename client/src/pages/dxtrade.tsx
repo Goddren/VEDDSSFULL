@@ -101,6 +101,8 @@ export default function DxtradePage() {
                     <p className="text-red-400">Error: {c.error}</p>
                   ) : (
                     <>
+                      <p className="text-[10px] text-gray-500 mb-1">account code: <span className="font-mono text-gray-300">{c.accountCode || "— not resolved (see raw below)"}</span></p>
+                      {c.accounts && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">users/self: {JSON.stringify(c.accounts, null, 2).slice(0, 1000)}</pre>}
                       {c.metrics && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">{JSON.stringify(c.metrics, null, 2).slice(0, 800)}</pre>}
                       {c.portfolio && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2">{JSON.stringify(c.portfolio, null, 2).slice(0, 1200)}</pre>}
                       {!c.metrics && !c.portfolio && <p className="text-gray-500">Connected. No portfolio/metrics returned — send me this account's response so I can map the fields.</p>}
