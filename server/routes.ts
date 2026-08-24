@@ -19952,8 +19952,11 @@ Respond with ONLY valid JSON:
         if (accountCode) { try { await pool.query(`UPDATE dxtrade_connections SET account_code=$1 WHERE id=$2`, [accountCode, Number(connectionId)]); } catch { /* non-fatal */ } }
       }
       if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
+      // Velotrade symbols are concatenated with no slash (EURUSD, BTCUSD) — strip
+      // any slash the user typed so 'EUR/USD' resolves to 'EURUSD'.
+      const normInstrument = String(instrument).replace(/\//g, '').trim();
       const result = await svc.placeOrder(accountCode, {
-        instrument: String(instrument), side, quantity: Number(quantity),
+        instrument: normInstrument, side, quantity: Number(quantity),
         type: type === 'LIMIT' ? 'LIMIT' : 'MARKET',
         limitPrice: limitPrice != null ? Number(limitPrice) : undefined,
         stopLoss: stopLoss != null && stopLoss !== '' ? Number(stopLoss) : undefined,

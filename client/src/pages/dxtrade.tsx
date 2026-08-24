@@ -14,7 +14,7 @@ export default function DxtradePage() {
   const [form, setForm] = useState({ host: "https://dx.velotrade.com", username: "", password: "", domain: "default", label: "" });
   const [showPw, setShowPw] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [order, setOrder] = useState({ instrument: "EUR/USD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "" });
+  const [order, setOrder] = useState({ instrument: "BTCUSD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "" });
   const [orderConnId, setOrderConnId] = useState<number | null>(null);
   const [orderConfirm, setOrderConfirm] = useState(false);
   const [instrQuery, setInstrQuery] = useState("");
@@ -128,7 +128,7 @@ export default function DxtradePage() {
                         </div>
                         {instrResult && orderConnId === c.id && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 max-h-40">{JSON.stringify(instrResult, null, 2).slice(0, 1500)}</pre>}
                         <div className="grid grid-cols-2 gap-2">
-                          <Input placeholder="Instrument (EUR/USD)" value={order.instrument} onChange={(e) => setOrder((o) => ({ ...o, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <Input placeholder="Symbol e.g. BTCUSD (no slash)" value={order.instrument} onChange={(e) => setOrder((o) => ({ ...o, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                           <select value={order.side} onChange={(e) => setOrder((o) => ({ ...o, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Buy</option><option value="SELL">Sell</option></select>
                           <select value={order.type} onChange={(e) => setOrder((o) => ({ ...o, type: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="MARKET">Market</option><option value="LIMIT">Limit</option></select>
                           <Input placeholder="Quantity (lots/units)" value={order.quantity} onChange={(e) => setOrder((o) => ({ ...o, quantity: e.target.value }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />

@@ -72043,8 +72043,9 @@ Respond with ONLY valid JSON:
         }
       }
       if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
+      const normInstrument = String(instrument).replace(/\//g, "").trim();
       const result = await svc.placeOrder(accountCode, {
-        instrument: String(instrument),
+        instrument: normInstrument,
         side,
         quantity: Number(quantity),
         type: type === "LIMIT" ? "LIMIT" : "MARKET",
