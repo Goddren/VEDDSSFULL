@@ -19826,6 +19826,82 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // ── DXtrade (Velotrade) platform — FX SS AI engine, Phase 1 (read-only) ──────
+  // Connect a DXtrade dxsca-web account (host + username + password + domain).
+  // Verifies login, stores the AES-encrypted password, returns the raw accounts
+  // payload so we can confirm the exact shape against a live account.
+  app.post("/api/dxtrade/connect", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { host, username, password, domain, label } = req.body || {};
+    if (!host || !username || !password) return res.status(400).json({ error: "host, username and password are required" });
+    try {
+      const { DxtradeService, encryptApiSecret } = await import('./dxtrade');
+      const svc = new DxtradeService(String(host), String(username), String(password), domain ? String(domain) : 'default');
+      const check = await svc.verify();
+      if (!check.ok) return res.status(400).json({ error: `DXtrade login failed: ${check.error}` });
+      // Best-effort: pull the first account code for later use (non-fatal).
+      let accountCode: string | null = null;
+      try {
+        const accs = check.accounts?.accounts ?? check.accounts;
+        if (Array.isArray(accs) && accs.length) accountCode = accs[0]?.account ?? accs[0]?.accountCode ?? null;
+      } catch { /* ignore */ }
+      const { pool } = await import('./db');
+      const enc = encryptApiSecret(String(password));
+      const r = await pool.query(
+        `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
+        [userId, String(host), String(username), enc, domain ? String(domain) : 'default', accountCode, label ? String(label) : null],
+      );
+      res.json({ ok: true, id: r.rows[0].id, accountCode, accounts: check.accounts });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'DXtrade connect failed' });
+    }
+  });
+
+  // List DXtrade connections (no secrets) with a live balances/positions snapshot.
+  app.get("/api/dxtrade/connections", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        [userId],
+      );
+      const { DxtradeService, decryptApiSecret } = await import('./dxtrade');
+      const connections = await Promise.all(rows.map(async (c: any) => {
+        try {
+          const pw = decryptApiSecret((await pool.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
+          const svc = new DxtradeService(c.host, c.username, pw, c.domain);
+          await svc.login();
+          const accounts = await svc.getAccounts();
+          const accCode = c.account_code || (Array.isArray(accounts?.accounts) ? accounts.accounts[0]?.account : null);
+          let portfolio: any = null, metrics: any = null;
+          if (accCode) { portfolio = await svc.getPortfolio(accCode).catch((e: any) => ({ error: e.message })); metrics = await svc.getMetrics(accCode).catch(() => null); }
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };
+        } catch (e: any) {
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, error: e.message };
+        }
+      }));
+      res.json({ connections });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'failed to load DXtrade connections' });
+    }
+  });
+
+  app.delete("/api/dxtrade/connections/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    try {
+      const { pool } = await import('./db');
+      await pool.query(`DELETE FROM dxtrade_connections WHERE id=$1 AND user_id=$2`, [Number(req.params.id), userId]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'delete failed' });
+    }
+  });
+
   // WalletConnect config for the client (projectId from server env so it can be
   // set in the host env without a rebuild). Empty projectId => feature disabled.
   app.get("/api/defi/walletconnect-config", async (_req: Request, res: Response) => {

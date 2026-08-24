@@ -37940,6 +37940,121 @@ var init_defi_swap = __esm({
   }
 });
 
+// server/dxtrade.ts
+var dxtrade_exports = {};
+__export(dxtrade_exports, {
+  DxtradeService: () => DxtradeService,
+  decryptApiSecret: () => decryptApiSecret2,
+  dxBase: () => dxBase,
+  encryptApiSecret: () => encryptApiSecret2
+});
+function dxBase(host) {
+  let h = (host || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
+  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
+  return h;
+}
+var DxtradeService;
+var init_dxtrade = __esm({
+  "server/dxtrade.ts"() {
+    "use strict";
+    init_cryptocom();
+    DxtradeService = class {
+      base;
+      username;
+      password;
+      domain;
+      token = null;
+      constructor(host, username, password, domain = "default") {
+        this.base = dxBase(host);
+        this.username = username;
+        this.password = password;
+        this.domain = domain || "default";
+      }
+      /** Authenticate and cache the session token. Throws on failure. */
+      async login() {
+        const res = await fetch(`${this.base}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+          signal: AbortSignal.timeout(2e4)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+        let token = "";
+        try {
+          token = JSON.parse(text2)?.sessionToken || "";
+        } catch {
+        }
+        if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+        if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
+        this.token = token;
+        return token;
+      }
+      async authed(path17, init = {}) {
+        if (!this.token) await this.login();
+        const doFetch = () => fetch(`${this.base}${path17}`, {
+          ...init,
+          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
+          signal: AbortSignal.timeout(2e4)
+        });
+        let res = await doFetch();
+        if (res.status === 401) {
+          this.token = null;
+          await this.login();
+          res = await doFetch();
+        }
+        return res;
+      }
+      /** List account codes on this login. dxsca account codes look like 'default:12345'. */
+      async getAccounts() {
+        const res = await this.authed("/accounts");
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade accounts ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Portfolio (positions + balances) for one account. Falls back across the two
+       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
+      async getPortfolio(accountCode) {
+        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
+        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
+      async getMetrics(accountCode) {
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
+        const text2 = await res.text();
+        if (!res.ok) return { error: `metrics ${res.status}` };
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** One-shot connectivity check used by the connect/test routes. */
+      async verify() {
+        try {
+          await this.login();
+          const accounts = await this.getAccounts();
+          return { ok: true, accounts };
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) };
+        }
+      }
+    };
+  }
+});
+
 // server/gemini.ts
 var gemini_exports = {};
 __export(gemini_exports, {
@@ -47961,6 +48076,43 @@ CREATE TABLE IF NOT EXISTS "defi_hot_wallets" (
   }
 });
 
+// server/services/ensure-dxtrade-tables.ts
+var ensure_dxtrade_tables_exports = {};
+__export(ensure_dxtrade_tables_exports, {
+  ensureDxtradeTables: () => ensureDxtradeTables
+});
+async function ensureDxtradeTables() {
+  try {
+    await pool.query(DDL22);
+    console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
+  } catch (err) {
+    console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
+  }
+}
+var DDL22;
+var init_ensure_dxtrade_tables = __esm({
+  "server/services/ensure-dxtrade-tables.ts"() {
+    "use strict";
+    init_db();
+    DDL22 = `
+CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "host" text NOT NULL,
+  "username" text NOT NULL,
+  "encrypted_password" text NOT NULL,
+  "domain" text NOT NULL DEFAULT 'default',
+  "account_code" text,
+  "label" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "last_connected_at" timestamp,
+  "last_error" text,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+`;
+  }
+});
+
 // server/services/ensure-engine-consensus-table.ts
 var ensure_engine_consensus_table_exports = {};
 __export(ensure_engine_consensus_table_exports, {
@@ -47968,18 +48120,18 @@ __export(ensure_engine_consensus_table_exports, {
 });
 async function ensureEngineConsensusTable() {
   try {
-    await pool.query(DDL22);
+    await pool.query(DDL23);
     console.log("[startup] Engine consensus table ensured (engine_consensus_log) \u2014 Dual-Vote Consensus panels now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureEngineConsensusTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL23;
 var init_ensure_engine_consensus_table = __esm({
   "server/services/ensure-engine-consensus-table.ts"() {
     "use strict";
     init_db();
-    DDL22 = `
+    DDL23 = `
 CREATE TABLE IF NOT EXISTS "engine_consensus_log" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -48007,18 +48159,18 @@ __export(ensure_micro_growth_milestones_table_exports, {
 });
 async function ensureMicroGrowthMilestonesTable() {
   try {
-    await pool.query(DDL23);
+    await pool.query(DDL24);
     console.log("[startup] Micro Growth milestones table ensured (micro_growth_milestones) \u2014 doubling challenge now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthMilestonesTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL23;
+var DDL24;
 var init_ensure_micro_growth_milestones_table = __esm({
   "server/services/ensure-micro-growth-milestones-table.ts"() {
     "use strict";
     init_db();
-    DDL23 = `
+    DDL24 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_milestones" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -48040,18 +48192,18 @@ __export(ensure_micro_growth_sessions_table_exports, {
 });
 async function ensureMicroGrowthSessionsTable() {
   try {
-    await pool.query(DDL24);
+    await pool.query(DDL25);
     console.log("[startup] Micro Growth sessions table ensured (micro_growth_sessions) \u2014 session history now survives restarts.");
   } catch (err) {
     console.error("[startup] ensureMicroGrowthSessionsTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL24;
+var DDL25;
 var init_ensure_micro_growth_sessions_table = __esm({
   "server/services/ensure-micro-growth-sessions-table.ts"() {
     "use strict";
     init_db();
-    DDL24 = `
+    DDL25 = `
 CREATE TABLE IF NOT EXISTS "micro_growth_sessions" (
   "id" text PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -48082,18 +48234,18 @@ __export(ensure_workforce_course_progress_table_exports, {
 });
 async function ensureWorkforceCourseProgressTable() {
   try {
-    await pool.query(DDL25);
+    await pool.query(DDL26);
     console.log('[startup] Workforce course progress table ensured (workforce_course_progress) \u2014 "where you left off" now survives restarts.');
   } catch (err) {
     console.error("[startup] ensureWorkforceCourseProgressTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL25;
+var DDL26;
 var init_ensure_workforce_course_progress_table = __esm({
   "server/services/ensure-workforce-course-progress-table.ts"() {
     "use strict";
     init_db();
-    DDL25 = `
+    DDL26 = `
 CREATE TABLE IF NOT EXISTS "workforce_course_progress" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL REFERENCES "users"("id"),
@@ -48117,18 +48269,18 @@ __export(ensure_live_engine_config_table_exports, {
 });
 async function ensureLiveEngineConfigTable() {
   try {
-    await pool.query(DDL26);
+    await pool.query(DDL27);
     console.log("[startup] Live Engine config table ensured (live_engine_configs) \u2014 propFirmMode/consistency-rule settings now survive restarts.");
   } catch (err) {
     console.error("[startup] ensureLiveEngineConfigTable failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL26;
+var DDL27;
 var init_ensure_live_engine_config_table = __esm({
   "server/services/ensure-live-engine-config-table.ts"() {
     "use strict";
     init_db();
-    DDL26 = `
+    DDL27 = `
 CREATE TABLE IF NOT EXISTS "live_engine_configs" (
   "id" serial PRIMARY KEY,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -48147,18 +48299,18 @@ __export(ensure_copy_trading_execution_columns_exports, {
 });
 async function ensureCopyTradingExecutionColumns() {
   try {
-    await pool.query(DDL27);
+    await pool.query(DDL28);
     console.log("[startup] Copy trading execution columns ensured (copier_connection_id, copier_fx_trade_id, broker_order_id, execution_status, execution_error).");
   } catch (err) {
     console.error("[startup] ensureCopyTradingExecutionColumns failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL27;
+var DDL28;
 var init_ensure_copy_trading_execution_columns = __esm({
   "server/services/ensure-copy-trading-execution-columns.ts"() {
     "use strict";
     init_db();
-    DDL27 = `
+    DDL28 = `
 ALTER TABLE "copy_relationships" ADD COLUMN IF NOT EXISTS "copier_connection_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "copier_fx_trade_id" integer;
 ALTER TABLE "copy_trade_logs" ADD COLUMN IF NOT EXISTS "broker_order_id" text;
@@ -48175,18 +48327,18 @@ __export(ensure_reasoning_propfirm_tables_exports, {
 });
 async function ensureReasoningPropFirmTables() {
   try {
-    await pool.query(DDL28);
+    await pool.query(DDL29);
     console.log("[startup] Reasoning + prop firm phase tables ensured (ai_confirmation_outcomes reasoning columns, prop_firm_account_state).");
   } catch (err) {
     console.error("[startup] ensureReasoningPropFirmTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL28;
+var DDL29;
 var init_ensure_reasoning_propfirm_tables = __esm({
   "server/services/ensure-reasoning-propfirm-tables.ts"() {
     "use strict";
     init_db();
-    DDL28 = `
+    DDL29 = `
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "reasoning_text" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bull_case" text;
 ALTER TABLE "ai_confirmation_outcomes" ADD COLUMN IF NOT EXISTS "bear_case" text;
@@ -48267,18 +48419,18 @@ __export(ensure_profit_split_tables_exports, {
 });
 async function ensureProfitSplitTables() {
   try {
-    await pool.query(DDL29);
+    await pool.query(DDL30);
     console.log("[startup] Profit Split tables ensured (profit_split_enrollments, profit_split_payments) \u2014 ambassador 30% prop-firm profit-split program.");
   } catch (err) {
     console.error("[startup] ensureProfitSplitTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL29;
+var DDL30;
 var init_ensure_profit_split_tables = __esm({
   "server/services/ensure-profit-split-tables.ts"() {
     "use strict";
     init_db();
-    DDL29 = `
+    DDL30 = `
 CREATE TABLE IF NOT EXISTS "profit_split_enrollments" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL UNIQUE REFERENCES "users"("id"),
@@ -71698,6 +71850,77 @@ Respond with ONLY valid JSON:
       res.status(400).json({ error: err?.message || "swap failed" });
     }
   });
+  app2.post("/api/dxtrade/connect", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { host, username, password, domain, label } = req.body || {};
+    if (!host || !username || !password) return res.status(400).json({ error: "host, username and password are required" });
+    try {
+      const { DxtradeService: DxtradeService2, encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = new DxtradeService2(String(host), String(username), String(password), domain ? String(domain) : "default");
+      const check = await svc.verify();
+      if (!check.ok) return res.status(400).json({ error: `DXtrade login failed: ${check.error}` });
+      let accountCode = null;
+      try {
+        const accs = check.accounts?.accounts ?? check.accounts;
+        if (Array.isArray(accs) && accs.length) accountCode = accs[0]?.account ?? accs[0]?.accountCode ?? null;
+      } catch {
+      }
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const enc = encryptApiSecret3(String(password));
+      const r = await pool2.query(
+        `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
+        [userId, String(host), String(username), enc, domain ? String(domain) : "default", accountCode, label ? String(label) : null]
+      );
+      res.json({ ok: true, id: r.rows[0].id, accountCode, accounts: check.accounts });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "DXtrade connect failed" });
+    }
+  });
+  app2.get("/api/dxtrade/connections", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        [userId]
+      );
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const connections = await Promise.all(rows.map(async (c) => {
+        try {
+          const pw = decryptApiSecret3((await pool2.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
+          const svc = new DxtradeService2(c.host, c.username, pw, c.domain);
+          await svc.login();
+          const accounts = await svc.getAccounts();
+          const accCode = c.account_code || (Array.isArray(accounts?.accounts) ? accounts.accounts[0]?.account : null);
+          let portfolio = null, metrics = null;
+          if (accCode) {
+            portfolio = await svc.getPortfolio(accCode).catch((e) => ({ error: e.message }));
+            metrics = await svc.getMetrics(accCode).catch(() => null);
+          }
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };
+        } catch (e) {
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, error: e.message };
+        }
+      }));
+      res.json({ connections });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "failed to load DXtrade connections" });
+    }
+  });
+  app2.delete("/api/dxtrade/connections/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      await pool2.query(`DELETE FROM dxtrade_connections WHERE id=$1 AND user_id=$2`, [Number(req.params.id), userId]);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "delete failed" });
+    }
+  });
   app2.get("/api/defi/walletconnect-config", async (_req, res) => {
     res.json({ projectId: process.env.WALLETCONNECT_PROJECT_ID || process.env.VITE_WALLETCONNECT_PROJECT_ID || "" });
   });
@@ -82714,6 +82937,12 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await ensureDefiHotWalletTable2();
   } catch (err) {
     console.error(`[startup] ensureDefiHotWalletTable import error (non-fatal):`, err?.message ?? err);
+  }
+  try {
+    const { ensureDxtradeTables: ensureDxtradeTables2 } = await Promise.resolve().then(() => (init_ensure_dxtrade_tables(), ensure_dxtrade_tables_exports));
+    await ensureDxtradeTables2();
+  } catch (err) {
+    console.error(`[startup] ensureDxtradeTables import error (non-fatal):`, err?.message ?? err);
   }
   try {
     const { ensureEngineConsensusTable: ensureEngineConsensusTable2 } = await Promise.resolve().then(() => (init_ensure_engine_consensus_table(), ensure_engine_consensus_table_exports));

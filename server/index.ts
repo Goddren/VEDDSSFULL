@@ -407,6 +407,13 @@ async function withRetry<T>(
     console.error(`[startup] ensureDefiHotWalletTable import error (non-fatal):`, err?.message ?? err);
   }
 
+  try {
+    const { ensureDxtradeTables } = await import('./services/ensure-dxtrade-tables');
+    await ensureDxtradeTables();
+  } catch (err: any) {
+    console.error(`[startup] ensureDxtradeTables import error (non-fatal):`, err?.message ?? err);
+  }
+
   // Ensure the durable Dual-Vote Consensus table exists (Options/Crypto.com
   // engine consensus panels — previously in-memory only, wiped on restart).
   try {
