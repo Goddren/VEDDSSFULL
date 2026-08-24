@@ -19,6 +19,18 @@ export interface DxtradeConnInput {
   domain?: string;     // dxsca domain/vendor code, default 'default'
 }
 
+/** Extract the first account code from a /users/self response.
+ *  Velotrade shape: { userDetails: [ { accounts: [ { account: "default:130000773", ... } ] } ] }
+ *  Tolerant of a flat { accounts: [...] } shape and string entries too. */
+export function extractAccountCode(usersSelf: any): string | null {
+  const ud = usersSelf?.userDetails;
+  const detail = Array.isArray(ud) ? ud[0] : (ud ?? usersSelf);
+  const accs = detail?.accounts ?? usersSelf?.accounts;
+  if (!Array.isArray(accs) || !accs.length) return null;
+  const a0 = accs[0];
+  return typeof a0 === 'string' ? a0 : (a0?.account ?? a0?.accountCode ?? a0?.code ?? null);
+}
+
 /** Normalize a host into the dxsca-web base URL (no trailing slash). */
 export function dxBase(host: string): string {
   let h = (host || '').trim().replace(/\/+$/, '');

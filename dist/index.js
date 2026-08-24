@@ -37946,8 +37946,17 @@ __export(dxtrade_exports, {
   DxtradeService: () => DxtradeService,
   decryptApiSecret: () => decryptApiSecret2,
   dxBase: () => dxBase,
-  encryptApiSecret: () => encryptApiSecret2
+  encryptApiSecret: () => encryptApiSecret2,
+  extractAccountCode: () => extractAccountCode
 });
+function extractAccountCode(usersSelf) {
+  const ud = usersSelf?.userDetails;
+  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
+  const accs = detail?.accounts ?? usersSelf?.accounts;
+  if (!Array.isArray(accs) || !accs.length) return null;
+  const a0 = accs[0];
+  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+}
 function dxBase(host) {
   let h = (host || "").trim().replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
@@ -71897,19 +71906,11 @@ Respond with ONLY valid JSON:
     const { host, username, password, domain, label } = req.body || {};
     if (!host || !username || !password) return res.status(400).json({ error: "host, username and password are required" });
     try {
-      const { DxtradeService: DxtradeService2, encryptApiSecret: encryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { DxtradeService: DxtradeService2, encryptApiSecret: encryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const svc = new DxtradeService2(String(host), String(username), String(password), domain ? String(domain) : "default");
       const check = await svc.verify();
       if (!check.ok) return res.status(400).json({ error: `DXtrade login failed: ${check.error}` });
-      let accountCode = null;
-      try {
-        const accs = check.accounts?.accounts ?? check.accounts;
-        if (Array.isArray(accs) && accs.length) {
-          const a0 = accs[0];
-          accountCode = typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
-        }
-      } catch {
-      }
+      const accountCode = extractAccountCode2(check.accounts);
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const enc = encryptApiSecret3(String(password));
       const r = await pool2.query(
@@ -71931,15 +71932,14 @@ Respond with ONLY valid JSON:
         `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId]
       );
-      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const connections = await Promise.all(rows.map(async (c) => {
         try {
           const pw = decryptApiSecret3((await pool2.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
           const svc = new DxtradeService2(c.host, c.username, pw, c.domain);
           await svc.login();
           const accounts = await svc.getAccounts();
-          const _a0 = Array.isArray(accounts?.accounts) ? accounts.accounts[0] : null;
-          const accCode = c.account_code || (typeof _a0 === "string" ? _a0 : _a0?.account ?? _a0?.accountCode ?? _a0?.code ?? null);
+          const accCode = c.account_code || extractAccountCode2(accounts);
           if (accCode && accCode !== c.account_code) {
             try {
               await pool2.query(`UPDATE dxtrade_connections SET account_code=$1 WHERE id=$2`, [accCode, c.id]);
@@ -71989,14 +71989,18 @@ Respond with ONLY valid JSON:
       );
       if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
       const c = rows[0];
-      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const svc = new DxtradeService2(c.host, c.username, decryptApiSecret3(c.encrypted_password), c.domain);
       await svc.login();
       let accountCode = c.account_code;
       if (!accountCode) {
-        const self = await svc.getAccounts();
-        const a0 = Array.isArray(self?.accounts) ? self.accounts[0] : null;
-        accountCode = typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+        accountCode = extractAccountCode2(await svc.getAccounts());
+        if (accountCode) {
+          try {
+            await pool2.query(`UPDATE dxtrade_connections SET account_code=$1 WHERE id=$2`, [accountCode, Number(connectionId)]);
+          } catch {
+          }
+        }
       }
       if (!accountCode) return res.status(400).json({ error: "Could not resolve a DXtrade account code for this connection" });
       const result = await svc.placeOrder(accountCode, {
