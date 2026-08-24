@@ -27913,6 +27913,240 @@ var init_composite_signal = __esm({
   }
 });
 
+// server/dxtrade.ts
+var dxtrade_exports = {};
+__export(dxtrade_exports, {
+  DxtradeService: () => DxtradeService,
+  computeRiskQuantity: () => computeRiskQuantity,
+  decryptApiSecret: () => decryptApiSecret2,
+  dxBase: () => dxBase,
+  encryptApiSecret: () => encryptApiSecret2,
+  extractAccountCode: () => extractAccountCode,
+  extractBalance: () => extractBalance
+});
+function extractAccountCode(usersSelf) {
+  const ud = usersSelf?.userDetails;
+  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
+  const accs = detail?.accounts ?? usersSelf?.accounts;
+  if (!Array.isArray(accs) || !accs.length) return null;
+  const a0 = accs[0];
+  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
+}
+function extractBalance(metrics) {
+  if (!metrics) return null;
+  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
+  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
+  for (const n of nodes) {
+    if (Array.isArray(n)) {
+      for (const el of n) {
+        const v2 = pickNum(el, keys);
+        if (v2 != null) return v2;
+      }
+    }
+    const v = pickNum(n, keys);
+    if (v != null) return v;
+  }
+  return null;
+}
+function pickNum(obj, keys) {
+  if (!obj || typeof obj !== "object") return null;
+  for (const k of keys) {
+    const v = Number(obj[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+function computeRiskQuantity(opts) {
+  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
+  const riskAmount = balance * (riskPercent / 100);
+  const stopDistance = Math.abs(entryPrice - stopPrice);
+  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
+  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
+  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
+  let qty = riskAmount / (stopDistance * multiplier);
+  if (incr > 0) qty = Math.floor(qty / incr) * incr;
+  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
+  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier})${incr ? ` snapped to ${incr}` : ""}` };
+}
+function dxBase(host) {
+  let h = (host || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
+  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
+  return h;
+}
+var DxtradeService;
+var init_dxtrade = __esm({
+  "server/dxtrade.ts"() {
+    "use strict";
+    init_cryptocom();
+    DxtradeService = class {
+      base;
+      username;
+      password;
+      domain;
+      token = null;
+      constructor(host, username, password, domain = "default") {
+        this.base = dxBase(host);
+        this.username = username;
+        this.password = password;
+        this.domain = domain || "default";
+      }
+      /** Authenticate and cache the session token. Throws on failure. */
+      async login() {
+        const res = await fetch(`${this.base}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
+          signal: AbortSignal.timeout(2e4)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
+        let token = "";
+        try {
+          token = JSON.parse(text2)?.sessionToken || "";
+        } catch {
+        }
+        if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
+        if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
+        this.token = token;
+        return token;
+      }
+      async authed(path17, init = {}) {
+        if (!this.token) await this.login();
+        const doFetch = () => fetch(`${this.base}${path17}`, {
+          ...init,
+          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
+          signal: AbortSignal.timeout(2e4)
+        });
+        let res = await doFetch();
+        if (res.status === 401) {
+          this.token = null;
+          await this.login();
+          res = await doFetch();
+        }
+        return res;
+      }
+      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
+       *  bare /accounts list endpoint — that path 404s). Account codes look like
+       *  'default:12345' and appear in the returned `accounts` array. */
+      async getAccounts() {
+        const res = await this.authed("/users/self");
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Portfolio (positions + balances) for one account. Falls back across the two
+       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
+      async getPortfolio(accountCode) {
+        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
+        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
+      async getMetrics(accountCode) {
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
+        const text2 = await res.text();
+        if (!res.ok) return { error: `metrics ${res.status}` };
+        try {
+          return JSON.parse(text2);
+        } catch {
+          return { raw: text2 };
+        }
+      }
+      /**
+       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
+       * Velotrade-documented body fields: instrument, side, type, quantity,
+       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
+       * only include optional legs (SL/TP) when provided. Returns the raw response so
+       * callers can inspect status; throws on a non-2xx HTTP.
+       */
+      async placeOrder(accountCode, o) {
+        const body = {
+          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+          instrument: o.instrument,
+          side: o.side,
+          type: o.type || "MARKET",
+          quantity: o.quantity,
+          positionEffect: o.positionEffect || "OPEN",
+          tif: o.tif || "GTC"
+        };
+        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
+        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
+        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
+        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
+          method: "POST",
+          body: JSON.stringify(body)
+        });
+        const text2 = await res.text();
+        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
+        let data;
+        try {
+          data = JSON.parse(text2);
+        } catch {
+          data = { raw: text2 };
+        }
+        return { ...data, _sent: body };
+      }
+      /** Close (or reduce) a position by placing an opposite-side market order. */
+      async closePosition(accountCode, instrument, side, quantity) {
+        const opposite = side === "BUY" ? "SELL" : "BUY";
+        return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE" });
+      }
+      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
+       *  exact symbol format for this broker (Velotrade). Tries a couple of param
+       *  shapes and returns the raw payload. */
+      async getInstruments(query = "") {
+        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
+        let last = "";
+        for (const path17 of attempts) {
+          const res = await this.authed(path17);
+          const text2 = await res.text();
+          if (res.ok) {
+            try {
+              return JSON.parse(text2);
+            } catch {
+              return { raw: text2 };
+            }
+          }
+          last = `${res.status}: ${text2.slice(0, 150)}`;
+        }
+        throw new Error(`DXtrade instruments ${last}`);
+      }
+      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
+      async getInstrument(symbol) {
+        try {
+          const data = await this.getInstruments(symbol);
+          const list = data?.instruments ?? data;
+          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      /** One-shot connectivity check used by the connect/test routes. */
+      async verify() {
+        try {
+          await this.login();
+          const accounts = await this.getAccounts();
+          return { ok: true, accounts };
+        } catch (e) {
+          return { ok: false, error: e?.message ?? String(e) };
+        }
+      }
+    };
+  }
+});
+
 // server/services/live-trading-engine.ts
 var live_trading_engine_exports = {};
 __export(live_trading_engine_exports, {
@@ -31723,6 +31957,49 @@ async function processDecision(userId, decision, newsCtx) {
       status: "pending"
     };
     broadcastMT5Signal(userId, mt5Signal);
+    try {
+      const { pool: _dxPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const dxRows = (await _dxPool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
+        [userId]
+      )).rows;
+      if (dxRows.length > 0) {
+        const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2, computeRiskQuantity: computeRiskQuantity2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+        const dxSymbol = String(decision.symbol).replace(/\//g, "").toUpperCase();
+        for (const dc of dxRows) {
+          try {
+            const svc = new DxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain);
+            await svc.login();
+            const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+            if (!acct) {
+              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code \u2014 skipped.` });
+              continue;
+            }
+            let qty = 0;
+            let sizeLabel = "";
+            const spec = await svc.getInstrument(dxSymbol);
+            if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
+              const balance = extractBalance2(await svc.getMetrics(acct).catch(() => null));
+              if (balance) {
+                const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
+                qty = s.quantity;
+                sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
+              }
+            }
+            if (!(qty > 0)) {
+              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped \u2014 set a stop or check the symbol exists on Velotrade.` });
+              continue;
+            }
+            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === "BUY" ? "BUY" : "SELL", quantity: qty, type: "MARKET", stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
+            addActivity2(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"}`, details: { dxOrder: r?.result ?? r } });
+          } catch (dxe) {
+            addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
+          }
+        }
+      }
+    } catch (dxOuter) {
+      console.error("[live-engine] DXtrade routing error:", dxOuter?.message ?? dxOuter);
+    }
     const tlConnections = await storage.getUserTradelockerConnections(userId);
     const activeTLConnections = tlConnections.filter((c) => c.isActive);
     if (activeTLConnections.length === 0) {
@@ -37936,240 +38213,6 @@ var init_defi_swap = __esm({
       WBTC: ["WBTC", "CBBTC"],
       MATIC: ["WMATIC", "POL"],
       POL: ["POL", "WMATIC"]
-    };
-  }
-});
-
-// server/dxtrade.ts
-var dxtrade_exports = {};
-__export(dxtrade_exports, {
-  DxtradeService: () => DxtradeService,
-  computeRiskQuantity: () => computeRiskQuantity,
-  decryptApiSecret: () => decryptApiSecret2,
-  dxBase: () => dxBase,
-  encryptApiSecret: () => encryptApiSecret2,
-  extractAccountCode: () => extractAccountCode,
-  extractBalance: () => extractBalance
-});
-function extractAccountCode(usersSelf) {
-  const ud = usersSelf?.userDetails;
-  const detail = Array.isArray(ud) ? ud[0] : ud ?? usersSelf;
-  const accs = detail?.accounts ?? usersSelf?.accounts;
-  if (!Array.isArray(accs) || !accs.length) return null;
-  const a0 = accs[0];
-  return typeof a0 === "string" ? a0 : a0?.account ?? a0?.accountCode ?? a0?.code ?? null;
-}
-function extractBalance(metrics) {
-  if (!metrics) return null;
-  const nodes = [metrics, metrics.metrics, metrics.balances, metrics.account, ...Array.isArray(metrics?.metrics) ? metrics.metrics : []].filter(Boolean);
-  const keys = ["equity", "balance", "availableFunds", "cashBalance", "netLiquidatingValue", "availableBalance"];
-  for (const n of nodes) {
-    if (Array.isArray(n)) {
-      for (const el of n) {
-        const v2 = pickNum(el, keys);
-        if (v2 != null) return v2;
-      }
-    }
-    const v = pickNum(n, keys);
-    if (v != null) return v;
-  }
-  return null;
-}
-function pickNum(obj, keys) {
-  if (!obj || typeof obj !== "object") return null;
-  for (const k of keys) {
-    const v = Number(obj[k]);
-    if (Number.isFinite(v) && v > 0) return v;
-  }
-  return null;
-}
-function computeRiskQuantity(opts) {
-  const { balance, riskPercent, entryPrice, stopPrice, instrument } = opts;
-  const riskAmount = balance * (riskPercent / 100);
-  const stopDistance = Math.abs(entryPrice - stopPrice);
-  const multiplier = Number(instrument?.multiplier) > 0 ? Number(instrument.multiplier) : 1;
-  const incr = Number(instrument?.quantityIncrement) > 0 ? Number(instrument.quantityIncrement) : Number(instrument?.lotSize) > 0 ? Number(instrument.lotSize) : 0;
-  if (!(stopDistance > 0) || !(riskAmount > 0)) return { quantity: 0, riskAmount, stopDistance, note: "need a valid balance, risk% and stop distance" };
-  let qty = riskAmount / (stopDistance * multiplier);
-  if (incr > 0) qty = Math.floor(qty / incr) * incr;
-  qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
-  return { quantity: qty, riskAmount, stopDistance, note: `risk $${riskAmount.toFixed(2)} \xF7 (stop ${stopDistance} \xD7 mult ${multiplier})${incr ? ` snapped to ${incr}` : ""}` };
-}
-function dxBase(host) {
-  let h = (host || "").trim().replace(/\/+$/, "");
-  if (!/^https?:\/\//i.test(h)) h = `https://${h}`;
-  if (!/\/dxsca-web$/i.test(h)) h = `${h}/dxsca-web`;
-  return h;
-}
-var DxtradeService;
-var init_dxtrade = __esm({
-  "server/dxtrade.ts"() {
-    "use strict";
-    init_cryptocom();
-    DxtradeService = class {
-      base;
-      username;
-      password;
-      domain;
-      token = null;
-      constructor(host, username, password, domain = "default") {
-        this.base = dxBase(host);
-        this.username = username;
-        this.password = password;
-        this.domain = domain || "default";
-      }
-      /** Authenticate and cache the session token. Throws on failure. */
-      async login() {
-        const res = await fetch(`${this.base}/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify({ username: this.username, domain: this.domain, password: this.password }),
-          signal: AbortSignal.timeout(2e4)
-        });
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade login ${res.status}: ${text2.slice(0, 200)}`);
-        let token = "";
-        try {
-          token = JSON.parse(text2)?.sessionToken || "";
-        } catch {
-        }
-        if (!token) token = res.headers.get("authorization")?.replace(/^DXAPI\s+/i, "") || "";
-        if (!token) throw new Error("DXtrade login succeeded but no sessionToken returned");
-        this.token = token;
-        return token;
-      }
-      async authed(path17, init = {}) {
-        if (!this.token) await this.login();
-        const doFetch = () => fetch(`${this.base}${path17}`, {
-          ...init,
-          headers: { "Accept": "application/json", "Content-Type": "application/json", "Authorization": `DXAPI ${this.token}`, ...init.headers || {} },
-          signal: AbortSignal.timeout(2e4)
-        });
-        let res = await doFetch();
-        if (res.status === 401) {
-          this.token = null;
-          await this.login();
-          res = await doFetch();
-        }
-        return res;
-      }
-      /** Current user + their accounts. dxsca exposes this at /users/self (there is no
-       *  bare /accounts list endpoint — that path 404s). Account codes look like
-       *  'default:12345' and appear in the returned `accounts` array. */
-      async getAccounts() {
-        const res = await this.authed("/users/self");
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade users/self ${res.status}: ${text2.slice(0, 200)}`);
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /** Portfolio (positions + balances) for one account. Falls back across the two
-       *  common dxsca shapes. Returns the raw payload too so we can lock field names. */
-      async getPortfolio(accountCode) {
-        let res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/portfolio`);
-        if (res.status === 404) res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/positions`);
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade portfolio ${res.status}: ${text2.slice(0, 200)}`);
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /** Account metrics/balance (equity, balance) for one account. Tolerant of shape. */
-      async getMetrics(accountCode) {
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/metrics`);
-        const text2 = await res.text();
-        if (!res.ok) return { error: `metrics ${res.status}` };
-        try {
-          return JSON.parse(text2);
-        } catch {
-          return { raw: text2 };
-        }
-      }
-      /**
-       * Place an order on an account. dxsca-web: POST /accounts/{accountCode}/orders.
-       * Velotrade-documented body fields: instrument, side, type, quantity,
-       * positionEffect, tif. We add a unique orderCode (client id / idempotency) and
-       * only include optional legs (SL/TP) when provided. Returns the raw response so
-       * callers can inspect status; throws on a non-2xx HTTP.
-       */
-      async placeOrder(accountCode, o) {
-        const body = {
-          orderCode: o.orderCode || `vedd-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-          instrument: o.instrument,
-          side: o.side,
-          type: o.type || "MARKET",
-          quantity: o.quantity,
-          positionEffect: o.positionEffect || "OPEN",
-          tif: o.tif || "GTC"
-        };
-        if (o.type === "LIMIT" && o.limitPrice != null) body.limitPrice = o.limitPrice;
-        if (o.stopLoss != null) body.stopLoss = o.stopLoss;
-        if (o.takeProfit != null) body.takeProfit = o.takeProfit;
-        const res = await this.authed(`/accounts/${encodeURIComponent(accountCode)}/orders`, {
-          method: "POST",
-          body: JSON.stringify(body)
-        });
-        const text2 = await res.text();
-        if (!res.ok) throw new Error(`DXtrade order ${res.status}: ${text2.slice(0, 300)}`);
-        let data;
-        try {
-          data = JSON.parse(text2);
-        } catch {
-          data = { raw: text2 };
-        }
-        return { ...data, _sent: body };
-      }
-      /** Close (or reduce) a position by placing an opposite-side market order. */
-      async closePosition(accountCode, instrument, side, quantity) {
-        const opposite = side === "BUY" ? "SELL" : "BUY";
-        return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE" });
-      }
-      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
-       *  exact symbol format for this broker (Velotrade). Tries a couple of param
-       *  shapes and returns the raw payload. */
-      async getInstruments(query = "") {
-        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
-        let last = "";
-        for (const path17 of attempts) {
-          const res = await this.authed(path17);
-          const text2 = await res.text();
-          if (res.ok) {
-            try {
-              return JSON.parse(text2);
-            } catch {
-              return { raw: text2 };
-            }
-          }
-          last = `${res.status}: ${text2.slice(0, 150)}`;
-        }
-        throw new Error(`DXtrade instruments ${last}`);
-      }
-      /** Fetch a single instrument's spec (multiplier, increments) by exact symbol. */
-      async getInstrument(symbol) {
-        try {
-          const data = await this.getInstruments(symbol);
-          const list = data?.instruments ?? data;
-          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
-          return null;
-        } catch {
-          return null;
-        }
-      }
-      /** One-shot connectivity check used by the connect/test routes. */
-      async verify() {
-        try {
-          await this.login();
-          const accounts = await this.getAccounts();
-          return { ok: true, accounts };
-        } catch (e) {
-          return { ok: false, error: e?.message ?? String(e) };
-        }
-      }
     };
   }
 });
@@ -48203,12 +48246,13 @@ __export(ensure_dxtrade_tables_exports, {
 async function ensureDxtradeTables() {
   try {
     await pool.query(DDL22);
+    await pool.query(ALTERS);
     console.log("[startup] DXtrade connections table ensured (dxtrade_connections).");
   } catch (err) {
     console.error("[startup] ensureDxtradeTables failed (non-fatal):", err?.message ?? err);
   }
 }
-var DDL22;
+var DDL22, ALTERS;
 var init_ensure_dxtrade_tables = __esm({
   "server/services/ensure-dxtrade-tables.ts"() {
     "use strict";
@@ -48228,6 +48272,11 @@ CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
   "last_error" text,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+`;
+    ALTERS = `
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "auto_trade_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "use_risk_percent" boolean NOT NULL DEFAULT true;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "risk_percent" double precision NOT NULL DEFAULT 1.0;
 `;
   }
 });
@@ -71998,7 +72047,7 @@ Respond with ONLY valid JSON:
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(
-        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId]
       );
       const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
@@ -72020,9 +72069,9 @@ Respond with ONLY valid JSON:
             portfolio = await svc.getPortfolio(accCode).catch((e) => ({ error: e.message }));
             metrics = await svc.getMetrics(accCode).catch(() => null);
           }
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, accounts, portfolio, metrics };
         } catch (e) {
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, error: e.message };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, error: e.message };
         }
       }));
       res.json({ connections });
@@ -72039,6 +72088,35 @@ Respond with ONLY valid JSON:
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err?.message || "delete failed" });
+    }
+  });
+  app2.patch("/api/dxtrade/connections/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const { autoTradeEnabled, useRiskPercent, riskPercent } = req.body || {};
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const sets = [];
+      const vals = [];
+      let i = 1;
+      if (autoTradeEnabled !== void 0) {
+        sets.push(`auto_trade_enabled=$${i++}`);
+        vals.push(autoTradeEnabled === true);
+      }
+      if (useRiskPercent !== void 0) {
+        sets.push(`use_risk_percent=$${i++}`);
+        vals.push(useRiskPercent === true);
+      }
+      if (riskPercent !== void 0) {
+        sets.push(`risk_percent=$${i++}`);
+        vals.push(Math.max(0.05, Math.min(10, Number(riskPercent) || 1)));
+      }
+      if (!sets.length) return res.status(400).json({ error: "no settings provided" });
+      vals.push(Number(req.params.id), userId);
+      await pool2.query(`UPDATE dxtrade_connections SET ${sets.join(", ")} WHERE id=$${i++} AND user_id=$${i}`, vals);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "update failed" });
     }
   });
   app2.get("/api/dxtrade/instruments", async (req, res) => {

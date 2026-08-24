@@ -19861,7 +19861,7 @@ Respond with ONLY valid JSON:
     try {
       const { pool } = await import('./db');
       const { rows } = await pool.query(
-        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId],
       );
       const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
@@ -19878,9 +19878,9 @@ Respond with ONLY valid JSON:
           }
           let portfolio: any = null, metrics: any = null;
           if (accCode) { portfolio = await svc.getPortfolio(accCode).catch((e: any) => ({ error: e.message })); metrics = await svc.getMetrics(accCode).catch(() => null); }
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, accounts, portfolio, metrics };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, accounts, portfolio, metrics };
         } catch (e: any) {
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, error: e.message };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, error: e.message };
         }
       }));
       res.json({ connections });
@@ -19898,6 +19898,26 @@ Respond with ONLY valid JSON:
       res.json({ ok: true });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'delete failed' });
+    }
+  });
+
+  // Update per-connection auto-trade + risk settings (SS AI engine routing).
+  app.patch("/api/dxtrade/connections/:id", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const { autoTradeEnabled, useRiskPercent, riskPercent } = req.body || {};
+    try {
+      const { pool } = await import('./db');
+      const sets: string[] = []; const vals: any[] = []; let i = 1;
+      if (autoTradeEnabled !== undefined) { sets.push(`auto_trade_enabled=$${i++}`); vals.push(autoTradeEnabled === true); }
+      if (useRiskPercent !== undefined) { sets.push(`use_risk_percent=$${i++}`); vals.push(useRiskPercent === true); }
+      if (riskPercent !== undefined) { sets.push(`risk_percent=$${i++}`); vals.push(Math.max(0.05, Math.min(10, Number(riskPercent) || 1))); }
+      if (!sets.length) return res.status(400).json({ error: "no settings provided" });
+      vals.push(Number(req.params.id), userId);
+      await pool.query(`UPDATE dxtrade_connections SET ${sets.join(', ')} WHERE id=$${i++} AND user_id=$${i}`, vals);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'update failed' });
     }
   });
 

@@ -4977,6 +4977,47 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     };
     broadcastMT5Signal(userId, mt5Signal);
 
+    // ── DXtrade (Velotrade) auto-execution — runs independently of TradeLocker ──
+    // Fires the SAME signal on every DXtrade connection that has auto-trade ON,
+    // sized by that account's own risk % (balance × risk% ÷ stop distance). Placed
+    // before the TL early-return so DXtrade works even with no TL accounts.
+    try {
+      const { pool: _dxPool } = await import('../db');
+      const dxRows = (await _dxPool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
+        [userId],
+      )).rows;
+      if (dxRows.length > 0) {
+        const { DxtradeService, decryptApiSecret, extractAccountCode, extractBalance, computeRiskQuantity } = await import('../dxtrade');
+        const dxSymbol = String(decision.symbol).replace(/\//g, '').toUpperCase();
+        for (const dc of dxRows) {
+          try {
+            const svc = new DxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain);
+            await svc.login();
+            const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
+            if (!acct) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code — skipped.` }); continue; }
+            // Risk-% sizing off this account's own balance + stop distance.
+            let qty = 0; let sizeLabel = '';
+            const spec = await svc.getInstrument(dxSymbol);
+            if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
+              const balance = extractBalance(await svc.getMetrics(acct).catch(() => null));
+              if (balance) {
+                const s = computeRiskQuantity({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
+                qty = s.quantity; sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
+              }
+            }
+            if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); continue; }
+            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === 'BUY' ? 'BUY' : 'SELL', quantity: qty, type: 'MARKET', stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined });
+            addActivity(userId, { type: 'trade_open', symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'}`, details: { dxOrder: r?.result ?? r } });
+          } catch (dxe: any) {
+            addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
+          }
+        }
+      }
+    } catch (dxOuter: any) {
+      console.error('[live-engine] DXtrade routing error:', dxOuter?.message ?? dxOuter);
+    }
+
     // ── Multi-account TradeLocker execution ──────────────────────────────
     // Fetch ALL active TradeLocker connections for this user and execute
     // the signal on each in parallel. Partial failures are logged per

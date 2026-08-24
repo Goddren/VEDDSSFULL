@@ -70,6 +70,16 @@ export default function DxtradePage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/dxtrade/connections"] }),
   });
 
+  const updateConn = useMutation({
+    mutationFn: async ({ id, patch }: { id: number; patch: any }) => {
+      const r = await apiRequest("PATCH", `/api/dxtrade/connections/${id}`, patch);
+      if (!r.ok) throw new Error((await r.json()).error || "Update failed");
+      return r.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/dxtrade/connections"] }),
+    onError: (e: any) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
+  });
+
   const conns = data?.connections ?? [];
 
   return (
@@ -114,6 +124,29 @@ export default function DxtradePage() {
                   ) : (
                     <>
                       <p className="text-[10px] text-gray-500 mb-1">account code: <span className="font-mono text-gray-300">{c.accountCode || "— not resolved (see raw below)"}</span></p>
+
+                      {/* SS AI engine auto-routing controls */}
+                      <div className="mb-2 rounded-lg border border-red-800/30 bg-red-500/[0.05] p-2 flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <p className="text-[11px] font-bold text-white">SS AI auto-trade to this account</p>
+                          <p className="text-[10px] text-gray-500">Engine fires FX signals here, sized by risk %</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400">Risk %</span>
+                          <Input
+                            defaultValue={c.riskPercent ?? 1}
+                            key={`risk-${c.id}-${c.riskPercent}`}
+                            onBlur={(e) => updateConn.mutate({ id: c.id, patch: { riskPercent: Number(e.target.value), useRiskPercent: true } })}
+                            className="bg-gray-800 border-gray-700 h-7 w-16 text-sm"
+                          />
+                          <button
+                            onClick={() => updateConn.mutate({ id: c.id, patch: { autoTradeEnabled: !c.autoTradeEnabled } })}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.autoTradeEnabled ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
+                          >
+                            {c.autoTradeEnabled ? "AUTO-TRADE ON" : "AUTO-TRADE OFF"}
+                          </button>
+                        </div>
+                      </div>
                       {c.accounts && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">users/self: {JSON.stringify(c.accounts, null, 2).slice(0, 1000)}</pre>}
                       {c.metrics && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">{JSON.stringify(c.metrics, null, 2).slice(0, 800)}</pre>}
                       {c.portfolio && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2">{JSON.stringify(c.portfolio, null, 2).slice(0, 1200)}</pre>}
