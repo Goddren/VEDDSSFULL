@@ -247,40 +247,48 @@ async function scrapeNewsRSS(theme: string, pairSymbols: string[] = []): Promise
   return headlines.slice(0, 10);
 }
 
-// OpenRouter (free DeepSeek tier) is now the app-wide default primary — cheapest
-// option, matching the same default used by every engine's universal AI client
-// in openai.ts. OpenAI is the failover, only used if OpenRouter errors or no
-// OPENROUTER_API_KEY is configured at all.
+// Resilient multi-provider content generation. Tries each configured provider in
+// order and returns the first NON-EMPTY response — treating an empty (but non-
+// erroring) reply as a failure too, so a model that silently returns nothing
+// (a common cause of the old blank content) falls through to the next provider.
+// Only providers whose API key is present are attempted. Returns '' only if every
+// provider fails; callers fall back to default content on ''.
 async function callAI(systemPrompt: string, userPrompt: string): Promise<string> {
   const messages = [
     { role: 'system' as const, content: systemPrompt },
     { role: 'user' as const, content: userPrompt },
   ];
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey) {
+
+  type Attempt = { name: string; apiKey?: string; baseURL?: string; model: string; headers?: Record<string, string> };
+  const attempts: Attempt[] = [
+    // OpenRouter first (cheap), on a reliable model (was gpt-oss-20b, which often
+    // returned empty). gpt-4o-mini via OpenRouter is dependable for this content.
+    { name: 'openrouter/gpt-4o-mini', apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', headers: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' } },
+    // OpenAI direct — most reliable when the key is present.
+    { name: 'openai/gpt-4o-mini', apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o-mini' },
+    // Groq — fast, generous free tier; OpenAI-compatible endpoint.
+    { name: 'groq/gpt-oss-120b', apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b' },
+    // Last resort: OpenAI's stronger model.
+    { name: 'openai/gpt-4o', apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o' },
+  ];
+
+  const errors: string[] = [];
+  for (const a of attempts) {
+    if (!a.apiKey) continue;
     try {
-      const orClient = new OpenAI({
-        apiKey: orKey,
-        baseURL: 'https://openrouter.ai/api/v1',
-        maxRetries: 2,
-        timeout: 90000,
-        defaultHeaders: { 'HTTP-Referer': 'https://veddbuild.com', 'X-Title': 'VEDDBuild' },
-      });
-      const res = await orClient.chat.completions.create({
-        model: 'openai/gpt-oss-20b', messages, temperature: 0.7, max_tokens: 2000,
-      });
-      return res.choices[0]?.message?.content?.trim() ?? '';
+      const client = new OpenAI({ apiKey: a.apiKey, ...(a.baseURL ? { baseURL: a.baseURL } : {}), maxRetries: 2, timeout: 90000, ...(a.headers ? { defaultHeaders: a.headers } : {}) });
+      const res = await client.chat.completions.create({ model: a.model, messages, temperature: 0.7, max_tokens: 2000 });
+      const out = res.choices[0]?.message?.content?.trim() ?? '';
+      if (out) return out; // success — first non-empty wins
+      errors.push(`${a.name}: empty response`);
+      console.warn(`[ambassador-prime] ${a.name} returned empty — trying next provider`);
     } catch (e: any) {
-      console.warn('[ambassador-prime] OpenRouter failed — falling back to OpenAI:', e.message);
+      errors.push(`${a.name}: ${e?.message ?? e}`);
+      console.warn(`[ambassador-prime] ${a.name} failed — trying next provider:`, e?.message ?? e);
     }
   }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-  const client = new OpenAI({ apiKey: apiKey || '', maxRetries: 2, timeout: 90000 });
-  const res = await client.chat.completions.create({
-    model: 'gpt-4o', messages, temperature: 0.7, max_tokens: 2000,
-  });
-  return res.choices[0]?.message?.content?.trim() ?? '';
+  console.error('[ambassador-prime] All content AI providers failed/empty:', errors.join(' | '));
+  return '';
 }
 
 // ── Content generation (Batch 1) ─────────────────────────────────────────────

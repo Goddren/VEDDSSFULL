@@ -45249,36 +45249,34 @@ async function callAI(systemPrompt, userPrompt) {
     { role: "system", content: systemPrompt },
     { role: "user", content: userPrompt }
   ];
-  const orKey = process.env.OPENROUTER_API_KEY;
-  if (orKey) {
+  const attempts = [
+    // OpenRouter first (cheap), on a reliable model (was gpt-oss-20b, which often
+    // returned empty). gpt-4o-mini via OpenRouter is dependable for this content.
+    { name: "openrouter/gpt-4o-mini", apiKey: process.env.OPENROUTER_API_KEY, baseURL: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini", headers: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" } },
+    // OpenAI direct — most reliable when the key is present.
+    { name: "openai/gpt-4o-mini", apiKey: process.env.OPENAI_API_KEY, model: "gpt-4o-mini" },
+    // Groq — fast, generous free tier; OpenAI-compatible endpoint.
+    { name: "groq/gpt-oss-120b", apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b" },
+    // Last resort: OpenAI's stronger model.
+    { name: "openai/gpt-4o", apiKey: process.env.OPENAI_API_KEY, model: "gpt-4o" }
+  ];
+  const errors = [];
+  for (const a of attempts) {
+    if (!a.apiKey) continue;
     try {
-      const orClient = new OpenAI7({
-        apiKey: orKey,
-        baseURL: "https://openrouter.ai/api/v1",
-        maxRetries: 2,
-        timeout: 9e4,
-        defaultHeaders: { "HTTP-Referer": "https://veddbuild.com", "X-Title": "VEDDBuild" }
-      });
-      const res2 = await orClient.chat.completions.create({
-        model: "openai/gpt-oss-20b",
-        messages,
-        temperature: 0.7,
-        max_tokens: 2e3
-      });
-      return res2.choices[0]?.message?.content?.trim() ?? "";
+      const client2 = new OpenAI7({ apiKey: a.apiKey, ...a.baseURL ? { baseURL: a.baseURL } : {}, maxRetries: 2, timeout: 9e4, ...a.headers ? { defaultHeaders: a.headers } : {} });
+      const res = await client2.chat.completions.create({ model: a.model, messages, temperature: 0.7, max_tokens: 2e3 });
+      const out = res.choices[0]?.message?.content?.trim() ?? "";
+      if (out) return out;
+      errors.push(`${a.name}: empty response`);
+      console.warn(`[ambassador-prime] ${a.name} returned empty \u2014 trying next provider`);
     } catch (e) {
-      console.warn("[ambassador-prime] OpenRouter failed \u2014 falling back to OpenAI:", e.message);
+      errors.push(`${a.name}: ${e?.message ?? e}`);
+      console.warn(`[ambassador-prime] ${a.name} failed \u2014 trying next provider:`, e?.message ?? e);
     }
   }
-  const apiKey = process.env.OPENAI_API_KEY;
-  const client2 = new OpenAI7({ apiKey: apiKey || "", maxRetries: 2, timeout: 9e4 });
-  const res = await client2.chat.completions.create({
-    model: "gpt-4o",
-    messages,
-    temperature: 0.7,
-    max_tokens: 2e3
-  });
-  return res.choices[0]?.message?.content?.trim() ?? "";
+  console.error("[ambassador-prime] All content AI providers failed/empty:", errors.join(" | "));
+  return "";
 }
 async function generateBatch1(theme, redditContext, dayOfWeek) {
   const sys = `You are VEDD's daily growth ambassador. VEDD (veddbuild.com) is an AI-powered trading analysis platform. Your job is to generate high-converting social media content that drives traders to sign up.
