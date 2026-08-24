@@ -45926,37 +45926,48 @@ ${REFERRAL_LINK}`;
   }
   const hasTwitterKeys = !!(process.env.TWITTER_API_KEY && process.env.TWITTER_ACCESS_TOKEN);
   const hasLinkedInKey = !!process.env.LINKEDIN_ACCESS_TOKEN;
-  const emailResult = await sendAmbassadorPrimeReport({
-    runDate,
-    dayName,
-    theme,
-    tweetsPosted,
-    linkedinPosts,
-    igCaptionsGenerated,
-    redditInsightsCount,
-    engagementOpportunities,
-    imageGenerated,
-    imageUrl,
-    newsHeadlines,
-    hasTwitterKeys,
-    hasLinkedInKey,
-    tweets: batch1?.tweets ?? [],
-    linkedinPost1: batch2?.linkedinPost1 ?? "",
-    linkedinPost2: batch2?.linkedinPost2 ?? "",
-    igCaptions: [batch2?.igCaption1 ?? "", batch2?.igCaption2 ?? "", batch2?.igCaption3 ?? ""],
-    hooks: { A: batch1?.hookA ?? "", B: batch1?.hookB ?? "", C: batch1?.hookC ?? "" },
-    reelScript: batch1?.reelScript ?? "",
-    storyIdea: batch1?.storyIdea ?? "",
-    bonusContent: batch2?.bonusContent ?? "",
-    communityPrompt: batch1?.communityPrompt ?? "",
-    devotionalPost,
-    knowledgePost,
-    resultsPost,
-    updatePost,
-    completedSteps,
-    skippedSteps,
-    errors
-  });
+  const _txt = (v) => typeof v === "string" ? v.trim() : "";
+  const hasContent = !!(batch1?.tweets?.length || _txt(batch2?.linkedinPost1) || _txt(batch2?.linkedinPost2) || _txt(batch2?.igCaption1) || _txt(batch2?.igCaption2) || _txt(batch2?.igCaption3) || _txt(batch1?.reelScript) || _txt(batch1?.storyIdea) || _txt(batch1?.communityPrompt) || _txt(batch2?.bonusContent) || _txt(devotionalPost) || _txt(knowledgePost) || _txt(resultsPost) || _txt(updatePost));
+  let emailResult;
+  if (!hasContent) {
+    emailResult = { success: false, reason: "no content generated (AI provider likely failed) \u2014 blank report suppressed" };
+    skippedSteps.push("Email Report (no content)");
+    errors.push("Ambassador Prime generated no content this run \u2014 email skipped (check OPENAI_API_KEY / OpenRouter). No blank email sent.");
+    await logStep(runDate, "Email Report", "skipped", "no content generated \u2014 blank email suppressed");
+    console.warn("[ambassador-prime] No content generated \u2014 skipping email to avoid a blank report.");
+  } else {
+    emailResult = await sendAmbassadorPrimeReport({
+      runDate,
+      dayName,
+      theme,
+      tweetsPosted,
+      linkedinPosts,
+      igCaptionsGenerated,
+      redditInsightsCount,
+      engagementOpportunities,
+      imageGenerated,
+      imageUrl,
+      newsHeadlines,
+      hasTwitterKeys,
+      hasLinkedInKey,
+      tweets: batch1?.tweets ?? [],
+      linkedinPost1: batch2?.linkedinPost1 ?? "",
+      linkedinPost2: batch2?.linkedinPost2 ?? "",
+      igCaptions: [batch2?.igCaption1 ?? "", batch2?.igCaption2 ?? "", batch2?.igCaption3 ?? ""],
+      hooks: { A: batch1?.hookA ?? "", B: batch1?.hookB ?? "", C: batch1?.hookC ?? "" },
+      reelScript: batch1?.reelScript ?? "",
+      storyIdea: batch1?.storyIdea ?? "",
+      bonusContent: batch2?.bonusContent ?? "",
+      communityPrompt: batch1?.communityPrompt ?? "",
+      devotionalPost,
+      knowledgePost,
+      resultsPost,
+      updatePost,
+      completedSteps,
+      skippedSteps,
+      errors
+    });
+  }
   if (emailResult.success) {
     await db.update(ambassadorRunSummary).set({ emailSent: true }).where(eq17(ambassadorRunSummary.runDate, runDate));
     completedSteps.push("Email Report");
