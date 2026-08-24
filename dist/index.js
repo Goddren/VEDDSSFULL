@@ -38091,6 +38091,26 @@ var init_dxtrade = __esm({
         const opposite = side === "BUY" ? "SELL" : "BUY";
         return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: "MARKET", positionEffect: "CLOSE" });
       }
+      /** Search tradable instruments (dxsca /instruments/query). Used to discover the
+       *  exact symbol format for this broker (Velotrade). Tries a couple of param
+       *  shapes and returns the raw payload. */
+      async getInstruments(query = "") {
+        const attempts = query ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`] : ["/instruments/query"];
+        let last = "";
+        for (const path17 of attempts) {
+          const res = await this.authed(path17);
+          const text2 = await res.text();
+          if (res.ok) {
+            try {
+              return JSON.parse(text2);
+            } catch {
+              return { raw: text2 };
+            }
+          }
+          last = `${res.status}: ${text2.slice(0, 150)}`;
+        }
+        throw new Error(`DXtrade instruments ${last}`);
+      }
       /** One-shot connectivity check used by the connect/test routes. */
       async verify() {
         try {
@@ -71970,6 +71990,26 @@ Respond with ONLY valid JSON:
       res.json({ ok: true });
     } catch (err) {
       res.status(400).json({ error: err?.message || "delete failed" });
+    }
+  });
+  app2.get("/api/dxtrade/instruments", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const connectionId = Number(req.query.connectionId);
+    const q = String(req.query.q || "");
+    if (!connectionId) return res.status(400).json({ error: "connectionId required" });
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const { rows } = await pool2.query(`SELECT host, username, encrypted_password, domain FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [connectionId, userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const svc = new DxtradeService2(c.host, c.username, decryptApiSecret3(c.encrypted_password), c.domain);
+      await svc.login();
+      const instruments = await svc.getInstruments(q);
+      res.json({ instruments });
+    } catch (err) {
+      res.status(400).json({ error: err?.message || "instrument search failed" });
     }
   });
   app2.post("/api/dxtrade/order", async (req, res) => {

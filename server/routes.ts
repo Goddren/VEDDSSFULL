@@ -19901,6 +19901,28 @@ Respond with ONLY valid JSON:
     }
   });
 
+  // Search tradable DXtrade instruments (to find the exact symbol format).
+  app.get("/api/dxtrade/instruments", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const connectionId = Number(req.query.connectionId);
+    const q = String(req.query.q || '');
+    if (!connectionId) return res.status(400).json({ error: "connectionId required" });
+    try {
+      const { pool } = await import('./db');
+      const { rows } = await pool.query(`SELECT host, username, encrypted_password, domain FROM dxtrade_connections WHERE id=$1 AND user_id=$2 AND is_active=true`, [connectionId, userId]);
+      if (!rows.length) return res.status(404).json({ error: "DXtrade connection not found" });
+      const c = rows[0];
+      const { DxtradeService, decryptApiSecret } = await import('./dxtrade');
+      const svc = new DxtradeService(c.host, c.username, decryptApiSecret(c.encrypted_password), c.domain);
+      await svc.login();
+      const instruments = await svc.getInstruments(q);
+      res.json({ instruments });
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message || 'instrument search failed' });
+    }
+  });
+
   // Manual, confirm-gated DXtrade order — Phase 2a. Proves the dxsca order body
   // works before the SS AI engine auto-executes (Phase 2b). User-initiated only.
   app.post("/api/dxtrade/order", async (req: Request, res: Response) => {

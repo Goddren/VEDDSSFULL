@@ -161,6 +161,23 @@ export class DxtradeService {
     return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE' });
   }
 
+  /** Search tradable instruments (dxsca /instruments/query). Used to discover the
+   *  exact symbol format for this broker (Velotrade). Tries a couple of param
+   *  shapes and returns the raw payload. */
+  async getInstruments(query = ''): Promise<any> {
+    const attempts = query
+      ? [`/instruments/query?text=${encodeURIComponent(query)}`, `/instruments/query?symbol=${encodeURIComponent(query)}`, `/instruments/query?symbols=${encodeURIComponent(query)}`]
+      : ['/instruments/query'];
+    let last = '';
+    for (const path of attempts) {
+      const res = await this.authed(path);
+      const text = await res.text();
+      if (res.ok) { try { return JSON.parse(text); } catch { return { raw: text }; } }
+      last = `${res.status}: ${text.slice(0, 150)}`;
+    }
+    throw new Error(`DXtrade instruments ${last}`);
+  }
+
   /** One-shot connectivity check used by the connect/test routes. */
   async verify(): Promise<{ ok: boolean; accounts?: any; error?: string }> {
     try {

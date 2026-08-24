@@ -17,6 +17,17 @@ export default function DxtradePage() {
   const [order, setOrder] = useState({ instrument: "EUR/USD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "" });
   const [orderConnId, setOrderConnId] = useState<number | null>(null);
   const [orderConfirm, setOrderConfirm] = useState(false);
+  const [instrQuery, setInstrQuery] = useState("");
+  const [instrResult, setInstrResult] = useState<any>(null);
+  const searchInstruments = useMutation({
+    mutationFn: async (connectionId: number) => {
+      const r = await apiRequest("GET", `/api/dxtrade/instruments?connectionId=${connectionId}&q=${encodeURIComponent(instrQuery)}`);
+      if (!r.ok) throw new Error((await r.json()).error || "Search failed");
+      return r.json();
+    },
+    onSuccess: (d) => setInstrResult(d.instruments),
+    onError: (e: any) => toast({ title: "Instrument search failed", description: e.message, variant: "destructive" }),
+  });
 
   const placeOrder = useMutation({
     mutationFn: async (connectionId: number) => {
@@ -110,6 +121,12 @@ export default function DxtradePage() {
                       {/* Manual order ticket (Phase 2a) — validate live order placement */}
                       <div className="mt-3 rounded-lg border border-blue-800/30 bg-black/20 p-3 space-y-2">
                         <p className="text-[11px] font-bold text-blue-300">Place a test order <span className="text-gray-500 font-normal">(live — start tiny)</span></p>
+                        {/* Instrument finder — discover the exact tradable symbol format */}
+                        <div className="flex gap-2">
+                          <Input placeholder="Find symbol (e.g. BTC, EUR)" value={instrQuery} onChange={(e) => setInstrQuery(e.target.value)} className="bg-gray-800 border-gray-700 h-8 text-sm" />
+                          <button onClick={() => { setOrderConnId(c.id); searchInstruments.mutate(c.id); }} disabled={searchInstruments.isPending} className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 shrink-0">{searchInstruments.isPending ? "…" : "Search"}</button>
+                        </div>
+                        {instrResult && orderConnId === c.id && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 max-h-40">{JSON.stringify(instrResult, null, 2).slice(0, 1500)}</pre>}
                         <div className="grid grid-cols-2 gap-2">
                           <Input placeholder="Instrument (EUR/USD)" value={order.instrument} onChange={(e) => setOrder((o) => ({ ...o, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                           <select value={order.side} onChange={(e) => setOrder((o) => ({ ...o, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Buy</option><option value="SELL">Sell</option></select>
