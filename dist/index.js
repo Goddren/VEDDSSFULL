@@ -28666,10 +28666,11 @@ function getDefaultConfig(userId) {
     // 0 = no absolute lot ceiling (balance-scaled cap still applies)
     autoFlattenOnBreach: false,
     // opt-in — also CLOSE open positions when a breaker trips
-    reversalExitEnabled: true,
-    // deterministic exit on a strong trend reversal (DI cross + ADX)
-    reversalSensitivity: 3,
-    // balanced: 3 of 5 reversal confluences required
+    reversalExitEnabled: false,
+    // OFF by default — it was closing winners too early on
+    // routine trend noise. Opt-in via the weekly-strategy toggle.
+    reversalSensitivity: 4,
+    // if opted in, default to conservative (4 of 5) not 3
     dailyProfitTarget: 0,
     maxDailyTrades: 0,
     challengeSessionFilterEnabled: false,
@@ -29549,7 +29550,7 @@ async function applyServerSideTrails(userId, openPositions, marketAnalysis) {
       };
     }
     const ts = state.positionTrailState[key];
-    if (config.reversalExitEnabled !== false) {
+    if (config.reversalExitEnabled === true) {
       const _sym = marketAnalysis[pos.symbol?.replace("/", "")] || marketAnalysis[pos.symbol] || {};
       const _adx = _sym.adx?.value ?? _sym.adx ?? 0;
       const _plus = _sym.plusDI ?? 0, _minus = _sym.minusDI ?? 0;
