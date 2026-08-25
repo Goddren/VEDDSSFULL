@@ -21093,16 +21093,24 @@ var init_alpaca = __esm({
         return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v, vw: b.vw ?? b.c, n: b.n ?? 0 }));
       }
       async getOptionsChain(underlyingSymbol) {
-        const response = await this.request(
-          `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?limit=200`,
-          { method: "GET" }
-        );
-        if (!response.ok) {
-          const text2 = await response.text();
-          throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
+        const snapshots = {};
+        let pageToken;
+        for (let page = 0; page < 24; page++) {
+          const qs = `limit=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ""}`;
+          const response = await this.request(
+            `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?${qs}`,
+            { method: "GET" }
+          );
+          if (!response.ok) {
+            const text2 = await response.text();
+            if (page > 0) break;
+            throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text2}`);
+          }
+          const data = await response.json();
+          Object.assign(snapshots, data.snapshots || {});
+          pageToken = data.next_page_token || void 0;
+          if (!pageToken) break;
         }
-        const data = await response.json();
-        const snapshots = data.snapshots || {};
         return Object.entries(snapshots).map(([symbol, snap]) => {
           const parsed = parseOccSymbol(symbol, underlyingSymbol);
           return {
@@ -50026,8 +50034,8 @@ async function monitorOpenPositions(service, userId, cfg, connectionId) {
       if (!exitReason) continue;
       const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: "sell", quantity: trade.quantity, type: "limit", limitPrice: exitLimitPrice, timeInForce: "day" });
-      const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
-      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      const realizedPnl = (exitLimitPrice - trade.entryPrice) * 100 * trade.quantity;
+      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: exitLimitPrice, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
       try {
         const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
         await recordRealizedPnl2(userId, connectionId, "alpaca", realizedPnl);
@@ -68754,7 +68762,23 @@ Rules:
       "smartSymbolEscalation",
       "highConfidenceOverride",
       "enableCompositeAutonomous",
-      "compositeMinEdgeScore"
+      "compositeMinEdgeScore",
+      // Credit-spread / premium-selling mode (were missing → whole mode couldn't
+      // be enabled or tuned from the UI) + liquidity gates.
+      "creditSpreadEnabled",
+      "creditSpreadShortDelta",
+      "creditSpreadWidthDollars",
+      "creditSpreadDte",
+      "creditSpreadDteMin",
+      "creditSpreadDteMax",
+      "creditSpreadMinIv",
+      "creditSpreadProfitTakePct",
+      "creditSpreadStopMultiple",
+      "creditSpreadRiskPct",
+      "creditSpreadMinCreditPct",
+      "creditSpreadMinIvRank",
+      "maxSpreadPct",
+      "minOpenInterest"
     ];
     const updateData = {};
     for (const key of allowed) {

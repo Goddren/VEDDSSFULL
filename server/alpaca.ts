@@ -233,16 +233,29 @@ export class AlpacaService {
   }
 
   async getOptionsChain(underlyingSymbol: string): Promise<AlpacaOptionContract[]> {
-    const response = await this.request(
-      `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?limit=200`,
-      { method: 'GET' },
-    );
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text}`);
+    // Alpaca pages the snapshots endpoint at 100/page. A bare limit=200 returned
+    // only the first slice, so for liquid names (SPY/QQQ/NVDA) the needed DTE/
+    // strike neighborhood often wasn't in the response → valid trades silently
+    // skipped as "no contract cleared the filter". Follow next_page_token, bounded
+    // to keep memory sane (≈2400 contracts spans well past the engine's DTE bands).
+    const snapshots: Record<string, any> = {};
+    let pageToken: string | undefined;
+    for (let page = 0; page < 24; page++) {
+      const qs = `limit=100${pageToken ? `&page_token=${encodeURIComponent(pageToken)}` : ''}`;
+      const response = await this.request(
+        `${this.dataUrl}/v1beta1/options/snapshots/${encodeURIComponent(underlyingSymbol)}?${qs}`,
+        { method: 'GET' },
+      );
+      if (!response.ok) {
+        const text = await response.text();
+        if (page > 0) break; // keep what we already gathered on a mid-pagination error
+        throw new Error(`Alpaca options chain fetch failed: ${response.status} - ${text}`);
+      }
+      const data = await response.json();
+      Object.assign(snapshots, data.snapshots || {});
+      pageToken = data.next_page_token || undefined;
+      if (!pageToken) break;
     }
-    const data = await response.json();
-    const snapshots = data.snapshots || {};
     return Object.entries(snapshots).map(([symbol, snap]: [string, any]) => {
       const parsed = parseOccSymbol(symbol, underlyingSymbol);
       return {

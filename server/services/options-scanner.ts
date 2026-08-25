@@ -1325,8 +1325,11 @@ async function monitorOpenPositions(service: AlpacaService, userId: number, cfg:
       // market order which accepts whatever fill the exchange gives it.
       const exitLimitPrice = quote.bid > 0 ? quote.bid : quote.mid;
       const closeOrder = await service.placeOrder({ optionSymbol: trade.optionSymbol, side: 'sell', quantity: trade.quantity, type: 'limit', limitPrice: exitLimitPrice, timeInForce: 'day' });
-      const realizedPnl = (quote.mid - trade.entryPrice) * 100 * trade.quantity;
-      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: quote.mid, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
+      // Book P&L off the actual exit price (the bid we limit at), NOT the mid —
+      // the fill lands at ~bid, so mid over-stated every close by ~half the
+      // spread and biased the brain/Kelly learning loop upward.
+      const realizedPnl = (exitLimitPrice - trade.entryPrice) * 100 * trade.quantity;
+      await storage.closeOptionsEngineTrade(trade.id, { exitPrice: exitLimitPrice, exitOrderId: closeOrder.orderId, exitReason, realizedPnl });
       // Feed the shared prop-firm consistency ledger unconditionally — cheap
       // no-op for accounts that aren't marked prop-firm (nothing reads
       // prop_firm_daily_pnl unless getPropFirmAccountState finds a row for

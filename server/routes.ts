@@ -16058,6 +16058,13 @@ Rules:
       'weeklyProfitTargetIsPercent',
       'tradingDaysOfWeek', 'symbolDaySchedule', 'symbolDirectionOverrides', 'symbolContractOverrides',
       'smartSymbolEscalation', 'highConfidenceOverride', 'enableCompositeAutonomous', 'compositeMinEdgeScore',
+      // Credit-spread / premium-selling mode (were missing → whole mode couldn't
+      // be enabled or tuned from the UI) + liquidity gates.
+      'creditSpreadEnabled', 'creditSpreadShortDelta', 'creditSpreadWidthDollars',
+      'creditSpreadDte', 'creditSpreadDteMin', 'creditSpreadDteMax', 'creditSpreadMinIv',
+      'creditSpreadProfitTakePct', 'creditSpreadStopMultiple', 'creditSpreadRiskPct',
+      'creditSpreadMinCreditPct', 'creditSpreadMinIvRank',
+      'maxSpreadPct', 'minOpenInterest',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {
