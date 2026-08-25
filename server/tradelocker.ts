@@ -1304,8 +1304,19 @@ export class TradeLockerService {
       if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1000) continue;
       const direction = entry.side; // 'buy' or 'sell'
       const priceDiff = direction === 'buy' ? (exit.avgPrice - entry.avgPrice) : (entry.avgPrice - exit.avgPrice);
-      const multiplier = TradeLockerService.instrumentMultiplier(entry.symbol);
-      const profit = priceDiff * entry.qty * multiplier;
+      // P&L conversion. For USD-quoted pairs (EURUSD…) profit is already in USD:
+      //   priceDiff × units (units = qty × 100k/lot). For JPY-QUOTED pairs the raw
+      //   priceDiff×units is in JPY and must be divided by the USD/JPY exit rate to
+      //   get USD — the old fixed ×1000 multiplier baked in USD/JPY=100, which
+      //   overstated every JPY trade by rate/100 (~1.6× at USD/JPY≈158). For
+      //   USDJPY the exit price IS the USD/JPY rate (exact); for cross-JPY pairs
+      //   it's a close proxy.
+      let profit: number;
+      if (entry.symbol.toUpperCase().includes('JPY') && exit.avgPrice > 0) {
+        profit = (priceDiff * entry.qty * 100000) / exit.avgPrice;
+      } else {
+        profit = priceDiff * entry.qty * TradeLockerService.instrumentMultiplier(entry.symbol);
+      }
       closed.push({
         id: exit.id, positionId, symbol: entry.symbol, side: direction,
         qty: entry.qty, profit, openPrice: entry.avgPrice, closePrice: exit.avgPrice,

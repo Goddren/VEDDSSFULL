@@ -18435,8 +18435,12 @@ var init_tradelocker = __esm({
           if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1e3) continue;
           const direction = entry.side;
           const priceDiff = direction === "buy" ? exit.avgPrice - entry.avgPrice : entry.avgPrice - exit.avgPrice;
-          const multiplier = _TradeLockerService.instrumentMultiplier(entry.symbol);
-          const profit = priceDiff * entry.qty * multiplier;
+          let profit;
+          if (entry.symbol.toUpperCase().includes("JPY") && exit.avgPrice > 0) {
+            profit = priceDiff * entry.qty * 1e5 / exit.avgPrice;
+          } else {
+            profit = priceDiff * entry.qty * _TradeLockerService.instrumentMultiplier(entry.symbol);
+          }
           closed.push({
             id: exit.id,
             positionId,
