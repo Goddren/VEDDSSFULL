@@ -360,6 +360,7 @@ const Header: React.FC = () => {
       { name: 'Dashboard', path: '/dashboard', Icon: LayoutDashboard, color: '#ef4444' },
       { name: 'Player HUD', path: '/vault', Icon: Rocket, color: '#f5c451' },
       { name: 'AI SS Engine (FX)', path: '/weekly-strategy', Icon: Rocket, color: '#ef4444' },
+      { name: 'Presentation Hub', path: '/ambassador/present', Icon: Rocket, color: '#FF3B34' },
       { name: 'DXtrade (Velotrade)', path: '/dxtrade', Icon: Cable, color: '#3b82f6' },
       { name: 'Options Engine', path: '/options-engine', Icon: TrendingUp, color: '#22c55e' },
       { name: 'ORB Breakout', path: '/orb-breakout', Icon: Target, color: '#22c55e' },
