@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Play, X, ChevronLeft, ChevronRight, BookOpen, Share2, Video } from "lucide-react";
+import { ArrowLeft, Play, X, ChevronLeft, ChevronRight, BookOpen, Share2, Video, Circle, Square } from "lucide-react";
 import logoImage from "@/assets/IMG_3645.png";
 
 // VEDD brand tokens (from the landing "vault terminal" look)
@@ -91,10 +91,59 @@ export default function AmbassadorPresentPage() {
   const [idx, setIdx] = useState(0);
   const [presenting, setPresenting] = useState(false);
   const [showNotes, setShowNotes] = useState(true);
+  const [recording, setRecording] = useState(false);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
 
   const openDeck = (d: Deck) => { setDeck(d); setIdx(0); setPresenting(false); };
   const next = () => setIdx((i) => Math.min((deck?.slides.length ?? 1) - 1, i + 1));
   const prev = () => setIdx((i) => Math.max(0, i - 1));
+
+  const enterPresent = () => {
+    setPresenting(true);
+    // Real fullscreen so the phone's browser chrome hides and a native screen
+    // recording captures a clean, correctly-sized deck. Best-effort (some browsers
+    // reject without a user gesture / on iOS Safari — the dvh layout still fits).
+    setTimeout(() => { stageRef.current?.requestFullscreen?.().catch(() => {}); }, 50);
+  };
+  const exitPresent = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    setPresenting(false);
+  };
+
+  // In-app screen recording (desktop / anywhere getDisplayMedia is supported).
+  // On phones browsers can't screen-record — we tell the user to use the device's
+  // built-in recorder, which now captures cleanly because Present is fullscreen.
+  const toggleRecord = async () => {
+    if (recording) { recRef.current?.stop(); return; }
+    const md: any = navigator.mediaDevices;
+    if (!md?.getDisplayMedia) {
+      alert("To record on your phone: use your device's built-in screen recorder (iPhone: Control Center ● ; Android: Quick Settings → Screen record). The deck is fullscreen, so it'll capture clean. Then go Live or post the clip to TikTok/IG.");
+      return;
+    }
+    try {
+      const stream: MediaStream = await md.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm" });
+      mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `VEDD-presentation-${Date.now()}.webm`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        setRecording(false);
+      };
+      // If the user stops sharing from the browser UI, reflect it.
+      stream.getVideoTracks()[0].addEventListener("ended", () => { try { mr.stop(); } catch { /* noop */ } });
+      recRef.current = mr;
+      mr.start();
+      setRecording(true);
+    } catch { /* user cancelled the picker */ }
+  };
 
   // Keyboard arrows in present mode (for Zoom/desktop)
   useEffect(() => {
@@ -102,7 +151,7 @@ export default function AmbassadorPresentPage() {
     const h = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight" || e.key === " ") next();
       else if (e.key === "ArrowLeft") prev();
-      else if (e.key === "Escape") setPresenting(false);
+      else if (e.key === "Escape") exitPresent();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -112,29 +161,34 @@ export default function AmbassadorPresentPage() {
   if (deck && presenting) {
     const s = deck.slides[idx];
     return (
-      <div className="fixed inset-0 z-50 bg-black text-white flex flex-col" style={{ background: `radial-gradient(circle at 30% 0%, ${deck.accent}22, #000 60%)` }}>
-        <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-400">
-          <span className="flex items-center gap-2"><img src={logoImage} alt="VEDD" className="h-5 w-auto" /> <span className="hidden sm:inline">{deck.name}</span></span>
-          <span>{idx + 1} / {deck.slides.length}</span>
-          <button onClick={() => setPresenting(false)} className="flex items-center gap-1 text-gray-300 hover:text-white"><X className="w-4 h-4" /> Exit</button>
+      <div ref={stageRef} className="fixed inset-0 z-[70] text-white flex flex-col overflow-hidden" style={{ height: "100dvh", background: `radial-gradient(circle at 30% 0%, ${deck.accent}22, #000 60%)` }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-gray-400 shrink-0">
+          <span className="flex items-center gap-2 min-w-0"><img src={logoImage} alt="VEDD" className="h-5 w-auto shrink-0" /> <span className="hidden sm:inline truncate">{deck.name}</span></span>
+          <span className="shrink-0">{idx + 1} / {deck.slides.length}</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={toggleRecord} className={`flex items-center gap-1 px-2 py-1 rounded-lg ${recording ? "bg-red-600 text-white animate-pulse" : "bg-white/10 text-gray-200"}`}>
+              {recording ? <><Square className="w-3.5 h-3.5" /> Stop</> : <><Circle className="w-3.5 h-3.5 fill-current" /> Record</>}
+            </button>
+            <button onClick={exitPresent} className="flex items-center gap-1 text-gray-300 hover:text-white"><X className="w-4 h-4" /> Exit</button>
+          </div>
         </div>
-        <div className="flex-1 flex flex-col justify-center px-6 sm:px-16 max-w-4xl mx-auto w-full" onClick={next}>
-          <h1 className="text-3xl sm:text-5xl font-extrabold mb-6 sm:mb-10 leading-tight" style={{ color: deck.accent }}>{s.title}</h1>
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col justify-center px-6 sm:px-16 max-w-4xl mx-auto w-full py-4" onClick={next}>
+          <h1 className="text-2xl sm:text-5xl font-extrabold mb-5 sm:mb-10 leading-tight" style={{ color: deck.accent }}>{s.title}</h1>
           <ul className="space-y-3 sm:space-y-5">
             {s.bullets.map((b, i) => (
-              <li key={i} className="flex items-start gap-3 text-lg sm:text-2xl font-medium">
-                <span className="mt-1 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: deck.accent }} />{b}
+              <li key={i} className="flex items-start gap-3 text-base sm:text-2xl font-medium">
+                <span className="mt-1.5 w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0" style={{ background: deck.accent }} />{b}
               </li>
             ))}
           </ul>
         </div>
         {showNotes && (
-          <div className="border-t border-white/10 bg-black/60 px-5 py-3 max-h-[32%] overflow-y-auto">
+          <div className="shrink-0 border-t border-white/10 bg-black/60 px-5 py-3 max-h-[32%] overflow-y-auto">
             <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1 flex items-center gap-1"><BookOpen className="w-3 h-3" /> Say this</p>
             <p className="text-sm text-gray-200 leading-relaxed">{s.notes}</p>
           </div>
         )}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-white/10">
+        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-t border-white/10" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
           <button onClick={prev} disabled={idx === 0} className="flex items-center gap-1 text-sm px-3 py-2 rounded-lg bg-white/10 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /> Back</button>
           <button onClick={() => setShowNotes((v) => !v)} className="text-xs text-gray-400 hover:text-white">{showNotes ? "Hide notes" : "Show notes"}</button>
           <button onClick={next} disabled={idx === deck.slides.length - 1} className="flex items-center gap-1 text-sm px-3 py-2 rounded-lg text-black font-bold disabled:opacity-40" style={{ background: deck.accent }}>Next <ChevronRight className="w-4 h-4" /></button>
@@ -156,7 +210,7 @@ export default function AmbassadorPresentPage() {
               <h1 className="text-xl font-bold">{deck.name}</h1>
               <p className="text-xs text-gray-500">{deck.slides.length} slides · ~{deck.minutes} min · swipe or tap Present</p>
             </div>
-            <button onClick={() => setPresenting(true)} className="flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-lg text-black shrink-0" style={{ background: deck.accent }}><Play className="w-4 h-4" /> Present</button>
+            <button onClick={enterPresent} className="flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-lg text-black shrink-0" style={{ background: deck.accent }}><Play className="w-4 h-4" /> Present</button>
           </div>
 
           {/* Slide preview */}
