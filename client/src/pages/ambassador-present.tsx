@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Play, X, ChevronLeft, ChevronRight, BookOpen, Presentation, Share2, Video } from "lucide-react";
+import { ArrowLeft, Play, X, ChevronLeft, ChevronRight, BookOpen, Share2, Video } from "lucide-react";
+import logoImage from "@/assets/IMG_3645.png";
+
+// VEDD brand tokens (from the landing "vault terminal" look)
+const VEDD_RED = "#FF3B34";
+const VEDD_GOLD = "#F5C451";
+// Dark vault background with the signature red radial glow, top-right.
+const VAULT_BG = "radial-gradient(520px 440px at 78% 8%, rgba(255,59,52,.14), transparent 70%), radial-gradient(600px 400px at 5% 105%, rgba(245,196,81,.05), transparent 60%), #070707";
 
 // ── Preset decks ─────────────────────────────────────────────────────────────
 // Each slide has a headline + bullets (what the AUDIENCE sees) and `notes` (the
@@ -11,7 +18,7 @@ type Deck = { id: string; name: string; tag: string; minutes: number; accent: st
 
 const DECKS: Deck[] = [
   {
-    id: "overview", name: "VEDD Business Overview", tag: "Start here", minutes: 8, accent: "#ef4444",
+    id: "overview", name: "VEDD Business Overview", tag: "Start here", minutes: 8, accent: VEDD_RED,
     slides: [
       { title: "What is VEDD?", bullets: ["An AI-powered trading vault", "Analyzes the market 24/7 so you don't have to", "Built for real traders, not gamblers"],
         notes: "Open with the problem: most traders lose because they trade emotionally and can't watch charts all day. VEDD is the AI co-pilot that watches for you and only acts on high-confidence setups. Keep it simple — you're selling relief, not software." },
@@ -24,7 +31,7 @@ const DECKS: Deck[] = [
     ],
   },
   {
-    id: "engines", name: "The AI Engines", tag: "The product", minutes: 10, accent: "#22c55e",
+    id: "engines", name: "The AI Engines", tag: "The product", minutes: 10, accent: VEDD_RED,
     slides: [
       { title: "One platform, many engines", bullets: ["FX SS AI Engine", "Options AI Engine", "Futures Engine", "Crypto AI Engine", "DXtrade (Velotrade) FX"],
         notes: "Frame it as 'one brain, many markets.' They don't have to pick — they use the engine that fits their account and broker." },
@@ -39,7 +46,7 @@ const DECKS: Deck[] = [
     ],
   },
   {
-    id: "propfirm", name: "The Prop Firm Path", tag: "Funded trading", minutes: 9, accent: "#f59e0b",
+    id: "propfirm", name: "The Prop Firm Path", tag: "Funded trading", minutes: 9, accent: VEDD_RED,
     slides: [
       { title: "Trade someone else's capital", bullets: ["Pass a challenge → get funded", "Keep the profit split", "No risking your own big capital"],
         notes: "Explain prop firms simply: prove you can trade on a demo/eval, then trade real firm money and split profits. VEDD helps you PASS and STAY funded." },
@@ -52,7 +59,7 @@ const DECKS: Deck[] = [
     ],
   },
   {
-    id: "ambassador", name: "The Ambassador Opportunity", tag: "Earn & duplicate", minutes: 8, accent: "#6366f1",
+    id: "ambassador", name: "The Ambassador Opportunity", tag: "Earn & duplicate", minutes: 8, accent: VEDD_RED,
     slides: [
       { title: "Get paid to share VEDD", bullets: ["Refer traders, earn commissions", "Build a team, earn on duplication", "Tools + training provided"],
         notes: "This deck is for recruiting builders, not just users. Lead with: you're already telling people about tools you love — get paid for it." },
@@ -65,7 +72,7 @@ const DECKS: Deck[] = [
     ],
   },
   {
-    id: "seminar", name: "Run a Live Mobile Seminar", tag: "How-to", minutes: 6, accent: "#06b6d4",
+    id: "seminar", name: "Run a Live Mobile Seminar", tag: "How-to", minutes: 6, accent: VEDD_RED,
     slides: [
       { title: "You can do this from your phone", bullets: ["No studio, no laptop needed", "Present mode is built for mobile", "Read the outline as you go"],
         notes: "Reassure first-timers. Tap Present, go fullscreen, swipe. The outline tells you what to say — you can't get lost." },
@@ -107,7 +114,7 @@ export default function AmbassadorPresentPage() {
     return (
       <div className="fixed inset-0 z-50 bg-black text-white flex flex-col" style={{ background: `radial-gradient(circle at 30% 0%, ${deck.accent}22, #000 60%)` }}>
         <div className="flex items-center justify-between px-4 py-3 text-xs text-gray-400">
-          <span>{deck.name}</span>
+          <span className="flex items-center gap-2"><img src={logoImage} alt="VEDD" className="h-5 w-auto" /> <span className="hidden sm:inline">{deck.name}</span></span>
           <span>{idx + 1} / {deck.slides.length}</span>
           <button onClick={() => setPresenting(false)} className="flex items-center gap-1 text-gray-300 hover:text-white"><X className="w-4 h-4" /> Exit</button>
         </div>
@@ -140,9 +147,10 @@ export default function AmbassadorPresentPage() {
   if (deck) {
     const s = deck.slides[idx];
     return (
-      <div className="min-h-screen bg-black text-white pb-24">
+      <div className="min-h-screen text-white pb-24" style={{ background: VAULT_BG }}>
         <div className="max-w-3xl mx-auto px-4 pt-6">
           <button onClick={() => setDeck(null)} className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-white mb-4"><ArrowLeft className="w-3.5 h-3.5" /> All presentations</button>
+          <img src={logoImage} alt="VEDD" className="h-6 w-auto mb-3 opacity-90" />
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h1 className="text-xl font-bold">{deck.name}</h1>
@@ -180,12 +188,12 @@ export default function AmbassadorPresentPage() {
 
   // ── Hub (deck list) ────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-black text-white pb-24">
+    <div className="min-h-screen text-white pb-24" style={{ background: VAULT_BG }}>
       <div className="max-w-3xl mx-auto px-4 pt-6">
         <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-white mb-4"><ArrowLeft className="w-3.5 h-3.5" /> Back</Link>
         <div className="flex items-center gap-2.5 mb-1">
-          <Presentation className="w-6 h-6 text-red-400" />
-          <h1 className="text-xl font-bold">Ambassador Presentation Hub</h1>
+          <img src={logoImage} alt="VEDD" className="h-7 w-auto" />
+          <h1 className="text-xl font-bold">Presentation Hub</h1>
         </div>
         <p className="text-sm text-gray-500 mb-5">Ready-to-present VEDD decks with speaker outlines. Present live from your phone — Zoom, TikTok/IG Live, or 1-on-1 — and duplicate the pitch.</p>
 
@@ -206,7 +214,7 @@ export default function AmbassadorPresentPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: `${d.accent}22`, color: d.accent }}>{d.tag}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: `${VEDD_GOLD}22`, color: VEDD_GOLD }}>{d.tag}</span>
                     <span className="text-[10px] text-gray-500">{d.slides.length} slides · ~{d.minutes} min</span>
                   </div>
                   <h3 className="text-base font-bold text-white">{d.name}</h3>
