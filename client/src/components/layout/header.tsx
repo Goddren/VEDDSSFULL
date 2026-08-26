@@ -303,6 +303,7 @@ const Header: React.FC = () => {
     { name: 'My Certifications', path: '/certifications', active: location === '/certifications', icon: <Award className="h-4 w-4 mr-2" /> },
     { name: 'Local Outreach', path: '/ambassador/local-outreach', active: location === '/ambassador/local-outreach', icon: <MapPin className="h-4 w-4 mr-2" /> },
     { name: 'Prop Firm Setup Event', path: '/ambassador/propfirm-event', active: location === '/ambassador/propfirm-event', icon: <Rocket className="h-4 w-4 mr-2" /> },
+    { name: 'Presentation Hub', path: '/ambassador/present', active: location === '/ambassador/present', icon: <TrendingUp className="h-4 w-4 mr-2" /> },
     { name: 'Solana Scanner', path: '/solana-scanner', active: location === '/solana-scanner', icon: <Scan className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Tokenomics', path: '/vedd-tokenomics', active: location === '/vedd-tokenomics', icon: <Coins className="h-4 w-4 mr-2" /> },
     { name: 'VEDD Clothing', path: '/vedd-clothing', active: location === '/vedd-clothing', icon: <Shirt className="h-4 w-4 mr-2" /> },
