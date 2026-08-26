@@ -18448,7 +18448,10 @@ var init_tradelocker = __esm({
           const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
           const closingLegs = direction === "buy" ? sells : buys;
           const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
-          if (fromTs && new Date(closeTime).getTime() < fromTs * 1e3) continue;
+          const openMs = new Date(legs[0].closeTime).getTime();
+          const closeMs = new Date(closeTime).getTime();
+          if (isFinite(openMs) && isFinite(closeMs) && closeMs - openMs < 6e4) continue;
+          if (fromTs && closeMs < fromTs * 1e3) continue;
           let profit;
           if (String(legs[0].symbol).toUpperCase().includes("JPY") && exitAvg > 0) {
             profit = priceDiff * closedQty * 1e5 / exitAvg;

@@ -1322,7 +1322,16 @@ export class TradeLockerService {
       const priceDiff = direction === 'buy' ? (exitAvg - openAvg) : (openAvg - exitAvg);
       const closingLegs = direction === 'buy' ? sells : buys;
       const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
-      if (fromTs && new Date(closeTime).getTime() < fromTs * 1000) continue;
+      // GUARD: when a position opens, TradeLocker records its protective SL/TP as
+      // opposite-side orders under the SAME positionId within seconds — so a still-
+      // OPEN trade has a buy+sell pair that the offset check alone treats as closed
+      // (the phantom close: closeTime ≈ openTime). A real SS-AI trade is held far
+      // longer than this. If the "close" is within 60s of the open, it's the
+      // protective-order artifact, not a close — skip (leave the position open).
+      const openMs = new Date(legs[0].closeTime).getTime();
+      const closeMs = new Date(closeTime).getTime();
+      if (isFinite(openMs) && isFinite(closeMs) && (closeMs - openMs) < 60_000) continue;
+      if (fromTs && closeMs < fromTs * 1000) continue;
 
       // P&L conversion (see JPY note): USD-quoted pairs are already USD; JPY-quoted
       // divide by the USD/JPY exit rate. exitAvg for a long is the sell (close) avg.
