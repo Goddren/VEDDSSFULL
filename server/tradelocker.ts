@@ -1297,30 +1297,45 @@ export class TradeLockerService {
     }
     const closed: any[] = [];
     for (const [positionId, legs] of Array.from(byPosition)) {
-      if (legs.length < 2) continue; // only one fill recorded = still open, not a closed trade
+      if (legs.length < 2) continue; // only one fill recorded = still open
       legs.sort((a: any, b: any) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
-      const entry = legs[0];
-      const exit = legs[legs.length - 1];
-      if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1000) continue;
-      const direction = entry.side; // 'buy' or 'sell'
-      const priceDiff = direction === 'buy' ? (exit.avgPrice - entry.avgPrice) : (entry.avgPrice - exit.avgPrice);
-      // P&L conversion. For USD-quoted pairs (EURUSD…) profit is already in USD:
-      //   priceDiff × units (units = qty × 100k/lot). For JPY-QUOTED pairs the raw
-      //   priceDiff×units is in JPY and must be divided by the USD/JPY exit rate to
-      //   get USD — the old fixed ×1000 multiplier baked in USD/JPY=100, which
-      //   overstated every JPY trade by rate/100 (~1.6× at USD/JPY≈158). For
-      //   USDJPY the exit price IS the USD/JPY rate (exact); for cross-JPY pairs
-      //   it's a close proxy.
+
+      // A position is only CLOSED when its fills OFFSET — i.e. there are both buy
+      // AND sell fills that net the size back toward flat. Previously ANY position
+      // with ≥2 fills was treated as closed and legs[0] vs legs[last] were paired
+      // regardless of side, so two same-side PARTIAL ENTRY fills (or entry+modify)
+      // were mis-read as an open+close → a still-open position got booked as a
+      // (usually tiny) LOSS. Require genuine offset before booking a close.
+      const buys = legs.filter((l: any) => String(l.side).toLowerCase() === 'buy');
+      const sells = legs.filter((l: any) => String(l.side).toLowerCase() === 'sell');
+      if (buys.length === 0 || sells.length === 0) continue; // one-directional = still open
+      const sumQty = (arr: any[]) => arr.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+      const wAvg = (arr: any[]) => { const q = sumQty(arr); return q > 0 ? arr.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0; };
+      const buyQty = sumQty(buys), sellQty = sumQty(sells);
+      const closedQty = Math.min(buyQty, sellQty);
+      if (!(closedQty > 0)) continue;
+
+      const direction = String(legs[0].side).toLowerCase(); // opening side = earliest fill
+      const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
+      const openAvg = direction === 'buy' ? buyAvg : sellAvg;
+      const exitAvg = direction === 'buy' ? sellAvg : buyAvg;
+      const priceDiff = direction === 'buy' ? (exitAvg - openAvg) : (openAvg - exitAvg);
+      const closingLegs = direction === 'buy' ? sells : buys;
+      const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
+      if (fromTs && new Date(closeTime).getTime() < fromTs * 1000) continue;
+
+      // P&L conversion (see JPY note): USD-quoted pairs are already USD; JPY-quoted
+      // divide by the USD/JPY exit rate. exitAvg for a long is the sell (close) avg.
       let profit: number;
-      if (entry.symbol.toUpperCase().includes('JPY') && exit.avgPrice > 0) {
-        profit = (priceDiff * entry.qty * 100000) / exit.avgPrice;
+      if (String(legs[0].symbol).toUpperCase().includes('JPY') && exitAvg > 0) {
+        profit = (priceDiff * closedQty * 100000) / exitAvg;
       } else {
-        profit = priceDiff * entry.qty * TradeLockerService.instrumentMultiplier(entry.symbol);
+        profit = priceDiff * closedQty * TradeLockerService.instrumentMultiplier(legs[0].symbol);
       }
       closed.push({
-        id: exit.id, positionId, symbol: entry.symbol, side: direction,
-        qty: entry.qty, profit, openPrice: entry.avgPrice, closePrice: exit.avgPrice,
-        openTime: entry.closeTime, closeTime: exit.closeTime,
+        id: legs[legs.length - 1].id, positionId, symbol: legs[0].symbol, side: direction,
+        qty: closedQty, profit, openPrice: openAvg, closePrice: exitAvg,
+        openTime: legs[0].closeTime, closeTime,
       });
     }
     return closed;

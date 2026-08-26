@@ -18430,28 +18430,42 @@ var init_tradelocker = __esm({
         for (const [positionId, legs] of Array.from(byPosition)) {
           if (legs.length < 2) continue;
           legs.sort((a, b) => new Date(a.closeTime).getTime() - new Date(b.closeTime).getTime());
-          const entry = legs[0];
-          const exit = legs[legs.length - 1];
-          if (fromTs && new Date(exit.closeTime).getTime() < fromTs * 1e3) continue;
-          const direction = entry.side;
-          const priceDiff = direction === "buy" ? exit.avgPrice - entry.avgPrice : entry.avgPrice - exit.avgPrice;
+          const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
+          const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
+          if (buys.length === 0 || sells.length === 0) continue;
+          const sumQty = (arr) => arr.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const wAvg = (arr) => {
+            const q = sumQty(arr);
+            return q > 0 ? arr.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
+          };
+          const buyQty = sumQty(buys), sellQty = sumQty(sells);
+          const closedQty = Math.min(buyQty, sellQty);
+          if (!(closedQty > 0)) continue;
+          const direction = String(legs[0].side).toLowerCase();
+          const buyAvg = wAvg(buys), sellAvg = wAvg(sells);
+          const openAvg = direction === "buy" ? buyAvg : sellAvg;
+          const exitAvg = direction === "buy" ? sellAvg : buyAvg;
+          const priceDiff = direction === "buy" ? exitAvg - openAvg : openAvg - exitAvg;
+          const closingLegs = direction === "buy" ? sells : buys;
+          const closeTime = closingLegs[closingLegs.length - 1]?.closeTime || legs[legs.length - 1].closeTime;
+          if (fromTs && new Date(closeTime).getTime() < fromTs * 1e3) continue;
           let profit;
-          if (entry.symbol.toUpperCase().includes("JPY") && exit.avgPrice > 0) {
-            profit = priceDiff * entry.qty * 1e5 / exit.avgPrice;
+          if (String(legs[0].symbol).toUpperCase().includes("JPY") && exitAvg > 0) {
+            profit = priceDiff * closedQty * 1e5 / exitAvg;
           } else {
-            profit = priceDiff * entry.qty * _TradeLockerService.instrumentMultiplier(entry.symbol);
+            profit = priceDiff * closedQty * _TradeLockerService.instrumentMultiplier(legs[0].symbol);
           }
           closed.push({
-            id: exit.id,
+            id: legs[legs.length - 1].id,
             positionId,
-            symbol: entry.symbol,
+            symbol: legs[0].symbol,
             side: direction,
-            qty: entry.qty,
+            qty: closedQty,
             profit,
-            openPrice: entry.avgPrice,
-            closePrice: exit.avgPrice,
-            openTime: entry.closeTime,
-            closeTime: exit.closeTime
+            openPrice: openAvg,
+            closePrice: exitAvg,
+            openTime: legs[0].closeTime,
+            closeTime
           });
         }
         return closed;
