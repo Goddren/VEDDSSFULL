@@ -6,7 +6,6 @@ import logoImage from "@/assets/IMG_3645.png";
 // VEDD brand tokens (from the landing "vault terminal" look)
 const VEDD_RED = "#FF3B34";
 const VEDD_GOLD = "#F5C451";
-const VEDD_GREEN = "#00C805";
 // Dark vault background with the signature red radial glow, top-right.
 const VAULT_BG = "radial-gradient(520px 440px at 78% 8%, rgba(255,59,52,.14), transparent 70%), radial-gradient(600px 400px at 5% 105%, rgba(245,196,81,.05), transparent 60%), #070707";
 
@@ -114,7 +113,7 @@ const PITCH_DECKS: Deck[] = [
 // the user exactly what to do, and the link drops them on the exact screen.
 const SETUP_DECKS: Deck[] = [
   {
-    id: "faststart", name: "New User Fast Start", tag: "Do this first", minutes: 15, accent: VEDD_GREEN, kind: "setup",
+    id: "faststart", name: "New User Fast Start", tag: "Do this first", minutes: 15, accent: VEDD_GOLD, kind: "setup",
     summary: "The full 15-minute path from sign-up to your first AI-managed trade.",
     slides: [
       { title: "Welcome — here's the plan", bullets: ["We'll set you up in ~15 minutes", "Connect a broker → turn on an engine → let AI trade", "Follow each step; tap the button to jump there"],
@@ -144,7 +143,7 @@ const SETUP_DECKS: Deck[] = [
     ],
   },
   {
-    id: "setup-fx", name: "Connect an FX Broker", tag: "FX setup", minutes: 8, accent: VEDD_GREEN, kind: "setup",
+    id: "setup-fx", name: "Connect an FX Broker", tag: "FX setup", minutes: 8, accent: VEDD_GOLD, kind: "setup",
     summary: "MT5, TradeLocker, or DXtrade (Velotrade) — connect and enable trading.",
     slides: [
       { title: "Which broker do you have?", bullets: ["MetaTrader 5 (MT5)", "TradeLocker", "DXtrade — broker: Velotrade"],
@@ -165,7 +164,7 @@ const SETUP_DECKS: Deck[] = [
     ],
   },
   {
-    id: "setup-options", name: "Set Up Options & Futures", tag: "More markets", minutes: 7, accent: VEDD_GREEN, kind: "setup",
+    id: "setup-options", name: "Set Up Options & Futures", tag: "More markets", minutes: 7, accent: VEDD_GOLD, kind: "setup",
     summary: "Add the Options AI engine (Alpaca) and the Futures engine.",
     slides: [
       { title: "Options AI Engine", bullets: ["Credit spreads + premium selling", "Runs on your Alpaca account", "AI-confirmed, risk-managed"],
@@ -183,7 +182,7 @@ const SETUP_DECKS: Deck[] = [
     ],
   },
   {
-    id: "setup-crypto", name: "Set Up Crypto (CeFi + DeFi)", tag: "Crypto setup", minutes: 6, accent: VEDD_GREEN, kind: "setup",
+    id: "setup-crypto", name: "Set Up Crypto (CeFi + DeFi)", tag: "Crypto setup", minutes: 6, accent: VEDD_GOLD, kind: "setup",
     summary: "Connect an exchange or a DeFi hot wallet and turn on the crypto brain.",
     slides: [
       { title: "Open the Crypto AI Engine", bullets: ["Reasons like the FX SS AI", "CeFi exchanges or on-chain DeFi", "Self-learning crypto brain"],
@@ -201,7 +200,7 @@ const SETUP_DECKS: Deck[] = [
     ],
   },
   {
-    id: "setup-earn", name: "Start Earning as an Ambassador", tag: "Earn setup", minutes: 6, accent: VEDD_GREEN, kind: "setup",
+    id: "setup-earn", name: "Start Earning as an Ambassador", tag: "Earn setup", minutes: 6, accent: VEDD_GOLD, kind: "setup",
     summary: "Grab your link, learn the pitch, and book your first live seminar.",
     slides: [
       { title: "Get your referral link", bullets: ["Your unique share link", "Track clicks + signups", "Share it everywhere"],
@@ -438,8 +437,8 @@ export default function AmbassadorPresentPage() {
 
         {/* Setup walkthroughs — get a new user going */}
         <div className="flex items-center gap-2 mb-2">
-          <Rocket className="w-4 h-4" style={{ color: VEDD_GREEN }} />
-          <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: VEDD_GREEN }}>Setup Walkthroughs</h2>
+          <Rocket className="w-4 h-4" style={{ color: VEDD_GOLD }} />
+          <h2 className="text-sm font-bold uppercase tracking-wide" style={{ color: VEDD_GOLD }}>Setup Walkthroughs</h2>
         </div>
         <p className="text-xs text-gray-500 mb-3">Do-it-with-me guides for new users. Each step drops them on the exact screen.</p>
         <div className="space-y-3 mb-8">
