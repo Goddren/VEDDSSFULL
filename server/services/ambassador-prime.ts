@@ -593,7 +593,7 @@ async function computeWeeklyResultsStats(): Promise<{ totalTrades: number; wins:
         COALESCE((SELECT SUM(profit_loss_pips) FROM ai_trade_results WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL), 0) AS total_pips,
         (SELECT symbol FROM combined GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE is_win) DESC LIMIT 1) AS top_symbol
     `);
-    const row: any = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0] ?? {};
+    const row: any = (Array.isArray(rows) ? rows[0] : (rows as any).rows?.[0]) ?? {};
     const knownOutcomeTrades = parseInt(row.known_outcome_trades) || 0;
     const wins = parseInt(row.wins) || 0;
     const tradelockerOnlyCount = parseInt(row.tradelocker_only_count) || 0;

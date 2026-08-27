@@ -31820,20 +31820,20 @@ async function processDecision(userId, decision, newsCtx) {
     const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
     try {
       const _paperAcctRows = await db.execute(sql8`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const _paperAcct = _paperAcctRows[0]?.[0] ?? _paperAcctRows.rows?.[0];
+      const _paperAcct = Array.isArray(_paperAcctRows) ? _paperAcctRows[0] : _paperAcctRows.rows?.[0];
       if (_paperAcct?.is_enabled) {
         const _paperTradeRows = await db.execute(sql8`
           INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
           VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${rawLotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
           RETURNING id
         `);
-        const _newPaperTradeId = _paperTradeRows[0]?.[0]?.id ?? _paperTradeRows.rows?.[0]?.id;
+        const _newPaperTradeId = (Array.isArray(_paperTradeRows) ? _paperTradeRows[0] : _paperTradeRows.rows?.[0])?.id;
         try {
           const _copiers = await db.execute(sql8`
             SELECT id, copier_id, max_lot_size FROM copy_relationships
             WHERE source_user_id=${userId} AND is_active=true
           `);
-          const _copierList = _copiers[0] ?? _copiers.rows ?? [];
+          const _copierList = Array.isArray(_copiers) ? _copiers : _copiers.rows ?? [];
           for (const rel of _copierList) {
             const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, rawLotSize || 0.01);
             await db.execute(sql8`
@@ -45841,7 +45841,7 @@ async function computeWeeklyResultsStats() {
         COALESCE((SELECT SUM(profit_loss_pips) FROM ai_trade_results WHERE closed_at >= NOW() - INTERVAL '7 days' AND result IS NOT NULL), 0) AS total_pips,
         (SELECT symbol FROM combined GROUP BY symbol ORDER BY COUNT(*) FILTER (WHERE is_win) DESC LIMIT 1) AS top_symbol
     `);
-    const row = rows[0]?.[0] ?? rows.rows?.[0] ?? {};
+    const row = (Array.isArray(rows) ? rows[0] : rows.rows?.[0]) ?? {};
     const knownOutcomeTrades = parseInt(row.known_outcome_trades) || 0;
     const wins = parseInt(row.wins) || 0;
     const tradelockerOnlyCount = parseInt(row.tradelocker_only_count) || 0;
@@ -73165,7 +73165,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const rows = await db.execute(
         sql12`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
-      const row = rows[0]?.[0] ?? rows.rows?.[0];
+      const row = Array.isArray(rows) ? rows[0] : rows.rows?.[0];
       if (!row) return res.json({ value: null, achievedAt: null });
       res.json({ value: parseFloat(row.value ?? 0), achievedAt: row.achieved_at });
     } catch (e) {
@@ -73181,7 +73181,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const rows = await db.execute(
         sql12`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
-      const existing = rows[0]?.[0] ?? rows.rows?.[0];
+      const existing = Array.isArray(rows) ? rows[0] : rows.rows?.[0];
       const currentVal = existing ? parseFloat(existing.value) : null;
       if (currentVal === null || value > currentVal) {
         await db.execute(sql12`
@@ -80770,7 +80770,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         SELECT id, balance, initial_balance, is_enabled, updated_at
         FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
       `);
-      const row = rows[0]?.[0] ?? rows.rows?.[0];
+      const row = Array.isArray(rows) ? rows[0] : rows.rows?.[0];
       if (!row) {
         return res.json({ balance: 1e4, initialBalance: 1e4, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
       }
@@ -80781,7 +80781,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           COALESCE(SUM(pnl) FILTER (WHERE status='closed'), 0) AS total_pnl
         FROM fx_paper_trades WHERE user_id=${userId}
       `);
-      const stats = statsRows[0]?.[0] ?? statsRows.rows?.[0] ?? {};
+      const stats = (Array.isArray(statsRows) ? statsRows[0] : statsRows.rows?.[0]) ?? {};
       res.json({
         balance: parseFloat(row.balance ?? 1e4),
         initialBalance: parseFloat(row.initial_balance ?? 1e4),
@@ -80800,7 +80800,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const { balance, isEnabled } = req.body;
     try {
       const existing = await db.execute(sql12`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const row = existing[0]?.[0] ?? existing.rows?.[0];
+      const row = Array.isArray(existing) ? existing[0] : existing.rows?.[0];
       if (!row) {
         const initBalance = typeof balance === "number" ? balance : 1e4;
         await db.execute(sql12`
@@ -80833,7 +80833,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       } else {
         rows = await db.execute(sql12`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
       }
-      const trades = rows[0] ?? rows.rows ?? [];
+      const trades = Array.isArray(rows) ? rows : rows.rows ?? [];
       res.json(trades);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -81029,7 +81029,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           total_pnl DESC
         LIMIT 50
       `);
-      const traders = rows[0] ?? rows.rows ?? [];
+      const traders = Array.isArray(rows) ? rows : rows.rows ?? [];
       res.json(traders);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -81047,7 +81047,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         WHERE cr.copier_id = ${userId}
         ORDER BY cr.created_at DESC
       `);
-      const rels = rows[0] ?? rows.rows ?? [];
+      const rels = Array.isArray(rows) ? rows : rows.rows ?? [];
       res.json(rels);
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -81105,7 +81105,9 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     const { maxLotSize, accountType, copierConnectionId } = req.body;
     try {
       if (accountType === "real") {
-        const targetConnId = copierConnectionId ?? (await db.execute(sql12`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`))[0]?.[0]?.copier_connection_id;
+        const _connRows = await db.execute(sql12`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`);
+        const _connRow = Array.isArray(_connRows) ? _connRows[0] : _connRows.rows?.[0];
+        const targetConnId = copierConnectionId ?? _connRow?.copier_connection_id;
         if (!targetConnId) return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
         const conn = await storage.getTradelockerConnection(targetConnId);
         if (!conn || conn.userId !== userId || !conn.isActive) {
@@ -81148,7 +81150,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
                COUNT(*) FILTER (WHERE profit_share_vedd > 0) AS trades_earned
         FROM copy_trade_logs WHERE source_user_id=${userId} AND status='closed'
       `);
-      const earned = (earnedRows[0]?.[0] ?? earnedRows.rows?.[0]) || {};
+      const earned = (Array.isArray(earnedRows) ? earnedRows[0] : earnedRows.rows?.[0]) || {};
       res.json({
         veddBalance: wallet?.veddBalance ?? 0,
         totalEarned: wallet?.totalEarned ?? 0,
@@ -81173,7 +81175,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         ORDER BY ctl.opened_at DESC
         LIMIT 200
       `);
-      const trades = rows[0] ?? rows.rows ?? [];
+      const trades = Array.isArray(rows) ? rows : rows.rows ?? [];
       res.json(trades);
     } catch (e) {
       res.status(500).json({ error: e.message });

@@ -4747,14 +4747,14 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     // during a losing session, so this wasn't a rare edge case).
     try {
       const _paperAcctRows = await db.execute(sql`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const _paperAcct = (_paperAcctRows as any)[0]?.[0] ?? (_paperAcctRows as any).rows?.[0];
+      const _paperAcct = (Array.isArray(_paperAcctRows) ? _paperAcctRows[0] : (_paperAcctRows as any).rows?.[0]);
       if (_paperAcct?.is_enabled) {
         const _paperTradeRows = await db.execute(sql`
           INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, confidence, source, status, opened_at)
           VALUES (${userId}, ${decision.symbol}, ${decision.direction}, ${entryPrice || 0}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${rawLotSize}, ${adjustedConfidence}, 'ss_engine', 'open', now())
           RETURNING id
         `);
-        const _newPaperTradeId = (_paperTradeRows as any)[0]?.[0]?.id ?? (_paperTradeRows as any).rows?.[0]?.id;
+        const _newPaperTradeId = (Array.isArray(_paperTradeRows) ? _paperTradeRows[0] : (_paperTradeRows as any).rows?.[0])?.id;
 
         // Mirror to active copiers — same logic as the POST /api/fx-paper/trades
         // route handler, duplicated here since engine-generated signals bypass
@@ -4764,7 +4764,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             SELECT id, copier_id, max_lot_size FROM copy_relationships
             WHERE source_user_id=${userId} AND is_active=true
           `);
-          const _copierList: any[] = (_copiers as any)[0] ?? (_copiers as any).rows ?? [];
+          const _copierList: any[] = Array.isArray(_copiers) ? _copiers : ((_copiers as any).rows ?? []);
           for (const rel of _copierList) {
             const _mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, rawLotSize || 0.01);
             await db.execute(sql`

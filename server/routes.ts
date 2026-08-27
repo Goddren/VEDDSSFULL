@@ -21069,7 +21069,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const rows = await db.execute(
         sql`SELECT value, achieved_at FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
-      const row = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      const row = (Array.isArray(rows) ? rows[0] : (rows as any).rows?.[0]);
       if (!row) return res.json({ value: null, achievedAt: null });
       res.json({ value: parseFloat(row.value ?? 0), achievedAt: row.achieved_at });
     } catch (e: any) {
@@ -21087,7 +21087,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
       const rows = await db.execute(
         sql`SELECT value FROM all_time_records WHERE user_id=${userId} AND record_type=${recordType} LIMIT 1`
       );
-      const existing = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      const existing = (Array.isArray(rows) ? rows[0] : (rows as any).rows?.[0]);
       const currentVal = existing ? parseFloat(existing.value) : null;
 
       if (currentVal === null || value > currentVal) {
@@ -30292,7 +30292,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         SELECT id, balance, initial_balance, is_enabled, updated_at
         FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1
       `);
-      const row = (rows as any)[0]?.[0] ?? (rows as any).rows?.[0];
+      const row = (Array.isArray(rows) ? rows[0] : (rows as any).rows?.[0]);
       if (!row) {
         return res.json({ balance: 10000, initialBalance: 10000, isEnabled: false, openTrades: 0, closedTrades: 0, totalPnl: 0 });
       }
@@ -30304,7 +30304,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           COALESCE(SUM(pnl) FILTER (WHERE status='closed'), 0) AS total_pnl
         FROM fx_paper_trades WHERE user_id=${userId}
       `);
-      const stats = (statsRows as any)[0]?.[0] ?? (statsRows as any).rows?.[0] ?? {};
+      const stats = (Array.isArray(statsRows) ? statsRows[0] : (statsRows as any).rows?.[0]) ?? {};
       res.json({
         balance: parseFloat(row.balance ?? 10000),
         initialBalance: parseFloat(row.initial_balance ?? 10000),
@@ -30324,7 +30324,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { balance, isEnabled } = req.body;
     try {
       const existing = await db.execute(sql`SELECT id FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const row = (existing as any)[0]?.[0] ?? (existing as any).rows?.[0];
+      const row = (Array.isArray(existing) ? existing[0] : (existing as any).rows?.[0]);
       if (!row) {
         const initBalance = typeof balance === "number" ? balance : 10000;
         await db.execute(sql`
@@ -30358,7 +30358,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       } else {
         rows = await db.execute(sql`SELECT * FROM fx_paper_trades WHERE user_id=${userId} ORDER BY opened_at DESC LIMIT 200`);
       }
-      const trades = (rows as any)[0] ?? (rows as any).rows ?? [];
+      const trades = Array.isArray(rows) ? rows : ((rows as any).rows ?? []);
       res.json(trades);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -30587,7 +30587,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           total_pnl DESC
         LIMIT 50
       `);
-      const traders = (rows as any)[0] ?? (rows as any).rows ?? [];
+      const traders = Array.isArray(rows) ? rows : ((rows as any).rows ?? []);
       res.json(traders);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -30606,7 +30606,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         WHERE cr.copier_id = ${userId}
         ORDER BY cr.created_at DESC
       `);
-      const rels = (rows as any)[0] ?? (rows as any).rows ?? [];
+      const rels = Array.isArray(rows) ? rows : ((rows as any).rows ?? []);
       res.json(rels);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -30673,7 +30673,9 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     const { maxLotSize, accountType, copierConnectionId } = req.body;
     try {
       if (accountType === "real") {
-        const targetConnId = copierConnectionId ?? (await db.execute(sql`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`) as any)[0]?.[0]?.copier_connection_id;
+        const _connRows = await db.execute(sql`SELECT copier_connection_id FROM copy_relationships WHERE id=${relId} AND copier_id=${userId}`);
+        const _connRow = Array.isArray(_connRows) ? _connRows[0] : (_connRows as any).rows?.[0];
+        const targetConnId = copierConnectionId ?? _connRow?.copier_connection_id;
         if (!targetConnId) return res.status(400).json({ error: "A TradeLocker connection must be selected for real-mode copying" });
         const conn = await storage.getTradelockerConnection(targetConnId);
         if (!conn || conn.userId !== userId || !conn.isActive) {
@@ -30719,7 +30721,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
                COUNT(*) FILTER (WHERE profit_share_vedd > 0) AS trades_earned
         FROM copy_trade_logs WHERE source_user_id=${userId} AND status='closed'
       `);
-      const earned = ((earnedRows as any)[0]?.[0] ?? (earnedRows as any).rows?.[0]) || {};
+      const earned = (Array.isArray(earnedRows) ? earnedRows[0] : (earnedRows as any).rows?.[0]) || {};
       res.json({
         veddBalance: wallet?.veddBalance ?? 0,
         totalEarned: wallet?.totalEarned ?? 0,
@@ -30745,7 +30747,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         ORDER BY ctl.opened_at DESC
         LIMIT 200
       `);
-      const trades = (rows as any)[0] ?? (rows as any).rows ?? [];
+      const trades = Array.isArray(rows) ? rows : ((rows as any).rows ?? []);
       res.json(trades);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
