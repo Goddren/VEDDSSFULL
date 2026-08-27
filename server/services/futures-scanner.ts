@@ -300,7 +300,30 @@ async function monitorOpenFuturesPositions(userId: number, cfg: FuturesScanConfi
 // same scope as the FX engine's shield, reacts to intra-session swings).
 const futuresSessionPeakEquity = new Map<number, number>();
 
-async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
+// ── Concentration & cooldown guardrails (mirror of options-scanner.ts) ──────
+// Cap single-symbol stacking and enforce a re-entry cooldown so one imbalance
+// can't re-fire the same contract every scan tick and pile on correlated risk.
+const MAX_OPEN_PER_SYMBOL = 3;          // max concurrent open positions on one symbol
+const MAX_DAILY_ENTRIES_PER_SYMBOL = 4; // max new entries per symbol per day
+const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000; // min gap between entries on the same symbol
+
+// Live account snapshot (equity + open-position unrealized P&L) for the safety
+// gate — mirrors how the options engine gates against live broker equity rather
+// than a static configured balance. Moomoo exposes both directly; Tradovate-only
+// users fall back to the configured balance and realized-only halt (the
+// concentration cap + cooldown still protect them either way).
+async function getFuturesLiveAccount(userId: number): Promise<{ equity: number; unrealizedPnl: number }> {
+  try {
+    const m = getMoomooService(userId);
+    if (m && m.isConnected()) {
+      const info = await m.getAccountInfo();
+      return { equity: info.equity || 0, unrealizedPnl: info.unrealizedPnl || 0 };
+    }
+  } catch { /* non-fatal */ }
+  return { equity: 0, unrealizedPnl: 0 };
+}
+
+async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number, symbol?: string, unrealizedPnl: number = 0): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
@@ -308,11 +331,30 @@ async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, e
   const openTrades = await storage.getOpenFuturesEngineTrades(userId);
   if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
 
+  // ── Per-symbol concentration + re-entry cooldown (mirror of options) ──────
+  if (symbol) {
+    const act = await storage.getFuturesEngineSymbolActivity(userId, symbol);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap — already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap — already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS) {
+        return { allowed: false, reason: `cooldown — last ${symbol} entry ${Math.round(sinceMs / 60000)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 60000)} min)`, riskMultiplier: 1 };
+      }
+    }
+  }
+
   let riskMultiplier = 1;
   if (equity > 0) {
-    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
+    // Include open-position unrealized P&L so the halt sees losses building in
+    // still-open trades, not just realized — mirrors the options engine.
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId) + unrealizedPnl;
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached — incl. open positions`, riskMultiplier: 1 };
     }
     if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
@@ -999,7 +1041,9 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
 
-  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
+  const _sigAcct = await getFuturesLiveAccount(userId);
+  const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl);
   if (!gate.allowed) {
     signal.status = 'rejected';
     signal.executionResult = gate.reason;
@@ -1095,7 +1139,9 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
 
   // Real daily-loss/drawdown halt, computed from actual realized P&L in
   // futures_engine_trades — replaces the old stub that never flipped this flag.
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 } as const));
+  const _haltAcct = await getFuturesLiveAccount(userId);
+  const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, undefined, _haltAcct.unrealizedPnl).catch(() => ({ allowed: true, riskMultiplier: 1 } as const));
   if (!gateCheck.allowed) {
     state.dailyLossHalted = true;
     addActivity(userId, { type: 'error', message: `🚨 Scanner halted — ${gateCheck.reason}.` });

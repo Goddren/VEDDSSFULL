@@ -15,6 +15,16 @@ import { getOrRefreshOptionsBrain } from './options-brain';
 const MIN_SCAN_INTERVAL_MS = 30000; // never scan a single user faster than this
 const lastScanAt = new Map<number, number>();
 
+// ── Concentration & cooldown guardrails ─────────────────────────────────────
+// Prevent the failure mode that produced a -$9,956 day: one intraday imbalance
+// on NVDA re-fired the order_flow signal every scan tick and stacked 21 short-
+// dated puts on a single name, which all stopped out when it reversed. These
+// caps ensure no single underlying can be over-concentrated and the engine
+// can't re-enter the same symbol on back-to-back ticks.
+const MAX_OPEN_PER_SYMBOL = 3;          // max concurrent open positions on one underlying
+const MAX_DAILY_ENTRIES_PER_SYMBOL = 4; // max new entries per underlying per day
+const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000; // min gap between entries on the same underlying
+
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';
 interface StrategyResult {
   decision: Decision;
@@ -710,6 +720,7 @@ const sessionPeakEquity = new Map<number, number>();
 
 async function checkSafetyGates(
   userId: number, cfg: OptionsEngineConfig, equity: number, connectionId: number, connectionType: string = 'alpaca',
+  symbol?: string, unrealizedPnl: number = 0,
 ): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
@@ -718,12 +729,34 @@ async function checkSafetyGates(
   const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
 
+  // ── Per-symbol concentration + re-entry cooldown ──────────────────────────
+  // Caps single-name stacking (the 21-puts-on-NVDA failure) and blocks the
+  // engine from re-firing the same underlying on back-to-back scan ticks.
+  if (symbol) {
+    const act = await storage.getOptionsEngineSymbolActivity(userId, symbol, connectionId);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap — already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap — already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS) {
+        return { allowed: false, reason: `cooldown — last ${symbol} entry ${Math.round(sinceMs / 60000)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 60000)} min)`, riskMultiplier: 1 };
+      }
+    }
+  }
+
   let riskMultiplier = 1;
 
   if (equity > 0) {
-    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId);
+    // Daily-loss / drawdown halts count OPEN-position unrealized P&L, not just
+    // realized. Today's blowup built entirely in still-open positions, so a
+    // realized-only limit never tripped while the risk stacked up.
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId) + unrealizedPnl;
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached — incl. open positions`, riskMultiplier: 1 };
     }
 
     // ── Per-connection prop-firm gate — a connection explicitly marked as a
@@ -996,7 +1029,14 @@ async function executeSignal(
   }
 
   const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection.id, 'alpaca');
+  // Sum unrealized P&L across all open option positions so the daily-loss /
+  // drawdown halt sees losses building in still-open trades, not just realized.
+  let unrealizedPnl = 0;
+  try {
+    const positions = await service.getPositions();
+    unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPl || 0), 0);
+  } catch { /* non-fatal — fall back to realized-only halt */ }
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection.id, 'alpaca', underlyingSymbol, unrealizedPnl);
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'skipped',

@@ -4951,6 +4951,26 @@ var init_storage = __esm({
         const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
         return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
       }
+      // Per-underlying concentration + cooldown inputs for the options safety gate.
+      // openCount counts positions still open on this underlying (any age),
+      // todayEntryCount counts entries opened today, lastEntryAt is the most recent
+      // entry timestamp — together they cap single-name stacking and enforce a
+      // re-entry cooldown so one imbalance can't fire 20+ contracts on one ticker.
+      async getOptionsEngineSymbolActivity(userId, symbol, connectionId) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.underlyingSymbol, symbol)];
+        if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+        const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
+        let openCount = 0, todayEntryCount = 0, lastEntryAt = null;
+        for (const r of rows) {
+          if (r.status === "open") openCount++;
+          const created = r.createdAt ? new Date(r.createdAt) : null;
+          if (created && created >= startOfDay) todayEntryCount++;
+          if (created && (!lastEntryAt || created > lastEntryAt)) lastEntryAt = created;
+        }
+        return { openCount, todayEntryCount, lastEntryAt };
+      }
       async getOptionsEngineTradeStats(userId) {
         const rows = await db.select().from(optionsEngineTrades).where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, "closed")));
         const totalClosed = rows.length;
@@ -5057,6 +5077,22 @@ var init_storage = __esm({
         startOfDay.setUTCHours(0, 0, 0, 0);
         const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "closed"), gte(futuresEngineTrades.closedAt, startOfDay)));
         return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+      }
+      // Per-symbol concentration + cooldown inputs for the futures safety gate —
+      // mirrors getOptionsEngineSymbolActivity so both engines cap single-symbol
+      // stacking and enforce a re-entry cooldown identically.
+      async getFuturesEngineSymbolActivity(userId, symbol) {
+        const startOfDay = /* @__PURE__ */ new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.symbol, symbol)));
+        let openCount = 0, todayEntryCount = 0, lastEntryAt = null;
+        for (const r of rows) {
+          if (r.status === "open") openCount++;
+          const created = r.createdAt ? new Date(r.createdAt) : null;
+          if (created && created >= startOfDay) todayEntryCount++;
+          if (created && (!lastEntryAt || created > lastEntryAt)) lastEntryAt = created;
+        }
+        return { openCount, todayEntryCount, lastEntryAt };
       }
       async getFuturesEngineTradeStats(userId) {
         const rows = await db.select().from(futuresEngineTrades).where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, "closed")));
@@ -24801,18 +24837,44 @@ async function monitorOpenFuturesPositions(userId, cfg) {
     }
   }
 }
-async function checkFuturesSafetyGates(userId, cfg, equity) {
+async function getFuturesLiveAccount(userId) {
+  try {
+    const m = getMoomooService(userId);
+    if (m && m.isConnected()) {
+      const info = await m.getAccountInfo();
+      return { equity: info.equity || 0, unrealizedPnl: info.unrealizedPnl || 0 };
+    }
+  } catch {
+  }
+  return { equity: 0, unrealizedPnl: 0 };
+}
+async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
   }
   const openTrades = await storage.getOpenFuturesEngineTrades(userId);
   if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  if (symbol) {
+    const act = await storage.getFuturesEngineSymbolActivity(userId, symbol);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS) {
+        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+  }
   let riskMultiplier = 1;
   if (equity > 0) {
-    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId);
+    const todayPnl = await storage.getTodayFuturesEngineRealizedPnl(userId) + unrealizedPnl;
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
     }
     if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
@@ -25434,7 +25496,9 @@ Rules for decisions array:
 async function executeSignalIfEnabled(userId, signal) {
   const state = scannerStates[userId];
   if (!state || !state.config.enableAutoExecution) return;
-  const gate = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance);
+  const _sigAcct = await getFuturesLiveAccount(userId);
+  const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl);
   if (!gate.allowed) {
     signal.status = "rejected";
     signal.executionResult = gate.reason;
@@ -25536,7 +25600,9 @@ async function scanFuturesMarkets(userId) {
   const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
   const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
   if (!allowedDows.includes(todayDow)) return;
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, state.config.accountBalance).catch(() => ({ allowed: true, riskMultiplier: 1 }));
+  const _haltAcct = await getFuturesLiveAccount(userId);
+  const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl).catch(() => ({ allowed: true, riskMultiplier: 1 }));
   if (!gateCheck.allowed) {
     state.dailyLossHalted = true;
     addActivity(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
@@ -25775,7 +25841,7 @@ function startFuturesEngineScanner() {
     (e) => console.error("[futures-scanner] initial resume failed:", e.message)
   );
 }
-var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, futuresResumeStarted;
+var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, futuresResumeStarted;
 var init_futures_scanner = __esm({
   "server/services/futures-scanner.ts"() {
     "use strict";
@@ -25793,6 +25859,9 @@ var init_futures_scanner = __esm({
     MAX_ACTIVITIES = 200;
     MAX_SIGNALS = 100;
     futuresSessionPeakEquity = /* @__PURE__ */ new Map();
+    MAX_OPEN_PER_SYMBOL = 3;
+    MAX_DAILY_ENTRIES_PER_SYMBOL = 4;
+    SYMBOL_COOLDOWN_MS = 20 * 60 * 1e3;
     futuresResumeStarted = false;
   }
 });
@@ -49493,18 +49562,33 @@ async function computeContractQuantity(userId, cfg, equity, askPrice, signalScor
   }
   return finalize(baseQty, "");
 }
-async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca") {
+async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
   }
   const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   if (openTrades.length >= cfg.maxOpenPositions) return { allowed: false, reason: `max open positions (${cfg.maxOpenPositions}) already reached`, riskMultiplier: 1 };
+  if (symbol) {
+    const act = await storage.getOptionsEngineSymbolActivity(userId, symbol, connectionId);
+    if (act.openCount >= MAX_OPEN_PER_SYMBOL2) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.openCount} open position(s) on ${symbol} (max ${MAX_OPEN_PER_SYMBOL2})`, riskMultiplier: 1 };
+    }
+    if (act.todayEntryCount >= MAX_DAILY_ENTRIES_PER_SYMBOL2) {
+      return { allowed: false, reason: `concentration cap \u2014 already ${act.todayEntryCount} entries on ${symbol} today (max ${MAX_DAILY_ENTRIES_PER_SYMBOL2})`, riskMultiplier: 1 };
+    }
+    if (act.lastEntryAt) {
+      const sinceMs = Date.now() - act.lastEntryAt.getTime();
+      if (sinceMs < SYMBOL_COOLDOWN_MS2) {
+        return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS2 / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+  }
   let riskMultiplier = 1;
   if (equity > 0) {
-    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId);
+    const todayPnl = await storage.getTodayOptionsEngineRealizedPnl(userId, connectionId) + unrealizedPnl;
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
     }
     const propState = await storage.getPropFirmAccountState(connectionId, connectionType);
     if (propState) {
@@ -49728,7 +49812,13 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     return;
   }
   const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca");
+  let unrealizedPnl = 0;
+  try {
+    const positions = await service.getPositions();
+    unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPl || 0), 0);
+  } catch {
+  }
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl);
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -50300,7 +50390,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, STRATEGY_RUNNERS, sessionPeakEquity, started2;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, STRATEGY_RUNNERS, sessionPeakEquity, started2;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -50309,6 +50399,9 @@ var init_options_scanner = __esm({
     init_options_brain();
     MIN_SCAN_INTERVAL_MS = 3e4;
     lastScanAt = /* @__PURE__ */ new Map();
+    MAX_OPEN_PER_SYMBOL2 = 3;
+    MAX_DAILY_ENTRIES_PER_SYMBOL2 = 4;
+    SYMBOL_COOLDOWN_MS2 = 20 * 60 * 1e3;
     STRATEGY_RUNNERS = {
       orb: runOrb,
       volume_profile: runVolumeProfile,

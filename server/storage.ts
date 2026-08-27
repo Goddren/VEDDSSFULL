@@ -2169,6 +2169,26 @@ export class DatabaseStorage implements IStorage {
     return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
   }
 
+  // Per-underlying concentration + cooldown inputs for the options safety gate.
+  // openCount counts positions still open on this underlying (any age),
+  // todayEntryCount counts entries opened today, lastEntryAt is the most recent
+  // entry timestamp — together they cap single-name stacking and enforce a
+  // re-entry cooldown so one imbalance can't fire 20+ contracts on one ticker.
+  async getOptionsEngineSymbolActivity(userId: number, symbol: string, connectionId?: number): Promise<{ openCount: number; todayEntryCount: number; lastEntryAt: Date | null }> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const conditions = [eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.underlyingSymbol, symbol)];
+    if (connectionId != null) conditions.push(eq(optionsEngineTrades.connectionId, connectionId));
+    const rows = await db.select().from(optionsEngineTrades).where(and(...conditions));
+    let openCount = 0, todayEntryCount = 0, lastEntryAt: Date | null = null;
+    for (const r of rows) {
+      if (r.status === 'open') openCount++;
+      const created = r.createdAt ? new Date(r.createdAt) : null;
+      if (created && created >= startOfDay) todayEntryCount++;
+      if (created && (!lastEntryAt || created > lastEntryAt)) lastEntryAt = created;
+    }
+    return { openCount, todayEntryCount, lastEntryAt };
+  }
+
   async getOptionsEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number; lossStreak: number }> {
     const rows = await db.select().from(optionsEngineTrades)
       .where(and(eq(optionsEngineTrades.userId, userId), eq(optionsEngineTrades.status, 'closed')));
@@ -2326,6 +2346,23 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select().from(futuresEngineTrades)
       .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.status, 'closed'), gte(futuresEngineTrades.closedAt, startOfDay)));
     return rows.reduce((sum, r) => sum + (r.realizedPnl || 0), 0);
+  }
+
+  // Per-symbol concentration + cooldown inputs for the futures safety gate —
+  // mirrors getOptionsEngineSymbolActivity so both engines cap single-symbol
+  // stacking and enforce a re-entry cooldown identically.
+  async getFuturesEngineSymbolActivity(userId: number, symbol: string): Promise<{ openCount: number; todayEntryCount: number; lastEntryAt: Date | null }> {
+    const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
+    const rows = await db.select().from(futuresEngineTrades)
+      .where(and(eq(futuresEngineTrades.userId, userId), eq(futuresEngineTrades.symbol, symbol)));
+    let openCount = 0, todayEntryCount = 0, lastEntryAt: Date | null = null;
+    for (const r of rows) {
+      if (r.status === 'open') openCount++;
+      const created = r.createdAt ? new Date(r.createdAt) : null;
+      if (created && created >= startOfDay) todayEntryCount++;
+      if (created && (!lastEntryAt || created > lastEntryAt)) lastEntryAt = created;
+    }
+    return { openCount, todayEntryCount, lastEntryAt };
   }
 
   async getFuturesEngineTradeStats(userId: number): Promise<{ totalClosed: number; wins: number; winRate: number }> {
