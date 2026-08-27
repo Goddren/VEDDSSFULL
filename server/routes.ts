@@ -30375,7 +30375,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       // Ensure account exists
       const acctRows = await db.execute(sql`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const acct = (acctRows as any)[0]?.[0] ?? (acctRows as any).rows?.[0];
+      const acct = (Array.isArray(acctRows) ? acctRows[0] : (acctRows as any).rows?.[0]);
       if (!acct) {
         await db.execute(sql`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
       }
@@ -30384,7 +30384,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
         VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence ?? null}, ${source}, 'open', now())
         RETURNING id
       `);
-      const newTradeId = (tradeRows as any)[0]?.[0]?.id ?? (tradeRows as any).rows?.[0]?.id;
+      const newTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : (tradeRows as any).rows?.[0])?.id;
 
       // Mirror trade to all active copiers — actually executes on the
       // copier's own account (paper mirror or real broker order), not just
@@ -30394,7 +30394,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           SELECT id, copier_id, account_type, max_lot_size, profit_share_pct, copier_connection_id
           FROM copy_relationships WHERE source_user_id=${userId} AND is_active=true
         `);
-        const copierList: any[] = (copiers as any)[0] ?? (copiers as any).rows ?? [];
+        const copierList: any[] = Array.isArray(copiers) ? copiers : ((copiers as any).rows ?? []);
         const { executeCopyTradeOpen } = await import('./services/copy-trade-execution');
         for (const rel of copierList) {
           const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
@@ -30403,7 +30403,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
             RETURNING id
           `);
-          const copyLogId = (logRows as any)[0]?.[0]?.id ?? (logRows as any).rows?.[0]?.id;
+          const copyLogId = (Array.isArray(logRows) ? logRows[0] : (logRows as any).rows?.[0])?.id;
           if (copyLogId) {
             await executeCopyTradeOpen(rel, {
               tradeId: newTradeId, pair, direction, entryPrice,
@@ -30445,7 +30445,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
       // to the source trader in VEDD tokens, scaled to each copier's OWN P&L.
       try {
         const sourceTradeRows = await db.execute(sql`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
-        const sourceTrade = (sourceTradeRows as any)[0]?.[0] ?? (sourceTradeRows as any).rows?.[0];
+        const sourceTrade = (Array.isArray(sourceTradeRows) ? sourceTradeRows[0] : (sourceTradeRows as any).rows?.[0]);
         const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
 
         const copyLogs = await db.execute(sql`
@@ -30455,7 +30455,7 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
           JOIN copy_relationships cr ON cr.id = ctl.relationship_id
           WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
         `);
-        const logs: any[] = (copyLogs as any)[0] ?? (copyLogs as any).rows ?? [];
+        const logs: any[] = Array.isArray(copyLogs) ? copyLogs : ((copyLogs as any).rows ?? []);
 
         const { executeCopyTradeClose } = await import('./services/copy-trade-execution');
         const { storage: _stor } = await import('./storage');

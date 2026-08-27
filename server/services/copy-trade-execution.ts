@@ -139,7 +139,9 @@ export async function executeCopyTradeOpen(rel: CopyRelationshipRow, source: Sou
   try {
     const { sql } = await import('drizzle-orm');
     const acctRows = await db.execute(sql`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
-    const acct = (acctRows as any)[0]?.[0] ?? (acctRows as any).rows?.[0];
+    // db.execute returns a flat array of rows on this driver; be tolerant of the
+    // {rows:[...]} shape too. (The old (x)[0]?.[0] accessor returned undefined.)
+    const acct = (Array.isArray(acctRows) ? acctRows[0] : (acctRows as any).rows?.[0]);
     if (!acct) {
       await db.execute(sql`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
     }
@@ -148,7 +150,7 @@ export async function executeCopyTradeOpen(rel: CopyRelationshipRow, source: Sou
       VALUES (${rel.copier_id}, ${source.pair}, ${source.direction}, ${source.entryPrice}, ${source.stopLoss}, ${source.takeProfit}, ${mirrorLot}, 'copy_trade', 'open', now())
       RETURNING id
     `);
-    const copierFxTradeId = (tradeRows as any)[0]?.[0]?.id ?? (tradeRows as any).rows?.[0]?.id;
+    const copierFxTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : (tradeRows as any).rows?.[0])?.id;
     await db.update(copyTradeLogs).set({
       copierFxTradeId,
       executionStatus: 'placed',

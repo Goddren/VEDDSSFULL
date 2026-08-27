@@ -43940,7 +43940,7 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
   try {
     const { sql: sql16 } = await import("drizzle-orm");
     const acctRows = await db.execute(sql16`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
-    const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
+    const acct = Array.isArray(acctRows) ? acctRows[0] : acctRows.rows?.[0];
     if (!acct) {
       await db.execute(sql16`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
     }
@@ -43949,7 +43949,7 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
       VALUES (${rel.copier_id}, ${source.pair}, ${source.direction}, ${source.entryPrice}, ${source.stopLoss}, ${source.takeProfit}, ${mirrorLot}, 'copy_trade', 'open', now())
       RETURNING id
     `);
-    const copierFxTradeId = tradeRows[0]?.[0]?.id ?? tradeRows.rows?.[0]?.id;
+    const copierFxTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : tradeRows.rows?.[0])?.id;
     await db.update(copyTradeLogs).set({
       copierFxTradeId,
       executionStatus: "placed"
@@ -80848,7 +80848,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
     }
     try {
       const acctRows = await db.execute(sql12`SELECT id, is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
-      const acct = acctRows[0]?.[0] ?? acctRows.rows?.[0];
+      const acct = Array.isArray(acctRows) ? acctRows[0] : acctRows.rows?.[0];
       if (!acct) {
         await db.execute(sql12`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${userId}, 10000, 10000, false, now())`);
       }
@@ -80857,13 +80857,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
         VALUES (${userId}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${lotSize}, ${confidence2 ?? null}, ${source}, 'open', now())
         RETURNING id
       `);
-      const newTradeId = tradeRows[0]?.[0]?.id ?? tradeRows.rows?.[0]?.id;
+      const newTradeId = (Array.isArray(tradeRows) ? tradeRows[0] : tradeRows.rows?.[0])?.id;
       try {
         const copiers = await db.execute(sql12`
           SELECT id, copier_id, account_type, max_lot_size, profit_share_pct, copier_connection_id
           FROM copy_relationships WHERE source_user_id=${userId} AND is_active=true
         `);
-        const copierList = copiers[0] ?? copiers.rows ?? [];
+        const copierList = Array.isArray(copiers) ? copiers : copiers.rows ?? [];
         const { executeCopyTradeOpen: executeCopyTradeOpen2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
         for (const rel of copierList) {
           const mirrorLot = Math.min(parseFloat(rel.max_lot_size) || 0.01, parseFloat(String(lotSize)) || 0.01);
@@ -80872,7 +80872,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             VALUES (${rel.id}, ${rel.copier_id}, ${userId}, ${newTradeId ?? null}, ${pair}, ${direction}, ${entryPrice}, ${stopLoss ?? null}, ${takeProfit ?? null}, ${mirrorLot}, 'open', now())
             RETURNING id
           `);
-          const copyLogId = logRows[0]?.[0]?.id ?? logRows.rows?.[0]?.id;
+          const copyLogId = (Array.isArray(logRows) ? logRows[0] : logRows.rows?.[0])?.id;
           if (copyLogId) {
             await executeCopyTradeOpen2(rel, {
               tradeId: newTradeId,
@@ -80913,7 +80913,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
       }
       try {
         const sourceTradeRows = await db.execute(sql12`SELECT lot_size FROM fx_paper_trades WHERE id=${tradeId} LIMIT 1`);
-        const sourceTrade = sourceTradeRows[0]?.[0] ?? sourceTradeRows.rows?.[0];
+        const sourceTrade = Array.isArray(sourceTradeRows) ? sourceTradeRows[0] : sourceTradeRows.rows?.[0];
         const sourceLotSize = parseFloat(sourceTrade?.lot_size) || 0.01;
         const copyLogs = await db.execute(sql12`
           SELECT ctl.id, ctl.copier_id, ctl.lot_size, ctl.copier_fx_trade_id, ctl.broker_order_id,
@@ -80922,7 +80922,7 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
           JOIN copy_relationships cr ON cr.id = ctl.relationship_id
           WHERE ctl.original_trade_id=${tradeId} AND ctl.source_user_id=${userId} AND ctl.status='open'
         `);
-        const logs = copyLogs[0] ?? copyLogs.rows ?? [];
+        const logs = Array.isArray(copyLogs) ? copyLogs : copyLogs.rows ?? [];
         const { executeCopyTradeClose: executeCopyTradeClose2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
         const { storage: _stor } = await Promise.resolve().then(() => (init_storage(), storage_exports));
         const VEDD_PER_USD = 10;
