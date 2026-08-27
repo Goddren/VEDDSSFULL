@@ -69585,7 +69585,9 @@ Format each recommendation as a clear, concise action item.`;
   });
   global.veddAIBrain = global.veddAIBrain || {};
   async function runBrainLearning(userId) {
-    const allTrades = await storage.getAiTradeResults(userId, 1e3);
+    const allTradesRaw = await storage.getAiTradeResults(userId, 1e3);
+    const NON_FX_SOURCES = /* @__PURE__ */ new Set(["kalshi", "polymarket"]);
+    const allTrades = allTradesRaw.filter((t) => !NON_FX_SOURCES.has((t.source || "").toLowerCase()));
     const closedTradesCache = global.mt5ClosedTrades?.[userId]?.trades || [];
     const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
     const lastChartData = global.mt5LastChartData?.[userId] || {};
@@ -80935,7 +80937,13 @@ Sitemap: ${SEO_BASE_URL}/sitemap.xml
             profit_share_pct: log2.profit_share_pct,
             copier_connection_id: log2.copier_connection_id
           };
-          const copierPnl = typeof pnl === "number" ? await executeCopyTradeClose2(rel, log2, exitPrice, pnl, sourceLotSize) : 0;
+          const logForClose = {
+            id: log2.id,
+            copierFxTradeId: log2.copier_fx_trade_id ?? null,
+            brokerOrderId: log2.broker_order_id ?? null,
+            lotSize: parseFloat(String(log2.lot_size)) || 0.01
+          };
+          const copierPnl = typeof pnl === "number" ? await executeCopyTradeClose2(rel, logForClose, exitPrice, pnl, sourceLotSize) : 0;
           await db.execute(sql12`
             UPDATE copy_trade_logs
             SET status='closed', exit_price=${exitPrice}, pnl=${copierPnl}, pnl_pips=${pnlPips ?? null}, closed_at=now()

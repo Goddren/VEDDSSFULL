@@ -16967,7 +16967,13 @@ Format each recommendation as a clear, concise action item.`;
   (global as any).veddAIBrain = (global as any).veddAIBrain || {};
 
   async function runBrainLearning(userId: number): Promise<any> {
-    const allTrades = await storage.getAiTradeResults(userId, 1000);
+    const allTradesRaw = await storage.getAiTradeResults(userId, 1000);
+    // The FX engine brain must only learn from FX trades. Prediction-market
+    // sources (Kalshi, Polymarket) have their OWN brains and their "symbols" are
+    // event tickers, not currency pairs — including them here polluted the
+    // Pair Knowledge Base with non-FX markets. Filter them out.
+    const NON_FX_SOURCES = new Set(['kalshi', 'polymarket']);
+    const allTrades = allTradesRaw.filter(t => !NON_FX_SOURCES.has((t.source || '').toLowerCase()));
     const closedTradesCache = (global as any).mt5ClosedTrades?.[userId]?.trades || [];
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
@@ -30462,8 +30468,18 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
             account_type: log.account_type, max_lot_size: log.lot_size,
             profit_share_pct: log.profit_share_pct, copier_connection_id: log.copier_connection_id,
           };
+          // The raw SQL row uses snake_case keys; executeCopyTradeClose expects
+          // camelCase. Map explicitly — otherwise copierFxTradeId/brokerOrderId/
+          // lotSize come through undefined and the close silently no-ops (paper
+          // row never closes, real broker position stays open, pnl -> NaN).
+          const logForClose = {
+            id: log.id,
+            copierFxTradeId: log.copier_fx_trade_id ?? null,
+            brokerOrderId: log.broker_order_id ?? null,
+            lotSize: parseFloat(String(log.lot_size)) || 0.01,
+          };
           const copierPnl = typeof pnl === 'number'
-            ? await executeCopyTradeClose(rel, log, exitPrice, pnl, sourceLotSize)
+            ? await executeCopyTradeClose(rel, logForClose, exitPrice, pnl, sourceLotSize)
             : 0;
 
           await db.execute(sql`
