@@ -307,6 +307,21 @@ const MAX_OPEN_PER_SYMBOL = 3;          // max concurrent open positions on one 
 const MAX_DAILY_ENTRIES_PER_SYMBOL = 4; // max new entries per symbol per day
 const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000; // min gap between entries on the same symbol
 
+// ── Session guard (futures analog of the options session filter) ────────────
+// CME index/equity futures run nearly 24h but close daily at 17:00 ET with a
+// maintenance break until 18:00 ET. Skip new entries in the illiquid window
+// around that close (last N min before 17:00 through the 18:00 reopen) — the
+// futures equivalent of avoiding the volatile open / pin-risk close in options.
+const FUTURES_SESSION_GUARD_ENABLED = true;
+const FUTURES_CLOSE_GUARD_MIN = 15; // minutes before the 17:00 ET close to stop new entries
+
+// Current wall-clock hour/minute in America/New_York (DST-aware, no extra deps).
+function nyHourMinute(date: Date): { h: number; m: number } {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hourCycle: 'h23', hour: '2-digit', minute: '2-digit' })
+    .formatToParts(date).reduce((acc: any, x) => { acc[x.type] = x.value; return acc; }, {});
+  return { h: +p.hour, m: +p.minute };
+}
+
 // Live account snapshot (equity + open-position unrealized P&L) for the safety
 // gate — mirrors how the options engine gates against live broker equity rather
 // than a static configured balance. Moomoo exposes both directly; Tradovate-only
@@ -323,7 +338,21 @@ async function getFuturesLiveAccount(userId: number): Promise<{ equity: number; 
   return { equity: 0, unrealizedPnl: 0 };
 }
 
-async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number, symbol?: string, unrealizedPnl: number = 0): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
+// Resolve the active futures broker connection for the per-connection prop-firm
+// gate. Prefers Tradovate (the common futures prop-firm broker); falls back to
+// Moomoo. getPropFirmAccountState returns null when the connection isn't a
+// registered prop-firm account, so this is a safe no-op for normal accounts.
+async function resolveFuturesPropConnection(userId: number): Promise<{ connectionId?: number; connectionType?: string }> {
+  try {
+    const conn = await storage.getUserTradovateConnection(userId);
+    if (conn && conn.isActive) return { connectionId: conn.id ?? undefined, connectionType: 'tradovate' };
+  } catch { /* non-fatal */ }
+  const m = getMoomooService(userId);
+  if (m && m.isConnected()) return { connectionId: 0, connectionType: 'moomoo' };
+  return {};
+}
+
+async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number, symbol?: string, unrealizedPnl: number = 0, connectionId?: number, connectionType?: string): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
@@ -356,7 +385,29 @@ async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, e
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
       return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached — incl. open positions`, riskMultiplier: 1 };
     }
-    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+    // ── Per-connection prop-firm gate (parity with options-scanner.ts) ──────
+    // A broker connection explicitly registered as a prop-firm account uses ITS
+    // OWN challenge/funded drawdown + consistency rules (durable prop_firm_daily_pnl
+    // ledger), tracked independently per account. Falls back to the engine-wide
+    // cfg.propFirmMode check when the connection has no prop-firm state.
+    const propState = connectionId != null && connectionType
+      ? await storage.getPropFirmAccountState(connectionId, connectionType)
+      : null;
+    if (propState) {
+      const isFunded = propState.phase === 'funded';
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+      const { getConsistencyStatus } = await import('./prop-firm-consistency');
+      const consistency = await getConsistencyStatus(connectionId!, connectionType!, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.dailyProfitTarget > 0 && todayPnl >= (equity * cfg.dailyProfitTarget / 100)) {
@@ -1043,7 +1094,8 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
 
   const _sigAcct = await getFuturesLiveAccount(userId);
   const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
-  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl);
+  const _sigPc = await resolveFuturesPropConnection(userId);
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType);
   if (!gate.allowed) {
     signal.status = 'rejected';
     signal.executionResult = gate.reason;
@@ -1051,6 +1103,23 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
     return;
   }
   if (gate.riskMultiplier < 1) {
+    // Drawdown Shield strengthening (parity with options-scanner.ts): while the
+    // shield is active, don't just size DOWN the same setups — also demand 80%+
+    // confidence and restrict to the brain's own best-performing strategies for
+    // this symbol (once enough history exists to trust that list).
+    if ((signal.confidence ?? 0) < 80) {
+      signal.status = 'rejected';
+      signal.executionResult = 'Drawdown Shield active — only 80%+ confidence setups allowed during drawdown';
+      addActivity(userId, { type: 'info', symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active — only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
+      return;
+    }
+    const bestStrategies: string[] = (global as any).veddFuturesBrain?.[userId]?.symbolKnowledge?.[signal.symbol]?.bestStrategies ?? [];
+    if (bestStrategies.length > 0 && !bestStrategies.includes(signal.strategy)) {
+      signal.status = 'rejected';
+      signal.executionResult = `Drawdown Shield active — only best-performing strategies (${bestStrategies.join(', ')}) allowed during drawdown`;
+      addActivity(userId, { type: 'info', symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active — only this symbol's best-performing strategies (${bestStrategies.join(', ')}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
+      return;
+    }
     signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
     addActivity(userId, { type: 'info', symbol: signal.symbol, message: `⚠️ Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) — sized to ${signal.contracts} contracts.` });
   }
@@ -1137,11 +1206,24 @@ async function scanFuturesMarkets(userId: number): Promise<void> {
   const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
   if (!allowedDows.includes(todayDow)) return;
 
+  // Session guard — skip new entries around the CME daily close/maintenance
+  // window (last FUTURES_CLOSE_GUARD_MIN before 17:00 ET through the 18:00 ET
+  // reopen). Parity with the options session filter's close/open guard.
+  if (FUTURES_SESSION_GUARD_ENABLED) {
+    const { h, m } = nyHourMinute(new Date());
+    const minsOfDay = h * 60 + m;
+    const closeMin = 17 * 60, reopenMin = 18 * 60;
+    if (minsOfDay >= closeMin - FUTURES_CLOSE_GUARD_MIN && minsOfDay < reopenMin) {
+      return; // within the illiquid close/maintenance window — no new entries
+    }
+  }
+
   // Real daily-loss/drawdown halt, computed from actual realized P&L in
   // futures_engine_trades — replaces the old stub that never flipped this flag.
   const _haltAcct = await getFuturesLiveAccount(userId);
   const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, undefined, _haltAcct.unrealizedPnl).catch(() => ({ allowed: true, riskMultiplier: 1 } as const));
+  const _haltPc = await resolveFuturesPropConnection(userId);
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, undefined, _haltAcct.unrealizedPnl, _haltPc.connectionId, _haltPc.connectionType).catch(() => ({ allowed: true, riskMultiplier: 1 } as const));
   if (!gateCheck.allowed) {
     state.dailyLossHalted = true;
     addActivity(userId, { type: 'error', message: `🚨 Scanner halted — ${gateCheck.reason}.` });

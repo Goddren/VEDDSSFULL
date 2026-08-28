@@ -24837,6 +24837,13 @@ async function monitorOpenFuturesPositions(userId, cfg) {
     }
   }
 }
+function nyHourMinute(date2) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).formatToParts(date2).reduce((acc, x) => {
+    acc[x.type] = x.value;
+    return acc;
+  }, {});
+  return { h: +p.hour, m: +p.minute };
+}
 async function getFuturesLiveAccount(userId) {
   try {
     const m = getMoomooService(userId);
@@ -24848,7 +24855,17 @@ async function getFuturesLiveAccount(userId) {
   }
   return { equity: 0, unrealizedPnl: 0 };
 }
-async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0) {
+async function resolveFuturesPropConnection(userId) {
+  try {
+    const conn = await storage.getUserTradovateConnection(userId);
+    if (conn && conn.isActive) return { connectionId: conn.id ?? void 0, connectionType: "tradovate" };
+  } catch {
+  }
+  const m = getMoomooService(userId);
+  if (m && m.isConnected()) return { connectionId: 0, connectionType: "moomoo" };
+  return {};
+}
+async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0, connectionId, connectionType) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
@@ -24876,7 +24893,22 @@ async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPn
     if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
       return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached \u2014 incl. open positions`, riskMultiplier: 1 };
     }
-    if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
+    const propState = connectionId != null && connectionType ? await storage.getPropFirmAccountState(connectionId, connectionType) : null;
+    if (propState) {
+      const isFunded = propState.phase === "funded";
+      const activeDrawdownPct = isFunded ? propState.fundedDailyDrawdownPct : propState.challengeDailyDrawdownPct;
+      const activeConsistencyEnabled = isFunded ? propState.fundedConsistencyEnabled : propState.challengeConsistencyEnabled;
+      const activeConsistencyThreshold = isFunded ? propState.fundedConsistencyThresholdPct : propState.challengeConsistencyThresholdPct;
+      if (activeDrawdownPct > 0 && todayPnl <= -(equity * activeDrawdownPct / 100)) {
+        return { allowed: false, reason: `prop-firm ${propState.phase} daily drawdown limit (${activeDrawdownPct}%) reached`, riskMultiplier: 1 };
+      }
+      const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const consistency = await getConsistencyStatus2(connectionId, connectionType, activeConsistencyThreshold, activeConsistencyEnabled);
+      if (consistency.hardBlocked) {
+        return { allowed: false, reason: consistency.guidance, riskMultiplier: 1 };
+      }
+      riskMultiplier = Math.min(riskMultiplier, consistency.sizeMultiplier);
+    } else if (cfg.propFirmMode && cfg.propFirmDailyDrawdownLimit > 0 && todayPnl <= -(equity * cfg.propFirmDailyDrawdownLimit / 100)) {
       return { allowed: false, reason: `prop-firm daily drawdown limit (${cfg.propFirmDailyDrawdownLimit}%) reached`, riskMultiplier: 1 };
     }
     if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
@@ -25498,7 +25530,8 @@ async function executeSignalIfEnabled(userId, signal) {
   if (!state || !state.config.enableAutoExecution) return;
   const _sigAcct = await getFuturesLiveAccount(userId);
   const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
-  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl);
+  const _sigPc = await resolveFuturesPropConnection(userId);
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType);
   if (!gate.allowed) {
     signal.status = "rejected";
     signal.executionResult = gate.reason;
@@ -25506,6 +25539,19 @@ async function executeSignalIfEnabled(userId, signal) {
     return;
   }
   if (gate.riskMultiplier < 1) {
+    if ((signal.confidence ?? 0) < 80) {
+      signal.status = "rejected";
+      signal.executionResult = "Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown";
+      addActivity(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only 80%+ confidence setups allowed during drawdown (this signal: ${signal.confidence}%).` });
+      return;
+    }
+    const bestStrategies = global.veddFuturesBrain?.[userId]?.symbolKnowledge?.[signal.symbol]?.bestStrategies ?? [];
+    if (bestStrategies.length > 0 && !bestStrategies.includes(signal.strategy)) {
+      signal.status = "rejected";
+      signal.executionResult = `Drawdown Shield active \u2014 only best-performing strategies (${bestStrategies.join(", ")}) allowed during drawdown`;
+      addActivity(userId, { type: "info", symbol: signal.symbol, message: `${signal.symbol}: Drawdown Shield active \u2014 only this symbol's best-performing strategies (${bestStrategies.join(", ")}) are allowed during drawdown ("${signal.strategy}" isn't one of them).` });
+      return;
+    }
     signal.contracts = Math.max(1, Math.round(signal.contracts * gate.riskMultiplier));
     addActivity(userId, { type: "info", symbol: signal.symbol, message: `\u26A0\uFE0F Risk reduced to ${Math.round(gate.riskMultiplier * 100)}% (Drawdown Shield / consistency rule active) \u2014 sized to ${signal.contracts} contracts.` });
   }
@@ -25600,9 +25646,18 @@ async function scanFuturesMarkets(userId) {
   const todayDow = (/* @__PURE__ */ new Date()).getUTCDay();
   const allowedDows = state.config.tradingDaysOfWeek.length > 0 ? state.config.tradingDaysOfWeek : [1, 2, 3, 4, 5];
   if (!allowedDows.includes(todayDow)) return;
+  if (FUTURES_SESSION_GUARD_ENABLED) {
+    const { h, m } = nyHourMinute(/* @__PURE__ */ new Date());
+    const minsOfDay = h * 60 + m;
+    const closeMin = 17 * 60, reopenMin = 18 * 60;
+    if (minsOfDay >= closeMin - FUTURES_CLOSE_GUARD_MIN && minsOfDay < reopenMin) {
+      return;
+    }
+  }
   const _haltAcct = await getFuturesLiveAccount(userId);
   const _haltEquity = _haltAcct.equity > 0 ? _haltAcct.equity : state.config.accountBalance;
-  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl).catch(() => ({ allowed: true, riskMultiplier: 1 }));
+  const _haltPc = await resolveFuturesPropConnection(userId);
+  const gateCheck = await checkFuturesSafetyGates(userId, state.config, _haltEquity, void 0, _haltAcct.unrealizedPnl, _haltPc.connectionId, _haltPc.connectionType).catch(() => ({ allowed: true, riskMultiplier: 1 }));
   if (!gateCheck.allowed) {
     state.dailyLossHalted = true;
     addActivity(userId, { type: "error", message: `\u{1F6A8} Scanner halted \u2014 ${gateCheck.reason}.` });
@@ -25841,7 +25896,7 @@ function startFuturesEngineScanner() {
     (e) => console.error("[futures-scanner] initial resume failed:", e.message)
   );
 }
-var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, futuresResumeStarted;
+var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, FUTURES_SESSION_GUARD_ENABLED, FUTURES_CLOSE_GUARD_MIN, futuresResumeStarted;
 var init_futures_scanner = __esm({
   "server/services/futures-scanner.ts"() {
     "use strict";
@@ -25862,6 +25917,8 @@ var init_futures_scanner = __esm({
     MAX_OPEN_PER_SYMBOL = 3;
     MAX_DAILY_ENTRIES_PER_SYMBOL = 4;
     SYMBOL_COOLDOWN_MS = 20 * 60 * 1e3;
+    FUTURES_SESSION_GUARD_ENABLED = true;
+    FUTURES_CLOSE_GUARD_MIN = 15;
     futuresResumeStarted = false;
   }
 });
