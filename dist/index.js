@@ -18469,10 +18469,10 @@ var init_tradelocker = __esm({
           const buys = legs.filter((l) => String(l.side).toLowerCase() === "buy");
           const sells = legs.filter((l) => String(l.side).toLowerCase() === "sell");
           if (buys.length === 0 || sells.length === 0) continue;
-          const sumQty = (arr) => arr.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-          const wAvg = (arr) => {
-            const q = sumQty(arr);
-            return q > 0 ? arr.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
+          const sumQty = (arr2) => arr2.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const wAvg = (arr2) => {
+            const q = sumQty(arr2);
+            return q > 0 ? arr2.reduce((s, l) => s + Number(l.avgPrice) * (Number(l.qty) || 0), 0) / q : 0;
           };
           const buyQty = sumQty(buys), sellQty = sumQty(sells);
           const closedQty = Math.min(buyQty, sellQty);
@@ -34912,8 +34912,8 @@ async function _restorePolymarketRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql16 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql16`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket")));
+    const { eq: eq21, and: and12, sql: sql17 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql17`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getEngineState(userId);
     s.totalRealizedPnl = total;
@@ -36041,10 +36041,10 @@ async function fetchEnsembleDailyMax(city, targetLocalDate) {
   const memberKeys = Object.keys(hourly).filter((k) => k === "temperature_2m" || k.startsWith("temperature_2m_member"));
   const members = [];
   for (const key of memberKeys) {
-    const arr = hourly[key];
+    const arr2 = hourly[key];
     let mx = -Infinity;
     for (const i of dayIdx) {
-      const v = arr[i];
+      const v = arr2[i];
       if (typeof v === "number" && v > mx) mx = v;
     }
     if (mx > -Infinity) members.push(mx);
@@ -36391,8 +36391,8 @@ async function _restoreKalshiRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql16 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql16`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "kalshi")));
+    const { eq: eq21, and: and12, sql: sql17 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql17`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "kalshi")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getKalshiEngineState(userId);
     s.totalRealizedPnl = total;
@@ -36542,8 +36542,8 @@ async function ruinGuardStatus(userId, s) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { and: and12, eq: eq21, gte: gte7, sql: sql16 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql16`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(
+    const { and: and12, eq: eq21, gte: gte7, sql: sql17 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql17`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(
       eq21(aiTradeResults2.userId, userId),
       eq21(aiTradeResults2.source, "kalshi"),
       gte7(aiTradeResults2.closedAt, startOfDayUtc)
@@ -37506,8 +37506,8 @@ async function _restorePmUsRealizedPnl(userId) {
   try {
     const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
     const { aiTradeResults: aiTradeResults2 } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-    const { eq: eq21, and: and12, sql: sql16 } = await import("drizzle-orm");
-    const [row] = await db2.select({ total: sql16`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket-us")));
+    const { eq: eq21, and: and12, sql: sql17 } = await import("drizzle-orm");
+    const [row] = await db2.select({ total: sql17`coalesce(sum(${aiTradeResults2.profitLoss}), 0)` }).from(aiTradeResults2).where(and12(eq21(aiTradeResults2.userId, userId), eq21(aiTradeResults2.source, "polymarket-us")));
     const total = parseFloat(row?.total ?? "0") || 0;
     const s = getPmUsEngineState(userId);
     s.totalRealizedPnl = total;
@@ -44064,13 +44064,13 @@ async function executeCopyTradeOpen(rel, source, copyLogId) {
     return;
   }
   try {
-    const { sql: sql16 } = await import("drizzle-orm");
-    const acctRows = await db.execute(sql16`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
+    const { sql: sql17 } = await import("drizzle-orm");
+    const acctRows = await db.execute(sql17`SELECT id FROM fx_paper_accounts WHERE user_id=${rel.copier_id} LIMIT 1`);
     const acct = Array.isArray(acctRows) ? acctRows[0] : acctRows.rows?.[0];
     if (!acct) {
-      await db.execute(sql16`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
+      await db.execute(sql17`INSERT INTO fx_paper_accounts (user_id, balance, initial_balance, is_enabled, updated_at) VALUES (${rel.copier_id}, 10000, 10000, false, now())`);
     }
-    const tradeRows = await db.execute(sql16`
+    const tradeRows = await db.execute(sql17`
       INSERT INTO fx_paper_trades (user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, source, status, opened_at)
       VALUES (${rel.copier_id}, ${source.pair}, ${source.direction}, ${source.entryPrice}, ${source.stopLoss}, ${source.takeProfit}, ${mirrorLot}, 'copy_trade', 'open', now())
       RETURNING id
@@ -44109,12 +44109,12 @@ async function executeCopyTradeClose(rel, log2, sourceExitPrice, sourcePnl, sour
   }
   if (log2.copierFxTradeId) {
     try {
-      const { sql: sql16 } = await import("drizzle-orm");
-      await db.execute(sql16`
+      const { sql: sql17 } = await import("drizzle-orm");
+      await db.execute(sql17`
         UPDATE fx_paper_trades SET status='closed', exit_price=${sourceExitPrice}, pnl=${copierPnl}, closed_at=now()
         WHERE id=${log2.copierFxTradeId}
       `);
-      await db.execute(sql16`
+      await db.execute(sql17`
         UPDATE fx_paper_accounts SET balance=balance+${copierPnl}, updated_at=now() WHERE user_id=${rel.copier_id}
       `);
     } catch (e) {
@@ -44292,8 +44292,8 @@ async function fetchPolymarketSportsMarkets() {
   for (const r of results) {
     if (r.status !== "fulfilled" || !r.value) continue;
     const raw = r.value;
-    const arr = Array.isArray(raw) ? raw : raw.markets ?? [];
-    for (const m of arr) {
+    const arr2 = Array.isArray(raw) ? raw : raw.markets ?? [];
+    for (const m of arr2) {
       if (!seen.has(m.id)) {
         seen.add(m.id);
         markets.push(m);
@@ -46884,10 +46884,10 @@ function buildEmailHtml(opts) {
       ${storyBlock}
     </div>`;
   };
-  const replyBlock = (label, arr) => `
+  const replyBlock = (label, arr2) => `
     <div style="margin-bottom:10px;">
       <div style="font-size:12px;font-weight:600;color:#00d4ff;margin-bottom:4px;">${escHtml2(label)}</div>
-      ${arr.map((v) => `<div style="font-size:12px;color:#ccc;padding:6px 8px;background:#0a0a0a;border-radius:4px;margin-bottom:4px;white-space:pre-line;">${escHtml2(v)}</div>`).join("")}
+      ${arr2.map((v) => `<div style="font-size:12px;color:#ccc;padding:6px 8px;background:#0a0a0a;border-radius:4px;margin-bottom:4px;white-space:pre-line;">${escHtml2(v)}</div>`).join("")}
     </div>`;
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>VEDD Persona Content Package \u2014 ${contentDate}</title></head>
@@ -50471,6 +50471,162 @@ var init_options_scanner = __esm({
   }
 });
 
+// server/services/fx-paper-monitor.ts
+var fx_paper_monitor_exports = {};
+__export(fx_paper_monitor_exports, {
+  startFxPaperMonitor: () => startFxPaperMonitor
+});
+import { sql as sql15 } from "drizzle-orm";
+function arr(r) {
+  return Array.isArray(r) ? r : r?.rows ?? [];
+}
+function computePipsAndPnl(pair, direction, entry, exit, lot) {
+  const dir = /sell|short/i.test(direction) ? -1 : 1;
+  const diff = (exit - entry) * dir;
+  const isJpy = /JPY/i.test(pair);
+  const isFxPair = /^[A-Za-z]{6}$/.test(pair) && !/BTC|ETH|XAU|XAG|USD30|US30|NAS|SPX|US500/i.test(pair);
+  let pips, pnl;
+  if (isJpy) {
+    pips = diff / 0.01;
+    pnl = pips * lot * 9;
+  } else if (isFxPair) {
+    pips = diff / 1e-4;
+    pnl = pips * lot * 10;
+  } else {
+    pips = diff;
+    pnl = diff * lot;
+  }
+  return { pips: Math.round(pips * 10) / 10, pnl: Math.round(pnl * 100) / 100 };
+}
+async function closeCascade(t, exit, pnl, pips, hit) {
+  await db.execute(sql15`UPDATE fx_paper_trades SET status='closed', exit_price=${exit}, pnl=${pnl}, pnl_pips=${pips}, closed_at=now() WHERE id=${t.id} AND status='open'`);
+  await db.execute(sql15`UPDATE fx_paper_accounts SET balance=balance+${pnl}, updated_at=now() WHERE user_id=${t.user_id}`);
+  try {
+    const logsRes = await db.execute(sql15`
+      SELECT ctl.id, ctl.copier_id, ctl.lot_size, ctl.copier_fx_trade_id, ctl.broker_order_id,
+             cr.id AS relationship_id, cr.account_type, cr.copier_connection_id, cr.profit_share_pct
+      FROM copy_trade_logs ctl JOIN copy_relationships cr ON cr.id = ctl.relationship_id
+      WHERE ctl.original_trade_id=${t.id} AND ctl.status='open'`);
+    const logs = arr(logsRes);
+    if (logs.length) {
+      const { executeCopyTradeClose: executeCopyTradeClose2 } = await Promise.resolve().then(() => (init_copy_trade_execution(), copy_trade_execution_exports));
+      const srcLot = parseFloat(String(t.lot_size)) || 0.01;
+      for (const log2 of logs) {
+        const rel = {
+          id: log2.relationship_id,
+          copier_id: log2.copier_id,
+          source_user_id: t.user_id,
+          account_type: log2.account_type,
+          max_lot_size: log2.lot_size,
+          profit_share_pct: log2.profit_share_pct,
+          copier_connection_id: log2.copier_connection_id
+        };
+        const logForClose = {
+          id: log2.id,
+          copierFxTradeId: log2.copier_fx_trade_id ?? null,
+          brokerOrderId: log2.broker_order_id ?? null,
+          lotSize: parseFloat(String(log2.lot_size)) || 0.01
+        };
+        const copierPnl = await executeCopyTradeClose2(rel, logForClose, exit, pnl, srcLot).catch(() => 0);
+        await db.execute(sql15`UPDATE copy_trade_logs SET status='closed', exit_price=${exit}, pnl=${copierPnl}, closed_at=now() WHERE id=${log2.id}`);
+      }
+    }
+  } catch {
+  }
+  console.log(`[fx-paper-monitor] closed #${t.id} ${t.pair} ${t.direction} @ ${exit} (${hit}) pnl ${pnl} pips ${pips}`);
+}
+async function tick() {
+  let open;
+  try {
+    open = arr(await db.execute(sql15`SELECT id, user_id, pair, direction, entry_price, stop_loss, take_profit, lot_size, opened_at FROM fx_paper_trades WHERE status='open'`));
+  } catch (e) {
+    console.error("[fx-paper-monitor] load failed:", e.message);
+    return;
+  }
+  if (!open.length) return;
+  const barCache = /* @__PURE__ */ new Map();
+  let closed = 0;
+  for (const t of open) {
+    const pair = t.pair;
+    if (!pair) continue;
+    const entry = Number(t.entry_price);
+    const sl = t.stop_loss != null ? Number(t.stop_loss) : null;
+    const tp = t.take_profit != null ? Number(t.take_profit) : null;
+    const ageMs = Date.now() - new Date(t.opened_at).getTime();
+    let bar = barCache.get(pair);
+    if (bar === void 0) {
+      try {
+        const assetType = marketDataService.detectAssetType(pair);
+        const r = await marketDataService.fetchMarketData({ symbol: pair, assetType, timeframe: "5m", limit: 2 });
+        bar = r.bars && r.bars.length ? r.bars[r.bars.length - 1] : null;
+      } catch {
+        bar = null;
+      }
+      barCache.set(pair, bar);
+    }
+    if (!bar || !(entry > 0)) {
+      if (ageMs > MAX_HOLD_MS && entry > 0) {
+        await closeCascade(t, entry, 0, 0, "timeout-noprice").catch(() => {
+        });
+        closed++;
+      }
+      continue;
+    }
+    const isBuy = /buy|long/i.test(t.direction);
+    let exit = null;
+    let hit = "";
+    if (isBuy) {
+      if (sl != null && bar.low <= sl) {
+        exit = sl;
+        hit = "stop_loss";
+      } else if (tp != null && bar.high >= tp) {
+        exit = tp;
+        hit = "take_profit";
+      }
+    } else {
+      if (sl != null && bar.high >= sl) {
+        exit = sl;
+        hit = "stop_loss";
+      } else if (tp != null && bar.low <= tp) {
+        exit = tp;
+        hit = "take_profit";
+      }
+    }
+    if (exit == null && ageMs > MAX_HOLD_MS) {
+      exit = Number(bar.close);
+      hit = "timeout";
+    }
+    if (exit == null) continue;
+    const { pips, pnl } = computePipsAndPnl(pair, t.direction, entry, exit, Number(t.lot_size) || 0.01);
+    await closeCascade(t, exit, pnl, pips, hit).catch((e) => console.error(`[fx-paper-monitor] close #${t.id} failed:`, e.message));
+    closed++;
+  }
+  if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
+}
+function startFxPaperMonitor() {
+  if (started3) return;
+  started3 = true;
+  console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS2 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
+  setInterval(() => {
+    tick().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
+  }, TICK_MS2);
+  setTimeout(() => {
+    tick().catch(() => {
+    });
+  }, 15e3);
+}
+var TICK_MS2, MAX_HOLD_MS, started3;
+var init_fx_paper_monitor = __esm({
+  "server/services/fx-paper-monitor.ts"() {
+    "use strict";
+    init_db();
+    init_service();
+    TICK_MS2 = 3 * 60 * 1e3;
+    MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
+    started3 = false;
+  }
+});
+
 // server/services/crypto-brain.ts
 function bump(map, key, win) {
   const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
@@ -51479,8 +51635,8 @@ async function runCryptocomEngineScan() {
   }
 }
 function startCryptocomEngineScanner() {
-  if (started3) return;
-  started3 = true;
+  if (started4) return;
+  started4 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
     runCryptocomEngineScan().catch(() => {
@@ -51488,7 +51644,7 @@ function startCryptocomEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
 }
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started3;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started4;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -51512,7 +51668,7 @@ var init_cryptocom_scanner = __esm({
     };
     AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
     sessionPeakEquity2 = /* @__PURE__ */ new Map();
-    started3 = false;
+    started4 = false;
   }
 });
 
@@ -69741,6 +69897,14 @@ Format each recommendation as a clear, concise action item.`;
     const closedTradesCache = global.mt5ClosedTrades?.[userId]?.trades || [];
     const connectedPairs = global.mt5ConnectedPairs?.[userId] || {};
     const lastChartData = global.mt5LastChartData?.[userId] || {};
+    let paperClosed = [];
+    try {
+      const _pRows = await db.execute(sql12`
+        SELECT pair, direction, pnl, pnl_pips, confidence, entry_price, exit_price, stop_loss, take_profit, closed_at
+        FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 1000`);
+      paperClosed = Array.isArray(_pRows) ? _pRows : _pRows.rows ?? [];
+    } catch {
+    }
     const combinedTrades = [
       ...allTrades.map((t) => ({
         symbol: t.symbol,
@@ -69759,6 +69923,27 @@ Format each recommendation as a clear, concise action item.`;
         day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
         notes: t.notes
       })),
+      ...paperClosed.map((t) => {
+        const pnl = Number(t.pnl) || 0;
+        const closed = t.closed_at ? new Date(t.closed_at) : null;
+        return {
+          symbol: (t.pair || "").toUpperCase().replace("/", ""),
+          direction: t.direction,
+          result: pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN",
+          profit: pnl,
+          pips: Number(t.pnl_pips) || 0,
+          confidence: Number(t.confidence) || 0,
+          entry: t.entry_price,
+          exit: t.exit_price,
+          sl: t.stop_loss,
+          tp: t.take_profit,
+          timeframe: "M5",
+          timestamp: closed ? closed.getTime() : 0,
+          hour: closed ? closed.getUTCHours() : 0,
+          day: closed ? closed.getUTCDay() : 0,
+          notes: "paper"
+        };
+      }),
       ...closedTradesCache.map((t) => ({
         symbol: (t.symbol || "").toUpperCase().replace("/", ""),
         direction: t.direction,
@@ -78598,27 +78783,27 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     try {
       const { db: db2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { veddRewardConfig: veddRewardConfig2, veddTransferJobs: veddTransferJobs2, internalWalletEarnings: internalWalletEarnings2, users: usersTbl } = await Promise.resolve().then(() => (init_schema(), schema_exports));
-      const { sql: sql16 } = await import("drizzle-orm");
+      const { sql: sql17 } = await import("drizzle-orm");
       const { AMBASSADOR_TIERS: AMBASSADOR_TIERS2, DAILY_VEDD_CAP: DAILY_VEDD_CAP3, WEEKLY_VEDD_CAP: WEEKLY_VEDD_CAP3 } = await Promise.resolve().then(() => (init_token_rewards(), token_rewards_exports));
       let pool2 = null;
       try {
         pool2 = await veddTokenService.getPoolOverview();
       } catch {
       }
-      const transferRows = await db2.select({ status: veddTransferJobs2.status, c: sql16`count(*)`, total: sql16`coalesce(sum(${veddTransferJobs2.amount}),0)` }).from(veddTransferJobs2).groupBy(veddTransferJobs2.status);
+      const transferRows = await db2.select({ status: veddTransferJobs2.status, c: sql17`count(*)`, total: sql17`coalesce(sum(${veddTransferJobs2.amount}),0)` }).from(veddTransferJobs2).groupBy(veddTransferJobs2.status);
       const transfers = {};
       for (const r of transferRows) transfers[r.status] = { count: Number(r.c), total: parseFloat(r.total) || 0 };
       const rewardConfig = await db2.select().from(veddRewardConfig2).orderBy(veddRewardConfig2.actionType);
       const now = /* @__PURE__ */ new Date();
       const startDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1e3);
-      const [dayEarn] = await db2.select({ t: sql16`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql16`${internalWalletEarnings2.createdAt} >= ${startDay}`);
-      const [weekEarn] = await db2.select({ t: sql16`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql16`${internalWalletEarnings2.createdAt} >= ${weekAgo}`);
+      const [dayEarn] = await db2.select({ t: sql17`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql17`${internalWalletEarnings2.createdAt} >= ${startDay}`);
+      const [weekEarn] = await db2.select({ t: sql17`coalesce(sum(${internalWalletEarnings2.amount}),0)` }).from(internalWalletEarnings2).where(sql17`${internalWalletEarnings2.createdAt} >= ${weekAgo}`);
       const [uc] = await db2.select({
-        total: sql16`count(*)`,
-        ambassadors: sql16`count(*) filter (where ${usersTbl.isAmbassador} = true)`,
-        admins: sql16`count(*) filter (where ${usersTbl.isAdmin} = true)`,
-        subscribers: sql16`count(*) filter (where ${usersTbl.subscriptionStatus} in ('active','trialing'))`
+        total: sql17`count(*)`,
+        ambassadors: sql17`count(*) filter (where ${usersTbl.isAmbassador} = true)`,
+        admins: sql17`count(*) filter (where ${usersTbl.isAdmin} = true)`,
+        subscribers: sql17`count(*) filter (where ${usersTbl.subscriptionStatus} in ('active','trialing'))`
       }).from(usersTbl);
       const referralTop = await storage.getReferralLeaderboard(5).catch(() => []);
       res.json({
@@ -83185,7 +83370,7 @@ async function seedBlogPosts() {
 init_market_data();
 init_db();
 import { execSync } from "child_process";
-import { sql as sql15 } from "drizzle-orm";
+import { sql as sql16 } from "drizzle-orm";
 (() => {
   const ALIASES = [
     "OPENROUTER_API_KEY",
@@ -83681,14 +83866,14 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         )`
       ];
       for (const m of migrations) {
-        await db.execute(sql15.raw(m));
+        await db.execute(sql16.raw(m));
       }
       console.log("[startup] Schema check complete.");
     } catch (err) {
       console.error("[startup] Schema migration check failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15.raw(`
+      await db.execute(sql16.raw(`
         CREATE TABLE IF NOT EXISTS ai_model_configs (
           id serial PRIMARY KEY,
           user_id integer NOT NULL REFERENCES users(id),
@@ -83708,7 +83893,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] ai_model_configs table creation failed (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15.raw(`
+      await db.execute(sql16.raw(`
         CREATE TABLE IF NOT EXISTS stop_orders (
           id              SERIAL PRIMARY KEY,
           user_id         INTEGER NOT NULL REFERENCES users(id),
@@ -83727,7 +83912,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
           updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `));
-      await db.execute(sql15.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
+      await db.execute(sql16.raw(`CREATE INDEX IF NOT EXISTS stop_orders_user_symbol_status ON stop_orders(user_id, symbol, status)`));
       console.log("[startup] stop_orders table ready.");
     } catch (err) {
       console.error("[startup] stop_orders table creation failed (non-fatal):", err.message);
@@ -83740,23 +83925,23 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Full schema sync failed (non-fatal, critical columns already added above):", err.message?.slice(0, 200));
     }
     try {
-      await db.execute(sql15`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
-      await db.execute(sql15`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
-      await db.execute(sql15`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
-      await db.execute(sql15`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
+      await db.execute(sql16`UPDATE subscription_plans SET name = 'Yearly', interval = 'yearly', description = 'Annual subscription — all Premium features with yearly renewal. Best value for serious traders.', price = 100000 WHERE id = 4 AND (name = 'Lifetime' OR interval = 'lifetime')`);
+      await db.execute(sql16`UPDATE subscription_plans SET price = 100000 WHERE id = 4 AND price = 14900`);
+      await db.execute(sql16`UPDATE subscription_plans SET price = 5000 WHERE id = 2 AND price != 5000`);
+      await db.execute(sql16`UPDATE subscription_plans SET price = 15000 WHERE id = 3 AND price != 15000`);
     } catch (err) {
       console.error("[startup] Lifetime\u2192Yearly migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
     } catch (err) {
       console.error("[startup] AI settings columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS referral_visits (
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code text UNIQUE`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by integer`);
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS referral_visits (
         id serial PRIMARY KEY,
         referral_code text NOT NULL,
         referrer_id integer REFERENCES users(id),
@@ -83771,7 +83956,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reminder_sent boolean DEFAULT false,
         reminder_sent_at timestamp
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS dm_keywords (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS dm_keywords (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         keyword text NOT NULL,
@@ -83788,7 +83973,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Referral/DM tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS investment_pools (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS investment_pools (
         id serial PRIMARY KEY,
         name text NOT NULL,
         slug text NOT NULL UNIQUE,
@@ -83808,7 +83993,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS token_investments (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS token_investments (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         pool_id integer REFERENCES investment_pools(id) NOT NULL,
@@ -83828,7 +84013,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Investment pool tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS grants (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS grants (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -83850,7 +84035,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS grant_applications (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS grant_applications (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id),
         grant_id integer REFERENCES grants(id),
@@ -83867,7 +84052,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS grant_scan_sessions (
         id serial PRIMARY KEY,
         triggered_by integer REFERENCES users(id),
         scan_type text NOT NULL,
@@ -83884,7 +84069,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Grants tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS landing_page_quizzes (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         title TEXT NOT NULL DEFAULT 'My VEDD Landing Page',
@@ -83900,7 +84085,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS quiz_leads (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS quiz_leads (
         id SERIAL PRIMARY KEY,
         quiz_id INTEGER REFERENCES landing_page_quizzes(id),
         ambassador_id INTEGER REFERENCES users(id) NOT NULL,
@@ -83922,7 +84107,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS social_lead_scans (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS social_lead_scans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         platform TEXT NOT NULL,
@@ -83937,7 +84122,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador lead generation tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS leads (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS leads (
         id VARCHAR(500) PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         platform VARCHAR(50) NOT NULL,
@@ -83958,7 +84143,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         engagement_type VARCHAR(100),
         created_at TIMESTAMP DEFAULT NOW()
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS lead_hunter_runs (
         id SERIAL PRIMARY KEY,
         date VARCHAR(20) NOT NULL,
         status VARCHAR(50) DEFAULT 'running',
@@ -83976,27 +84161,27 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Lead Hunter tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
-      await db.execute(sql15`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
-      await db.execute(sql15`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
+      await db.execute(sql16`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS profit_share_pct real NOT NULL DEFAULT 20`);
+      await db.execute(sql16`ALTER TABLE copy_relationships ADD COLUMN IF NOT EXISTS vedd_fee_paid real NOT NULL DEFAULT 0`);
+      await db.execute(sql16`ALTER TABLE copy_trade_logs ADD COLUMN IF NOT EXISTS profit_share_vedd real`);
       console.log("[startup] Copy trading VEDD columns verified.");
     } catch (err) {
     }
     try {
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
-      await db.execute(sql15`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
-      await db.execute(sql15`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS is_prop_firm_account boolean NOT NULL DEFAULT false`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_name text`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS prop_firm_account_size double precision`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS weekly_profit_target double precision`);
+      await db.execute(sql16`ALTER TABLE ai_trade_results ADD COLUMN IF NOT EXISTS connection_id integer`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance double precision`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_equity double precision`);
+      await db.execute(sql16`ALTER TABLE tradelocker_connections ADD COLUMN IF NOT EXISTS last_balance_at timestamp`);
       console.log("[startup] Prop-firm linkage + balance-snapshot columns verified.");
     } catch (err) {
       console.error("[startup] Prop-firm linkage migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS blog_posts (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS blog_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT UNIQUE NOT NULL,
@@ -84031,7 +84216,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         `published_at TIMESTAMP`,
         `updated_at TIMESTAMP DEFAULT NOW()`
       ]) {
-        await db.execute(sql15.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
+        await db.execute(sql16.raw(`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS ${col}`)).catch(() => {
         });
       }
       console.log("[startup] blog_posts table created/verified.");
@@ -84039,7 +84224,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] blog_posts table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS ambassador_journey (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS ambassador_journey (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL UNIQUE,
         current_day INTEGER DEFAULT 1 NOT NULL,
@@ -84060,7 +84245,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS ambassador_daily_actions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         day INTEGER NOT NULL,
@@ -84077,7 +84262,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Ambassador journey tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_pool_wallets (
         id SERIAL PRIMARY KEY,
         label TEXT NOT NULL,
         public_key TEXT NOT NULL UNIQUE,
@@ -84088,7 +84273,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         last_sync_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_reward_config (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_reward_config (
         id SERIAL PRIMARY KEY,
         action_type TEXT NOT NULL UNIQUE,
         base_amount REAL NOT NULL DEFAULT 0,
@@ -84100,7 +84285,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         updated_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS ambassador_action_rewards (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         action_type TEXT NOT NULL,
@@ -84116,7 +84301,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         security_flag TEXT,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_transfer_jobs (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         source_wallet_id INTEGER REFERENCES vedd_pool_wallets(id) NOT NULL,
@@ -84133,7 +84318,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at TIMESTAMP DEFAULT NOW() NOT NULL,
         processed_at TIMESTAMP
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_wallet_blacklist (
         id SERIAL PRIMARY KEY,
         wallet_address TEXT NOT NULL UNIQUE,
         reason TEXT NOT NULL,
@@ -84147,7 +84332,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] VEDD token tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS devotionals (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS devotionals (
         id SERIAL PRIMARY KEY,
         date TEXT NOT NULL UNIQUE,
         title TEXT NOT NULL,
@@ -84163,7 +84348,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         is_published BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS devotional_groups (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS devotional_groups (
         id SERIAL PRIMARY KEY,
         devotional_id INTEGER REFERENCES devotionals(id),
         created_by INTEGER REFERENCES users(id),
@@ -84174,7 +84359,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         completed_count INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS devotional_sessions (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS devotional_sessions (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) NOT NULL,
         devotional_id INTEGER REFERENCES devotionals(id) NOT NULL,
@@ -84188,7 +84373,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         reward_amount INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT NOW() NOT NULL
       )`);
-      await db.execute(sql15`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
+      await db.execute(sql16`INSERT INTO vedd_reward_config (action_type, base_amount, streak_multiplier, max_daily_rewards, requires_verification, is_active, description)
         VALUES
           ('devotional_solo',        73,  1.1, 1, false, true, 'Completed daily devotional solo (5+ minutes)'),
           ('devotional_group',       148, 1.2, 1, false, true, 'Completed daily devotional in a group session (2× reward)'),
@@ -84206,7 +84391,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Devotional tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS sol_engine_settings (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS sol_engine_settings (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         active_strategy text DEFAULT 'momentum_surfer',
@@ -84225,7 +84410,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS sol_engine_positions (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS sol_engine_positions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         token_address text NOT NULL,
@@ -84246,7 +84431,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] SOL Engine tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS account_growth_plans (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS account_growth_plans (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL UNIQUE,
         starting_balance real NOT NULL DEFAULT 0,
@@ -84261,7 +84446,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS growth_plan_trades (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS growth_plan_trades (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         plan_id integer REFERENCES account_growth_plans(id),
@@ -84285,7 +84470,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Account Growth Plan tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS nfc_activations (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS nfc_activations (
         id serial PRIMARY KEY,
         chip_uid text NOT NULL UNIQUE,
         user_id integer REFERENCES users(id) NOT NULL,
@@ -84297,7 +84482,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         current_streak integer NOT NULL DEFAULT 0,
         best_streak integer NOT NULL DEFAULT 0
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS nfc_daily_taps (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         chip_uid text NOT NULL,
@@ -84305,18 +84490,18 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         tapped_at timestamp DEFAULT now() NOT NULL,
         day_string text NOT NULL
       )`);
-      await db.execute(sql15`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
-      await db.execute(sql15`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
-      await db.execute(sql15`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
-      await db.execute(sql15`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
-      await db.execute(sql15`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
-      await db.execute(sql15`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
+      await db.execute(sql16`CREATE UNIQUE INDEX IF NOT EXISTS nfc_daily_taps_dedup ON nfc_daily_taps(user_id, chip_uid, day_string)`);
+      await db.execute(sql16`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS icon text DEFAULT '👕'`);
+      await db.execute(sql16`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS drop_name text DEFAULT 'Genesis Drop'`);
+      await db.execute(sql16`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS size_info text DEFAULT 'One Size'`);
+      await db.execute(sql16`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS garment_code text`);
+      await db.execute(sql16`ALTER TABLE nfc_activations ADD COLUMN IF NOT EXISTS referral_earn integer DEFAULT 0`);
       console.log("[startup] NFC Garment tables created/verified.");
     } catch (err) {
       console.error("[startup] NFC Garment tables migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_earn_events (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_earn_events (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         type text NOT NULL,
@@ -84329,26 +84514,26 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         distance_miles real,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
-      await db.execute(sql15`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
-      await db.execute(sql15`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
-      await db.execute(sql15`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
+      await db.execute(sql16`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lat real`);
+      await db.execute(sql16`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS lon real`);
+      await db.execute(sql16`ALTER TABLE vedd_earn_events ADD COLUMN IF NOT EXISTS distance_miles real`);
+      await db.execute(sql16`CREATE INDEX IF NOT EXISTS vedd_earn_events_user ON vedd_earn_events(user_id, created_at DESC)`);
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS vedd_popup_sequence (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         sequence_index integer NOT NULL,
         shown_at timestamp DEFAULT now() NOT NULL,
         CONSTRAINT vedd_popup_unique UNIQUE(user_id, sequence_index)
       )`);
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
-      await db.execute(sql15`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lat real`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_lon real`);
+      await db.execute(sql16`ALTER TABLE users ADD COLUMN IF NOT EXISTS home_set_at timestamp`);
       console.log("[startup] VEDD Clothing Ecosystem v2 tables ready.");
     } catch (err) {
       console.error("[startup] VEDD Clothing Ecosystem v2 tables (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS daily_checkins (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS daily_checkins (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -84362,7 +84547,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily check-in table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS daily_task_completions (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS daily_task_completions (
         id serial PRIMARY KEY,
         user_id integer REFERENCES users(id) NOT NULL,
         day_string text NOT NULL,
@@ -84375,7 +84560,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] Daily task completions table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS workforce_modules (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS workforce_modules (
         id serial PRIMARY KEY,
         title text NOT NULL,
         description text NOT NULL,
@@ -84392,7 +84577,7 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
         created_at timestamp DEFAULT now() NOT NULL,
         updated_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS workforce_certificates (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS workforce_certificates (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         module_id integer REFERENCES workforce_modules(id),
@@ -84408,32 +84593,32 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
       console.error("[startup] workforce_modules/workforce_certificates table creation (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
-      await db.execute(sql15`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
-      await db.execute(sql15`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
-      await db.execute(sql15`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
-      await db.execute(sql15`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
-      await db.execute(sql15`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
-      await db.execute(sql15`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
-      await db.execute(sql15`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
+      await db.execute(sql16`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS course_id integer`);
+      await db.execute(sql16`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS ceu_hours double precision`);
+      await db.execute(sql16`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS grant_frameworks jsonb`);
+      await db.execute(sql16`ALTER TABLE workforce_certificates ADD COLUMN IF NOT EXISTS onet_code text`);
+      await db.execute(sql16`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS city text`);
+      await db.execute(sql16`ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS prop_firm_referral_link text`);
+      await db.execute(sql16`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS symbol_filter jsonb`);
+      await db.execute(sql16`ALTER TABLE brain_data_listings ADD COLUMN IF NOT EXISTS includes_manual_trades boolean DEFAULT false NOT NULL`);
       console.log("[startup] Workforce certificate durability columns + profile city/prop-firm-link + brain listing symbol_filter/includes_manual_trades columns verified.");
     } catch (err) {
       console.error("[startup] Workforce certificate/city columns migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS ai_confirmation_logs (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS ai_confirmation_logs (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         entry jsonb NOT NULL,
         created_at timestamp DEFAULT now() NOT NULL
       )`);
-      await db.execute(sql15`CREATE INDEX IF NOT EXISTS idx_ai_confirmation_logs_user ON ai_confirmation_logs(user_id, id DESC)`);
+      await db.execute(sql16`CREATE INDEX IF NOT EXISTS idx_ai_confirmation_logs_user ON ai_confirmation_logs(user_id, id DESC)`);
       console.log("[startup] ai_confirmation_logs table verified.");
     } catch (err) {
       console.error("[startup] ai_confirmation_logs table migration (non-fatal):", err.message);
     }
     try {
-      await db.execute(sql15`CREATE TABLE IF NOT EXISTS engine_run_state (
+      await db.execute(sql16`CREATE TABLE IF NOT EXISTS engine_run_state (
         id serial PRIMARY KEY,
         user_id integer NOT NULL REFERENCES users(id),
         engine text NOT NULL,
@@ -84449,9 +84634,9 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     await withRetry(() => seedSubscriptionPlans(), "seedSubscriptionPlans");
     await withRetry(() => seedAchievements(), "seedAchievements");
     try {
-      const existing = await db.execute(sql15`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
+      const existing = await db.execute(sql16`SELECT id FROM achievements WHERE name = 'Grant Champion' LIMIT 1`);
       if ((existing.rows ?? existing).length === 0) {
-        await db.execute(sql15`
+        await db.execute(sql16`
           INSERT INTO achievements (name, description, category, icon, points, threshold, is_secret)
           VALUES ('Grant Champion', 'Successfully secure your first grant award for VEDD', 'special', 'trophy', 100, 1, false)
         `);
@@ -84486,6 +84671,8 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startOptionsEngineScanner2();
     const { startFuturesEngineScanner: startFuturesEngineScanner2 } = await Promise.resolve().then(() => (init_futures_scanner(), futures_scanner_exports));
     startFuturesEngineScanner2();
+    const { startFxPaperMonitor: startFxPaperMonitor2 } = await Promise.resolve().then(() => (init_fx_paper_monitor(), fx_paper_monitor_exports));
+    startFxPaperMonitor2();
     if (process.env.ENABLE_CRYPTO_ENGINE === "true") {
       const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
       startCryptocomEngineScanner2();

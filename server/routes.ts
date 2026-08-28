@@ -16978,6 +16978,17 @@ Format each recommendation as a clear, concise action item.`;
     const connectedPairs = (global as any).mt5ConnectedPairs?.[userId] || {};
     const lastChartData = (global as any).mt5LastChartData?.[userId] || {};
 
+    // Closed FX paper trades feed the brain too — the SS engine's paper mode
+    // produces real SL/TP outcomes (closed by the fx-paper-monitor), which are
+    // valuable extra training data, especially for pairs/setups not traded live.
+    let paperClosed: any[] = [];
+    try {
+      const _pRows = await db.execute(sql`
+        SELECT pair, direction, pnl, pnl_pips, confidence, entry_price, exit_price, stop_loss, take_profit, closed_at
+        FROM fx_paper_trades WHERE user_id=${userId} AND status='closed' ORDER BY closed_at DESC LIMIT 1000`);
+      paperClosed = Array.isArray(_pRows) ? _pRows : ((_pRows as any).rows ?? []);
+    } catch { /* non-fatal — brain still learns from live trades */ }
+
     const combinedTrades = [
       ...allTrades.map(t => ({
         symbol: t.symbol, direction: t.direction, result: t.result,
@@ -16989,6 +17000,22 @@ Format each recommendation as a clear, concise action item.`;
         day: t.createdAt ? new Date(t.createdAt).getUTCDay() : 0,
         notes: t.notes,
       })),
+      ...paperClosed.map((t: any) => {
+        const pnl = Number(t.pnl) || 0;
+        const closed = t.closed_at ? new Date(t.closed_at) : null;
+        return {
+          symbol: (t.pair || '').toUpperCase().replace('/', ''),
+          direction: t.direction,
+          result: pnl > 0 ? 'WIN' : pnl < 0 ? 'LOSS' : 'BREAKEVEN',
+          profit: pnl, pips: Number(t.pnl_pips) || 0,
+          confidence: Number(t.confidence) || 0, entry: t.entry_price, exit: t.exit_price,
+          sl: t.stop_loss, tp: t.take_profit, timeframe: 'M5',
+          timestamp: closed ? closed.getTime() : 0,
+          hour: closed ? closed.getUTCHours() : 0,
+          day: closed ? closed.getUTCDay() : 0,
+          notes: 'paper',
+        };
+      }),
       ...closedTradesCache.map((t: any) => ({
         symbol: (t.symbol || '').toUpperCase().replace('/', ''),
         direction: t.direction, result: t.profit > 0 ? 'WIN' : t.profit < 0 ? 'LOSS' : 'BREAKEVEN',

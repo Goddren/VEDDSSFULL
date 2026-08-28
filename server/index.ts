@@ -1518,6 +1518,12 @@ async function withRetry<T>(
     const { startFuturesEngineScanner } = await import('./services/futures-scanner');
     startFuturesEngineScanner();
 
+    // FX paper-trade monitor — closes engine-opened paper trades on SL/TP so
+    // they produce real W/L outcomes the FX brain can learn from (previously
+    // they opened but never closed).
+    const { startFxPaperMonitor } = await import('./services/fx-paper-monitor');
+    startFxPaperMonitor();
+
     // Crypto engine — gated OFF by default (set ENABLE_CRYPTO_ENGINE=true to run).
     // Importing the scanner pulls in ethers + the DeFi stack; keeping it out of the
     // boot path frees memory while the crypto engine is paused. Re-enable after the
