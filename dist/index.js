@@ -31944,6 +31944,32 @@ async function processDecision(userId, decision, newsCtx) {
     const isSmallAccount = config.accountBalance > 0 && config.accountBalance < 500;
     const _dynMaxLot = config.accountBalance > 0 ? Math.max(0.1, Math.round(config.accountBalance * 0.05 / (15 * getPipValue(decision.symbol)) * 100) / 100) : 0.1;
     const safeMaxLot = isSmallAccount ? Math.min(0.02, config.maxLotSize || 0.1) : Math.max(config.maxLotSize || 0, _dynMaxLot);
+    {
+      const _gsym = decision.symbol.toUpperCase().replace("/", "");
+      const _gkey = `last_trade_${userId}_${_gsym}`;
+      global.recentTrades = global.recentTrades || {};
+      const _glast = global.recentTrades[_gkey];
+      if (_glast && Date.now() - _glast < FX_SYMBOL_COOLDOWN_MS) {
+        addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u23F3 ${decision.symbol}: cooldown active \u2014 last entry ${Math.round((Date.now() - _glast) / 6e4)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 6e4)} min). Skipping.` });
+        return;
+      }
+      try {
+        const _openRes = await db.execute(sql8`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
+        let _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : _openRes.rows?.[0])?.c ?? 0);
+        const _tl = global.tlAccountData?.[userId];
+        if (_tl) {
+          for (const acct of Object.values(_tl)) {
+            const positions = acct?.positions || acct?.openPositions || [];
+            if (Array.isArray(positions)) _openCount += positions.filter((p) => (p.symbol || p.instrument || "").toUpperCase().replace("/", "") === _gsym).length;
+          }
+        }
+        if (_openCount >= FX_MAX_OPEN_PER_SYMBOL) {
+          addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6A7} ${decision.symbol}: concentration cap \u2014 already ${_openCount} open position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
+          return;
+        }
+      } catch {
+      }
+    }
     try {
       const _paperAcctRows = await db.execute(sql8`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
       const _paperAcct = Array.isArray(_paperAcctRows) ? _paperAcctRows[0] : _paperAcctRows.rows?.[0];
@@ -31954,6 +31980,8 @@ async function processDecision(userId, decision, newsCtx) {
           RETURNING id
         `);
         const _newPaperTradeId = (Array.isArray(_paperTradeRows) ? _paperTradeRows[0] : _paperTradeRows.rows?.[0])?.id;
+        global.recentTrades = global.recentTrades || {};
+        global.recentTrades[`last_trade_${userId}_${decision.symbol.toUpperCase().replace("/", "")}`] = Date.now();
         try {
           const _copiers = await db.execute(sql8`
             SELECT id, copier_id, max_lot_size FROM copy_relationships
@@ -33181,7 +33209,7 @@ function getModelLockStatus(userId) {
   if (!state) return { locked: false, openPositions: 0 };
   return { locked: state.modelLocked, openPositions: state.openPositionCount };
 }
-var mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
+var FX_MAX_OPEN_PER_SYMBOL, FX_SYMBOL_COOLDOWN_MS, mt5AccountQueues, mt5AccountRegistry, engineStates, engineIntervals, engineTimers, brainLearningIntervals, positionMonitorIntervals, _monitorBusy, persistedConfigOverrides, goalTrackerCache, ALL_STRATEGY_KEYS, TRAIL_METHOD_LABELS, NY_TIME_FMT, INDEX_BROKER_ALIASES;
 var init_live_trading_engine = __esm({
   "server/services/live-trading-engine.ts"() {
     "use strict";
@@ -33198,6 +33226,8 @@ var init_live_trading_engine = __esm({
     init_markov_chain();
     init_breakoutEngine();
     init_db();
+    FX_MAX_OPEN_PER_SYMBOL = 3;
+    FX_SYMBOL_COOLDOWN_MS = 240 * 60 * 1e3;
     mt5AccountQueues = {};
     mt5AccountRegistry = {};
     engineStates = {};

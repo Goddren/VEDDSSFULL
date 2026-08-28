@@ -276,6 +276,14 @@ export interface PendingMT5Signal {
   orderType?: 'market' | 'stop_entry' | 'limit_entry';
 }
 
+// ── Per-symbol guardrails (parity with the options + futures engines) ───────
+// The FX engine already had a 4h per-symbol cooldown for LIVE trades, but the
+// paper path returned before that check, so paper entries stacked (61 opened,
+// incl. 6 USDJPY in 40 min). These constants drive a unified gate applied to
+// BOTH paper and live before entry.
+const FX_MAX_OPEN_PER_SYMBOL = 3;              // max concurrent open positions per symbol
+const FX_SYMBOL_COOLDOWN_MS = 240 * 60 * 1000; // 4h min gap between entries on the same symbol
+
 // Legacy flat queue kept for backwards-compat reads (alias = 'default')
 // All writes go through broadcastMT5Signal() which fans out to per-alias queues.
 const mt5AccountQueues: Record<number, Record<string, PendingMT5Signal[]>> = {};
@@ -4738,6 +4746,38 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       ? Math.min(0.02, config.maxLotSize || 0.10)
       : Math.max(config.maxLotSize || 0, _dynMaxLot);
 
+    // ── Per-symbol guardrails (concentration cap + cooldown) ────────────────
+    // Applied BEFORE the paper branch so both paper and live entries are gated
+    // (previously only live trades hit the cooldown further below, letting paper
+    // trades stack). Parity with the options + futures engines.
+    {
+      const _gsym = decision.symbol.toUpperCase().replace('/', '');
+      const _gkey = `last_trade_${userId}_${_gsym}`;
+      (global as any).recentTrades = (global as any).recentTrades || {};
+      const _glast = (global as any).recentTrades[_gkey];
+      if (_glast && (Date.now() - _glast) < FX_SYMBOL_COOLDOWN_MS) {
+        addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ ${decision.symbol}: cooldown active — last entry ${Math.round((Date.now() - _glast) / 60000)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 60000)} min). Skipping.` });
+        return;
+      }
+      // Concentration cap — count open positions on this symbol. Paper positions
+      // live in fx_paper_trades; live positions in the broker account cache.
+      try {
+        const _openRes = await db.execute(sql`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
+        let _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : (_openRes as any).rows?.[0])?.c ?? 0);
+        const _tl = (global as any).tlAccountData?.[userId];
+        if (_tl) {
+          for (const acct of Object.values(_tl as Record<string, any>)) {
+            const positions = (acct as any)?.positions || (acct as any)?.openPositions || [];
+            if (Array.isArray(positions)) _openCount += positions.filter((p: any) => (p.symbol || p.instrument || '').toUpperCase().replace('/', '') === _gsym).length;
+          }
+        }
+        if (_openCount >= FX_MAX_OPEN_PER_SYMBOL) {
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🚧 ${decision.symbol}: concentration cap — already ${_openCount} open position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
+          return;
+        }
+      } catch { /* non-fatal — cooldown above is the primary guard */ }
+    }
+
     // ── FX Paper Trading Mode ──────────────────────────────────────────────
     // Checked here — BEFORE the drawdown-shield branch below and every other
     // live-order path — so paper mode intercepts everything. Previously this
@@ -4755,6 +4795,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           RETURNING id
         `);
         const _newPaperTradeId = (Array.isArray(_paperTradeRows) ? _paperTradeRows[0] : (_paperTradeRows as any).rows?.[0])?.id;
+
+        // Record the entry time so the per-symbol cooldown applies to paper too
+        // (live sets this after execution below). Without this, paper trades
+        // ignored the cooldown and stacked on one symbol.
+        (global as any).recentTrades = (global as any).recentTrades || {};
+        (global as any).recentTrades[`last_trade_${userId}_${decision.symbol.toUpperCase().replace('/', '')}`] = Date.now();
 
         // Mirror to active copiers — same logic as the POST /api/fx-paper/trades
         // route handler, duplicated here since engine-generated signals bypass
