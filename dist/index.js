@@ -31954,17 +31954,23 @@ async function processDecision(userId, decision, newsCtx) {
         return;
       }
       try {
-        const _openRes = await db.execute(sql8`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
-        let _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : _openRes.rows?.[0])?.c ?? 0);
-        const _tl = global.tlAccountData?.[userId];
-        if (_tl) {
-          for (const acct of Object.values(_tl)) {
-            const positions = acct?.positions || acct?.openPositions || [];
-            if (Array.isArray(positions)) _openCount += positions.filter((p) => (p.symbol || p.instrument || "").toUpperCase().replace("/", "") === _gsym).length;
+        const _pRow = await db.execute(sql8`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+        const _isPaper = !!(Array.isArray(_pRow) ? _pRow[0] : _pRow.rows?.[0])?.is_enabled;
+        let _openCount = 0;
+        if (_isPaper) {
+          const _openRes = await db.execute(sql8`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
+          _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : _openRes.rows?.[0])?.c ?? 0);
+        } else {
+          const _tl = global.tlAccountData?.[userId];
+          if (_tl) {
+            for (const acct of Object.values(_tl)) {
+              const positions = acct?.positions || acct?.openPositions || [];
+              if (Array.isArray(positions)) _openCount += positions.filter((p) => (p.symbol || p.instrument || "").toUpperCase().replace("/", "") === _gsym).length;
+            }
           }
         }
         if (_openCount >= FX_MAX_OPEN_PER_SYMBOL) {
-          addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6A7} ${decision.symbol}: concentration cap \u2014 already ${_openCount} open position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
+          addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u{1F6A7} ${decision.symbol}: concentration cap \u2014 already ${_openCount} open ${_isPaper ? "paper" : "live"} position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
           return;
         }
       } catch {
@@ -64264,6 +64270,40 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (aiConfirmation) {
                 delete aiConfirmation.trailRecommendation;
                 delete aiConfirmation.recommendedTrailPips;
+              }
+              if (aiConfirmation && !aiConfirmation.confirmed && Number(aiConfirmation.alignedVotes ?? 0) === 0) {
+                try {
+                  const { getLiveEngineState: _fbGetLES } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
+                  const _fbState = _fbGetLES(token.userId);
+                  const _fbStrat = _fbState?.config?.strategyMode || "aggressive";
+                  const _visionFallback = await getAiVisionConfirmation2(
+                    candles,
+                    analysis.indicators,
+                    analysis.signal,
+                    analysis.confidence,
+                    analysis.tradePlan,
+                    sanitizedSymbol,
+                    sanitizedTimeframe,
+                    token.userId,
+                    void 0,
+                    void 0,
+                    void 0,
+                    htfLevels.length > 0 ? htfLevels : void 0,
+                    propFirmCtx,
+                    void 0,
+                    void 0,
+                    _fbStrat,
+                    !!_fbState?.config?.deepReasoningMode
+                  );
+                  if (_visionFallback) {
+                    aiConfirmation = _visionFallback;
+                    _cdiag.stage = "breakout_vision_fallback";
+                    _cdiag.decision = _visionFallback.confirmed ? "CONFIRMED" : "REJECTED";
+                    _cdiag.model = _visionFallback?.modelUsed || "vision-fallback";
+                    console.log(`[Breakout Master] ${sanitizedSymbol}: 0 signals fired \u2014 fell back to vision confirmation (${_visionFallback.confirmed ? "CONFIRM" : "SKIP"} ${_visionFallback.aiConfidence}%)`);
+                  }
+                } catch (_fbErr) {
+                }
               }
             } else {
               let symbolPerfStats;

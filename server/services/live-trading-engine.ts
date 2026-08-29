@@ -4759,20 +4759,30 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⏳ ${decision.symbol}: cooldown active — last entry ${Math.round((Date.now() - _glast) / 60000)} min ago (min gap ${Math.round(FX_SYMBOL_COOLDOWN_MS / 60000)} min). Skipping.` });
         return;
       }
-      // Concentration cap — count open positions on this symbol. Paper positions
-      // live in fx_paper_trades; live positions in the broker account cache.
+      // Concentration cap — count open positions on this symbol, matched to the
+      // execution venue this decision will actually use. If paper mode is on the
+      // trade becomes a paper trade → count open PAPER trades; otherwise it's a
+      // live order → count only LIVE broker positions. (Previously it summed BOTH
+      // regardless, so a backlog of open PAPER trades wrongly blocked LIVE trades
+      // and vice-versa.)
       try {
-        const _openRes = await db.execute(sql`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
-        let _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : (_openRes as any).rows?.[0])?.c ?? 0);
-        const _tl = (global as any).tlAccountData?.[userId];
-        if (_tl) {
-          for (const acct of Object.values(_tl as Record<string, any>)) {
-            const positions = (acct as any)?.positions || (acct as any)?.openPositions || [];
-            if (Array.isArray(positions)) _openCount += positions.filter((p: any) => (p.symbol || p.instrument || '').toUpperCase().replace('/', '') === _gsym).length;
+        const _pRow = await db.execute(sql`SELECT is_enabled FROM fx_paper_accounts WHERE user_id=${userId} LIMIT 1`);
+        const _isPaper = !!(Array.isArray(_pRow) ? _pRow[0] : (_pRow as any).rows?.[0])?.is_enabled;
+        let _openCount = 0;
+        if (_isPaper) {
+          const _openRes = await db.execute(sql`SELECT COUNT(*)::int AS c FROM fx_paper_trades WHERE user_id=${userId} AND pair=${decision.symbol} AND status='open'`);
+          _openCount = Number((Array.isArray(_openRes) ? _openRes[0] : (_openRes as any).rows?.[0])?.c ?? 0);
+        } else {
+          const _tl = (global as any).tlAccountData?.[userId];
+          if (_tl) {
+            for (const acct of Object.values(_tl as Record<string, any>)) {
+              const positions = (acct as any)?.positions || (acct as any)?.openPositions || [];
+              if (Array.isArray(positions)) _openCount += positions.filter((p: any) => (p.symbol || p.instrument || '').toUpperCase().replace('/', '') === _gsym).length;
+            }
           }
         }
         if (_openCount >= FX_MAX_OPEN_PER_SYMBOL) {
-          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🚧 ${decision.symbol}: concentration cap — already ${_openCount} open position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
+          addActivity(userId, { type: 'info', symbol: decision.symbol, message: `🚧 ${decision.symbol}: concentration cap — already ${_openCount} open ${_isPaper ? 'paper' : 'live'} position(s) (max ${FX_MAX_OPEN_PER_SYMBOL}). Skipping.` });
           return;
         }
       } catch { /* non-fatal — cooldown above is the primary guard */ }

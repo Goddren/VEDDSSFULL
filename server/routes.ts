@@ -10371,6 +10371,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 delete aiConfirmation.trailRecommendation;
                 delete aiConfirmation.recommendedTrailPips;
               }
+
+              // Fallback: if Breakout Mode found NOTHING actionable (0 signals
+              // fired → "0 aligned of 0 fired"), don't hard-skip the trade — get
+              // a real second opinion from the vision AI (the profitable pre-
+              // breakout path). This prevents Breakout Mode from silently killing
+              // ALL trading when its multi-TF candle inputs are thin/unavailable,
+              // the exact failure that tanked the FX engine 08-14→08-20.
+              if (aiConfirmation && !aiConfirmation.confirmed && Number((aiConfirmation as any).alignedVotes ?? 0) === 0) {
+                try {
+                  const { getLiveEngineState: _fbGetLES } = await import('./services/live-trading-engine');
+                  const _fbState = _fbGetLES(token.userId);
+                  const _fbStrat = _fbState?.config?.strategyMode || 'aggressive';
+                  const _visionFallback = await getAiVisionConfirmation(
+                    candles, analysis.indicators, analysis.signal, analysis.confidence,
+                    analysis.tradePlan, sanitizedSymbol, sanitizedTimeframe,
+                    token.userId, undefined, undefined, undefined,
+                    htfLevels.length > 0 ? htfLevels : undefined, propFirmCtx,
+                    undefined, undefined, _fbStrat, !!_fbState?.config?.deepReasoningMode
+                  );
+                  if (_visionFallback) {
+                    aiConfirmation = _visionFallback;
+                    _cdiag.stage = 'breakout_vision_fallback';
+                    _cdiag.decision = _visionFallback.confirmed ? 'CONFIRMED' : 'REJECTED';
+                    _cdiag.model = (_visionFallback as any)?.modelUsed || 'vision-fallback';
+                    console.log(`[Breakout Master] ${sanitizedSymbol}: 0 signals fired — fell back to vision confirmation (${_visionFallback.confirmed ? 'CONFIRM' : 'SKIP'} ${_visionFallback.aiConfidence}%)`);
+                  }
+                } catch (_fbErr) { /* keep breakout result if the vision fallback errors */ }
+              }
             } else {
               // Build live performance stats for this symbol to feed into the 2nd confirmation AI
               // This allows the AI to self-calibrate thresholds based on actual trade outcomes
