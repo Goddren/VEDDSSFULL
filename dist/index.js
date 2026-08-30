@@ -49390,7 +49390,11 @@ async function runOrderFlow(service, symbol, cfg) {
   else if (imbalanced && cvdBear && belowVwap && lastBarBearish) direction = "down";
   const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "calls_only" && direction === "up" || cfg.directionFilter === "puts_only" && direction === "down";
   const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
-  const score = Math.min(100, Math.round(35 + Math.abs(cvdShiftPct) * 6 + distFromVwapPct * 8));
+  const cvdStrength = Math.min(30, Math.abs(cvdShiftPct) * 4);
+  const vwapAlign = Math.min(15, distFromVwapPct * 10);
+  const rangeStrength = Math.min(15, Math.max(0, rangePct - 0.8) * 6);
+  const overextPenalty = distFromVwapPct > 1.5 ? Math.min(25, (distFromVwapPct - 1.5) * 12) : 0;
+  const score = Math.max(0, Math.min(100, Math.round(40 + cvdStrength + vwapAlign + rangeStrength - overextPenalty)));
   if (!imbalanced) {
     return { decision: "watching", reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) \u2014 market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: "order_flow" };
   }

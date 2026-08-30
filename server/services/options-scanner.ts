@@ -345,7 +345,23 @@ async function runOrderFlow(service: AlpacaService, symbol: string, cfg: Options
     (cfg.directionFilter === 'puts_only' && direction === 'down');
 
   const distFromVwapPct = Math.abs((price - vwap) / vwap) * 100;
-  const score = Math.min(100, Math.round(35 + Math.abs(cvdShiftPct) * 6 + distFromVwapPct * 8));
+  // ── Graduated conviction score (replaces the old formula that saturated at
+  // 100 on nearly every signal, so minConfidence never filtered anything). ────
+  // Two fixes baked in from the 08-27 blowup (21 NVDA puts chasing an
+  // overextended open-imbalance that reverted, all conf 100):
+  //  1. Diminishing, capped contributions so a genuinely strong setup lands in
+  //     the 80s/90s and an average one lands in the 50s-70s (filtered by
+  //     minConfidence).
+  //  2. An OVEREXTENSION PENALTY — the old formula ADDED score for distance from
+  //     VWAP, treating a stretched move as MORE conviction. But entering a
+  //     continuation trade far from VWAP is reversion risk, not strength. Now a
+  //     move stretched >1.5% beyond VWAP is penalised (that's exactly what tanked
+  //     the NVDA/TSLA puts).
+  const cvdStrength = Math.min(30, Math.abs(cvdShiftPct) * 4);            // 0..30 — accelerating volume-delta
+  const vwapAlign = Math.min(15, distFromVwapPct * 10);                   // 0..15 — small reward for being on the right side
+  const rangeStrength = Math.min(15, Math.max(0, rangePct - 0.8) * 6);   // 0..15 — imbalance beyond the balance threshold
+  const overextPenalty = distFromVwapPct > 1.5 ? Math.min(25, (distFromVwapPct - 1.5) * 12) : 0; // chasing a stretched move reverts
+  const score = Math.max(0, Math.min(100, Math.round(40 + cvdStrength + vwapAlign + rangeStrength - overextPenalty)));
 
   if (!imbalanced) {
     return { decision: 'watching', reasoning: `${symbol}: range is tight (${rangePct.toFixed(2)}% over the last ${lookback} bars) — market looks balanced, not imbalanced. Order flow sits out until price moves out of balance.`, score, price, dailyChangePercent: null, strategy: 'order_flow' };
