@@ -49960,7 +49960,8 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
       return;
     }
   }
-  if (cfg.creditSpreadEnabled || cfg.strategyMode === "credit_spread") {
+  const forceSpread = result.strategy === "order_flow";
+  if (cfg.creditSpreadEnabled || cfg.strategyMode === "credit_spread" || forceSpread) {
     await executeCreditSpread(service, connection2, userId, underlyingSymbol, result, cfg, account, gate);
     return;
   }

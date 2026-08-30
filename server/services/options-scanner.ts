@@ -1088,7 +1088,14 @@ async function executeSignal(
 
   // ── Premium-selling mode: sell a defined-risk credit spread instead of ─────
   // buying a single long option. The proven options edge is short premium.
-  if (cfg.creditSpreadEnabled || cfg.strategyMode === 'credit_spread') {
+  //
+  // order_flow ALWAYS routes to a defined-risk credit spread (bull put for an
+  // up read, bear call for a down read) — never a naked long option. The
+  // 08-27 blowup (21 NVDA puts, -$8,895) was single-leg long premium bleeding
+  // theta then getting stopped out on the reversal. As a spread the same view
+  // has a capped, known max loss and profits from theta instead of paying it.
+  const forceSpread = result.strategy === 'order_flow';
+  if (cfg.creditSpreadEnabled || cfg.strategyMode === 'credit_spread' || forceSpread) {
     await executeCreditSpread(service, connection, userId, underlyingSymbol, result, cfg, account, gate);
     return;
   }
