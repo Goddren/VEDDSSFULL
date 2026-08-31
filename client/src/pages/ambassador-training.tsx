@@ -2812,6 +2812,113 @@ const trainingModules: TrainingModule[] = [
         },
       },
     ],
+  },
+  {
+    id: 'presentation-hub',
+    title: 'Presentation Hub & Live Pitching',
+    description: 'Pitch VEDD with ready-made decks, guided setup walkthroughs, mobile Present mode, and screen recording',
+    duration: '20 min',
+    icon: Megaphone,
+    image: liveStreamImg,
+    lessons: [
+      {
+        id: 'present-1',
+        title: 'The Presentation Hub (/ambassador/present)',
+        content: [
+          'The Presentation Hub is your one-stop pitching toolkit — open it at /ambassador/present from your ambassador dashboard',
+          'Ready-to-present pitch decks: professionally built slide decks that walk a prospect through what VEDD is and why it matters — no design work required',
+          'Setup Walkthrough decks: step-by-step decks that deep-link straight into the app, so you can demo real setup flows (connect a broker, start the engine) instead of just talking about them',
+          'Present mode: tap Present for a fullscreen, distraction-free view — perfect for handing your phone to someone or screen-sharing on a call',
+          'Screen recording: record your walkthrough directly so you can turn a single live demo into reusable short-form content',
+        ],
+        tips: [
+          'Run a Setup Walkthrough deck live on your own account — prospects trust a real demo far more than slides alone',
+          'Use Present mode on your phone at meetups and in person — fullscreen looks clean and keeps you focused on the story',
+          'Record one solid walkthrough, then clip it into Reels and a YouTube tutorial — one session, a week of content',
+        ],
+        keyPoints: [
+          { title: 'Ready-Made Decks', description: 'Grab a polished pitch deck and present it as-is — zero prep, always on-brand.', icon: Monitor },
+          { title: 'Deep-Linked Walkthroughs', description: 'Setup Walkthrough decks jump straight into the live app so you demo real flows, not screenshots.', icon: ArrowRight },
+          { title: 'Present + Record', description: 'Fullscreen Present mode for live pitching, plus built-in screen recording to reuse the demo as content.', icon: Video },
+        ],
+        realWorldExamples: [
+          { scenario: 'An ambassador cold-pitched VEDD from memory and lost the room', outcome: 'Switched to a ready-made deck in Present mode and closed two signups the next session', lesson: 'A structured deck keeps the pitch tight — you never fumble the story', type: 'success' },
+          { scenario: 'A prospect asked "but how do I actually set it up?"', outcome: 'The ambassador ran a Setup Walkthrough deck that deep-linked into the connect flow and set it up live', lesson: 'Showing the real setup removes the biggest objection — "it looks complicated"', type: 'insight' },
+        ],
+        quiz: {
+          question: 'What makes the Setup Walkthrough decks different from standard pitch decks?',
+          options: [
+            'They are longer',
+            'They deep-link straight into the live app to demo real setup flows',
+            'They can only be viewed on desktop',
+            'They contain no text',
+          ],
+          correct: 1,
+        },
+      },
+      {
+        id: 'present-2',
+        title: 'New Engines & Features to Pitch',
+        content: [
+          'DXtrade (Velotrade): a second FX broker for the SS AI Engine — connect, live auto-trade routing, and per-trade risk sized as a % of the account. Great for traders whose prop firm or broker uses DXtrade instead of MT5/TradeLocker',
+          'Options AI Engine: now trades defined-risk credit spreads (bull-put / bear-call) instead of naked long options, with a graduated confidence score gating entries — pitch it as "capped risk, known before you enter"',
+          'Crypto.com Perpetuals Engine: a self-learning perpetuals engine plus on-chain DeFi swaps from a hot wallet — full parity with the FX and Futures engines',
+          'Engine Risk Guardrails: concentration caps, per-symbol cooldowns, a correlated-basket cap, and an unrealized-drawdown halt run on every engine — the safety story that separates VEDD from reckless bots',
+          'A brain for every engine: FX, Options, Futures, and Crypto each have their own self-learning brain, and any of them can be bought or sold in the Brain Marketplace',
+          'FX Paper Trading mode: simulate signals with zero risk — trades auto-close on SL/TP and train the FX brain — the perfect risk-free on-ramp for a nervous prospect',
+        ],
+        tips: [
+          'Lead with the guardrails when someone fears "AI blowing my account" — concentration caps, cooldowns and the drawdown halt are your trust-builders',
+          'For prop-firm traders, DXtrade support + per-trade % risk sizing is a direct answer to "will it work with my broker and rules?"',
+          'Point beginners to FX Paper Trading first — no money at risk, and it still trains their brain',
+        ],
+        keyPoints: [
+          { title: 'DXtrade / Velotrade', description: 'Second FX broker for the SS AI Engine with live routing and %-of-account risk sizing.', icon: TrendingUp },
+          { title: 'Defined-Risk Options', description: 'Credit spreads with capped, known-in-advance loss — not naked long options.', icon: Shield },
+          { title: 'Guardrails on Every Engine', description: 'Concentration cap, cooldown, correlated-basket cap, and unrealized-drawdown halt built in.', icon: Cpu },
+        ],
+        quiz: {
+          question: 'How does the Options AI Engine now limit risk on each trade?',
+          options: [
+            'It buys naked long calls and puts',
+            'It trades defined-risk credit spreads with loss capped up front',
+            'It never uses a stop loss',
+            'It only trades on paper',
+          ],
+          correct: 1,
+        },
+      },
+      {
+        id: 'present-3',
+        title: 'Profit-Split & Content Studio',
+        content: [
+          'Ambassador Profit-Split Program: instead of a subscription, VEDD takes 30% of a user\'s prop-firm net profit and the trader keeps 70% — enrolled users get full AI access via the cost-cap unlock',
+          'Profit-Split is a powerful close for funded traders who resist a monthly fee: "pay nothing up front, only share when you\'re net profitable"',
+          'A ledger tracks each user\'s profit and the 30% share; collection is handled manually',
+          'Content Studio: generate AI trading videos and reels — text-to-video or image-to-video, in Fast or High quality — so ambassadors can produce short-form content without a camera crew',
+          'Use Content Studio to spin up demo clips, hooks, and reels; use the Presentation Hub to record real walkthroughs — together they keep your content pipeline full',
+        ],
+        tips: [
+          'Offer Profit-Split to prospects who say "I can\'t justify a subscription yet" — it flips the objection into an easy yes',
+          'Batch-generate reels in Content Studio at Fast quality, then re-render your best one at High before posting',
+        ],
+        keyPoints: [
+          { title: 'No-Subscription On-Ramp', description: 'Profit-Split: VEDD takes 30% of prop-firm net profit, trader keeps 70%, full access unlocked.', icon: DollarSign },
+          { title: 'AI Content Engine', description: 'Content Studio generates trading videos and reels — text- or image-to-video, Fast or High.', icon: Video },
+          { title: 'Full Content Pipeline', description: 'Content Studio clips + recorded Presentation Hub walkthroughs keep you posting consistently.', icon: Sparkles },
+        ],
+        quiz: {
+          question: 'Under the Ambassador Profit-Split Program, what does VEDD take instead of a subscription?',
+          options: [
+            'A flat $99 setup fee',
+            '30% of the user\'s prop-firm net profit',
+            '100% of the first month\'s profit',
+            'Nothing — it is fully free',
+          ],
+          correct: 1,
+        },
+      },
+    ],
   }
 ];
 

@@ -2196,6 +2196,7 @@ export async function getAiVisionConfirmation(
     let content = '';
     let thinkingTrace: string | null = null;
 
+    try {
     if (provider === 'openai') {
       if (wasPromoted) {
         // The model was PROMOTED from a text-only/unlisted pick to a vision model.
@@ -2286,6 +2287,25 @@ export async function getAiVisionConfirmation(
       }
     } else {
       content = await callOpenAIConfirmation(prompt, 'gpt-4o-mini');
+    }
+    } catch (branchErr: any) {
+      // Cross-provider failover for the vision path. Each provider branch above is
+      // single-shot, so a transient 429 / 5xx / network error would otherwise
+      // hard-fail the confirmation (confirmed:false → trade blocked with no
+      // recovery). On a failover-eligible error, retry ONCE on the platform
+      // OpenAI vision model before giving up.
+      if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
+        const vc = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 90000 });
+        const r = await vc.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
+          response_format: { type: 'json_object' }, max_tokens: 1000, temperature: 0.3,
+        });
+        content = r.choices[0]?.message?.content || '';
+      } else {
+        throw branchErr;
+      }
     }
 
     if (!content) throw new Error("No response from AI");
@@ -2922,8 +2942,17 @@ export async function getUniversalAIClientForUser(userId: number): Promise<Unive
     } catch { /* ignore */ }
 
     if (clients.length) {
+      // Honor the user's EXACT model choice on the primary provider (not just the
+      // provider-pinned default), so a selected model like a specific Claude /
+      // Gemini / GPT actually gets used for text second-opinions instead of the
+      // generic default. selModel is stored in that provider's own id format, so
+      // it's applied ONLY when the primary client IS that provider (guarantees a
+      // valid id); failover links keep their own provider-default models.
+      if ((clients[0] as any).provider === selProvider && selModel) {
+        (clients[0] as any).defaultModel = selModel;
+      }
       storage.updateUserApiKeyUsage(userId, (clients[0] as any).provider).catch(() => {});
-      console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')}`);
+      console.log(`[AI] user ${userId} client chain: ${clients.map(c => (c as any).provider).join(' → ')} (primary model ${(clients[0] as any).defaultModel})`);
       return makeFailoverClient(clients, userId);
     }
     if (!canUsePlatformKey) {

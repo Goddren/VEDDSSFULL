@@ -1705,6 +1705,172 @@ const guideSections: GuideSection[] = [
         tips: ['Set the Max Single-Day Profit % to match your firm\'s rule (commonly 30–50%)', 'These rules work together: the goal is passing consistently, not passing fast']
       }
     ]
+  },
+  {
+    id: 'dxtrade',
+    title: 'DXtrade (Velotrade) FX Platform',
+    icon: TrendingUp,
+    description: 'Connect a DXtrade / Velotrade account as a second FX broker for the SS AI Engine',
+    content: [
+      {
+        heading: 'Connecting Your DXtrade Account',
+        steps: [
+          'Navigate to DXtrade (/dxtrade) from the menu',
+          'DXtrade (branded Velotrade, powered by Devexperts dxsca-web) is supported as a second FX platform alongside MT5 and TradeLocker',
+          'Enter your DXtrade login, password, and broker/server domain, then click Connect',
+          'On success, VEDD reads your live account balance, equity, and open positions',
+          'Your DXtrade account then appears in the Connected Account Picker so the SS AI Engine can route trades to it'
+        ],
+        tips: [
+          'Your credentials are encrypted before storage — never kept in plain text',
+          'Start read-only: verify balance and positions sync correctly before enabling live auto-trade'
+        ]
+      },
+      {
+        heading: 'Live Auto-Trade & Per-Trade Risk Sizing',
+        steps: [
+          'Select your DXtrade account in the SS AI Engine\'s Connected Account Picker',
+          'The engine places and manages trades on DXtrade the same way it does on MT5/TradeLocker',
+          'Set Risk Per Trade as a percentage of your account balance — each order is sized automatically from your live equity',
+          'The engine reads your real DXtrade balance before every trade so position size always matches current capital',
+          'All the standard engine guardrails (concentration cap, cooldown, drawdown halt) apply to DXtrade trades too'
+        ],
+        tips: [
+          'Keep Risk Per Trade at 0.5–1% while you confirm fills behave as expected on your broker',
+          'DXtrade routing runs independently per account — you can run it alongside an MT5 account on a different strategy'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'options-engine',
+    title: 'Options AI Engine',
+    icon: TrendingUp,
+    description: 'Defined-risk credit spreads with a graduated confidence score — self-learning like the FX and Futures engines',
+    content: [
+      {
+        heading: 'Defined-Risk Credit Spreads',
+        steps: [
+          'The Options engine trades defined-risk credit spreads — bull-put spreads for bullish signals and bear-call spreads for bearish signals',
+          'This replaces naked long options: your maximum loss is capped at spread width minus credit received, known before you enter',
+          'Order-flow signals now open a spread rather than buying a single call or put',
+          'Each candidate trade is scored with a graduated confidence score — only setups above the threshold are taken',
+          'Every closed spread is recorded to the Options brain\'s feature store so the engine learns which spreads work per symbol'
+        ],
+        tips: [
+          'Credit spreads win when price stays on the right side of your short strike — you do not need a big move, just direction',
+          'The graduated confidence score means marginal setups are skipped automatically — quality over quantity'
+        ]
+      },
+      {
+        heading: 'The Options Self-Learning Brain',
+        steps: [
+          'Like the FX, Futures, and Crypto engines, the Options engine has its own durable self-learning brain',
+          'It records the outcome of every closed spread and reweights future decisions toward what has been profitable',
+          'A trained Options brain can be listed in the Brain Marketplace under the "options" category — buy one to bootstrap, or sell yours to earn VEDD',
+          'Purchased option brains are absorbed into your engine so their learned patterns apply to your trades immediately'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'engine-guardrails',
+    title: 'Engine Risk Guardrails',
+    icon: ShieldCheck,
+    description: 'Automatic safety limits shared across the FX, Options, and Futures engines',
+    content: [
+      {
+        heading: 'How the Guardrails Protect You',
+        steps: [
+          'These guardrails run on every engine (FX, Options, Futures) — no configuration needed to get the protection',
+          'Per-symbol concentration cap: limits how many open positions the engine can stack on any single symbol',
+          'Per-symbol re-entry cooldown: after a trade on a symbol, the engine waits out a cooldown before it can trade that symbol again — prevents revenge re-entries',
+          'Unrealized-drawdown halt: the engine counts open-position P&L (not just realized) and stops opening new trades when the combined drawdown is too deep',
+          'Correlated-basket cap: limits total one-way exposure across correlated names (e.g. NAS100 + US30 + NQ) so a single market move can\'t hit every position at once',
+          'Drawdown-shield strengthening and a session guard trim risk during weak periods and outside your intended trading sessions',
+          'Per-connection prop-firm rules apply the correct daily-loss and drawdown limits for each connected account'
+        ],
+        tips: [
+          'These were added after a heavy options day where order-flow stacked correlated puts — the concentration and correlated-basket caps exist to prevent exactly that',
+          'The unrealized-drawdown halt is what stops an engine from "hoping" a bag of losing open trades back to green'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'crypto-com-engine',
+    title: 'Crypto.com Perpetuals & DeFi',
+    icon: Coins,
+    description: 'A self-learning perpetual-futures engine on Crypto.com plus on-chain DeFi swaps',
+    content: [
+      {
+        heading: 'Crypto.com Perpetuals Engine',
+        steps: [
+          'Connect your Crypto.com account to run the perpetual-futures engine',
+          'The engine runs multiple strategies plus a composite, at full parity with the FX and Futures engines',
+          'A durable self-learning crypto brain records outcomes and sharpens future decisions',
+          'A ruin guard and the shared prop-firm consistency rules protect the account from blow-ups',
+          'Paper mode is available first — test before routing live orders'
+        ],
+        tips: [
+          'The crypto brain is separate from your FX brain — it learns crypto price behavior specifically',
+          'Start in paper mode and confirm the strategy behaves before enabling live perpetual trades'
+        ]
+      },
+      {
+        heading: 'On-Chain DeFi Swaps',
+        steps: [
+          'Beyond centralized perpetuals, the engine can execute on-chain DeFi swaps from a hot wallet',
+          'This lets a signal move into a token directly on-chain when the setup calls for it',
+          'All swap activity is logged alongside your other trades'
+        ],
+        tips: ['Fund the hot wallet only with capital you are willing to put on-chain — treat it as a dedicated trading wallet']
+      }
+    ]
+  },
+  {
+    id: 'content-studio',
+    title: 'Content Studio',
+    icon: Camera,
+    description: 'Generate AI trading videos and reels for your social channels',
+    content: [
+      {
+        heading: 'Creating AI Videos & Reels',
+        steps: [
+          'Open Content Studio from the menu',
+          'Describe the video you want, or upload a Start image for image-to-video generation',
+          'Choose a quality tier: Fast (quick drafts) or High (final, higher-fidelity output)',
+          'Generate — the AI produces a short video/reel you can download and post',
+          'The REBIRTH style lock keeps a consistent branded look across your generations'
+        ],
+        tips: [
+          'Image-to-video is great for turning a chart screenshot or product shot into a moving reel',
+          'Use Fast tier to iterate on the prompt, then switch to High for the version you actually publish'
+        ]
+      }
+    ]
+  },
+  {
+    id: 'profit-split',
+    title: 'Ambassador Profit-Split Program',
+    icon: CreditCard,
+    description: 'Trade with full AI access and no subscription — VEDD takes 30% of your prop-firm net profit instead',
+    content: [
+      {
+        heading: 'How Profit-Split Works',
+        steps: [
+          'Instead of paying a monthly subscription, you can enroll in the Profit-Split Program',
+          'VEDD takes 30% of your prop-firm net profit; you keep the other 70%',
+          'Enrolled users get full platform access via the AI cost-cap unlock — the same features a paid plan unlocks',
+          'Your profit and the 30% share are tracked in a ledger you can review',
+          'Collection is handled manually — VEDD reconciles your net profit and invoices the 30% share'
+        ],
+        tips: [
+          'Profit-Split is designed for funded prop-firm traders who would rather share upside than pay a flat fee',
+          'You only owe a share when you are net profitable — no profit, no split'
+        ]
+      }
+    ]
   }
 ];
 

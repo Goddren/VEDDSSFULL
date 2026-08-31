@@ -152,6 +152,8 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '⚖️', vis: 'verdict', name: 'Deep Reasoning Mode', desc: 'A Bull / Bear / Veteran-Judge AI debate weighs both sides before a call.', ex: 'A bull and a bear AI argue the setup, then a judge picks the stronger case.' },
       { icon: '🤝', vis: 'verdict', name: 'Multi-agent AI consensus', desc: 'Several models agree before the engine acts — no single point of failure.', ex: 'Three models must all agree before a trade is taken.' },
       { icon: '📈', vis: 'chart', name: 'Trailing Stop AI', desc: 'Nine dynamic trailing-stop methods to protect and ride winners.', ex: 'Locks in profit as XAU/USD runs, trailing just behind the move.' },
+      { icon: '🧬', vis: 'brain', name: 'A brain for every engine', badge: 'NEW', desc: 'Self-learning brains grade outcomes for FX, Options, Futures and Crypto — each engine gets sharper on its own market.', ex: 'Your Options brain learns NVDA credit spreads while your FX brain masters London breakouts.' },
+      { icon: '🛡️', vis: 'checks', name: 'Engine risk guardrails', badge: 'NEW', desc: 'Concentration caps, per-symbol cooldowns, correlated-basket limits and an unrealized-drawdown halt keep every engine from over-stacking a bad idea.', ex: 'After a losing NAS100 trade the engine won’t re-enter until its cooldown clears — and caps how many correlated index trades run at once.' },
     ],
   },
   {
@@ -171,6 +173,8 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '🌊', vis: 'chart', name: 'Choppy market filter', desc: 'Auto-pauses in ranging markets using ADX/ATR and resumes when trends develop.', ex: 'Stops trading while GBP/USD chops sideways, resumes once a trend forms.' },
       { icon: '🔁', vis: 'flow', name: 'MT5 trade copier EA', desc: 'Copy trades from MetaTrader 5 to TradeLocker and other platforms.', ex: 'Mirror every MT5 trade to your TradeLocker account automatically.' },
       { icon: '🔗', vis: 'flow', name: 'Webhook signal system', desc: 'Send signals to TradeLocker, TradingView or custom endpoints automatically.', ex: 'Fire a signal to TradingView the moment an analysis completes.' },
+      { icon: '💱', vis: 'flow', name: 'DXtrade (Velotrade) engine', badge: 'NEW', desc: 'Connect a DXtrade / Velotrade FX account as a second broker for the SS AI engine — live auto-trade routing with per-trade risk sized as a % of your account.', ex: 'The SS engine routes an EUR/USD trade to your Velotrade account, risking exactly 1% of the balance.' },
+      { icon: '📝', vis: 'checks', name: 'FX Paper Trading mode', badge: 'NEW', desc: 'Simulate live signals with no capital at risk — trades auto-close on SL/TP and feed the self-learning FX brain.', ex: 'Run a week of paper EUR/USD trades that grade themselves and train your brain before you go live.' },
       { icon: '👥', vis: 'flow', name: 'Copy trading', desc: 'Paper and real-broker execution with built-in safety gates.', ex: 'Follow a proven strategy with drawdown limits protecting your account.' },
       { icon: '🌅', vis: 'chart', name: 'ORB breakout engine', desc: 'An opening-range breakout strategy engine, automated.', ex: 'Auto-trades the opening-range breakout at each session open.' },
     ],
@@ -183,6 +187,8 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '☀️', vis: 'radar', name: 'Sol Engine', desc: 'Paper and live trading for Solana strategies.', ex: 'Runs your Solana strategy in paper first, then live when you’re ready.' },
       { icon: '🎲', vis: 'verdict', name: 'Polymarket prediction engine', desc: 'BTC/ETH prediction-market signals.', ex: 'A BTC up-or-down signal ready for Polymarket.' },
       { icon: '📡', vis: 'chart', name: 'Futures AI live feed', desc: 'A live NQ/ES/YM/GC/CL scanner.', ex: 'Live NQ and ES signals streaming as the session moves.' },
+      { icon: '🦅', vis: 'verdict', name: 'Options AI engine', badge: 'NEW', desc: 'Trades defined-risk credit spreads — bull-put and bear-call, not naked long options — with a graduated confidence score gating every entry.', ex: 'Order-flow sells a bull-put spread on SPY instead of buying a call, capping the loss up front.' },
+      { icon: '🔥', vis: 'radar', name: 'Crypto.com perpetuals engine', badge: 'NEW', desc: 'A self-learning perpetual-futures engine on Crypto.com, plus on-chain DeFi swaps from a hot wallet.', ex: 'Runs a BTC perp strategy 24/7 and can swap into a token on-chain when the setup calls for it.' },
     ],
   },
   {
@@ -196,6 +202,7 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '🔮', vis: 'checks', name: 'What-If scenarios', desc: 'Test price targets, stops and conditions with probability and risk before trading.', ex: '“What if I move my stop 10 pips?” — see the odds before you commit.' },
       { icon: '📓', vis: 'checks', name: 'Paper Trade AI Journal', desc: 'Auto-resolving journal that logs and grades your paper trades.', ex: 'Logs your practice trades and grades each one for you automatically.' },
       { icon: '👕', vis: 'coin', name: 'NFC Wear-to-Earn', desc: 'Tap-to-earn VEDD rewards from VEDD clothing.', ex: 'Tap your VEDD hoodie to your phone to claim rewards.' },
+      { icon: '🎬', vis: 'flow', name: 'Content Studio', badge: 'NEW', desc: 'Generate AI trading videos and reels — text-to-video or image-to-video, in Fast or High quality.', ex: 'Turn a winning setup into a branded 15-second reel for TikTok in one click.' },
     ],
   },
   {
@@ -205,6 +212,7 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '🏢', vis: 'flow', name: 'Business Builder', desc: 'Formation, banking and funding, step by step.', ex: 'Form your LLC, open business banking and line up funding in one place.' },
       { icon: '💵', vis: 'checks', name: 'Grants Hub', desc: 'Discover grants across SBA, NSF, CDFI and Google.org.', ex: 'Matched to SBA and CDFI grants you actually qualify for.' },
       { icon: '🌍', vis: 'progress', name: 'Community Impact Dashboard', desc: 'Track the impact your trading and community activity create.', ex: 'See the real-world impact your activity has generated.' },
+      { icon: '🤝', vis: 'coin', name: 'Ambassador Profit-Split', badge: 'NEW', desc: 'Skip the subscription — VEDD takes 30% of your prop-firm net profit instead, and you unlock full AI access.', ex: 'Keep 70% of your funded-account profit and pay nothing up front.' },
     ],
   },
 ];

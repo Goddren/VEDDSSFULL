@@ -9994,84 +9994,101 @@ async function getAiVisionConfirmation(candleData, indicators, proposedSignal, p
     console.log(`[AI Vision Confirmation] Requesting ${provider}/${selectedModel} confirmation for ${symbol} ${proposedSignal}`);
     let content = "";
     let thinkingTrace = null;
-    if (provider === "openai") {
-      if (wasPromoted) {
-        const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, "openai") : null;
-        const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
-        if (!openaiKey) {
+    try {
+      if (provider === "openai") {
+        if (wasPromoted) {
+          const userOpenAiKey = userId ? await getUserApiKeyForProvider(userId, "openai") : null;
+          const openaiKey = userOpenAiKey || process.env.OPENAI_API_KEY;
+          if (!openaiKey) {
+            return {
+              confirmed: false,
+              aiDirection: "NEUTRAL",
+              aiConfidence: 0,
+              reasoning: `\u26A0\uFE0F Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) \u2014 otherwise the AI confirmation can't score this trade.`,
+              confluenceScore: confluenceResult.score,
+              confluenceGrade: confluenceResult.grade
+            };
+          }
+          const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
+          const resp = await visionClient.chat.completions.create({
+            model: selectedModel,
+            messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
+            response_format: { type: "json_object" },
+            max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2e3 : 1e3,
+            temperature: 0.3
+          });
+          content = resp.choices[0]?.message?.content || "";
+        } else {
+          content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+        }
+      } else if (provider === "openrouter") {
+        const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
+        const platformKey = process.env.OPENROUTER_API_KEY;
+        if (!personalKey && !platformKey) {
           return {
             confirmed: false,
             aiDirection: "NEUTRAL",
             aiConfidence: 0,
-            reasoning: `\u26A0\uFE0F Your selected AI model (${rawModel}) can't read charts, and no OpenAI key is available to run the vision fallback (${selectedModel}). Add an OpenAI, Anthropic, or Google key on the AI Provider Keys page, or pick a vision model (GPT-4o, Claude, Gemini) \u2014 otherwise the AI confirmation can't score this trade.`,
-            confluenceScore: confluenceResult.score,
-            confluenceGrade: confluenceResult.grade
+            reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
           };
         }
-        const visionClient = new OpenAI({ apiKey: openaiKey, maxRetries: 3, timeout: 9e4 });
-        const resp = await visionClient.chat.completions.create({
-          model: selectedModel,
-          messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
-          response_format: { type: "json_object" },
-          max_tokens: hasHiddenReasoningOverhead(selectedModel) ? 2e3 : 1e3,
-          temperature: 0.3
-        });
-        content = resp.choices[0]?.message?.content || "";
-      } else {
-        content = await callOpenAIConfirmation(prompt, selectedModel, userId);
-      }
-    } else if (provider === "openrouter") {
-      const personalKey = userId ? await getUserApiKeyForProvider(userId, "openrouter") : null;
-      const platformKey = process.env.OPENROUTER_API_KEY;
-      if (!personalKey && !platformKey) {
-        return {
-          confirmed: false,
-          aiDirection: "NEUTRAL",
-          aiConfidence: 0,
-          reasoning: `No OpenRouter API key configured (platform or user). Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
-        };
-      }
-      try {
-        const result2 = await callOpenRouterConfirmation(prompt, selectedModel, personalKey || platformKey);
-        content = result2.content;
-        thinkingTrace = result2.thinking;
-      } catch (personalErr) {
-        if (personalKey && platformKey && platformKey !== personalKey) {
-          const result2 = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
+        try {
+          const result2 = await callOpenRouterConfirmation(prompt, selectedModel, personalKey || platformKey);
           content = result2.content;
           thinkingTrace = result2.thinking;
-        } else {
-          throw personalErr;
+        } catch (personalErr) {
+          if (personalKey && platformKey && platformKey !== personalKey) {
+            const result2 = await callOpenRouterConfirmation(prompt, selectedModel, platformKey);
+            content = result2.content;
+            thinkingTrace = result2.thinking;
+          } else {
+            throw personalErr;
+          }
         }
+      } else if (userId) {
+        const apiKey = await getUserApiKeyForProvider(userId, provider);
+        if (!apiKey) {
+          return {
+            confirmed: false,
+            aiDirection: "NEUTRAL",
+            aiConfidence: 0,
+            reasoning: `No ${provider} API key configured. Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
+          };
+        }
+        switch (provider) {
+          case "anthropic":
+            content = await callAnthropicConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "google":
+            content = await callGoogleConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "groq":
+            content = await callGroqConfirmation(prompt, selectedModel, apiKey);
+            break;
+          case "mistral":
+            content = await callMistralConfirmation(prompt, selectedModel, apiKey);
+            break;
+          default:
+            content = await callOpenAIConfirmation(prompt, selectedModel, userId);
+        }
+      } else {
+        content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
       }
-    } else if (userId) {
-      const apiKey = await getUserApiKeyForProvider(userId, provider);
-      if (!apiKey) {
-        return {
-          confirmed: false,
-          aiDirection: "NEUTRAL",
-          aiConfidence: 0,
-          reasoning: `No ${provider} API key configured. Add your key on the AI Provider Keys page, or switch to an OpenAI model.`
-        };
+    } catch (branchErr) {
+      if (isFailoverError(branchErr) && process.env.OPENAI_API_KEY) {
+        console.warn(`[AI Vision] ${provider} failed (${branchErr?.status ?? branchErr?.message}); failing over to platform OpenAI gpt-4o-mini`);
+        const vc = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 3, timeout: 9e4 });
+        const r = await vc.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
+          response_format: { type: "json_object" },
+          max_tokens: 1e3,
+          temperature: 0.3
+        });
+        content = r.choices[0]?.message?.content || "";
+      } else {
+        throw branchErr;
       }
-      switch (provider) {
-        case "anthropic":
-          content = await callAnthropicConfirmation(prompt, selectedModel, apiKey);
-          break;
-        case "google":
-          content = await callGoogleConfirmation(prompt, selectedModel, apiKey);
-          break;
-        case "groq":
-          content = await callGroqConfirmation(prompt, selectedModel, apiKey);
-          break;
-        case "mistral":
-          content = await callMistralConfirmation(prompt, selectedModel, apiKey);
-          break;
-        default:
-          content = await callOpenAIConfirmation(prompt, selectedModel, userId);
-      }
-    } else {
-      content = await callOpenAIConfirmation(prompt, "gpt-4o-mini");
     }
     if (!content) throw new Error("No response from AI");
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -10325,6 +10342,12 @@ function buildOpenAICompatClient(provider, apiKey) {
   wrapper.provider = provider;
   return wrapper;
 }
+function isFailoverError(e) {
+  const status = e?.status ?? e?.statusCode ?? e?.response?.status;
+  if (status === 429 || status >= 500 && status < 600) return true;
+  const msg = (e?.message || "").toLowerCase();
+  return /rate.?limit|\b429\b|quota|insufficient_quota|overloaded|capacity|temporarily|timeout|invalid response body|econnreset|fetch failed|service unavailable/.test(msg);
+}
 function recordAiHealth(userId, data) {
   if (!userId) return;
   const g = global;
@@ -10483,9 +10506,12 @@ async function getUniversalAIClientForUser(userId) {
     } catch {
     }
     if (clients.length) {
+      if (clients[0].provider === selProvider && selModel) {
+        clients[0].defaultModel = selModel;
+      }
       storage2.updateUserApiKeyUsage(userId, clients[0].provider).catch(() => {
       });
-      console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")}`);
+      console.log(`[AI] user ${userId} client chain: ${clients.map((c) => c.provider).join(" \u2192 ")} (primary model ${clients[0].defaultModel})`);
       return makeFailoverClient(clients, userId);
     }
     if (!canUsePlatformKey) {
