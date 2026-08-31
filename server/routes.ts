@@ -19939,7 +19939,7 @@ Respond with ONLY valid JSON:
     try {
       const { pool } = await import('./db');
       const { rows } = await pool.query(
-        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId],
       );
       const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
@@ -19983,13 +19983,21 @@ Respond with ONLY valid JSON:
   app.patch("/api/dxtrade/connections/:id", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
-    const { autoTradeEnabled, useRiskPercent, riskPercent } = req.body || {};
+    const { autoTradeEnabled, useRiskPercent, riskPercent, lotMultiplier, isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget, consistencyEnabled, consistencyThresholdPct } = req.body || {};
     try {
       const { pool } = await import('./db');
       const sets: string[] = []; const vals: any[] = []; let i = 1;
       if (autoTradeEnabled !== undefined) { sets.push(`auto_trade_enabled=$${i++}`); vals.push(autoTradeEnabled === true); }
       if (useRiskPercent !== undefined) { sets.push(`use_risk_percent=$${i++}`); vals.push(useRiskPercent === true); }
       if (riskPercent !== undefined) { sets.push(`risk_percent=$${i++}`); vals.push(Math.max(0.05, Math.min(10, Number(riskPercent) || 1))); }
+      // Parity with the TradeLocker connection settings.
+      if (lotMultiplier !== undefined) { sets.push(`lot_multiplier=$${i++}`); vals.push(Math.max(0.01, Math.min(100, Number(lotMultiplier) || 1))); }
+      if (isPropFirmAccount !== undefined) { sets.push(`is_prop_firm_account=$${i++}`); vals.push(isPropFirmAccount === true); }
+      if (propFirmName !== undefined) { sets.push(`prop_firm_name=$${i++}`); vals.push(propFirmName ? String(propFirmName).slice(0, 100) : null); }
+      if (propFirmAccountSize !== undefined) { sets.push(`prop_firm_account_size=$${i++}`); vals.push(propFirmAccountSize === null ? null : Math.max(0, Number(propFirmAccountSize) || 0)); }
+      if (weeklyProfitTarget !== undefined) { sets.push(`weekly_profit_target=$${i++}`); vals.push(weeklyProfitTarget === null ? null : Math.max(0, Number(weeklyProfitTarget) || 0)); }
+      if (consistencyEnabled !== undefined) { sets.push(`consistency_enabled=$${i++}`); vals.push(consistencyEnabled === true); }
+      if (consistencyThresholdPct !== undefined) { sets.push(`consistency_threshold_pct=$${i++}`); vals.push(consistencyThresholdPct === null ? null : Math.max(1, Math.min(100, Number(consistencyThresholdPct) || 20))); }
       if (!sets.length) return res.status(400).json({ error: "no settings provided" });
       vals.push(Number(req.params.id), userId);
       await pool.query(`UPDATE dxtrade_connections SET ${sets.join(', ')} WHERE id=$${i++} AND user_id=$${i}`, vals);

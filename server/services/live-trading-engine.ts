@@ -5041,7 +5041,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
     try {
       const { pool: _dxPool } = await import('../db');
       const dxRows = (await _dxPool.query(
-        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
+        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled, lot_multiplier, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
         [userId],
       )).rows;
       if (dxRows.length > 0) {
@@ -5053,6 +5053,17 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             await svc.login();
             const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
             if (!acct) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code — skipped.` }); continue; }
+            // Per-connection prop-firm consistency (parity with TradeLocker). Reads
+            // this account's own durable ledger; hard-block / taper independently.
+            let _dxConsistencyMult = 1;
+            if (dc.consistency_enabled === true) {
+              try {
+                const { getConsistencyStatus } = await import('./prop-firm-consistency');
+                const _dxcs = await getConsistencyStatus(dc.id, 'dxtrade', dc.consistency_threshold_pct, true);
+                if (_dxcs.hardBlocked) { addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ DXtrade [${acct}]: consistency block — ${_dxcs.guidance}` }); continue; }
+                _dxConsistencyMult = _dxcs.sizeMultiplier;
+              } catch { /* non-fatal */ }
+            }
             // Risk-% sizing off this account's own balance + stop distance.
             let qty = 0; let sizeLabel = '';
             const spec = await svc.getInstrument(dxSymbol);
@@ -5063,6 +5074,9 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
                 qty = s.quantity; sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
               }
             }
+            // Apply this account's lot multiplier + consistency taper.
+            const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
+            if (qty > 0 && _dxMult !== 1) { qty = Math.max(0, Math.round(qty * _dxMult)); if (_dxConsistencyMult < 1) sizeLabel += ` · consistency ${Math.round(_dxConsistencyMult * 100)}%`; }
             if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); continue; }
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === 'BUY' ? 'BUY' : 'SELL', quantity: qty, type: 'MARKET', stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined });
             addActivity(userId, { type: 'trade_open', symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'}`, details: { dxOrder: r?.result ?? r } });

@@ -32231,7 +32231,7 @@ async function processDecision(userId, decision, newsCtx) {
     try {
       const { pool: _dxPool } = await Promise.resolve().then(() => (init_db(), db_exports));
       const dxRows = (await _dxPool.query(
-        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
+        `SELECT id, host, username, encrypted_password, domain, account_code, use_risk_percent, risk_percent, auto_trade_enabled, lot_multiplier, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 AND is_active=true AND auto_trade_enabled=true`,
         [userId]
       )).rows;
       if (dxRows.length > 0) {
@@ -32246,6 +32246,19 @@ async function processDecision(userId, decision, newsCtx) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}]: no account code \u2014 skipped.` });
               continue;
             }
+            let _dxConsistencyMult = 1;
+            if (dc.consistency_enabled === true) {
+              try {
+                const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+                const _dxcs = await getConsistencyStatus2(dc.id, "dxtrade", dc.consistency_threshold_pct, true);
+                if (_dxcs.hardBlocked) {
+                  addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F DXtrade [${acct}]: consistency block \u2014 ${_dxcs.guidance}` });
+                  continue;
+                }
+                _dxConsistencyMult = _dxcs.sizeMultiplier;
+              } catch {
+              }
+            }
             let qty = 0;
             let sizeLabel = "";
             const spec = await svc.getInstrument(dxSymbol);
@@ -32256,6 +32269,11 @@ async function processDecision(userId, decision, newsCtx) {
                 qty = s.quantity;
                 sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
               }
+            }
+            const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
+            if (qty > 0 && _dxMult !== 1) {
+              qty = Math.max(0, Math.round(qty * _dxMult));
+              if (_dxConsistencyMult < 1) sizeLabel += ` \xB7 consistency ${Math.round(_dxConsistencyMult * 100)}%`;
             }
             if (!(qty > 0)) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped \u2014 set a stop or check the symbol exists on Velotrade.` });
@@ -48600,6 +48618,14 @@ CREATE TABLE IF NOT EXISTS "dxtrade_connections" (
 ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "auto_trade_enabled" boolean NOT NULL DEFAULT false;
 ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "use_risk_percent" boolean NOT NULL DEFAULT true;
 ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "risk_percent" double precision NOT NULL DEFAULT 1.0;
+-- Parity with tradelocker_connections: per-connection sizing + prop-firm + consistency.
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "lot_multiplier" double precision NOT NULL DEFAULT 1.0;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "is_prop_firm_account" boolean NOT NULL DEFAULT false;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "prop_firm_name" text;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "prop_firm_account_size" double precision;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "weekly_profit_target" double precision;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "consistency_enabled" boolean NOT NULL DEFAULT false;
+ALTER TABLE "dxtrade_connections" ADD COLUMN IF NOT EXISTS "consistency_threshold_pct" double precision;
 `;
   }
 });
@@ -72676,7 +72702,7 @@ Respond with ONLY valid JSON:
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const { rows } = await pool2.query(
-        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
+        `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId]
       );
       const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
@@ -72722,7 +72748,7 @@ Respond with ONLY valid JSON:
   app2.patch("/api/dxtrade/connections/:id", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
-    const { autoTradeEnabled, useRiskPercent, riskPercent } = req.body || {};
+    const { autoTradeEnabled, useRiskPercent, riskPercent, lotMultiplier, isPropFirmAccount, propFirmName, propFirmAccountSize, weeklyProfitTarget, consistencyEnabled, consistencyThresholdPct } = req.body || {};
     try {
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const sets = [];
@@ -72739,6 +72765,34 @@ Respond with ONLY valid JSON:
       if (riskPercent !== void 0) {
         sets.push(`risk_percent=$${i++}`);
         vals.push(Math.max(0.05, Math.min(10, Number(riskPercent) || 1)));
+      }
+      if (lotMultiplier !== void 0) {
+        sets.push(`lot_multiplier=$${i++}`);
+        vals.push(Math.max(0.01, Math.min(100, Number(lotMultiplier) || 1)));
+      }
+      if (isPropFirmAccount !== void 0) {
+        sets.push(`is_prop_firm_account=$${i++}`);
+        vals.push(isPropFirmAccount === true);
+      }
+      if (propFirmName !== void 0) {
+        sets.push(`prop_firm_name=$${i++}`);
+        vals.push(propFirmName ? String(propFirmName).slice(0, 100) : null);
+      }
+      if (propFirmAccountSize !== void 0) {
+        sets.push(`prop_firm_account_size=$${i++}`);
+        vals.push(propFirmAccountSize === null ? null : Math.max(0, Number(propFirmAccountSize) || 0));
+      }
+      if (weeklyProfitTarget !== void 0) {
+        sets.push(`weekly_profit_target=$${i++}`);
+        vals.push(weeklyProfitTarget === null ? null : Math.max(0, Number(weeklyProfitTarget) || 0));
+      }
+      if (consistencyEnabled !== void 0) {
+        sets.push(`consistency_enabled=$${i++}`);
+        vals.push(consistencyEnabled === true);
+      }
+      if (consistencyThresholdPct !== void 0) {
+        sets.push(`consistency_threshold_pct=$${i++}`);
+        vals.push(consistencyThresholdPct === null ? null : Math.max(1, Math.min(100, Number(consistencyThresholdPct) || 20)));
       }
       if (!sets.length) return res.status(400).json({ error: "no settings provided" });
       vals.push(Number(req.params.id), userId);
