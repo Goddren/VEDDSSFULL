@@ -25,6 +25,29 @@ const MAX_OPEN_PER_SYMBOL = 3;          // max concurrent open positions on one 
 const MAX_DAILY_ENTRIES_PER_SYMBOL = 4; // max new entries per underlying per day
 const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000; // min gap between entries on the same underlying
 
+// ── Correlated-basket cap ───────────────────────────────────────────────────
+// The per-symbol cap alone doesn't stop a one-way pile-on across CORRELATED
+// names — the 08-27 blowup was effectively one giant bearish mega-cap-tech bet
+// (NVDA + TSLA puts moving together). Cap how many open positions can share the
+// same directional bias within a correlated group.
+const CORRELATED_BASKET_CAP = 4;
+const CORRELATED_BASKETS: string[][] = [
+  ['NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'AMD', 'AVGO', 'SMH', 'QQQ', 'NAS100', 'NDX'], // mega-cap tech / Nasdaq
+  ['SPY', 'SPX', 'US500', 'ES', 'VOO'],   // S&P 500
+  ['DIA', 'US30', 'YM'],                  // Dow
+  ['BTCUSD', 'ETHUSD', 'MSTR', 'COIN'],   // crypto-beta
+];
+// A position's directional bias: long call / bull-put spread = bullish; long put
+// / bear-call spread = bearish.
+function positionBias(optionType?: string | null, spreadType?: string | null): 'bullish' | 'bearish' | null {
+  if (spreadType === 'bull_put') return 'bullish';
+  if (spreadType === 'bear_call') return 'bearish';
+  const ot = (optionType || '').toLowerCase();
+  if (!spreadType && ot === 'call') return 'bullish';
+  if (!spreadType && ot === 'put') return 'bearish';
+  return null;
+}
+
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';
 interface StrategyResult {
   decision: Decision;
@@ -736,7 +759,7 @@ const sessionPeakEquity = new Map<number, number>();
 
 async function checkSafetyGates(
   userId: number, cfg: OptionsEngineConfig, equity: number, connectionId: number, connectionType: string = 'alpaca',
-  symbol?: string, unrealizedPnl: number = 0,
+  symbol?: string, unrealizedPnl: number = 0, directionBias?: 'bullish' | 'bearish',
 ): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
@@ -760,6 +783,23 @@ async function checkSafetyGates(
       const sinceMs = Date.now() - act.lastEntryAt.getTime();
       if (sinceMs < SYMBOL_COOLDOWN_MS) {
         return { allowed: false, reason: `cooldown — last ${symbol} entry ${Math.round(sinceMs / 60000)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 60000)} min)`, riskMultiplier: 1 };
+      }
+    }
+
+    // ── Correlated-basket cap ───────────────────────────────────────────────
+    // Block a one-way pile-on across correlated names (e.g. all mega-cap tech
+    // bearish at once). Counts open positions in this symbol's basket that share
+    // the same directional bias as the pending trade.
+    if (directionBias) {
+      const basket = CORRELATED_BASKETS.find(b => b.includes(symbol.toUpperCase()));
+      if (basket) {
+        const sameBias = openTrades.filter(t =>
+          basket.includes(((t as any).underlyingSymbol || '').toUpperCase()) &&
+          positionBias((t as any).optionType, (t as any).spreadType) === directionBias
+        ).length;
+        if (sameBias >= CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap — already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
       }
     }
   }
@@ -1052,7 +1092,8 @@ async function executeSignal(
     const positions = await service.getPositions();
     unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPl || 0), 0);
   } catch { /* non-fatal — fall back to realized-only halt */ }
-  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection.id, 'alpaca', underlyingSymbol, unrealizedPnl);
+  const _dirBias: 'bullish' | 'bearish' = result.direction === 'up' ? 'bullish' : 'bearish';
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection.id, 'alpaca', underlyingSymbol, unrealizedPnl, _dirBias);
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId, symbol: underlyingSymbol, decision: 'skipped',

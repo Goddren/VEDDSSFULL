@@ -49133,6 +49133,14 @@ __export(options_scanner_exports, {
   runOptionsEngineScan: () => runOptionsEngineScan,
   startOptionsEngineScanner: () => startOptionsEngineScanner
 });
+function positionBias(optionType, spreadType) {
+  if (spreadType === "bull_put") return "bullish";
+  if (spreadType === "bear_call") return "bearish";
+  const ot = (optionType || "").toLowerCase();
+  if (!spreadType && ot === "call") return "bullish";
+  if (!spreadType && ot === "put") return "bearish";
+  return null;
+}
 function nyOffsetMinutes(date2) {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -49659,7 +49667,7 @@ async function computeContractQuantity(userId, cfg, equity, askPrice, signalScor
   }
   return finalize(baseQty, "");
 }
-async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0) {
+async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0, directionBias) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
@@ -49678,6 +49686,17 @@ async function checkSafetyGates(userId, cfg, equity, connectionId, connectionTyp
       const sinceMs = Date.now() - act.lastEntryAt.getTime();
       if (sinceMs < SYMBOL_COOLDOWN_MS2) {
         return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS2 / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+    if (directionBias) {
+      const basket = CORRELATED_BASKETS.find((b) => b.includes(symbol.toUpperCase()));
+      if (basket) {
+        const sameBias = openTrades.filter(
+          (t) => basket.includes((t.underlyingSymbol || "").toUpperCase()) && positionBias(t.optionType, t.spreadType) === directionBias
+        ).length;
+        if (sameBias >= CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
       }
     }
   }
@@ -49915,7 +49934,8 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
     unrealizedPnl = positions.reduce((s, p) => s + (p.unrealizedPl || 0), 0);
   } catch {
   }
-  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl);
+  const _dirBias = result.direction === "up" ? "bullish" : "bearish";
+  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl, _dirBias);
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -50488,7 +50508,7 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, STRATEGY_RUNNERS, sessionPeakEquity, started2;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS, sessionPeakEquity, started2;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
@@ -50500,6 +50520,17 @@ var init_options_scanner = __esm({
     MAX_OPEN_PER_SYMBOL2 = 3;
     MAX_DAILY_ENTRIES_PER_SYMBOL2 = 4;
     SYMBOL_COOLDOWN_MS2 = 20 * 60 * 1e3;
+    CORRELATED_BASKET_CAP = 4;
+    CORRELATED_BASKETS = [
+      ["NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "AMD", "AVGO", "SMH", "QQQ", "NAS100", "NDX"],
+      // mega-cap tech / Nasdaq
+      ["SPY", "SPX", "US500", "ES", "VOO"],
+      // S&P 500
+      ["DIA", "US30", "YM"],
+      // Dow
+      ["BTCUSD", "ETHUSD", "MSTR", "COIN"]
+      // crypto-beta
+    ];
     STRATEGY_RUNNERS = {
       orb: runOrb,
       volume_profile: runVolumeProfile,
