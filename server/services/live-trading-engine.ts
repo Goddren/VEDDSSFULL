@@ -2285,6 +2285,13 @@ async function monitorPositions(userId: number): Promise<void> {
   _monitorBusy[userId] = true;
   try {
     const positions = await getMergedOpenPositions(userId, lastAnalysis);
+    // Floating (open-position) drawdown enforcement — reacts in real time every
+    // 25s, not just when a trade closes. Sums live unrealized P&L across open
+    // positions and trips the user's maxDrawdownPct / maxDailyLossPct on the
+    // combined realized+floating equity.
+    const floating = positions.reduce((s: number, p: any) => s + (Number(p.profit) || 0), 0);
+    checkFloatingDrawdown(userId, floating);
+    if (!engineStates[userId] || !positionMonitorIntervals[userId]) return; // may have been halted by the breaker
     if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
   } catch { /* non-fatal — retry next tick */ } finally { _monitorBusy[userId] = false; }
 }
@@ -6334,6 +6341,52 @@ function checkMaxDrawdownBreakers(userId: number): void {
       addActivity(userId, {
         type: 'error',
         message: `🚨 MAX DAILY LOSS HIT — down ${Math.abs(lossPct).toFixed(2)}% today, at/above your ${mdl}% daily-loss limit. New trades halted for the rest of the day (open positions left to run).`,
+      });
+    }
+  }
+}
+
+// Floating-drawdown enforcement — same limits as checkMaxDrawdownBreakers but on
+// LIVE equity (realized + open-position unrealized P&L), evaluated by the 25s
+// position monitor so an open drawdown is caught in real time instead of only at
+// trade close. Uses a SEPARATE live-equity high-watermark (incl unrealized) so it
+// doesn't disturb the realized-only drawdown shield's watermark.
+function checkFloatingDrawdown(userId: number, floating: number): void {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+
+  const equitySession = state.pnlSession + floating;
+  const day = new Date().toISOString().split('T')[0];
+  if ((state as any)._eqHwmDate !== day) { (state as any)._eqHwmDate = day; (state as any)._eqHwm = Math.max(0, equitySession); }
+  if (equitySession > ((state as any)._eqHwm ?? 0)) (state as any)._eqHwm = equitySession;
+  const peak = (state as any)._eqHwm ?? 0;
+
+  // maxDrawdownPct — live equity given back this % from its running peak → flatten + halt.
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && peak > 0) {
+    const ddPct = ((peak - equitySession) / balance) * 100;
+    if (ddPct >= mdd) {
+      addActivity(userId, {
+        type: 'error',
+        message: `🚨 MAX DRAWDOWN HIT (live/floating) — open+realized gave back ${ddPct.toFixed(2)}% ($${(peak - equitySession).toFixed(2)}) from the equity peak $${peak.toFixed(2)}, at/above your ${mdd}% limit. Sending CLOSE_ALL and halting the engine.`,
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+
+  // maxDailyLossPct — live equity down this % on the day → halt NEW trades.
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const dayEquity = state.pnlToday + floating;
+    if ((dayEquity / balance) * 100 <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = new Date().toISOString();
+      addActivity(userId, {
+        type: 'error',
+        message: `🚨 MAX DAILY LOSS HIT (live/floating) — open+realized down ${Math.abs((dayEquity / balance) * 100).toFixed(2)}% today, at/above your ${mdl}% limit. New trades halted for the rest of the day.`,
       });
     }
   }

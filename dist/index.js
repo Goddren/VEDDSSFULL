@@ -29958,6 +29958,9 @@ async function monitorPositions(userId) {
   _monitorBusy[userId] = true;
   try {
     const positions = await getMergedOpenPositions(userId, lastAnalysis);
+    const floating = positions.reduce((s, p) => s + (Number(p.profit) || 0), 0);
+    checkFloatingDrawdown(userId, floating);
+    if (!engineStates[userId] || !positionMonitorIntervals[userId]) return;
     if (positions.length) await applyServerSideTrails(userId, positions, lastAnalysis);
   } catch {
   } finally {
@@ -33235,6 +33238,44 @@ function checkMaxDrawdownBreakers(userId) {
       addActivity2(userId, {
         type: "error",
         message: `\u{1F6A8} MAX DAILY LOSS HIT \u2014 down ${Math.abs(lossPct).toFixed(2)}% today, at/above your ${mdl}% daily-loss limit. New trades halted for the rest of the day (open positions left to run).`
+      });
+    }
+  }
+}
+function checkFloatingDrawdown(userId, floating) {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const equitySession = state.pnlSession + floating;
+  const day = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  if (state._eqHwmDate !== day) {
+    state._eqHwmDate = day;
+    state._eqHwm = Math.max(0, equitySession);
+  }
+  if (equitySession > (state._eqHwm ?? 0)) state._eqHwm = equitySession;
+  const peak = state._eqHwm ?? 0;
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && peak > 0) {
+    const ddPct = (peak - equitySession) / balance * 100;
+    if (ddPct >= mdd) {
+      addActivity2(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DRAWDOWN HIT (live/floating) \u2014 open+realized gave back ${ddPct.toFixed(2)}% ($${(peak - equitySession).toFixed(2)}) from the equity peak $${peak.toFixed(2)}, at/above your ${mdd}% limit. Sending CLOSE_ALL and halting the engine.`
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const dayEquity = state.pnlToday + floating;
+    if (dayEquity / balance * 100 <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+      addActivity2(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DAILY LOSS HIT (live/floating) \u2014 open+realized down ${Math.abs(dayEquity / balance * 100).toFixed(2)}% today, at/above your ${mdl}% limit. New trades halted for the rest of the day.`
       });
     }
   }
