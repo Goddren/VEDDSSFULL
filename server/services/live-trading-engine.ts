@@ -6392,6 +6392,47 @@ function checkFloatingDrawdown(userId: number, floating: number): void {
   }
 }
 
+// TEMPORARY test hook — lets the user SEE the max-drawdown / daily-loss halt in
+// the activity feed on demand. Default 'demo' just posts the exact message the
+// real breaker would (no halt, no CLOSE_ALL, engine keeps running). Pass real:true
+// to actually invoke the breaker path (emergency stop / halt-new). Safe to remove.
+export function simulateDrawdownHalt(userId: number, opts?: { real?: boolean; kind?: 'max_drawdown' | 'daily_loss' }): { ok: boolean; fired: boolean; message: string } {
+  const state = engineStates[userId];
+  if (!state) return { ok: false, fired: false, message: 'Live engine is not running — start the FX engine first, then run the test.' };
+  const balance = state.config.accountBalance || 0;
+  if (balance <= 0) return { ok: false, fired: false, message: 'Set an account balance on the engine first (thresholds are % of balance).' };
+  const kind = opts?.kind === 'daily_loss' ? 'daily_loss' : 'max_drawdown';
+  const mdd = state.config.maxDrawdownPct || 0;
+  const mdl = state.config.maxDailyLossPct || 0;
+
+  if (opts?.real === true) {
+    if (kind === 'max_drawdown') {
+      if (mdd <= 0) return { ok: false, fired: false, message: 'maxDrawdownPct is 0 (disabled) — set a max drawdown % first.' };
+      // Force a give-back breach: set the live-equity peak above current equity by
+      // more than the limit, then run the REAL floating breaker (flatten + halt).
+      (state as any)._eqHwmDate = new Date().toISOString().split('T')[0];
+      (state as any)._eqHwm = (state.pnlSession || 0) + (balance * mdd / 100) + 1;
+      checkFloatingDrawdown(userId, 0);
+      return { ok: true, fired: true, message: `REAL max-drawdown breaker invoked — engine halted + CLOSE_ALL queued. Restart the FX engine when ready.` };
+    }
+    if (mdl <= 0) return { ok: false, fired: false, message: 'maxDailyLossPct is 0 (disabled) — set a max daily loss % first.' };
+    state.pnlToday = -(balance * mdl / 100) - 1; // synthetic breach for today
+    checkMaxDrawdownBreakers(userId); // halts NEW trades for the day
+    return { ok: true, fired: true, message: `REAL max-daily-loss breaker invoked — new trades halted for today. (pnlToday set to a synthetic breach value.)` };
+  }
+
+  // DEMO (default) — post the exact message without any real halt.
+  const amt = kind === 'max_drawdown' ? balance * mdd / 100 : balance * mdl / 100;
+  const pct = kind === 'max_drawdown' ? mdd : mdl;
+  addActivity(userId, {
+    type: 'error',
+    message: kind === 'max_drawdown'
+      ? `🧪 TEST — this is what a MAX DRAWDOWN HALT looks like: live equity gave back ${pct}% ($${amt.toFixed(0)}) from its peak → CLOSE_ALL + engine halt. (Preview only — no real halt performed.)`
+      : `🧪 TEST — this is what a MAX DAILY LOSS HALT looks like: down ${pct}% ($${amt.toFixed(0)}) on the day → new trades halted. (Preview only — no real halt performed.)`,
+  });
+  return { ok: true, fired: false, message: 'Test message posted to the FX engine activity feed (demo — no real halt). Open the engine activity feed to see it.' };
+}
+
 export function stopLiveEngine(userId: number): EngineState | null {
   if (engineIntervals[userId]) {
     clearInterval(engineIntervals[userId]);
