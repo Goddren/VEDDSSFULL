@@ -72759,12 +72759,27 @@ Respond with ONLY valid JSON:
       const accountCode = extractAccountCode2(check.accounts);
       const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
       const enc = encryptApiSecret3(String(password));
-      const r = await pool2.query(
-        `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
-        [userId, String(host), String(username), enc, domain ? String(domain) : "default", accountCode, label ? String(label) : null]
+      const dom = domain ? String(domain) : "default";
+      const existing = await pool2.query(
+        `SELECT id FROM dxtrade_connections WHERE user_id=$1 AND username=$2 LIMIT 1`,
+        [userId, String(username)]
       );
-      res.json({ ok: true, id: r.rows[0].id, accountCode, accounts: check.accounts });
+      let id;
+      if (existing.rows.length) {
+        id = existing.rows[0].id;
+        await pool2.query(
+          `UPDATE dxtrade_connections SET host=$1, encrypted_password=$2, domain=$3, account_code=COALESCE($4, account_code), label=COALESCE($5, label), is_active=true, last_connected_at=now(), last_error=NULL WHERE id=$6`,
+          [String(host), enc, dom, accountCode, label ? String(label) : null, id]
+        );
+      } else {
+        const r = await pool2.query(
+          `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
+          [userId, String(host), String(username), enc, dom, accountCode, label ? String(label) : null]
+        );
+        id = r.rows[0].id;
+      }
+      res.json({ ok: true, id, accountCode, accounts: check.accounts, reconnected: existing.rows.length > 0 });
     } catch (err) {
       res.status(400).json({ error: err?.message || "DXtrade connect failed" });
     }

@@ -19921,12 +19921,32 @@ Respond with ONLY valid JSON:
       const accountCode: string | null = extractAccountCode(check.accounts);
       const { pool } = await import('./db');
       const enc = encryptApiSecret(String(password));
-      const r = await pool.query(
-        `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
-        [userId, String(host), String(username), enc, domain ? String(domain) : 'default', accountCode, label ? String(label) : null],
+      const dom = domain ? String(domain) : 'default';
+      // Re-connecting the SAME account must PRESERVE its settings (auto_trade_enabled,
+      // risk %, lot mult, prop-firm, consistency) — a plain INSERT created a duplicate
+      // row with defaults (auto-trade off), which silently disabled auto-trading. Upsert
+      // by (user_id, username): update credentials/host/label on an existing row and
+      // leave the per-connection settings untouched; otherwise insert a fresh row.
+      const existing = await pool.query(
+        `SELECT id FROM dxtrade_connections WHERE user_id=$1 AND username=$2 LIMIT 1`,
+        [userId, String(username)],
       );
-      res.json({ ok: true, id: r.rows[0].id, accountCode, accounts: check.accounts });
+      let id: number;
+      if (existing.rows.length) {
+        id = existing.rows[0].id;
+        await pool.query(
+          `UPDATE dxtrade_connections SET host=$1, encrypted_password=$2, domain=$3, account_code=COALESCE($4, account_code), label=COALESCE($5, label), is_active=true, last_connected_at=now(), last_error=NULL WHERE id=$6`,
+          [String(host), enc, dom, accountCode, label ? String(label) : null, id],
+        );
+      } else {
+        const r = await pool.query(
+          `INSERT INTO dxtrade_connections (user_id, host, username, encrypted_password, domain, account_code, label, is_active, last_connected_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,true, now()) RETURNING id`,
+          [userId, String(host), String(username), enc, dom, accountCode, label ? String(label) : null],
+        );
+        id = r.rows[0].id;
+      }
+      res.json({ ok: true, id, accountCode, accounts: check.accounts, reconnected: existing.rows.length > 0 });
     } catch (err: any) {
       res.status(400).json({ error: err?.message || 'DXtrade connect failed' });
     }
