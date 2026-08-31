@@ -1167,6 +1167,7 @@ export function recordTradeResult(userId: number, result: {
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
   checkDailyProfitTarget(userId);
+  checkMaxDrawdownBreakers(userId); // enforce user-set maxDrawdownPct / maxDailyLossPct
 
   // ── Update challenge daily P&L history on trade close ─────────────
   if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
@@ -6296,6 +6297,45 @@ function checkDailyProfitTarget(userId: number): void {
     });
     // Stop the engine and send CLOSE_ALL so no open trades bleed into losses
     emergencyStopEngine(userId);
+  }
+}
+
+// Hard loss-protection circuit breakers that the user configures but were never
+// enforced: maxDrawdownPct (equity given back this % from the running session
+// peak → flatten + halt, the real "max drawdown" ceiling) and maxDailyLossPct
+// (down this % on the day → halt NEW trades, keep open positions). Distinct from
+// the drawdown SHIELD (which only tapers size) and dailyLossLimit (prop-firm).
+function checkMaxDrawdownBreakers(userId: number): void {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && state.sessionHighWatermark > 0) {
+    const ddFromPeak = state.sessionHighWatermark - state.pnlSession;
+    const ddPct = (ddFromPeak / balance) * 100;
+    if (ddPct >= mdd) {
+      addActivity(userId, {
+        type: 'error',
+        message: `🚨 MAX DRAWDOWN HIT — gave back ${ddPct.toFixed(2)}% ($${ddFromPeak.toFixed(2)}) from the session peak $${state.sessionHighWatermark.toFixed(2)}, at/above your ${mdd}% max-drawdown limit. Sending CLOSE_ALL and halting the engine.`,
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const lossPct = (state.pnlToday / balance) * 100;
+    if (lossPct <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = new Date().toISOString();
+      addActivity(userId, {
+        type: 'error',
+        message: `🚨 MAX DAILY LOSS HIT — down ${Math.abs(lossPct).toFixed(2)}% today, at/above your ${mdl}% daily-loss limit. New trades halted for the rest of the day (open positions left to run).`,
+      });
+    }
   }
 }
 

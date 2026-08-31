@@ -29098,6 +29098,7 @@ function recordTradeResult(userId, result) {
   state.pnlToday = Math.round((state.pnlToday + result.profit) * 100) / 100;
   checkDailyLossLimit(userId);
   checkDailyProfitTarget(userId);
+  checkMaxDrawdownBreakers(userId);
   if (state.config.consistencyEnforcementEnabled && state.config.propFirmMode) {
     const today2 = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
     state.challengeDailyPnL[today2] = state.pnlToday;
@@ -33205,6 +33206,37 @@ function checkDailyProfitTarget(userId) {
       message: `\u{1F3C6} DAILY PROFIT TARGET HIT \u2014 +${gainPct.toFixed(2)}% gain today reached your ${target}% target. Engine stopping to protect gains. CLOSE_ALL sent to MT5.`
     });
     emergencyStopEngine(userId);
+  }
+}
+function checkMaxDrawdownBreakers(userId) {
+  const state = engineStates[userId];
+  if (!state || state.dailyLossHalted) return;
+  const balance = state.config.accountBalance;
+  if (!balance || balance <= 0) return;
+  const mdd = state.config.maxDrawdownPct || 0;
+  if (mdd > 0 && state.sessionHighWatermark > 0) {
+    const ddFromPeak = state.sessionHighWatermark - state.pnlSession;
+    const ddPct = ddFromPeak / balance * 100;
+    if (ddPct >= mdd) {
+      addActivity2(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DRAWDOWN HIT \u2014 gave back ${ddPct.toFixed(2)}% ($${ddFromPeak.toFixed(2)}) from the session peak $${state.sessionHighWatermark.toFixed(2)}, at/above your ${mdd}% max-drawdown limit. Sending CLOSE_ALL and halting the engine.`
+      });
+      emergencyStopEngine(userId);
+      return;
+    }
+  }
+  const mdl = state.config.maxDailyLossPct || 0;
+  if (mdl > 0) {
+    const lossPct = state.pnlToday / balance * 100;
+    if (lossPct <= -mdl) {
+      state.dailyLossHalted = true;
+      state.dailyLossHaltedAt = (/* @__PURE__ */ new Date()).toISOString();
+      addActivity2(userId, {
+        type: "error",
+        message: `\u{1F6A8} MAX DAILY LOSS HIT \u2014 down ${Math.abs(lossPct).toFixed(2)}% today, at/above your ${mdl}% daily-loss limit. New trades halted for the rest of the day (open positions left to run).`
+      });
+    }
   }
 }
 function stopLiveEngine(userId) {
