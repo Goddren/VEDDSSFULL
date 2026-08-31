@@ -28402,7 +28402,6 @@ __export(live_trading_engine_exports, {
   registerMT5Account: () => registerMT5Account,
   setMT5AccountReceiveSignals: () => setMT5AccountReceiveSignals,
   setModelLock: () => setModelLock,
-  simulateDrawdownHalt: () => simulateDrawdownHalt,
   startLiveEngine: () => startLiveEngine,
   stopLiveEngine: () => stopLiveEngine,
   updateLiveEngineConfig: () => updateLiveEngineConfig
@@ -33280,35 +33279,6 @@ function checkFloatingDrawdown(userId, floating) {
       });
     }
   }
-}
-function simulateDrawdownHalt(userId, opts) {
-  const state = engineStates[userId];
-  if (!state) return { ok: false, fired: false, message: "Live engine is not running \u2014 start the FX engine first, then run the test." };
-  const balance = state.config.accountBalance || 0;
-  if (balance <= 0) return { ok: false, fired: false, message: "Set an account balance on the engine first (thresholds are % of balance)." };
-  const kind = opts?.kind === "daily_loss" ? "daily_loss" : "max_drawdown";
-  const mdd = state.config.maxDrawdownPct || 0;
-  const mdl = state.config.maxDailyLossPct || 0;
-  if (opts?.real === true) {
-    if (kind === "max_drawdown") {
-      if (mdd <= 0) return { ok: false, fired: false, message: "maxDrawdownPct is 0 (disabled) \u2014 set a max drawdown % first." };
-      state._eqHwmDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      state._eqHwm = (state.pnlSession || 0) + balance * mdd / 100 + 1;
-      checkFloatingDrawdown(userId, 0);
-      return { ok: true, fired: true, message: `REAL max-drawdown breaker invoked \u2014 engine halted + CLOSE_ALL queued. Restart the FX engine when ready.` };
-    }
-    if (mdl <= 0) return { ok: false, fired: false, message: "maxDailyLossPct is 0 (disabled) \u2014 set a max daily loss % first." };
-    state.pnlToday = -(balance * mdl / 100) - 1;
-    checkMaxDrawdownBreakers(userId);
-    return { ok: true, fired: true, message: `REAL max-daily-loss breaker invoked \u2014 new trades halted for today. (pnlToday set to a synthetic breach value.)` };
-  }
-  const amt = kind === "max_drawdown" ? balance * mdd / 100 : balance * mdl / 100;
-  const pct2 = kind === "max_drawdown" ? mdd : mdl;
-  addActivity2(userId, {
-    type: "error",
-    message: kind === "max_drawdown" ? `\u{1F9EA} TEST \u2014 this is what a MAX DRAWDOWN HALT looks like: live equity gave back ${pct2}% ($${amt.toFixed(0)}) from its peak \u2192 CLOSE_ALL + engine halt. (Preview only \u2014 no real halt performed.)` : `\u{1F9EA} TEST \u2014 this is what a MAX DAILY LOSS HALT looks like: down ${pct2}% ($${amt.toFixed(0)}) on the day \u2192 new trades halted. (Preview only \u2014 no real halt performed.)`
-  });
-  return { ok: true, fired: false, message: "Test message posted to the FX engine activity feed (demo \u2014 no real halt). Open the engine activity feed to see it." };
 }
 function stopLiveEngine(userId) {
   if (engineIntervals[userId]) {
@@ -72020,13 +71990,6 @@ Respond with ONLY valid JSON:
     const userId = req.user.id;
     const state = stopLiveEngine2(userId);
     res.json({ success: true, state });
-  });
-  app2.post("/api/dev/simulate-drawdown", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = req.user.id;
-    const { simulateDrawdownHalt: simulateDrawdownHalt2 } = await Promise.resolve().then(() => (init_live_trading_engine(), live_trading_engine_exports));
-    const result = simulateDrawdownHalt2(userId, { real: req.body?.real === true, kind: req.body?.kind });
-    res.json(result);
   });
   app2.post("/api/vedd-live-engine/emergency-stop", async (req, res) => {
     const apiKey = req.headers["x-api-key"] || req.body?.apiKey;

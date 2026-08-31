@@ -19016,17 +19016,6 @@ Respond with ONLY valid JSON:
     res.json({ success: true, state });
   });
 
-  // TEMPORARY test hook — post/trigger the max-drawdown or daily-loss halt so the
-  // user can SEE it in the activity feed. Default demo (message only, no halt);
-  // body { real: true } invokes the genuine breaker. Safe to remove later.
-  app.post("/api/dev/simulate-drawdown", async (req: Request, res: Response) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
-    const userId = (req.user as User).id;
-    const { simulateDrawdownHalt } = await import('./services/live-trading-engine');
-    const result = simulateDrawdownHalt(userId, { real: req.body?.real === true, kind: req.body?.kind });
-    res.json(result);
-  });
-
   app.post("/api/vedd-live-engine/emergency-stop", async (req: Request, res: Response) => {
     const apiKey = req.headers['x-api-key'] as string || req.body?.apiKey;
     let userId: number;
