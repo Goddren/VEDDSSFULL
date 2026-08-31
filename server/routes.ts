@@ -17980,30 +17980,40 @@ Respond with ONLY valid JSON:
   "brainConfidence": 0-100
 }`;
 
-      // Run all selected modes — sequentially to avoid rate-limit hammering
+      // Run all selected modes — sequentially to avoid rate-limit hammering.
+      // Each mode is isolated: a single mode's AI failure (rate limit, a model
+      // that rejects json_object, an unparseable response) must NOT 500 the whole
+      // request — skip that mode and keep any that succeed. Only a total failure
+      // (every mode errored) returns an error, with the real reason surfaced.
       const allRawResults: Array<{ mode: string; data: any }> = [];
+      let lastModeError: string | null = null;
       for (const mode of strategyModesArr) {
-        const response = await openaiInstance.chat.completions.create({
-          model: selectedModel,
-          messages: [
-            { role: "system", content: "You are VEDD SS AI, an autonomous trading signal engine. Analyze the provided market data and historical brain knowledge to generate the highest-accuracy trade signals. Respond with valid JSON only. No markdown, no explanation outside the JSON." },
-            { role: "user", content: buildPrompt(mode) }
-          ],
-          response_format: { type: "json_object" },
-          max_tokens: 2500,
-          temperature: 0.3,
-        });
-        const content = response.choices[0]?.message?.content || '';
         try {
-          const parsed = JSON.parse(content);
-          allRawResults.push({ mode, data: parsed });
-        } catch {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) allRawResults.push({ mode, data: JSON.parse(jsonMatch[0]) });
+          const response = await openaiInstance.chat.completions.create({
+            model: selectedModel,
+            messages: [
+              { role: "system", content: "You are VEDD SS AI, an autonomous trading signal engine. Analyze the provided market data and historical brain knowledge to generate the highest-accuracy trade signals. Respond with valid JSON only. No markdown, no explanation outside the JSON." },
+              { role: "user", content: buildPrompt(mode) }
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 2500,
+            temperature: 0.3,
+          });
+          const content = response.choices[0]?.message?.content || '';
+          try {
+            allRawResults.push({ mode, data: JSON.parse(content) });
+          } catch {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) allRawResults.push({ mode, data: JSON.parse(jsonMatch[0]) });
+            else { lastModeError = `AI returned no parseable JSON for mode "${mode}"`; console.warn(`[VEDD Brain] ${lastModeError}`); }
+          }
+        } catch (modeErr: any) {
+          lastModeError = `${mode}: ${modeErr?.message || modeErr}`;
+          console.warn(`[VEDD Brain] Autonomous mode "${mode}" failed (skipping):`, modeErr?.message ?? modeErr);
         }
       }
 
-      if (allRawResults.length === 0) return res.status(500).json({ error: 'AI returned invalid response for all modes' });
+      if (allRawResults.length === 0) return res.status(502).json({ error: `AI signal generation failed for all modes — ${lastModeError || 'no response'}. Try again shortly or switch AI model/provider.` });
 
       // ── Merge and deduplicate: keep highest-confidence signal per symbol+direction ──
       const signalMap = new Map<string, any>();
