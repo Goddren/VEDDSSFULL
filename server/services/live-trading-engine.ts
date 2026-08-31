@@ -4833,7 +4833,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
         addActivity(userId, {
           type: 'trade_open',
           symbol: decision.symbol,
-          message: `📝 PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? '—'} (${rawLotSize} lots, ${adjustedConfidence}% confidence) — simulated, no live order placed.`,
+          message: `📝 PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? '—'} (${rawLotSize} lots, ${adjustedConfidence}% confidence) — simulated. Paper mode is ON, so live execution (MT5 / TradeLocker / DXtrade) is suppressed. Turn paper mode OFF to trade live.`,
           confidence: adjustedConfidence,
         });
         return; // paper mode — skip live MT5 broadcast + TradeLocker execution entirely, including shield mode below
@@ -5073,6 +5073,7 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
       }
     } catch (dxOuter: any) {
       console.error('[live-engine] DXtrade routing error:', dxOuter?.message ?? dxOuter);
+      addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade routing error (no order placed): ${dxOuter?.message ?? dxOuter}` });
     }
 
     // ── Multi-account TradeLocker execution ──────────────────────────────

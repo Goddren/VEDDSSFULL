@@ -24837,6 +24837,17 @@ async function monitorOpenFuturesPositions(userId, cfg) {
     }
   }
 }
+function futuresBasketOf(sym) {
+  const s = (sym || "").toUpperCase();
+  for (const b of FUTURES_CORRELATED_BASKETS) if (b.some((root) => s.startsWith(root))) return b;
+  return null;
+}
+function futuresBias(direction) {
+  const d = (direction || "").toLowerCase();
+  if (d === "long" || d === "buy") return "bullish";
+  if (d === "short" || d === "sell") return "bearish";
+  return null;
+}
 function nyHourMinute(date2) {
   const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", hour: "2-digit", minute: "2-digit" }).formatToParts(date2).reduce((acc, x) => {
     acc[x.type] = x.value;
@@ -24865,7 +24876,7 @@ async function resolveFuturesPropConnection(userId) {
   if (m && m.isConnected()) return { connectionId: 0, connectionType: "moomoo" };
   return {};
 }
-async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0, connectionId, connectionType) {
+async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPnl = 0, connectionId, connectionType, directionBias) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
@@ -24884,6 +24895,19 @@ async function checkFuturesSafetyGates(userId, cfg, equity, symbol, unrealizedPn
       const sinceMs = Date.now() - act.lastEntryAt.getTime();
       if (sinceMs < SYMBOL_COOLDOWN_MS) {
         return { allowed: false, reason: `cooldown \u2014 last ${symbol} entry ${Math.round(sinceMs / 6e4)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 6e4)} min)`, riskMultiplier: 1 };
+      }
+    }
+    if (directionBias) {
+      const basket = futuresBasketOf(symbol);
+      if (basket) {
+        const openTrades2 = await storage.getOpenFuturesEngineTrades(userId);
+        const sameBias = openTrades2.filter((t) => {
+          const b = futuresBasketOf(t.symbol || "");
+          return b === basket && futuresBias(t.direction) === directionBias;
+        }).length;
+        if (sameBias >= FUTURES_CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap \u2014 already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${FUTURES_CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
       }
     }
   }
@@ -25019,7 +25043,7 @@ async function assembleFuturesConsensus(userId, symbol, strategy, direction, dat
   else if (quant.verdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
   else if (quant.verdict === "CONFIRM" && aiVerdict === "SKIP" || quant.verdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
   else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
   pushFuturesConsensus(userId, {
     symbol,
     strategy,
@@ -25531,7 +25555,8 @@ async function executeSignalIfEnabled(userId, signal) {
   const _sigAcct = await getFuturesLiveAccount(userId);
   const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
   const _sigPc = await resolveFuturesPropConnection(userId);
-  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType);
+  const _sigBias = signal.direction === "BUY" ? "bullish" : "bearish";
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType, _sigBias);
   if (!gate.allowed) {
     signal.status = "rejected";
     signal.executionResult = gate.reason;
@@ -25896,7 +25921,7 @@ function startFuturesEngineScanner() {
     (e) => console.error("[futures-scanner] initial resume failed:", e.message)
   );
 }
-var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, FUTURES_SESSION_GUARD_ENABLED, FUTURES_CLOSE_GUARD_MIN, futuresResumeStarted;
+var DEFAULT_FUTURES_SYMBOLS, scannerStates, scannerTimers, MAX_ACTIVITIES, MAX_SIGNALS, futuresSessionPeakEquity, MAX_OPEN_PER_SYMBOL, MAX_DAILY_ENTRIES_PER_SYMBOL, SYMBOL_COOLDOWN_MS, FUTURES_CORRELATED_BASKET_CAP, FUTURES_CORRELATED_BASKETS, FUTURES_SESSION_GUARD_ENABLED, FUTURES_CLOSE_GUARD_MIN, futuresResumeStarted;
 var init_futures_scanner = __esm({
   "server/services/futures-scanner.ts"() {
     "use strict";
@@ -25917,6 +25942,17 @@ var init_futures_scanner = __esm({
     MAX_OPEN_PER_SYMBOL = 3;
     MAX_DAILY_ENTRIES_PER_SYMBOL = 4;
     SYMBOL_COOLDOWN_MS = 20 * 60 * 1e3;
+    FUTURES_CORRELATED_BASKET_CAP = 4;
+    FUTURES_CORRELATED_BASKETS = [
+      ["ES", "MES", "NQ", "MNQ", "YM", "MYM", "RTY", "M2K", "SPX", "NDX"],
+      // US equity indices
+      ["CL", "MCL", "QM", "RB", "HO", "NG"],
+      // energy
+      ["GC", "MGC", "SI", "SIL", "HG", "PL"],
+      // metals
+      ["ZB", "ZN", "ZF", "ZT", "UB"]
+      // rates
+    ];
     FUTURES_SESSION_GUARD_ENABLED = true;
     FUTURES_CLOSE_GUARD_MIN = 15;
     futuresResumeStarted = false;
@@ -32006,7 +32042,7 @@ async function processDecision(userId, decision, newsCtx) {
         addActivity2(userId, {
           type: "trade_open",
           symbol: decision.symbol,
-          message: `\u{1F4DD} PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? "\u2014"} (${rawLotSize} lots, ${adjustedConfidence}% confidence) \u2014 simulated, no live order placed.`,
+          message: `\u{1F4DD} PAPER TRADE opened: ${decision.direction} ${decision.symbol} @ ${entryPrice ?? "\u2014"} (${rawLotSize} lots, ${adjustedConfidence}% confidence) \u2014 simulated. Paper mode is ON, so live execution (MT5 / TradeLocker / DXtrade) is suppressed. Turn paper mode OFF to trade live.`,
           confidence: adjustedConfidence
         });
         return;
@@ -32208,6 +32244,7 @@ async function processDecision(userId, decision, newsCtx) {
       }
     } catch (dxOuter) {
       console.error("[live-engine] DXtrade routing error:", dxOuter?.message ?? dxOuter);
+      addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade routing error (no order placed): ${dxOuter?.message ?? dxOuter}` });
     }
     const tlConnections = await storage.getUserTradelockerConnections(userId);
     const activeTLConnections = tlConnections.filter((c) => c.isActive);

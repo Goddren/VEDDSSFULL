@@ -307,6 +307,29 @@ const MAX_OPEN_PER_SYMBOL = 3;          // max concurrent open positions on one 
 const MAX_DAILY_ENTRIES_PER_SYMBOL = 4; // max new entries per symbol per day
 const SYMBOL_COOLDOWN_MS = 20 * 60 * 1000; // min gap between entries on the same symbol
 
+// ── Correlated-basket cap (mirror of options) ───────────────────────────────
+// Index futures move together (ES/NQ/YM/RTY are all US equity indices), so a
+// per-symbol cap alone doesn't stop a one-way pile-on across the whole complex.
+// Cap open positions sharing the same directional bias within a correlated group.
+const FUTURES_CORRELATED_BASKET_CAP = 4;
+const FUTURES_CORRELATED_BASKETS: string[][] = [
+  ['ES', 'MES', 'NQ', 'MNQ', 'YM', 'MYM', 'RTY', 'M2K', 'SPX', 'NDX'], // US equity indices
+  ['CL', 'MCL', 'QM', 'RB', 'HO', 'NG'],  // energy
+  ['GC', 'MGC', 'SI', 'SIL', 'HG', 'PL'], // metals
+  ['ZB', 'ZN', 'ZF', 'ZT', 'UB'],         // rates
+];
+function futuresBasketOf(sym: string): string[] | null {
+  const s = (sym || '').toUpperCase();
+  for (const b of FUTURES_CORRELATED_BASKETS) if (b.some(root => s.startsWith(root))) return b;
+  return null;
+}
+function futuresBias(direction?: string | null): 'bullish' | 'bearish' | null {
+  const d = (direction || '').toLowerCase();
+  if (d === 'long' || d === 'buy') return 'bullish';
+  if (d === 'short' || d === 'sell') return 'bearish';
+  return null;
+}
+
 // ── Session guard (futures analog of the options session filter) ────────────
 // CME index/equity futures run nearly 24h but close daily at 17:00 ET with a
 // maintenance break until 18:00 ET. Skip new entries in the illiquid window
@@ -352,7 +375,7 @@ async function resolveFuturesPropConnection(userId: number): Promise<{ connectio
   return {};
 }
 
-async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number, symbol?: string, unrealizedPnl: number = 0, connectionId?: number, connectionType?: string): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
+async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, equity: number, symbol?: string, unrealizedPnl: number = 0, connectionId?: number, connectionType?: string, directionBias?: 'bullish' | 'bearish'): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayFuturesEngineTradeCount(userId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
@@ -373,6 +396,22 @@ async function checkFuturesSafetyGates(userId: number, cfg: FuturesScanConfig, e
       const sinceMs = Date.now() - act.lastEntryAt.getTime();
       if (sinceMs < SYMBOL_COOLDOWN_MS) {
         return { allowed: false, reason: `cooldown — last ${symbol} entry ${Math.round(sinceMs / 60000)} min ago (min gap ${Math.round(SYMBOL_COOLDOWN_MS / 60000)} min)`, riskMultiplier: 1 };
+      }
+    }
+
+    // ── Correlated-basket cap — block a one-way pile-on across correlated
+    // index/complex futures (e.g. long ES + NQ + YM all at once). ────────────
+    if (directionBias) {
+      const basket = futuresBasketOf(symbol);
+      if (basket) {
+        const openTrades = await storage.getOpenFuturesEngineTrades(userId);
+        const sameBias = openTrades.filter(t => {
+          const b = futuresBasketOf((t as any).symbol || '');
+          return b === basket && futuresBias((t as any).direction) === directionBias;
+        }).length;
+        if (sameBias >= FUTURES_CORRELATED_BASKET_CAP) {
+          return { allowed: false, reason: `correlated-basket cap — already ${sameBias} ${directionBias} position(s) across the ${basket[0]}-group (max ${FUTURES_CORRELATED_BASKET_CAP})`, riskMultiplier: 1 };
+        }
       }
     }
   }
@@ -538,7 +577,11 @@ async function assembleFuturesConsensus(userId: number, symbol: string, strategy
   else if (quant.verdict === 'SKIP' && aiVerdict === 'SKIP') consensus = 'STRONG_SKIP';
   else if ((quant.verdict === 'CONFIRM' && aiVerdict === 'SKIP') || (quant.verdict === 'SKIP' && aiVerdict === 'CONFIRM')) consensus = 'CAUTION';
   else consensus = 'WATCH';
-  const tradeAllowed = consensus !== 'STRONG_SKIP';
+  // Give the AI second opinion real veto power (parity with the options engine).
+  // Previously this was `consensus !== 'STRONG_SKIP'`, which let CAUTION through
+  // (quant CONFIRM + AI SKIP = trade fired anyway) — the AI was advisory only.
+  // Now a trade requires the AI to CONFIRM and the consensus not to be a hard skip.
+  const tradeAllowed = consensus !== 'STRONG_SKIP' && aiVerdict === 'CONFIRM';
 
   pushFuturesConsensus(userId, {
     symbol, strategy, quantVerdict: quant.verdict, quantScore: quant.score,
@@ -1095,7 +1138,8 @@ async function executeSignalIfEnabled(userId: number, signal: FuturesScanSignal)
   const _sigAcct = await getFuturesLiveAccount(userId);
   const _sigEquity = _sigAcct.equity > 0 ? _sigAcct.equity : state.config.accountBalance;
   const _sigPc = await resolveFuturesPropConnection(userId);
-  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType);
+  const _sigBias: 'bullish' | 'bearish' = signal.direction === 'BUY' ? 'bullish' : 'bearish';
+  const gate = await checkFuturesSafetyGates(userId, state.config, _sigEquity, signal.symbol, _sigAcct.unrealizedPnl, _sigPc.connectionId, _sigPc.connectionType, _sigBias);
   if (!gate.allowed) {
     signal.status = 'rejected';
     signal.executionResult = gate.reason;
