@@ -32939,6 +32939,38 @@ function startLiveEngine(userId, config) {
       console.log("[VEDD Live Engine] TradeLocker pre-warm skipped:", e.message);
     }
   })();
+  if (fullConfig.propFirmMode) {
+    (async () => {
+      try {
+        const { pool: _cPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+        const days = Math.max(15, (fullConfig.consistencyPeriodDays || 15) + 5);
+        const cutoff = new Date(Date.now() - days * 864e5).toISOString();
+        const rows = (await _cPool.query(
+          `SELECT (closed_at AT TIME ZONE 'UTC')::date AS d, COALESCE(SUM(profit_loss),0) AS pnl
+           FROM ai_trade_results
+           WHERE user_id=$1 AND source IN ('tradelocker','tradelocker_auto','mt5_ea','mt5_copier','manual','brain_autoexec')
+             AND closed_at IS NOT NULL AND result IN ('WIN','LOSS','BREAKEVEN') AND closed_at > $2
+           GROUP BY 1`,
+          [userId, cutoff]
+        )).rows;
+        const st = engineStates[userId];
+        if (st) {
+          const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+          for (const r of rows) {
+            const dstr = new Date(r.d).toISOString().split("T")[0];
+            st.challengeDailyPnL[dstr] = Math.round(Number(r.pnl) * 100) / 100;
+          }
+          if (st.challengeDailyPnL[todayStr] !== void 0) {
+            st.pnlToday = st.challengeDailyPnL[todayStr];
+            st._pnlTodayDate = todayStr;
+          }
+          console.log(`[VEDD Live Engine] Restored prop-firm consistency history: ${rows.length} day(s) for user ${userId}`);
+        }
+      } catch (e) {
+        console.log("[VEDD Live Engine] consistency history restore skipped:", e.message);
+      }
+    })();
+  }
   setTimeout(() => {
     scanMarkets(userId).then(() => scheduleScan(userId));
   }, 2e3);
