@@ -32342,6 +32342,19 @@ async function processDecision(userId, decision, newsCtx) {
           const _tlAcctBal = _tlVal.balance > 0 ? _tlVal.balance : null;
           const _tlAcctEq = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal;
           const _refBal = config.accountBalance || 0;
+          let _consistencyMult = 1;
+          if (tlConn.consistencyEnabled !== false) {
+            try {
+              const { getConsistencyStatus: getConsistencyStatus2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+              const _cs = await getConsistencyStatus2(tlConn.id, "tradelocker", tlConn.consistencyThresholdPct, tlConn.consistencyEnabled !== false);
+              if (_cs.hardBlocked) {
+                addActivity2(userId, { type: "info", symbol: decision.symbol, message: `\u2696\uFE0F ${tlConn.accountId || "TL#" + tlConn.id}: consistency block \u2014 ${_cs.guidance}` });
+                return { tlConn, tradeResult: { success: false, error: "consistency hard-block" }, acctLot: 0, acctSizeLabel: "", consistencyBlocked: true };
+              }
+              _consistencyMult = _cs.sizeMultiplier;
+            } catch {
+            }
+          }
           let acctLot;
           let acctSizeLabel = "";
           const _dbRisk = { useRiskPercent: tlConn.useRiskPercent ?? false, riskPercent: tlConn.riskPercent ?? 1 };
@@ -32382,6 +32395,10 @@ async function processDecision(userId, decision, newsCtx) {
             acctSizeLabel = _refBal <= 0 ? ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 enable Risk% mode or set engine Reference Balance for auto-sizing)` : ` (\u26A0\uFE0F multiplier ${acctMult}\xD7 \u2014 TL account value unavailable, could not size proportionally)`;
           }
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+          if (_consistencyMult < 1) {
+            acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
+            acctSizeLabel += ` \xB7 consistency ${Math.round(_consistencyMult * 100)}%`;
+          }
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: "OPEN",
             symbol: decision.symbol,

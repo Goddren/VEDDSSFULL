@@ -5180,6 +5180,25 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
           const _tlAcctEq   = _tlVal.equity > 0 ? _tlVal.equity : _tlAcctBal; // equity preferred for sizing base
           const _refBal     = config.accountBalance || 0;
 
+          // ── Per-connection prop-firm consistency gate ─────────────────────
+          // Each prop account enforces its OWN max-single-day-%-of-total rule via
+          // the durable prop_firm_daily_pnl ledger (matches the chart-data path +
+          // the options/futures engines). Hard-block this connection when today
+          // already breaches its cap; taper its lot as it approaches. Other
+          // connections are unaffected — the rule is per account.
+          let _consistencyMult = 1;
+          if ((tlConn as any).consistencyEnabled !== false) {
+            try {
+              const { getConsistencyStatus } = await import('./prop-firm-consistency');
+              const _cs = await getConsistencyStatus(tlConn.id, 'tradelocker', (tlConn as any).consistencyThresholdPct, (tlConn as any).consistencyEnabled !== false);
+              if (_cs.hardBlocked) {
+                addActivity(userId, { type: 'info', symbol: decision.symbol, message: `⚖️ ${tlConn.accountId || 'TL#' + tlConn.id}: consistency block — ${_cs.guidance}` });
+                return { tlConn, tradeResult: { success: false, error: 'consistency hard-block' }, acctLot: 0, acctSizeLabel: '', consistencyBlocked: true };
+              }
+              _consistencyMult = _cs.sizeMultiplier;
+            } catch { /* non-fatal — consistency ledger unavailable, size normally */ }
+          }
+
           let acctLot: number;
           let acctSizeLabel = '';
           // Read risk settings from DB column (persists across redeploys) with JSON sidecar fallback
@@ -5238,6 +5257,12 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
 
           // Still respect volatile pair hard cap per account
           if (_volCap) acctLot = Math.min(acctLot, _volCap.hardMaxLot);
+
+          // Apply this account's consistency taper (0.25–1×) as it nears its cap.
+          if (_consistencyMult < 1) {
+            acctLot = Math.max(0.01, Math.round(acctLot * _consistencyMult * 100) / 100);
+            acctSizeLabel += ` · consistency ${Math.round(_consistencyMult * 100)}%`;
+          }
 
           const tradeResult = await executeMT5SignalOnTradeLocker(tlConn, {
             action: 'OPEN',
