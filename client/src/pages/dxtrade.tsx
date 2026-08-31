@@ -153,12 +153,90 @@ export default function DxtradePage() {
                             onBlur={(e) => updateConn.mutate({ id: c.id, patch: { riskPercent: Number(e.target.value), useRiskPercent: true } })}
                             className="bg-gray-800 border-gray-700 h-7 w-16 text-sm"
                           />
+                          <span className="text-[10px] text-gray-400">Lot ×</span>
+                          <Input
+                            defaultValue={c.lotMultiplier ?? 1}
+                            key={`lot-${c.id}-${c.lotMultiplier}`}
+                            onBlur={(e) => updateConn.mutate({ id: c.id, patch: { lotMultiplier: Number(e.target.value) } })}
+                            className="bg-gray-800 border-gray-700 h-7 w-16 text-sm"
+                          />
                           <button
                             onClick={() => updateConn.mutate({ id: c.id, patch: { autoTradeEnabled: !c.autoTradeEnabled } })}
                             className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.autoTradeEnabled ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
                           >
                             {c.autoTradeEnabled ? "AUTO-TRADE ON" : "AUTO-TRADE OFF"}
                           </button>
+                        </div>
+                      </div>
+
+                      {/* Prop firm & consistency controls */}
+                      <div className="mb-2 rounded-lg border border-blue-800/30 bg-blue-500/[0.05] p-2 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[11px] font-bold text-white">Prop firm account</p>
+                            <p className="text-[10px] text-gray-500">Enforce prop-firm rules on this account</p>
+                          </div>
+                          <button
+                            onClick={() => updateConn.mutate({ id: c.id, patch: { isPropFirmAccount: !c.isPropFirmAccount } })}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.isPropFirmAccount ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
+                          >
+                            {c.isPropFirmAccount ? "PROP FIRM ON" : "PROP FIRM OFF"}
+                          </button>
+                        </div>
+                        {c.isPropFirmAccount && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-gray-400">Prop firm name</Label>
+                              <Input
+                                defaultValue={c.propFirmName ?? ""}
+                                key={`pfname-${c.id}-${c.propFirmName}`}
+                                placeholder="e.g. FTMO"
+                                onBlur={(e) => updateConn.mutate({ id: c.id, patch: { propFirmName: e.target.value } })}
+                                className="bg-gray-800 border-gray-700 h-8 text-sm"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-gray-400">Account size ($)</Label>
+                              <Input
+                                defaultValue={c.propFirmAccountSize ?? ""}
+                                key={`pfsize-${c.id}-${c.propFirmAccountSize}`}
+                                placeholder="e.g. 100000"
+                                onBlur={(e) => updateConn.mutate({ id: c.id, patch: { propFirmAccountSize: Number(e.target.value) } })}
+                                className="bg-gray-800 border-gray-700 h-8 text-sm"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] text-gray-400">Weekly profit target ($)</Label>
+                              <Input
+                                defaultValue={c.weeklyProfitTarget ?? ""}
+                                key={`pfwpt-${c.id}-${c.weeklyProfitTarget}`}
+                                placeholder="e.g. 2000"
+                                onBlur={(e) => updateConn.mutate({ id: c.id, patch: { weeklyProfitTarget: Number(e.target.value) } })}
+                                className="bg-gray-800 border-gray-700 h-8 text-sm"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-gray-800">
+                          <div>
+                            <p className="text-[11px] font-bold text-white">Consistency rule</p>
+                            <p className="text-[10px] text-gray-500">Cap any single day's share of total profit</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-400">Threshold %</span>
+                            <Input
+                              defaultValue={c.consistencyThresholdPct ?? 20}
+                              key={`cons-${c.id}-${c.consistencyThresholdPct}`}
+                              onBlur={(e) => updateConn.mutate({ id: c.id, patch: { consistencyThresholdPct: Number(e.target.value) } })}
+                              className="bg-gray-800 border-gray-700 h-7 w-16 text-sm"
+                            />
+                            <button
+                              onClick={() => updateConn.mutate({ id: c.id, patch: { consistencyEnabled: !c.consistencyEnabled } })}
+                              className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.consistencyEnabled ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
+                            >
+                              {c.consistencyEnabled ? "CONSISTENCY ON" : "CONSISTENCY OFF"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                       {c.accounts && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">users/self: {JSON.stringify(c.accounts, null, 2).slice(0, 1000)}</pre>}

@@ -19956,9 +19956,9 @@ Respond with ONLY valid JSON:
           }
           let portfolio: any = null, metrics: any = null;
           if (accCode) { portfolio = await svc.getPortfolio(accCode).catch((e: any) => ({ error: e.message })); metrics = await svc.getMetrics(accCode).catch(() => null); }
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, accounts, portfolio, metrics };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, accounts, portfolio, metrics };
         } catch (e: any) {
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, error: e.message };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, error: e.message };
         }
       }));
       res.json({ connections });
