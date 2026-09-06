@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -165,6 +165,203 @@ function SectionHeader({
         className={`h-4 w-4 text-gray-600 transition-transform group-hover:text-gray-400 ${open ? '' : '-rotate-90'}`}
       />
     </button>
+  );
+}
+
+// ── GroupHeader — top-level collapsible "bucket" that wraps several related
+// sub-sections into one area so the page opens clean instead of showing every
+// section at once. Bigger and more prominent than SectionHeader. ──
+function GroupHeader({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  emoji,
+  accent = 'rgba(220,38,38',
+  count,
+}: {
+  title: string;
+  subtitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  emoji: string;
+  accent?: string;
+  count?: number;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex items-center justify-between w-full mb-4 mt-1 group rounded-2xl px-4 py-3 transition-all active:scale-[0.99]"
+      style={{
+        background: `linear-gradient(135deg, ${accent},0.10), rgba(15,17,26,0.5))`,
+        border: `1px solid ${accent},${open ? '0.35' : '0.18'})`,
+      }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="text-lg flex-shrink-0">{emoji}</span>
+        <div className="text-left min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-white font-black text-sm leading-tight truncate">{title}</p>
+            {typeof count === 'number' && count > 0 && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white/70" style={{ background: `${accent},0.18)` }}>{count}</span>
+            )}
+          </div>
+          {subtitle && <p className="text-[11px] text-gray-500 leading-tight truncate">{subtitle}</p>}
+        </div>
+      </div>
+      <ChevronDown
+        className={`h-4 w-4 text-gray-500 transition-transform group-hover:text-gray-300 flex-shrink-0 ${open ? '' : '-rotate-90'}`}
+      />
+    </button>
+  );
+}
+
+// ── SwipeDeck — a Tinder-style card deck of the most-used features. Instead of
+// a wall of tiles, the user flips through one big card at a time: swipe/drag
+// RIGHT (or tap Open) to jump into the feature, LEFT (or tap Skip) to move to
+// the next. Keeps the top of the dashboard focused on what people actually use
+// daily without overwhelming the eye. ──
+type SwipeItem = { name: string; desc: string; href: string; emoji: string; accent: string };
+
+const SWIPE_ITEMS: SwipeItem[] = [
+  { name: 'New Analysis', desc: 'AI reads your chart & calls the trade', href: '/analysis', emoji: '📊', accent: '#ef4444' },
+  { name: 'SS AI Engine', desc: 'Your autonomous forex auto-trader', href: '/weekly-strategy', emoji: '⚡', accent: '#10b981' },
+  { name: 'Live Monitor', desc: 'Watch every engine in real time', href: '/live-monitor', emoji: '📡', accent: '#22d3ee' },
+  { name: 'MT5 Copier', desc: 'Auto-copy signals to your broker', href: '/webhooks', emoji: '🪝', accent: '#3b82f6' },
+  { name: 'Solana Scanner', desc: 'AI hunts SOL tokens for you', href: '/solana-scanner', emoji: '◎', accent: '#a855f7' },
+  { name: 'Copy Trading', desc: 'Mirror the top VEDD traders', href: '/copy-trading', emoji: '📋', accent: '#f59e0b' },
+  { name: 'Volatility Meter', desc: 'See where the moves are right now', href: '/volatility-meter', emoji: '🌡️', accent: '#eab308' },
+  { name: 'VEDD Wallet', desc: 'Your token balance & rewards', href: '/vedd-wallet', emoji: '💎', accent: '#06b6d4' },
+];
+
+function SwipeDeck() {
+  const [, setLocation] = useLocation();
+  const [idx, setIdx] = useState(0);
+  const [drag, setDrag] = useState(0);
+  const [start, setStart] = useState<number | null>(null);
+  const [leaving, setLeaving] = useState<null | 'left' | 'right'>(null);
+
+  const total = SWIPE_ITEMS.length;
+  const item = SWIPE_ITEMS[idx % total];
+  const next = SWIPE_ITEMS[(idx + 1) % total];
+
+  const commit = (dir: 'left' | 'right') => {
+    if (leaving) return;
+    setLeaving(dir);
+    const target = item.href;
+    setTimeout(() => {
+      if (dir === 'right') {
+        setLocation(target);
+      } else {
+        setIdx(i => i + 1);
+      }
+      setLeaving(null);
+      setDrag(0);
+      setStart(null);
+    }, 180);
+  };
+
+  const onDown = (x: number) => setStart(x);
+  const onMove = (x: number) => { if (start !== null) setDrag(x - start); };
+  const onUp = () => {
+    if (start === null) return;
+    if (drag > 90) commit('right');
+    else if (drag < -90) commit('left');
+    else { setDrag(0); setStart(null); }
+  };
+
+  const rot = Math.max(-14, Math.min(14, drag / 12));
+  const translateX = leaving === 'right' ? 500 : leaving === 'left' ? -500 : drag;
+  const opacity = leaving ? 0 : 1;
+
+  return (
+    <div className="mb-6 select-none">
+      <div className="flex items-center justify-between mb-2 px-0.5">
+        <div className="flex items-center gap-2">
+          <span className="icon-box-sm icon-box-red"><Rocket className="h-3.5 w-3.5" /></span>
+          <div>
+            <p className="section-title">Jump Back In</p>
+            <p className="text-[10px] text-gray-600 -mt-0.5">Swipe → to open · ← to skip</p>
+          </div>
+        </div>
+        <span className="text-[10px] text-gray-600 font-mono">{(idx % total) + 1}/{total}</span>
+      </div>
+
+      <div className="relative h-[132px]">
+        {/* Card behind (peek of the next one) */}
+        <div
+          className="absolute inset-0 rounded-2xl border border-white/08 bg-white/[0.02]"
+          style={{ transform: 'scale(0.95) translateY(8px)', opacity: 0.5 }}
+        >
+          <div className="p-4 flex items-center gap-3 h-full">
+            <span className="text-2xl opacity-60">{next.emoji}</span>
+            <p className="text-gray-500 text-sm font-semibold">{next.name}</p>
+          </div>
+        </div>
+
+        {/* Active card */}
+        <div
+          role="button"
+          tabIndex={0}
+          className="absolute inset-0 rounded-2xl border cursor-grab active:cursor-grabbing overflow-hidden"
+          style={{
+            transform: `translateX(${translateX}px) rotate(${rot}deg)`,
+            transition: (start === null || leaving) ? 'transform 0.18s ease-out, opacity 0.18s ease-out' : 'none',
+            opacity,
+            background: `linear-gradient(135deg, ${item.accent}18, rgba(13,17,23,0.9))`,
+            borderColor: drag > 40 ? '#10b98188' : drag < -40 ? '#ef444488' : `${item.accent}44`,
+            touchAction: 'pan-y',
+          }}
+          onMouseDown={e => onDown(e.clientX)}
+          onMouseMove={e => onMove(e.clientX)}
+          onMouseUp={onUp}
+          onMouseLeave={onUp}
+          onTouchStart={e => onDown(e.touches[0].clientX)}
+          onTouchMove={e => onMove(e.touches[0].clientX)}
+          onTouchEnd={onUp}
+          onClick={() => { if (Math.abs(drag) < 6) setLocation(item.href); }}
+        >
+          {/* swipe intent badges */}
+          <div className="absolute top-3 left-3 px-2 py-1 rounded-lg text-[10px] font-black border transition-opacity"
+            style={{ borderColor: '#10b981', color: '#10b981', opacity: drag > 40 ? 1 : 0, background: 'rgba(16,185,129,0.12)' }}>
+            OPEN →
+          </div>
+          <div className="absolute top-3 right-3 px-2 py-1 rounded-lg text-[10px] font-black border transition-opacity"
+            style={{ borderColor: '#ef4444', color: '#ef4444', opacity: drag < -40 ? 1 : 0, background: 'rgba(239,68,68,0.12)' }}>
+            ← SKIP
+          </div>
+
+          <div className="p-4 flex items-center gap-4 h-full">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0"
+              style={{ background: `${item.accent}22`, border: `1px solid ${item.accent}44` }}>
+              {item.emoji}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-white font-black text-base leading-tight">{item.name}</p>
+              <p className="text-gray-400 text-xs mt-1 leading-snug">{item.desc}</p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-gray-600 flex-shrink-0" />
+          </div>
+        </div>
+      </div>
+
+      {/* Tap controls (accessibility / desktop) */}
+      <div className="flex items-center gap-2 mt-2.5">
+        <button
+          onClick={() => commit('left')}
+          className="flex-1 rounded-xl border border-white/08 bg-white/[0.02] text-gray-400 text-xs font-semibold py-2 hover:bg-white/[0.05] transition-all active:scale-95"
+        >
+          Skip
+        </button>
+        <button
+          onClick={() => commit('right')}
+          className="flex-1 rounded-xl text-xs font-bold py-2 text-white transition-all active:scale-95"
+          style={{ background: `linear-gradient(135deg, ${item.accent}, ${item.accent}cc)` }}
+        >
+          Open {item.name}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -389,6 +586,13 @@ const Dashboard: React.FC = () => {
   const [showCerts, toggleCerts] = useSectionToggle('certs');
   const [showMarket, toggleMarket] = useSectionToggle('market');
   const [showCoach, toggleCoach] = useSectionToggle('coach');
+
+  // Top-level GROUP dropdowns — bundle related sections so the page opens clean.
+  // Trading is open by default (daily driver); the rest start collapsed.
+  const [grpTrading, toggleGrpTrading] = useSectionToggle('grp_trading', true);
+  const [grpGrow, toggleGrpGrow] = useSectionToggle('grp_grow', false);
+  const [grpCommunity, toggleGrpCommunity] = useSectionToggle('grp_community', false);
+  const [grpLearn, toggleGrpLearn] = useSectionToggle('grp_learn', false);
 
   // Ambassador to-do checkboxes — persisted to localStorage, auto-clear at midnight
   const [ambassadorTodos, setAmbassadorTodos] = useState<{ post: boolean; dm: boolean; comment: boolean }>(() => {
@@ -2753,8 +2957,13 @@ const Dashboard: React.FC = () => {
           </div>
         </div>}
 
-        {/* ── Feature Tiles Grid ────────────────────────────────────────── */}
+        {/* ── Jump Back In — Tinder-style swipe deck of most-used features ── */}
+        <SwipeDeck />
+
+        {/* ── Feature Tiles Grid (grouped dropdowns) ────────────────────── */}
         <div className="mb-5">
+          <GroupHeader emoji="📈" title="Trading & Tools" subtitle="Analysis, engines, EAs & live data" open={grpTrading} onToggle={toggleGrpTrading} accent="rgba(239,68,68" />
+          {grpTrading && (<>
           <SectionHeader title="Trading Tools" open={showTradingTools} onToggle={toggleTradingTools} icon={TrendingUp} iconClass="icon-box-red" />
           {showTradingTools && <div className="grid grid-cols-2 gap-3 mb-5">
             <Link href="/analysis" className="device-tile device-tile-red">
@@ -2957,6 +3166,10 @@ const Dashboard: React.FC = () => {
             </Link>
           </div>}
 
+          </>)}
+
+          <GroupHeader emoji="🌐" title="Community & Money" subtitle="Your network, referrals, wallet & funding" open={grpCommunity} onToggle={toggleGrpCommunity} accent="rgba(168,85,247" />
+          {grpCommunity && (<>
           <SectionHeader title="Community & Growth" open={showCommunity} onToggle={toggleCommunity} icon={Users} iconClass="icon-box-purple" />
           {showCommunity && <div className="smart-card mb-5">
             {[
@@ -3003,6 +3216,7 @@ const Dashboard: React.FC = () => {
               </Link>
             ))}
           </div>}
+          </>)}
         </div>
 
         {/* ── MT5 Pairs + Recent Analyses ──────────────────────────────── */}
@@ -3063,7 +3277,10 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* ── Events section ────────────────────────────────────────────── */}
+        {/* ── Events, Rewards & Certifications (grouped dropdown) ────────── */}
+        <GroupHeader emoji="📅" title="Events & Rewards" subtitle="Live events, missions, VEDD rewards & certs" open={grpGrow} onToggle={toggleGrpGrow} accent="rgba(245,158,11" />
+        {grpGrow && (<>
+        {/* ── Events section ── */}
         <SectionHeader title="Events" open={showEvents} onToggle={toggleEvents} icon={CalendarCheck} iconClass="icon-box-amber" />
         {showEvents && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           {/* Upcoming Events */}
@@ -3319,7 +3536,12 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {/* ── Market + News ─────────────────────────────────────────────── */}
+        </>)}
+
+        {/* ── Market, Scripture & Trading Coach (grouped dropdown) ───────── */}
+        <GroupHeader emoji="📚" title="Learn & Coach" subtitle="Market calendar, news, scripture & your AI coach" open={grpLearn} onToggle={toggleGrpLearn} accent="rgba(59,130,246" />
+        {grpLearn && (<>
+        {/* ── Market + News ── */}
         <SectionHeader title="Market & News" open={showMarket} onToggle={toggleMarket} icon={Newspaper} iconClass="icon-box-blue" />
         {showMarket && <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
           <div className="smart-card p-4">
@@ -3399,6 +3621,8 @@ const Dashboard: React.FC = () => {
             <TradingCoach personality="friendly" />
           </div>
         </div>}
+
+        </>)}
 
         {/* ── Quick Actions ─────────────────────────────────────────────── */}
         <div className="smart-card p-4 mb-6">
