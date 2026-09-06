@@ -1866,18 +1866,19 @@ export default function ORBBreakoutPage() {
 
   return (
     <div className="min-h-screen bg-[#080B14] text-white">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <div className="container mx-auto px-3 py-5 md:px-4 md:py-8 max-w-7xl">
 
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
+          <div className="flex flex-col md:flex-row md:items-start gap-3 md:gap-4">
+            <div className="flex items-start gap-3 md:gap-4 flex-1 min-w-0">
+            <div className="w-11 h-11 md:w-12 md:h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
               style={{ background: "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(99,102,241,0.2))", border: "1px solid rgba(34,197,94,0.3)" }}>
-              <TrendingUp className="w-6 h-6 text-green-400" />
+              <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-green-400" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-black">ORB Breakout — 9:30 Open</h1>
+                <h1 className="text-lg sm:text-2xl font-black">ORB Breakout — 9:30 Open</h1>
                 <Badge className="text-[10px] font-black" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }}>
                   EXCLUSIVE
                 </Badge>
@@ -1894,7 +1895,8 @@ export default function ORBBreakoutPage() {
                 — US30, NAS100, SPX, Stocks, Commodities
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            </div>
+            <div className="flex items-center gap-2 flex-wrap justify-start md:justify-end w-full md:w-auto">
               {/* Multi-Setup Mode toggle */}
               <button
                 onClick={() => {
