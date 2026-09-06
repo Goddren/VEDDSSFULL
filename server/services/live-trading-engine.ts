@@ -5088,6 +5088,39 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); continue; }
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === 'BUY' ? 'BUY' : 'SELL', quantity: qty, type: 'MARKET', stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined });
             addActivity(userId, { type: 'trade_open', symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'}`, details: { dxOrder: r?.result ?? r } });
+            // ── Durable open record (parity with TradeLocker) ──────────────────
+            // Write a PENDING ai_trade_results row now so this DXtrade trade shows
+            // in history immediately AND can be reconciled to realized P&L on close
+            // by syncDxtradeOutcomes(). Key by the broker positionId when we can
+            // read it back (matches the closed-trade key), else the client orderCode.
+            try {
+              let _dxPosId: string | undefined;
+              try {
+                const _poss = await svc.getPositions(acct);
+                const _m = _poss.find(p => p.instrument === dxSymbol && p.side === (decision.direction === 'BUY' ? 'BUY' : 'SELL'));
+                _dxPosId = _m?.positionId;
+              } catch { /* position read best-effort */ }
+              const _dxTicket = `dx_${acct}_${_dxPosId || r?._sent?.orderCode || Date.now()}`;
+              const _dxExisting = await storage.getAiTradeResultByTicket(userId, _dxTicket);
+              if (!_dxExisting) {
+                await storage.createAiTradeResult({
+                  userId,
+                  symbol: dxSymbol,
+                  direction: decision.direction === 'BUY' ? 'BUY' : 'SELL',
+                  entryPrice: entryPrice || 0,
+                  exitPrice: 0,
+                  aiConfidence: adjustedConfidence || 0,
+                  result: 'PENDING',
+                  profitLoss: 0,
+                  source: 'dxtrade',
+                  connectionId: dc.id,
+                  mt5Ticket: _dxTicket,
+                  notes: `DXtrade open (qty ${qty}) — awaiting close sync`,
+                } as any);
+              }
+            } catch (_dxRec: any) {
+              console.error('[live-engine] DXtrade open-record failed (non-fatal):', _dxRec?.message ?? _dxRec);
+            }
           } catch (dxe: any) {
             addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
           }

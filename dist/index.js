@@ -28369,6 +28369,81 @@ var init_dxtrade = __esm({
           return null;
         }
       }
+      /** Normalized open positions for an account (id/instrument/side/qty/entry),
+       *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+      async getPositions(accountCode) {
+        const pf = await this.getPortfolio(accountCode).catch(() => null);
+        const arr2 = pf?.positions ?? pf?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+        if (!Array.isArray(arr2)) return [];
+        return arr2.map((p) => ({
+          positionId: p.positionId != null ? String(p.positionId) : p.id != null ? String(p.id) : p.code != null ? String(p.code) : void 0,
+          instrument: String(p.instrument ?? p.symbol ?? "").replace(/\//g, "").toUpperCase(),
+          side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? "SELL" : "BUY"))) ? "SELL" : "BUY",
+          quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
+          openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || void 0,
+          raw: p
+        }));
+      }
+      /** Closed trades with REALIZED P&L since `fromMs`, for the brain / consistency
+       *  ledger (parity with TradeLocker's getClosedTradesWithPnl). dxsca-web has no
+       *  single standardized history path across brokers, so this tries the common
+       *  candidates in order and parses tolerantly. Returns [] when the broker exposes
+       *  none of them — callers must NEVER fabricate P&L from a miss. Each returned row
+       *  carries: positionId, id, symbol, side, openPrice, closePrice, profit, closeTime. */
+      async getClosedTradesWithPnl(accountCode, fromMs) {
+        const enc = encodeURIComponent(accountCode);
+        const fromIso = new Date(fromMs).toISOString();
+        const toIso = (/* @__PURE__ */ new Date()).toISOString();
+        const candidates = [
+          `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+          `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
+        ];
+        for (const path17 of candidates) {
+          let res;
+          try {
+            res = await this.authed(path17);
+          } catch {
+            continue;
+          }
+          if (!res.ok) continue;
+          let data;
+          try {
+            data = JSON.parse(await res.text());
+          } catch {
+            continue;
+          }
+          const list = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
+          if (!Array.isArray(list) || list.length === 0) {
+            if (Array.isArray(list)) {
+              console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 0 rows in window`);
+              return [];
+            }
+            continue;
+          }
+          const closed = list.filter((o) => {
+            const status = String(o.status ?? o.state ?? "").toUpperCase();
+            const hasPnl = o.profit != null || o.pnl != null || o.realizedPnl != null || o.realizedPnL != null || o.grossProfit != null;
+            const looksClosed = !status || /CLOS|FILL|COMPLET|DONE|SETTLED/.test(status);
+            return hasPnl && looksClosed;
+          }).map((o) => ({
+            positionId: o.positionId != null ? String(o.positionId) : void 0,
+            id: String(o.id ?? o.orderId ?? o.tradeId ?? o.dealId ?? ""),
+            symbol: String(o.instrument ?? o.symbol ?? "UNKNOWN"),
+            side: o.side ?? o.direction ?? "",
+            openPrice: Number(o.openPrice ?? o.entryPrice ?? o.avgOpenPrice ?? 0) || 0,
+            closePrice: Number(o.closePrice ?? o.exitPrice ?? o.avgClosePrice ?? o.price ?? 0) || 0,
+            profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
+            closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null
+          }));
+          console.log(`[dxtrade] history via ${path17.split("?")[0]} \u2014 ${closed.length} closed rows`);
+          return closed;
+        }
+        console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) \u2014 close-sync will keep opens PENDING`);
+        return [];
+      }
       /** One-shot connectivity check used by the connect/test routes. */
       async verify() {
         try {
@@ -32285,6 +32360,35 @@ async function processDecision(userId, decision, newsCtx) {
             }
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === "BUY" ? "BUY" : "SELL", quantity: qty, type: "MARKET", stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
             addActivity2(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"}`, details: { dxOrder: r?.result ?? r } });
+            try {
+              let _dxPosId;
+              try {
+                const _poss = await svc.getPositions(acct);
+                const _m = _poss.find((p) => p.instrument === dxSymbol && p.side === (decision.direction === "BUY" ? "BUY" : "SELL"));
+                _dxPosId = _m?.positionId;
+              } catch {
+              }
+              const _dxTicket = `dx_${acct}_${_dxPosId || r?._sent?.orderCode || Date.now()}`;
+              const _dxExisting = await storage.getAiTradeResultByTicket(userId, _dxTicket);
+              if (!_dxExisting) {
+                await storage.createAiTradeResult({
+                  userId,
+                  symbol: dxSymbol,
+                  direction: decision.direction === "BUY" ? "BUY" : "SELL",
+                  entryPrice: entryPrice || 0,
+                  exitPrice: 0,
+                  aiConfidence: adjustedConfidence || 0,
+                  result: "PENDING",
+                  profitLoss: 0,
+                  source: "dxtrade",
+                  connectionId: dc.id,
+                  mt5Ticket: _dxTicket,
+                  notes: `DXtrade open (qty ${qty}) \u2014 awaiting close sync`
+                });
+              }
+            } catch (_dxRec) {
+              console.error("[live-engine] DXtrade open-record failed (non-fatal):", _dxRec?.message ?? _dxRec);
+            }
           } catch (dxe) {
             addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] execution failed: ${dxe?.message ?? dxe}` });
           }
@@ -70617,6 +70721,81 @@ Format each recommendation as a clear, concise action item.`;
     }
     return added;
   }
+  async function syncDxtradeOutcomes(userId) {
+    const g = global;
+    g.dxOutcomeSyncAt = g.dxOutcomeSyncAt || {};
+    if (Date.now() - (g.dxOutcomeSyncAt[userId] || 0) < 3e4) return 0;
+    g.dxOutcomeSyncAt[userId] = Date.now();
+    let added = 0;
+    try {
+      const { pool: dxPool } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const rows = (await dxPool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+        [userId]
+      )).rows;
+      if (!rows.length) return 0;
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { recordRealizedPnl: recordRealizedPnl2 } = await Promise.resolve().then(() => (init_prop_firm_consistency(), prop_firm_consistency_exports));
+      const fromMs = Date.now() - 7 * 24 * 3600 * 1e3;
+      for (const dc of rows) {
+        try {
+          const svc = new DxtradeService2(dc.host, dc.username, decryptApiSecret3(dc.encrypted_password), dc.domain);
+          await svc.login();
+          const acct = dc.account_code || extractAccountCode2(await svc.getAccounts());
+          if (!acct) continue;
+          const closed = await svc.getClosedTradesWithPnl(acct, fromMs).catch(() => []);
+          for (const o of closed) {
+            const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+            const p = typeof rawProfit === "number" ? rawProfit : parseFloat(rawProfit || "");
+            if (!isFinite(p)) continue;
+            const closedDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : void 0;
+            const tk = o.positionId ? `dx_${acct}_${o.positionId}` : o.id ? `dx_${acct}_${o.id}` : "";
+            if (!tk || /undefined|null|_$/.test(tk)) continue;
+            const label = p > 0 ? "WIN" : p < 0 ? "LOSS" : "BREAKEVEN";
+            const existing = await storage.getAiTradeResultByTicket(userId, tk);
+            if (existing) {
+              if (existing.result === "PENDING") {
+                await storage.updateAiTradeResult(existing.id, userId, {
+                  result: label,
+                  profitLoss: p,
+                  connectionId: dc.id,
+                  exitPrice: o.closePrice || 0,
+                  closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+                });
+                added++;
+                await recordRealizedPnl2(userId, dc.id, "dxtrade", p, closedDateStr);
+              } else if (existing.connectionId == null) {
+                await storage.updateAiTradeResult(existing.id, userId, { connectionId: dc.id }).catch(() => {
+                });
+              }
+              continue;
+            }
+            await storage.createAiTradeResult({
+              userId,
+              symbol: String(o.symbol || o.instrument || "UNKNOWN").toUpperCase().replace("/", ""),
+              direction: /sell|short/i.test(o.side || o.direction || "") ? "SELL" : "BUY",
+              entryPrice: o.openPrice || 0,
+              exitPrice: o.closePrice || 0,
+              aiConfidence: 0,
+              result: label,
+              profitLoss: p,
+              source: "dxtrade",
+              connectionId: dc.id,
+              mt5Ticket: tk,
+              notes: "DXtrade closed position (synced)",
+              closedAt: o.closeTime ? new Date(o.closeTime) : /* @__PURE__ */ new Date()
+            });
+            added++;
+            await recordRealizedPnl2(userId, dc.id, "dxtrade", p, closedDateStr);
+          }
+        } catch (_) {
+        }
+      }
+      if (added > 0) console.log(`[DX Outcome Sync] user ${userId}: +${added} DXtrade trades fed into results`);
+    } catch (_) {
+    }
+    return added;
+  }
   async function getOrRefreshBrain(userId) {
     const g = global;
     g.veddAIBrain = g.veddAIBrain || {};
@@ -70637,6 +70816,10 @@ Format each recommendation as a clear, concise action item.`;
     if (!brain || stale) {
       try {
         await syncTradeLockerOutcomes(userId);
+      } catch (_) {
+      }
+      try {
+        await syncDxtradeOutcomes(userId);
       } catch (_) {
       }
       try {
@@ -70668,6 +70851,8 @@ Format each recommendation as a clear, concise action item.`;
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
     syncTradeLockerOutcomes(userId).catch(() => {
+    });
+    syncDxtradeOutcomes(userId).catch(() => {
     });
     try {
       const all = await storage.getAiTradeResults(userId, 500);
@@ -70756,9 +70941,16 @@ Format each recommendation as a clear, concise action item.`;
     const userId = req.user.id;
     const g = global;
     if (g.tlOutcomeSyncAt) g.tlOutcomeSyncAt[userId] = 0;
+    if (g.dxOutcomeSyncAt) g.dxOutcomeSyncAt[userId] = 0;
     try {
       const added = await syncTradeLockerOutcomes(userId);
-      res.json({ success: true, synced: added, message: added > 0 ? `Synced ${added} new trade(s) from TradeLocker.` : "No new trades to sync." });
+      let dxAdded = 0;
+      try {
+        dxAdded = await syncDxtradeOutcomes(userId);
+      } catch (_) {
+      }
+      const total = added + dxAdded;
+      res.json({ success: true, synced: total, message: total > 0 ? `Synced ${total} new trade(s)${dxAdded > 0 ? ` (${dxAdded} DXtrade)` : ""}.` : "No new trades to sync." });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -73906,6 +74098,10 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
     const userId = req.user.id;
     try {
       await syncTradeLockerOutcomes(userId);
+    } catch (_) {
+    }
+    try {
+      await syncDxtradeOutcomes(userId);
     } catch (_) {
     }
     const todayStart = /* @__PURE__ */ new Date();

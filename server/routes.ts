@@ -17430,6 +17430,85 @@ Format each recommendation as a clear, concise action item.`;
     return added;
   }
 
+  // Syncs CLOSED DXtrade (Velotrade) trades with realized P&L into ai_trade_results
+  // — full parity with syncTradeLockerOutcomes. Updates the PENDING row the engine
+  // wrote on open (keyed dx_<accountCode>_<positionId>) to WIN/LOSS/BREAKEVEN, feeds
+  // the FX brain (source='dxtrade' is FX, so runBrainLearning includes it) and the
+  // per-connection prop-firm consistency ledger. Throttled to 30s. Never fabricates
+  // P&L: if the broker exposes no history endpoint, opens simply stay PENDING.
+  async function syncDxtradeOutcomes(userId: number): Promise<number> {
+    const g = global as any;
+    g.dxOutcomeSyncAt = g.dxOutcomeSyncAt || {};
+    if (Date.now() - (g.dxOutcomeSyncAt[userId] || 0) < 30_000) return 0;
+    g.dxOutcomeSyncAt[userId] = Date.now();
+    let added = 0;
+    try {
+      const { pool: dxPool } = await import('./db');
+      const rows = (await dxPool.query(
+        `SELECT id, host, username, encrypted_password, domain, account_code FROM dxtrade_connections WHERE user_id=$1 AND is_active=true`,
+        [userId],
+      )).rows;
+      if (!rows.length) return 0;
+      const { DxtradeService, decryptApiSecret, extractAccountCode } = await import('./dxtrade');
+      const { recordRealizedPnl } = await import('./services/prop-firm-consistency');
+      const fromMs = Date.now() - 7 * 24 * 3600 * 1000; // last 7 days
+      for (const dc of rows) {
+        try {
+          const svc = new DxtradeService(dc.host, dc.username, decryptApiSecret(dc.encrypted_password), dc.domain);
+          await svc.login();
+          const acct = dc.account_code || extractAccountCode(await svc.getAccounts());
+          if (!acct) continue;
+          const closed = await svc.getClosedTradesWithPnl(acct, fromMs).catch(() => []);
+          for (const o of closed) {
+            const rawProfit = o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit ?? null;
+            const p = typeof rawProfit === 'number' ? rawProfit : parseFloat(rawProfit || '');
+            if (!isFinite(p)) continue; // unparseable → skip (a true breakeven is p===0 and IS logged)
+            const closedDateStr = o.closeTime ? new Date(o.closeTime).toISOString().slice(0, 10) : undefined;
+            const tk = o.positionId ? `dx_${acct}_${o.positionId}` : (o.id ? `dx_${acct}_${o.id}` : '');
+            if (!tk || /undefined|null|_$/.test(tk)) continue;
+            const label = p > 0 ? 'WIN' : p < 0 ? 'LOSS' : 'BREAKEVEN';
+            const existing = await storage.getAiTradeResultByTicket(userId, tk);
+            if (existing) {
+              if (existing.result === 'PENDING') {
+                await storage.updateAiTradeResult(existing.id, userId, {
+                  result: label,
+                  profitLoss: p,
+                  connectionId: dc.id,
+                  exitPrice: o.closePrice || 0,
+                  closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+                } as any);
+                added++;
+                await recordRealizedPnl(userId, dc.id, 'dxtrade', p, closedDateStr);
+              } else if ((existing as any).connectionId == null) {
+                await storage.updateAiTradeResult(existing.id, userId, { connectionId: dc.id } as any).catch(() => {});
+              }
+              continue;
+            }
+            await storage.createAiTradeResult({
+              userId,
+              symbol: String(o.symbol || o.instrument || 'UNKNOWN').toUpperCase().replace('/', ''),
+              direction: /sell|short/i.test(o.side || o.direction || '') ? 'SELL' : 'BUY',
+              entryPrice: o.openPrice || 0,
+              exitPrice: o.closePrice || 0,
+              aiConfidence: 0,
+              result: label,
+              profitLoss: p,
+              source: 'dxtrade',
+              connectionId: dc.id,
+              mt5Ticket: tk,
+              notes: 'DXtrade closed position (synced)',
+              closedAt: o.closeTime ? new Date(o.closeTime) : new Date(),
+            } as any);
+            added++;
+            await recordRealizedPnl(userId, dc.id, 'dxtrade', p, closedDateStr);
+          }
+        } catch (_) { /* per-connection, non-fatal */ }
+      }
+      if (added > 0) console.log(`[DX Outcome Sync] user ${userId}: +${added} DXtrade trades fed into results`);
+    } catch (_) { /* non-fatal */ }
+    return added;
+  }
+
   // Rebuilds the brain from the DB (pure computation, no AI) when missing or stale,
   // throttled to once/60s. Fixes the "win rate never changes" issue: the brain now
   // recomputes from current trade data on poll and survives deploys (the in-memory
@@ -17452,6 +17531,7 @@ Format each recommendation as a clear, concise action item.`;
     if (!brain || stale) {
       // Await TL sync so the brain rebuilds from fresh data (not a 30s-old snapshot)
       try { await syncTradeLockerOutcomes(userId); } catch (_) {}
+      try { await syncDxtradeOutcomes(userId); } catch (_) {}
       try {
         const fresh = await runBrainLearning(userId);
         if (fresh) { brain = fresh; g.veddBrainBuiltAt[userId] = Date.now(); }
@@ -17483,6 +17563,7 @@ Format each recommendation as a clear, concise action item.`;
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;
     syncTradeLockerOutcomes(userId).catch(() => {}); // keep it auto-fed on any view
+    syncDxtradeOutcomes(userId).catch(() => {}); // DXtrade parity — auto-fed on any view
     try {
       const all = await storage.getAiTradeResults(userId, 500);
       const closed = all.filter((t: any) => t.result && t.result !== 'PENDING' && t.closedAt)
@@ -17581,9 +17662,12 @@ Format each recommendation as a clear, concise action item.`;
     // Reset throttle so the next call runs immediately
     const g = global as any;
     if (g.tlOutcomeSyncAt) g.tlOutcomeSyncAt[userId] = 0;
+    if (g.dxOutcomeSyncAt) g.dxOutcomeSyncAt[userId] = 0;
     try {
       const added = await syncTradeLockerOutcomes(userId);
-      res.json({ success: true, synced: added, message: added > 0 ? `Synced ${added} new trade(s) from TradeLocker.` : 'No new trades to sync.' });
+      let dxAdded = 0; try { dxAdded = await syncDxtradeOutcomes(userId); } catch (_) {}
+      const total = added + dxAdded;
+      res.json({ success: true, synced: total, message: total > 0 ? `Synced ${total} new trade(s)${dxAdded > 0 ? ` (${dxAdded} DXtrade)` : ''}.` : 'No new trades to sync.' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -21208,6 +21292,7 @@ Return ONLY JSON: {"topPicks":[{"market":"","winProbability":<0-100>,"whyItWins"
 
     // Sync TL closed trades so daily/weekly P&L reflects latest data (throttled internally to 30s)
     try { await syncTradeLockerOutcomes(userId); } catch (_) {}
+    try { await syncDxtradeOutcomes(userId); } catch (_) {}
 
     // Monday-start, UTC — matches every other weekly boundary in this file
     // (getWeekStart() below, and routes.ts ~11894/13200/17517). The old

@@ -245,6 +245,75 @@ export class DxtradeService {
     } catch { return null; }
   }
 
+  /** Normalized open positions for an account (id/instrument/side/qty/entry),
+   *  tolerant of dxsca shape (portfolio.positions | positions | flat array). */
+  async getPositions(accountCode: string): Promise<Array<{ positionId?: string; instrument: string; side: string; quantity: number; openPrice?: number; raw: any }>> {
+    const pf = await this.getPortfolio(accountCode).catch(() => null);
+    const arr: any[] = pf?.positions ?? pf?.openPositions ?? (Array.isArray(pf) ? pf : []) ?? [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map((p: any) => ({
+      positionId: p.positionId != null ? String(p.positionId) : (p.id != null ? String(p.id) : (p.code != null ? String(p.code) : undefined)),
+      instrument: String(p.instrument ?? p.symbol ?? '').replace(/\//g, '').toUpperCase(),
+      side: /sell|short/i.test(String(p.side ?? p.direction ?? (Number(p.quantity ?? p.qty ?? 0) < 0 ? 'SELL' : 'BUY'))) ? 'SELL' : 'BUY',
+      quantity: Math.abs(Number(p.quantity ?? p.qty ?? p.size ?? 0)),
+      openPrice: Number(p.openPrice ?? p.entryPrice ?? p.avgPrice ?? p.price ?? 0) || undefined,
+      raw: p,
+    }));
+  }
+
+  /** Closed trades with REALIZED P&L since `fromMs`, for the brain / consistency
+   *  ledger (parity with TradeLocker's getClosedTradesWithPnl). dxsca-web has no
+   *  single standardized history path across brokers, so this tries the common
+   *  candidates in order and parses tolerantly. Returns [] when the broker exposes
+   *  none of them — callers must NEVER fabricate P&L from a miss. Each returned row
+   *  carries: positionId, id, symbol, side, openPrice, closePrice, profit, closeTime. */
+  async getClosedTradesWithPnl(accountCode: string, fromMs: number): Promise<any[]> {
+    const enc = encodeURIComponent(accountCode);
+    const fromIso = new Date(fromMs).toISOString();
+    const toIso = new Date().toISOString();
+    const candidates = [
+      `/accounts/${enc}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+      `/accounts/${enc}/orders/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+      `/accounts/${enc}/tradeHistory?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+      `/accounts/${enc}/reports/trades?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+      `/accounts/${enc}/positions/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ];
+    for (const path of candidates) {
+      let res: Response;
+      try { res = await this.authed(path); } catch { continue; }
+      if (!res.ok) continue;
+      let data: any;
+      try { data = JSON.parse(await res.text()); } catch { continue; }
+      const list: any[] = data?.history ?? data?.trades ?? data?.orders ?? data?.positions ?? data?.items ?? (Array.isArray(data) ? data : []);
+      if (!Array.isArray(list) || list.length === 0) {
+        // Endpoint exists but empty window — this IS the right path; return empty.
+        if (Array.isArray(list)) { console.log(`[dxtrade] history via ${path.split('?')[0]} — 0 rows in window`); return []; }
+        continue;
+      }
+      // Keep only rows that are actually closed AND carry a realized-P&L field, so
+      // we never treat an open/working order as a closed trade.
+      const closed = list.filter((o: any) => {
+        const status = String(o.status ?? o.state ?? '').toUpperCase();
+        const hasPnl = o.profit != null || o.pnl != null || o.realizedPnl != null || o.realizedPnL != null || o.grossProfit != null;
+        const looksClosed = !status || /CLOS|FILL|COMPLET|DONE|SETTLED/.test(status);
+        return hasPnl && looksClosed;
+      }).map((o: any) => ({
+        positionId: o.positionId != null ? String(o.positionId) : undefined,
+        id: String(o.id ?? o.orderId ?? o.tradeId ?? o.dealId ?? ''),
+        symbol: String(o.instrument ?? o.symbol ?? 'UNKNOWN'),
+        side: o.side ?? o.direction ?? '',
+        openPrice: Number(o.openPrice ?? o.entryPrice ?? o.avgOpenPrice ?? 0) || 0,
+        closePrice: Number(o.closePrice ?? o.exitPrice ?? o.avgClosePrice ?? o.price ?? 0) || 0,
+        profit: o.profit ?? o.pnl ?? o.realizedPnl ?? o.realizedPnL ?? o.grossProfit,
+        closeTime: o.closeTime ?? o.closedAt ?? o.closeTimestamp ?? o.timestamp ?? o.updateTime ?? null,
+      }));
+      console.log(`[dxtrade] history via ${path.split('?')[0]} — ${closed.length} closed rows`);
+      return closed;
+    }
+    console.log(`[dxtrade] no working history endpoint found for ${accountCode} (tried ${candidates.length}) — close-sync will keep opens PENDING`);
+    return [];
+  }
+
   /** One-shot connectivity check used by the connect/test routes. */
   async verify(): Promise<{ ok: boolean; accounts?: any; error?: string }> {
     try {
