@@ -158,14 +158,21 @@ const Header: React.FC = () => {
   const { data: navTastyConns = [] } = useQuery<any[]>({
     queryKey: ['/api/tastytrade/connections'], enabled: !!user, refetchInterval: 60000,
   });
-  const { data: navCryptocomConns = [] } = useQuery<any[]>({
-    queryKey: ['/api/cryptocom/connections'], enabled: !!user, refetchInterval: 60000,
-  });
+  // Options Engine Accounts = Alpaca + TastyTrade only. (Crypto.com was removed
+  // from this slide-out in favor of dedicated Kalshi + Polymarket segments below.)
   const activeOptionsNavConns = [
     ...navAlpacaConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'Alpaca', label: c.apiKeyId?.slice(0, 8) + '••••', typeLabel: c.accountType })),
     ...navTastyConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'TastyTrade', label: c.username, typeLabel: c.accountType })),
-    ...navCryptocomConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'Crypto.com', label: c.apiKey?.slice(0, 8) + '••••', typeLabel: c.instrumentType })),
   ];
+
+  // ── Kalshi account (balance) + performance (total P&L) for the slide nav ──
+  const { data: kalshiNavAccount } = useQuery<any>({
+    queryKey: ['/api/kalshi/account'], enabled: !!user, refetchInterval: 60000,
+  });
+  const { data: kalshiNavPerf } = useQuery<any>({
+    queryKey: ['/api/kalshi/performance'], enabled: !!user, refetchInterval: 60000,
+  });
+  // Polymarket total P&L (realized + unrealized) comes from polyEngineStatus above.
 
   // Live MT5 EA push data for the nav balance display
   const { data: navMt5Data } = useQuery<any>({
@@ -1246,6 +1253,68 @@ const Header: React.FC = () => {
                       </Link>
                     </div>
                   )}
+
+                  {/* ── Kalshi Account (balance + total P&L) ─────────────── */}
+                  <div className="border-t border-gray-700 pt-3 mt-1">
+                    <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <DollarSign className="h-3 w-3" />
+                      Kalshi Account
+                    </span>
+                    <div className="bg-gray-800/60 border border-indigo-700/25 rounded-lg px-3 py-2 mb-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold font-mono text-indigo-300">
+                            {kalshiNavAccount?.connected
+                              ? `$${Number(kalshiNavAccount.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </p>
+                          <p className="text-[10px] text-gray-500">{kalshiNavAccount?.connected ? 'Balance' : 'Not connected'}</p>
+                        </div>
+                        {kalshiNavPerf?.totals && (
+                          <div className="text-right shrink-0">
+                            <p className={`text-sm font-bold ${(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? '+' : ''}${Number(kalshiNavPerf.totals.totalPnl ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-[10px] text-gray-500">Total P&L · {kalshiNavPerf.totals.trades ?? 0} trades</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Link href="/kalshi" onClick={handleMobileNavClick} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Manage Kalshi
+                    </Link>
+                  </div>
+
+                  {/* ── Polymarket Account (total P&L, links to engine) ──── */}
+                  {(() => {
+                    const pmPnl = (polyEngineStatus?.totalRealizedPnl ?? 0) + (polyEngineStatus?.totalUnrealizedPnl ?? 0);
+                    return (
+                      <div className="border-t border-gray-700 pt-3 mt-1">
+                        <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                          <DollarSign className="h-3 w-3" />
+                          Polymarket Account
+                        </span>
+                        <div className="bg-gray-800/60 border border-blue-700/25 rounded-lg px-3 py-2 mb-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className={`text-sm font-bold ${pmPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {pmPnl >= 0 ? '+' : ''}${pmPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </p>
+                              <p className="text-[10px] text-gray-500">Total P&L (realized + open)</p>
+                            </div>
+                            <span className={`text-[11px] shrink-0 ${polyEngineStatus?.isRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
+                              {polyEngineStatus?.isRunning ? '● Live' : '○ Idle'}
+                            </span>
+                          </div>
+                        </div>
+                        <Link href="/polymarket-engine" onClick={handleMobileNavClick} className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1.5">
+                          <TrendingUp className="h-3.5 w-3.5" />
+                          Manage Polymarket
+                        </Link>
+                      </div>
+                    );
+                  })()}
 
                   <button
                     onClick={handleLogout}
