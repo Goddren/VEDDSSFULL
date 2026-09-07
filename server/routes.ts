@@ -10579,8 +10579,34 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const _strongGrade = ['A+', 'A', 'B'].includes(String(breakoutGrade || '').toUpperCase());
             const _enoughAligned = Number.isFinite(_alignedVotes) ? _alignedVotes >= 2 : _strongGrade;
             const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
-            // STRONG_SKIP = both agents independently say NO → hard block
-            const tradeAllowed = consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak;
+            // ── Advisory confluence override ──────────────────────────────
+            // The ICT/SMC confluence gate frequently scores 0/12 (no structure
+            // DETECTED) and forces STRONG_SKIP even on a strong momentum signal —
+            // it was hard-blocking ~100% of signals (proposed 87-98% but confluence
+            // 0/12). Treat ABSENT confluence as advisory, not a veto: a strong
+            // signal-gen confidence (>= floor) is allowed to trade UNLESS confluence
+            // actively CONFLICTS (opposite-direction BOS/CHOCH). Absent ≠ conflicting.
+            const _confluenceConflicts = !!(smcContext?.bosCHOCH?.detected && (
+              (analysis.signal === 'BUY'  && smcContext.bosCHOCH.direction === 'BEARISH') ||
+              (analysis.signal === 'SELL' && smcContext.bosCHOCH.direction === 'BULLISH')));
+            const ADVISORY_SIGNAL_FLOOR = 85;
+            const _advisoryOverride = !useBreakoutMode
+              && consensusLabel === 'STRONG_SKIP'
+              && preConfirmConfidence >= ADVISORY_SIGNAL_FLOOR
+              && !_confluenceConflicts;
+            // STRONG_SKIP = both agents independently say NO → hard block,
+            // UNLESS the advisory override applies (strong signal, no conflict).
+            const tradeAllowed = (consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride;
+            if (_advisoryOverride) {
+              // Trade proceeds on the strong signal-gen call; confluence was absent
+              // (not conflicting). Confirm + temper the sizing confidence since it
+              // lacks full ICT confluence → reduced-size advisory entry.
+              aiConfirmation.confirmed = true;
+              aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              (aiConfirmation as any).advisoryOverride = true;
+              console.log(`[SS Consensus] ${sanitizedSymbol} — ⚖️ ADVISORY OVERRIDE: strong signal ${preConfirmConfidence}% + no structural conflict → trading despite low ICT confluence (was STRONG_SKIP)`);
+              analysis.alerts.push(`⚖️ ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict — traded at reduced size despite low ICT confluence.`);
+            }
 
             if (!tradeAllowed) {
               const reason = consensusLabel === 'STRONG_SKIP'

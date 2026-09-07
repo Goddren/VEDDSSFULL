@@ -64869,7 +64869,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const _strongGrade = ["A+", "A", "B"].includes(String(breakoutGrade || "").toUpperCase());
             const _enoughAligned = Number.isFinite(_alignedVotes) ? _alignedVotes >= 2 : _strongGrade;
             const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
-            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak;
+            const _confluenceConflicts = !!(smcContext?.bosCHOCH?.detected && (analysis.signal === "BUY" && smcContext.bosCHOCH.direction === "BEARISH" || analysis.signal === "SELL" && smcContext.bosCHOCH.direction === "BULLISH"));
+            const ADVISORY_SIGNAL_FLOOR = 85;
+            const _advisoryOverride = !useBreakoutMode && consensusLabel === "STRONG_SKIP" && preConfirmConfidence >= ADVISORY_SIGNAL_FLOOR && !_confluenceConflicts;
+            const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak || _advisoryOverride;
+            if (_advisoryOverride) {
+              aiConfirmation.confirmed = true;
+              aiConfirmation.aiConfidence = Math.max(60, Math.min(preConfirmConfidence, 75));
+              aiConfirmation.advisoryOverride = true;
+              console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 \u2696\uFE0F ADVISORY OVERRIDE: strong signal ${preConfirmConfidence}% + no structural conflict \u2192 trading despite low ICT confluence (was STRONG_SKIP)`);
+              analysis.alerts.push(`\u2696\uFE0F ADVISORY ENTRY: strong ${preConfirmConfidence}% signal, no structural conflict \u2014 traded at reduced size despite low ICT confluence.`);
+            }
             if (!tradeAllowed) {
               const reason = consensusLabel === "STRONG_SKIP" ? `Dual-agent STRONG_SKIP \u2014 Quant:${quantResult.verdict}(${quantResult.score}) + AI:${aiVerdict}(${aiConfirmation.aiConfidence}%) both reject` : overrideTooWeak ? `AI override blocked \u2014 weak confluence (Grade ${breakoutGrade || "?"}${Number.isFinite(_alignedVotes) ? `, ${_alignedVotes} aligned` : ""}); override requires Grade B / \u22652 aligned. EA ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%` : useBreakoutMode ? `Breakout grade insufficient (Grade ${breakoutGrade || "PASS"} \u2014 Grade A (\u226570%) or B (\u226550%) required to CONFIRM)` : !eaPasses ? `Both below threshold (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}% < ${EA_MIN_CONFIDENCE_FOR_AI_GATE}%)` : `AI confidence too low (AI: ${aiConfirmation.aiConfidence}% < ${AI_MIN_CONFIDENCE}%, EA: ${preConfirmConfidence}%)`;
               console.log(`[AI Vision Confirmation] BLOCKED trade on ${sanitizedSymbol} - ${reason}: ${aiConfirmation.reasoning}`);
