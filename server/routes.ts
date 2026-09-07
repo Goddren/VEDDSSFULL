@@ -16366,6 +16366,23 @@ Rules:
     res.json({ activity });
   });
 
+  // Live Crypto.com account balance for the slide-out nav (read-only).
+  app.get("/api/cryptocom/balance", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.json({ connected: false });
+    const userId = (req.user as User).id;
+    try {
+      const conns = await storage.getUserCryptocomConnections(userId);
+      const conn = conns.find((c: any) => c.isActive);
+      if (!conn) return res.json({ connected: false });
+      const { CryptoComService, decryptApiSecret } = await import('./cryptocom');
+      const svc = new CryptoComService(conn.apiKey, decryptApiSecret(conn.encryptedApiSecret));
+      const acct = await svc.getAccountInfo();
+      res.json({ connected: true, balance: acct.balance, available: acct.availableBalance, equity: acct.equity, currency: acct.currency });
+    } catch (err: any) {
+      res.json({ connected: false, error: err.message });
+    }
+  });
+
   app.get("/api/cryptocom-engine/trades", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

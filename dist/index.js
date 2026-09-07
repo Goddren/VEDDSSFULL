@@ -69859,6 +69859,21 @@ Rules:
     const activity = await storage.getUserCryptocomEngineActivity(userId, limit);
     res.json({ activity });
   });
+  app2.get("/api/cryptocom/balance", async (req, res) => {
+    if (!req.isAuthenticated()) return res.json({ connected: false });
+    const userId = req.user.id;
+    try {
+      const conns = await storage.getUserCryptocomConnections(userId);
+      const conn = conns.find((c) => c.isActive);
+      if (!conn) return res.json({ connected: false });
+      const { CryptoComService: CryptoComService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_cryptocom(), cryptocom_exports));
+      const svc = new CryptoComService2(conn.apiKey, decryptApiSecret3(conn.encryptedApiSecret));
+      const acct = await svc.getAccountInfo();
+      res.json({ connected: true, balance: acct.balance, available: acct.availableBalance, equity: acct.equity, currency: acct.currency });
+    } catch (err) {
+      res.json({ connected: false, error: err.message });
+    }
+  });
   app2.get("/api/cryptocom-engine/trades", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;

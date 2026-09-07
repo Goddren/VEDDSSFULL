@@ -165,13 +165,19 @@ const Header: React.FC = () => {
     ...navTastyConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'TastyTrade', label: c.username, typeLabel: c.accountType })),
   ];
 
-  // ── Kalshi account (balance) + performance (total P&L) for the slide nav ──
-  const { data: kalshiNavAccount } = useQuery<any>({
-    queryKey: ['/api/kalshi/account'], enabled: !!user, refetchInterval: 60000,
+  // ── Crypto.com account balance + engine total P&L for the slide nav ──
+  const { data: cryptoNavBalance } = useQuery<any>({
+    queryKey: ['/api/cryptocom/balance'], enabled: !!user, refetchInterval: 60000,
   });
-  const { data: kalshiNavPerf } = useQuery<any>({
-    queryKey: ['/api/kalshi/performance'], enabled: !!user, refetchInterval: 60000,
+  const { data: cryptoNavTrades } = useQuery<any>({
+    queryKey: ['/api/cryptocom-engine/trades'], enabled: !!user, refetchInterval: 60000,
   });
+  const cryptoTotalPnl = Array.isArray(cryptoNavTrades?.recent)
+    ? cryptoNavTrades.recent.reduce((s: number, t: any) => s + (Number(t.realizedPnl) || 0), 0)
+    : 0;
+  const cryptoClosedCount = Array.isArray(cryptoNavTrades?.recent)
+    ? cryptoNavTrades.recent.filter((t: any) => t.status === 'closed').length
+    : 0;
   // Polymarket total P&L (realized + unrealized) comes from polyEngineStatus above.
 
   // Live MT5 EA push data for the nav balance display
@@ -1254,35 +1260,35 @@ const Header: React.FC = () => {
                     </div>
                   )}
 
-                  {/* ── Kalshi Account (balance + total P&L) ─────────────── */}
+                  {/* ── Crypto Account (Crypto.com balance + engine total P&L) ── */}
                   <div className="border-t border-gray-700 pt-3 mt-1">
-                    <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                      <DollarSign className="h-3 w-3" />
-                      Kalshi Account
+                    <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <Coins className="h-3 w-3" />
+                      Crypto Account
                     </span>
-                    <div className="bg-gray-800/60 border border-indigo-700/25 rounded-lg px-3 py-2 mb-2">
+                    <div className="bg-gray-800/60 border border-amber-700/25 rounded-lg px-3 py-2 mb-2">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="text-sm font-bold font-mono text-indigo-300">
-                            {kalshiNavAccount?.connected
-                              ? `$${Number(kalshiNavAccount.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          <p className="text-sm font-bold font-mono text-amber-300">
+                            {cryptoNavBalance?.connected
+                              ? `$${Number(cryptoNavBalance.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                               : '—'}
                           </p>
-                          <p className="text-[10px] text-gray-500">{kalshiNavAccount?.connected ? 'Balance' : 'Not connected'}</p>
+                          <p className="text-[10px] text-gray-500">{cryptoNavBalance?.connected ? 'Balance (Crypto.com)' : 'Not connected'}</p>
                         </div>
-                        {kalshiNavPerf?.totals && (
+                        {cryptoClosedCount > 0 && (
                           <div className="text-right shrink-0">
-                            <p className={`text-sm font-bold ${(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? '+' : ''}${Number(kalshiNavPerf.totals.totalPnl ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <p className={`text-sm font-bold ${cryptoTotalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {cryptoTotalPnl >= 0 ? '+' : ''}${cryptoTotalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
-                            <p className="text-[10px] text-gray-500">Total P&L · {kalshiNavPerf.totals.trades ?? 0} trades</p>
+                            <p className="text-[10px] text-gray-500">Total P&L · {cryptoClosedCount} closed</p>
                           </div>
                         )}
                       </div>
                     </div>
-                    <Link href="/kalshi" onClick={handleMobileNavClick} className="text-sm font-medium text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5">
+                    <Link href="/crypto-engine" onClick={handleMobileNavClick} className="text-sm font-medium text-amber-400 hover:text-amber-300 flex items-center gap-1.5">
                       <TrendingUp className="h-3.5 w-3.5" />
-                      Manage Kalshi
+                      Manage Crypto Engine
                     </Link>
                   </div>
 
