@@ -376,6 +376,28 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
   }
 }
 
+// Manual close of a single open trade (from the UI "Close" button). Reuses the
+// same venue-aware closePosition path as the auto TP/SL monitor — records
+// realized P&L, brain outcome, and consistency ledger. Values the close at the
+// latest candle close (same source the monitor uses).
+export async function manualCloseCryptoTrade(userId: number, tradeId: number): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const open = await storage.getOpenCryptocomEngineTrades(userId);
+    const trade = open.find((t: any) => t.id === tradeId);
+    if (!trade) return { ok: false, error: 'Trade not found or already closed' };
+    let px = 0;
+    try {
+      const bars = await CryptoComService.getCandles(trade.symbol, '5m', 2);
+      px = bars?.[bars.length - 1]?.c ?? 0;
+    } catch { /* fall through */ }
+    if (!(px > 0)) return { ok: false, error: 'Could not fetch current price to close' };
+    await closePosition(userId, trade, px, 'manual');
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'close failed' };
+  }
+}
+
 const sessionPeakEquity = new Map<number, number>();
 
 async function checkSafetyGates(userId: number, cfg: CryptocomEngineConfig, equity: number): Promise<{ allowed: boolean; reason?: string; riskMultiplier: number }> {

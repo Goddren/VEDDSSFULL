@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -459,6 +459,73 @@ export default function CryptoEnginePage() {
   });
   const openTrades = tradesData?.open ?? [];
   const closedTrades = (tradesData?.recent ?? []).filter(t => t.status !== 'open');
+
+  // ── Live prices for open positions → live unrealized P&L + sparkline ──────
+  const baseCoin = (sym: string) => sym.replace(/USD-?PERP$/i, '').replace(/USD$/i, '').toUpperCase();
+  const openBaseCoins = Array.from(new Set(openTrades.map(t => baseCoin(t.symbol))));
+  const { data: livePrices } = useQuery<{ quotes: any[] }>({
+    queryKey: ['/api/crypto/prices', openBaseCoins.join(',')],
+    enabled: openBaseCoins.length > 0,
+    refetchInterval: 15000,
+  });
+  const priceMap: Record<string, number> = {};
+  for (const q of (livePrices?.quotes ?? [])) {
+    const p = q?.best?.price ?? q?.price;
+    if (typeof p === 'number' && q?.symbol) priceMap[String(q.symbol).toUpperCase()] = p;
+  }
+  const livePnlFor = (t: EngineTrade): number | null => {
+    const px = priceMap[baseCoin(t.symbol)];
+    if (!(px > 0)) return null;
+    return (px - t.entryPrice) * t.quantity * (t.direction === 'long' ? 1 : -1);
+  };
+  // Rolling P&L history per trade id for the mini live chart (last 40 points).
+  const [pnlHistory, setPnlHistory] = useState<Record<number, number[]>>({});
+  useEffect(() => {
+    if (openTrades.length === 0 || Object.keys(priceMap).length === 0) return;
+    setPnlHistory(prev => {
+      const next = { ...prev };
+      for (const t of openTrades) {
+        const pnl = livePnlFor(t);
+        if (pnl == null) continue;
+        const arr = (next[t.id] ?? []).concat(Math.round(pnl * 100) / 100);
+        next[t.id] = arr.slice(-40);
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [livePrices]);
+
+  const fmtDuration = (from: string) => {
+    const ms = Date.now() - new Date(from).getTime();
+    if (ms < 0) return '0m';
+    const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d > 0) return `${d}d ${h % 24}h`;
+    if (h > 0) return `${h}h ${m % 60}m`;
+    return `${m}m`;
+  };
+
+  const closeTradeMutation = useMutation({
+    mutationFn: async (tradeId: number) => (await apiRequest('POST', '/api/cryptocom-engine/close-trade', { tradeId })).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cryptocom-engine/trades'] });
+      toast({ title: 'Trade closed', description: 'Position closed at market.' });
+    },
+    onError: (e: any) => toast({ title: 'Close failed', description: extractErrorMsg(e), variant: 'destructive' }),
+  });
+
+  // Tiny inline sparkline of a trade's live P&L history (green if up, red if down).
+  const PnlSparkline = ({ pts }: { pts: number[] }) => {
+    if (!pts || pts.length < 2) return null;
+    const w = 56, h = 18, min = Math.min(...pts), max = Math.max(...pts);
+    const span = max - min || 1;
+    const d = pts.map((p, i) => `${(i / (pts.length - 1)) * w},${h - ((p - min) / span) * h}`).join(' ');
+    const up = pts[pts.length - 1] >= 0;
+    return (
+      <svg width={w} height={h} className="shrink-0" style={{ overflow: 'visible' }}>
+        <polyline points={d} fill="none" stroke={up ? '#34d399' : '#f87171'} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    );
+  };
 
   // ── Dual-Vote Consensus ──────────────────────────────────────────────────
   const { data: consensusData, isLoading: consensusLoading } = useQuery<ConsensusData>({
@@ -1568,15 +1635,44 @@ export default function CryptoEnginePage() {
                         <p className="text-xs text-gray-500">No open positions.</p>
                       ) : (
                         <div className="space-y-2">
-                          {openTrades.map(t => (
-                            <div key={t.id} className="p-2.5 rounded-lg border border-emerald-700/20 bg-emerald-900/5 flex items-center justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-bold text-white">{t.symbol} <span className="text-xs font-normal text-gray-400 uppercase">{t.direction}</span></p>
+                          {openTrades.map(t => {
+                            const pnl = livePnlFor(t);
+                            const pnlPct = pnl != null && t.entryPrice > 0 ? (pnl / (t.entryPrice * t.quantity)) * 100 : null;
+                            const up = (pnl ?? 0) >= 0;
+                            return (
+                            <div key={t.id} className={`p-2.5 rounded-lg border flex items-center justify-between gap-2 ${pnl == null ? 'border-gray-700 bg-gray-800/40' : up ? 'border-emerald-700/25 bg-emerald-900/10' : 'border-red-700/25 bg-red-900/10'}`}>
+                              <div className="min-w-0">
+                                <p className="text-sm font-bold text-white truncate">{t.symbol} <span className="text-xs font-normal text-gray-400 uppercase">{t.direction}</span></p>
                                 <p className="text-[10px] text-gray-500">{t.quantity}x @ ${t.entryPrice.toFixed(2)} · {t.strategy.replace('_', ' ')}</p>
+                                <p className="text-[10px] text-gray-600">⏱ open {fmtDuration(t.createdAt)}</p>
                               </div>
-                              <span className="text-[10px] text-gray-500 shrink-0">{new Date(t.createdAt).toLocaleString()}</span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <PnlSparkline pts={pnlHistory[t.id] ?? []} />
+                                <div className="text-right w-[72px]">
+                                  {pnl == null ? (
+                                    <p className="text-[11px] text-gray-500">live…</p>
+                                  ) : (
+                                    <>
+                                      <p className={`text-sm font-mono font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>{up ? '+' : ''}${pnl.toFixed(2)}</p>
+                                      {pnlPct != null && <p className={`text-[10px] ${up ? 'text-emerald-500/70' : 'text-red-500/70'}`}>{up ? '+' : ''}{pnlPct.toFixed(1)}%</p>}
+                                    </>
+                                  )}
+                                </div>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-[11px] border-red-700/40 text-red-300 hover:bg-red-600/20 shrink-0"
+                                  disabled={closeTradeMutation.isPending}
+                                  onClick={() => { if (confirm(`Close ${t.symbol} ${t.direction} now at market?`)) closeTradeMutation.mutate(t.id); }}
+                                >
+                                  {closeTradeMutation.isPending && closeTradeMutation.variables === t.id
+                                    ? <RefreshCw className="w-3 h-3 animate-spin" />
+                                    : 'Close'}
+                                </Button>
+                              </div>
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>

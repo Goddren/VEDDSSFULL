@@ -16394,6 +16394,22 @@ Rules:
     res.json({ open, recent });
   });
 
+  // Manual close of one open crypto-engine trade (UI "Close" button).
+  app.post("/api/cryptocom-engine/close-trade", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = (req.user as User).id;
+    const tradeId = Number(req.body?.tradeId);
+    if (!Number.isFinite(tradeId)) return res.status(400).json({ error: "tradeId required" });
+    try {
+      const { manualCloseCryptoTrade } = await import('./services/cryptocom-scanner');
+      const r = await manualCloseCryptoTrade(userId, tradeId);
+      if (!r.ok) return res.status(400).json({ error: r.error });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || 'close failed' });
+    }
+  });
+
   app.get("/api/cryptocom-engine/consensus", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

@@ -34531,6 +34531,1702 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/crypto-brain.ts
+function bump(map, key, win) {
+  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
+  s.trades++;
+  if (win) s.wins++;
+  s.winRate = Math.round(s.wins / s.trades * 100);
+}
+function sizeMult(winRate2, rr, trades) {
+  if (trades < MIN_TRADES) return 1;
+  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
+  const kelly = w - (1 - w) / r;
+  return Math.max(0.25, Math.min(1.5, 1 + kelly));
+}
+async function backfillIfEmpty(userId) {
+  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
+  if (rows[0].n > 0) return;
+  const { rows: trades } = await pool.query(
+    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
+     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
+    [userId]
+  );
+  if (!trades.length) return;
+  for (const t of trades) {
+    const pnl = Number(t.realized_pnl) || 0;
+    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
+      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
+    ).catch(() => {
+    });
+  }
+}
+async function learnFromCryptoTrades(userId) {
+  await backfillIfEmpty(userId).catch(() => {
+  });
+  const { rows } = await pool.query(
+    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
+     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
+    [userId]
+  );
+  const symbols = {};
+  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
+  let totalWins = 0, totalDecided = 0, totalPnl = 0;
+  for (const r of rows) {
+    const sym = r.symbol || "UNKNOWN";
+    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
+    const pnl = Number(r.profit_loss) || 0;
+    const win = r.result === "WIN", loss = r.result === "LOSS";
+    k.totalTrades++;
+    k.totalPnl += pnl;
+    totalPnl += pnl;
+    if (win) {
+      k.wins++;
+      totalWins++;
+      winSum[sym] = (winSum[sym] ?? 0) + pnl;
+      winN[sym] = (winN[sym] ?? 0) + 1;
+    }
+    if (loss) {
+      k.losses++;
+      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
+      lossN[sym] = (lossN[sym] ?? 0) + 1;
+    }
+    if (win || loss) totalDecided++;
+    if (r.strategy) bump(k.byStrategy, r.strategy, win);
+    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
+  }
+  for (const [sym, k] of Object.entries(symbols)) {
+    const decided = k.wins + k.losses;
+    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
+    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
+    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
+    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
+    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
+    let best = null, bestWr = -1;
+    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
+      best = s;
+      bestWr = b.winRate;
+    }
+    k.bestStrategy = best;
+  }
+  const insights = [];
+  for (const [sym, k] of Object.entries(symbols)) {
+    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
+    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
+  }
+  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
+  _cache.set(userId, { brain, at: Date.now() });
+  return brain;
+}
+async function getOrRefreshCryptoBrain(userId, force = false) {
+  const hit = _cache.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
+  return learnFromCryptoTrades(userId);
+}
+function cryptoBrainSizeMultiplier(userId, symbol) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  return k ? k.recommendedSizeMultiplier : 1;
+}
+function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
+  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  if (!k) return { blocked: false, reason: "" };
+  const decided = k.wins + k.losses;
+  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
+  if (strategy) {
+    const st = k.byStrategy[strategy];
+    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
+  }
+  if (hourUtc != null) {
+    const h = k.byHour[String(hourUtc)];
+    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
+  }
+  return { blocked: false, reason: "" };
+}
+async function recordCryptoBrainOutcome(o) {
+  try {
+    await pool.query(
+      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
+      [
+        o.userId,
+        o.symbol,
+        o.strategy || "unknown",
+        o.direction,
+        o.entryConfidence ?? null,
+        o.returnPct ?? null,
+        (/* @__PURE__ */ new Date()).getUTCHours(),
+        o.holdingMinutes ?? null,
+        o.exitReason ?? null,
+        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
+        o.profitLoss
+      ]
+    );
+    await learnFromCryptoTrades(o.userId);
+  } catch (err) {
+    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
+  }
+}
+var MIN_TRADES, REFRESH_TTL_MS, _cache;
+var init_crypto_brain = __esm({
+  "server/services/crypto-brain.ts"() {
+    "use strict";
+    init_db();
+    MIN_TRADES = 10;
+    REFRESH_TTL_MS = 60 * 1e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/crypto-market-data.ts
+var crypto_market_data_exports = {};
+__export(crypto_market_data_exports, {
+  getAggregatedQuote: () => getAggregatedQuote,
+  getAggregatedQuotes: () => getAggregatedQuotes
+});
+function krakenPair(sym) {
+  const s = sym.toUpperCase();
+  return (s === "BTC" ? "XBT" : s) + "USD";
+}
+async function coinbaseSpot(sym) {
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.data?.amount);
+    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
+  } catch (e) {
+    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
+  }
+}
+async function krakenTicker(sym) {
+  try {
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const first = Object.values(d?.result || {})[0];
+    const p = parseFloat(first?.c?.[0]);
+    const v = parseFloat(first?.v?.[1]);
+    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+  } catch (e) {
+    return { venue: "kraken", symbol: sym, price: null, error: e.message };
+  }
+}
+async function geminiTicker(sym) {
+  try {
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.last);
+    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
+    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "gemini", symbol: sym, price: null, error: e.message };
+  }
+}
+async function cryptocomTicker(sym) {
+  try {
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const t = d?.result?.data;
+    const row = Array.isArray(t) ? t[0] : t;
+    const p = parseFloat(row?.a ?? row?.k);
+    const v = parseFloat(row?.v);
+    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
+  }
+}
+async function getAggregatedQuote(symbol) {
+  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache2.get(sym);
+  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
+  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
+  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
+  let best = null;
+  let spreadPct = null;
+  if (priced.length) {
+    const lo = priced.reduce((a, b) => b.price < a.price ? b : a);
+    const hi = priced.reduce((a, b) => b.price > a.price ? b : a);
+    best = { venue: lo.venue, price: lo.price };
+    spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
+  }
+  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache2.set(sym, { q, ts: Date.now() });
+  return q;
+}
+async function getAggregatedQuotes(symbols) {
+  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
+  return Promise.all(uniq.map(getAggregatedQuote));
+}
+var TTL_MS, _cache2;
+var init_crypto_market_data = __esm({
+  "server/services/crypto-market-data.ts"() {
+    "use strict";
+    TTL_MS = 15e3;
+    _cache2 = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/coinbase.ts
+var coinbase_exports = {};
+__export(coinbase_exports, {
+  CoinbaseService: () => CoinbaseService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto8 from "crypto";
+import jwt from "jsonwebtoken";
+function buildJwt(keyName, privateKeyPem, method, path17) {
+  const uri = `${method} ${API_HOST}${path17}`;
+  const now = Math.floor(Date.now() / 1e3);
+  const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
+  return jwt.sign(payload2, privateKeyPem, {
+    algorithm: "ES256",
+    header: { kid: keyName, nonce: crypto8.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
+  });
+}
+var API_HOST, CoinbaseService;
+var init_coinbase = __esm({
+  "server/coinbase.ts"() {
+    "use strict";
+    init_cryptocom();
+    API_HOST = "api.coinbase.com";
+    CoinbaseService = class {
+      keyName;
+      privateKey;
+      constructor(keyName, privateKeyPem) {
+        this.keyName = keyName;
+        this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
+      }
+      async get(path17) {
+        const token = buildJwt(this.keyName, this.privateKey, "GET", path17);
+        const res = await fetch(`https://${API_HOST}${path17}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(12e3)
+        });
+        if (!res.ok) {
+          const text2 = await res.text();
+          throw new Error(`Coinbase ${res.status}: ${text2.slice(0, 300)}`);
+        }
+        return res.json();
+      }
+      async post(path17, body) {
+        const token = buildJwt(this.keyName, this.privateKey, "POST", path17);
+        const res = await fetch(`https://${API_HOST}${path17}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(12e3)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`Coinbase ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+        return data;
+      }
+      /**
+       * Place a spot order (Advanced Trade). Requires "trade" permission on the key.
+       *  - product: e.g. 'BTC-USD'
+       *  - side: 'BUY' | 'SELL'
+       *  - type: 'market' | 'limit'
+       *  - quoteSize: USD to spend (market BUY); baseSize: coin amount (SELL / limit)
+       *  - limitPrice: required for limit orders
+       */
+      async placeOrder(o) {
+        const clientOrderId = crypto8.randomUUID();
+        let order_configuration;
+        if (o.type === "market") {
+          order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
+        } else {
+          if (!o.limitPrice || !o.baseSize) throw new Error("limit orders require baseSize and limitPrice");
+          order_configuration = { limit_limit_gtc: { base_size: String(o.baseSize), limit_price: String(o.limitPrice) } };
+        }
+        const data = await this.post("/api/v3/brokerage/orders", {
+          client_order_id: clientOrderId,
+          product_id: o.product,
+          side: o.side,
+          order_configuration
+        });
+        const success = !!data?.success;
+        if (!success) throw new Error(`Coinbase order rejected: ${JSON.stringify(data?.error_response || data).slice(0, 300)}`);
+        return { orderId: data?.success_response?.order_id ?? clientOrderId, success, raw: data };
+      }
+      /** Read-only: list account balances (paginated), valued in USD via public spot. */
+      async getBalances() {
+        const accounts = [];
+        let cursor = "";
+        for (let i = 0; i < 10; i++) {
+          const path17 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+          const data = await this.get(path17);
+          for (const a of data?.accounts ?? []) accounts.push(a);
+          if (data?.has_next && data?.cursor) cursor = data.cursor;
+          else break;
+        }
+        const balances = [];
+        for (const a of accounts) {
+          const available = parseFloat(a?.available_balance?.value ?? "0") || 0;
+          const hold = parseFloat(a?.hold?.value ?? "0") || 0;
+          const total = available + hold;
+          if (total <= 0) continue;
+          balances.push({ currency: a?.available_balance?.currency ?? a?.currency ?? "?", available, hold, total });
+        }
+        let totalUsd = 0;
+        try {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          for (const b of balances) {
+            if (b.currency === "USD" || b.currency === "USDC") {
+              b.usdValue = b.total;
+              totalUsd += b.total;
+              continue;
+            }
+            const q = await getAggregatedQuote2(b.currency).catch(() => null);
+            const px = q?.best?.price ?? null;
+            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
+            if (b.usdValue) totalUsd += b.usdValue;
+          }
+        } catch {
+        }
+        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+        return { balances, totalUsd: Math.round(totalUsd * 100) / 100, accountCount: accounts.length };
+      }
+      /** Lightweight auth check for the "Test connection" button. */
+      async test() {
+        const data = await this.get("/api/v3/brokerage/accounts?limit=1");
+        return { ok: true, accountCount: (data?.accounts ?? []).length };
+      }
+    };
+  }
+});
+
+// server/kraken.ts
+var kraken_exports = {};
+__export(kraken_exports, {
+  KrakenService: () => KrakenService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto9 from "crypto";
+function normalizeAsset(code) {
+  const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
+  const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
+  if (map[c]) return map[c];
+  if (c.length === 4 && (c[0] === "X" || c[0] === "Z")) return c.slice(1);
+  return c;
+}
+var API_HOST2, KrakenService;
+var init_kraken = __esm({
+  "server/kraken.ts"() {
+    "use strict";
+    init_cryptocom();
+    API_HOST2 = "https://api.kraken.com";
+    KrakenService = class {
+      apiKey;
+      secret;
+      constructor(apiKey, secret) {
+        this.apiKey = apiKey;
+        this.secret = secret;
+      }
+      sign(path17, nonce, postData) {
+        const sha256 = crypto9.createHash("sha256").update(nonce + postData).digest();
+        const message = Buffer.concat([Buffer.from(path17, "utf8"), sha256]);
+        const key = Buffer.from(this.secret, "base64");
+        return crypto9.createHmac("sha512", key).update(message).digest("base64");
+      }
+      async privatePost(endpoint, params = {}) {
+        const path17 = `/0/private/${endpoint}`;
+        const nonce = String(Date.now() * 1e3);
+        const body = new URLSearchParams({ nonce, ...params });
+        const postData = body.toString();
+        const res = await fetch(`${API_HOST2}${path17}`, {
+          method: "POST",
+          headers: {
+            "API-Key": this.apiKey,
+            "API-Sign": this.sign(path17, nonce, postData),
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "VEDD/1.0"
+          },
+          body: postData,
+          signal: AbortSignal.timeout(12e3)
+        });
+        const data = await res.json();
+        if (data?.error?.length) throw new Error(`Kraken: ${data.error.join(", ")}`);
+        return data?.result ?? {};
+      }
+      /** Read-only: account balances, valued in USD via the public price layer. */
+      async getBalances() {
+        const raw = await this.privatePost("Balance");
+        const merged = /* @__PURE__ */ new Map();
+        for (const [code, valStr] of Object.entries(raw)) {
+          const amt = parseFloat(String(valStr));
+          if (!isFinite(amt) || amt <= 0) continue;
+          const cur = normalizeAsset(code);
+          merged.set(cur, (merged.get(cur) ?? 0) + amt);
+        }
+        const balances = Array.from(merged, ([currency, total]) => ({ currency, total }));
+        let totalUsd = 0;
+        try {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          for (const b of balances) {
+            if (b.currency === "USD" || b.currency === "USDC" || b.currency === "USDT") {
+              b.usdValue = b.total;
+              totalUsd += b.total;
+              continue;
+            }
+            const q = await getAggregatedQuote2(b.currency).catch(() => null);
+            const px = q?.best?.price ?? null;
+            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
+            if (b.usdValue) totalUsd += b.usdValue;
+          }
+        } catch {
+        }
+        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+        return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+      }
+      /**
+       * Place an order. Requires "Create & modify orders" permission on the key.
+       *  - pair: Kraken pair, e.g. 'XBTUSD' (BTC) or 'ETHUSD'
+       *  - type: 'buy' | 'sell'
+       *  - ordertype: 'market' | 'limit'
+       *  - volume: base amount (in the traded coin)
+       *  - price: required for limit orders
+       */
+      async placeOrder(o) {
+        const params = { pair: o.pair, type: o.type, ordertype: o.ordertype, volume: String(o.volume) };
+        if (o.ordertype === "limit") {
+          if (!o.price) throw new Error("limit orders require a price");
+          params.price = String(o.price);
+        }
+        const res = await this.privatePost("AddOrder", params);
+        return { txids: res?.txid ?? [], descr: res?.descr?.order ?? "", raw: res };
+      }
+      async test() {
+        const raw = await this.privatePost("Balance");
+        return { ok: true, assetCount: Object.keys(raw).length };
+      }
+    };
+  }
+});
+
+// server/gemini.ts
+var gemini_exports = {};
+__export(gemini_exports, {
+  GeminiService: () => GeminiService,
+  decryptApiSecret: () => decryptApiSecret2,
+  encryptApiSecret: () => encryptApiSecret2
+});
+import crypto10 from "crypto";
+var API_HOST3, GeminiService;
+var init_gemini = __esm({
+  "server/gemini.ts"() {
+    "use strict";
+    init_cryptocom();
+    API_HOST3 = "https://api.gemini.com";
+    GeminiService = class {
+      apiKey;
+      secret;
+      constructor(apiKey, secret) {
+        this.apiKey = apiKey;
+        this.secret = secret;
+      }
+      async privatePost(endpoint, params = {}) {
+        const nonce = Date.now();
+        const payload2 = { request: endpoint, nonce, ...params };
+        const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
+        const signature = crypto10.createHmac("sha384", this.secret).update(b64).digest("hex");
+        const res = await fetch(`${API_HOST3}${endpoint}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain",
+            "Content-Length": "0",
+            "X-GEMINI-APIKEY": this.apiKey,
+            "X-GEMINI-PAYLOAD": b64,
+            "X-GEMINI-SIGNATURE": signature,
+            "Cache-Control": "no-cache",
+            "User-Agent": "VEDD/1.0"
+          },
+          signal: AbortSignal.timeout(12e3)
+        });
+        const data = await res.json();
+        if (!res.ok || data?.result === "error") {
+          throw new Error(`Gemini: ${data?.reason || data?.message || res.status}`);
+        }
+        return data;
+      }
+      /** Read-only: account balances, valued in USD via the public price layer. */
+      async getBalances() {
+        const raw = await this.privatePost("/v1/balances");
+        const balances = [];
+        for (const b of Array.isArray(raw) ? raw : []) {
+          const amt = parseFloat(b?.amount ?? "0");
+          if (!isFinite(amt) || amt <= 0) continue;
+          balances.push({ currency: String(b?.currency ?? "?").toUpperCase(), total: amt });
+        }
+        let totalUsd = 0;
+        try {
+          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          for (const b of balances) {
+            if (b.currency === "USD" || b.currency === "USDC" || b.currency === "GUSD" || b.currency === "USDT") {
+              b.usdValue = b.total;
+              totalUsd += b.total;
+              continue;
+            }
+            const q = await getAggregatedQuote2(b.currency).catch(() => null);
+            const px = q?.best?.price ?? null;
+            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
+            if (b.usdValue) totalUsd += b.usdValue;
+          }
+        } catch {
+        }
+        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+        return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
+      }
+      /**
+       * Place an order. Requires "Trading" scope on the key. Gemini's API is
+       * limit-only ("exchange limit"); a market-style fill is an immediate-or-cancel
+       * limit at an aggressive price. Caller supplies the limit price either way.
+       *  - symbol: e.g. 'btcusd'
+       *  - side: 'buy' | 'sell'
+       *  - amount: base amount (coin)
+       *  - price: limit price (required by Gemini)
+       *  - immediateOrCancel: true = market-like (fills now or cancels the rest)
+       */
+      async placeOrder(o) {
+        if (!o.price) throw new Error("Gemini requires a limit price (its API is limit-only)");
+        const params = {
+          symbol: o.symbol.toLowerCase(),
+          amount: String(o.amount),
+          price: String(o.price),
+          side: o.side,
+          type: "exchange limit"
+        };
+        if (o.immediateOrCancel) params.options = ["immediate-or-cancel"];
+        const data = await this.privatePost("/v1/order/new", params);
+        return { orderId: String(data?.order_id ?? ""), executedAmount: parseFloat(data?.executed_amount ?? "0") || 0, isLive: !!data?.is_live, raw: data };
+      }
+      async test() {
+        const raw = await this.privatePost("/v1/balances");
+        return { ok: true, assetCount: Array.isArray(raw) ? raw.length : 0 };
+      }
+    };
+  }
+});
+
+// server/services/cefi-executor.ts
+function baseCoin(symbol) {
+  return symbol.toUpperCase().replace(/[-_]/g, "").replace(/PERP$/, "").replace(/(USDT|USDC|USD)$/, "") || symbol.toUpperCase();
+}
+function venueSymbol(venue, base) {
+  if (venue === "coinbase") return `${base}-USD`;
+  if (venue === "kraken") return `${base === "BTC" ? "XBT" : base}USD`;
+  return `${base.toLowerCase()}usd`;
+}
+async function serviceFor(userId, venue) {
+  const table = `${venue}_connections`;
+  const keyCol = venue === "coinbase" ? "api_key_name" : "api_key";
+  const { rows } = await pool.query(`SELECT ${keyCol} AS k, encrypted_api_secret AS s FROM ${table} WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`, [userId]);
+  if (!rows.length) return null;
+  if (venue === "coinbase") {
+    const { CoinbaseService: CoinbaseService2, decryptApiSecret: decryptApiSecret4 } = await Promise.resolve().then(() => (init_coinbase(), coinbase_exports));
+    return new CoinbaseService2(rows[0].k, decryptApiSecret4(rows[0].s));
+  }
+  if (venue === "kraken") {
+    const { KrakenService: KrakenService2, decryptApiSecret: decryptApiSecret4 } = await Promise.resolve().then(() => (init_kraken(), kraken_exports));
+    return new KrakenService2(rows[0].k, decryptApiSecret4(rows[0].s));
+  }
+  const { GeminiService: GeminiService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_gemini(), gemini_exports));
+  return new GeminiService2(rows[0].k, decryptApiSecret3(rows[0].s));
+}
+async function cefiEntryBuy(userId, venue, base, notionalUsd) {
+  const sym = venueSymbol(venue, base);
+  const svc = await serviceFor(userId, venue);
+  if (!svc) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
+  const q = await getAggregatedQuote(base).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  if (!price) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
+  const qtyBase = Math.max(0, Math.round(notionalUsd / price * 1e6) / 1e6);
+  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
+  let orderId = "";
+  if (venue === "coinbase") {
+    const r = await svc.placeOrder({ product: sym, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
+    orderId = r.orderId;
+  } else if (venue === "kraken") {
+    const r = await svc.placeOrder({ pair: sym, type: "buy", ordertype: "market", volume: qtyBase });
+    orderId = (r.txids || [])[0] || "";
+  } else {
+    const r = await svc.placeOrder({ symbol: sym, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
+    orderId = r.orderId;
+  }
+  return { ok: true, venue, venueSymbol: sym, qtyBase, entryPrice: price, orderId };
+}
+async function cefiExitSell(userId, venue, base, qtyBase) {
+  const sym = venueSymbol(venue, base);
+  const svc = await serviceFor(userId, venue);
+  if (!svc) return { ok: false, exitPrice: 0, orderId: "", reason: `no active ${venue} connection` };
+  const q = await getAggregatedQuote(base).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  let orderId = "";
+  if (venue === "coinbase") {
+    const r = await svc.placeOrder({ product: sym, side: "SELL", type: "market", baseSize: qtyBase });
+    orderId = r.orderId;
+  } else if (venue === "kraken") {
+    const r = await svc.placeOrder({ pair: sym, type: "sell", ordertype: "market", volume: qtyBase });
+    orderId = (r.txids || [])[0] || "";
+  } else {
+    const r = await svc.placeOrder({ symbol: sym, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
+    orderId = r.orderId;
+  }
+  return { ok: true, exitPrice: price, orderId };
+}
+var init_cefi_executor = __esm({
+  "server/services/cefi-executor.ts"() {
+    "use strict";
+    init_db();
+    init_crypto_market_data();
+  }
+});
+
+// server/services/defi-swap.ts
+var defi_swap_exports = {};
+__export(defi_swap_exports, {
+  DEFI_CHAINS: () => DEFI_CHAINS,
+  addressFromPrivateKey: () => addressFromPrivateKey,
+  executeDefiSwap: () => executeDefiSwap,
+  isDefiSwapAvailable: () => isDefiSwapAvailable,
+  isTokenTradeable: () => isTokenTradeable,
+  resolveToken: () => resolveToken
+});
+import { ethers } from "ethers";
+function isDefiSwapAvailable() {
+  return !!process.env.ZEROX_API_KEY;
+}
+async function loadTokenIndex() {
+  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 36e5) return tokenIndexCache;
+  try {
+    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(1e4) });
+    const data = await res.json();
+    const idx = /* @__PURE__ */ new Map();
+    for (const t of data?.tokens ?? []) {
+      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
+    }
+    if (idx.size > 0) {
+      tokenIndexCache = idx;
+      tokenIndexLoadedAt = Date.now();
+    }
+    return tokenIndexCache ?? idx;
+  } catch {
+    return tokenIndexCache ?? /* @__PURE__ */ new Map();
+  }
+}
+async function resolveToken(chainKey, token) {
+  const c = DEFI_CHAINS[chainKey];
+  const t = token.trim();
+  if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
+  const up = t.toUpperCase();
+  if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
+  if (up === "USDC") return c.usdc;
+  if (up === "WETH") return c.weth;
+  const idx = await loadTokenIndex();
+  const candidates = SYMBOL_ALIASES[up] ?? [up];
+  for (const sym of candidates) {
+    const addr = idx.get(`${c.chainId}:${sym}`);
+    if (addr) return addr;
+  }
+  throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
+}
+async function isTokenTradeable(chainKey, token) {
+  try {
+    await resolveToken(chainKey, token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function zeroXQuote(chainId, params) {
+  const qs = new URLSearchParams({ chainId: String(chainId), ...params });
+  const res = await fetch(`https://api.0x.org/swap/allowance-holder/quote?${qs.toString()}`, {
+    headers: { "0x-api-key": process.env.ZEROX_API_KEY || "", "0x-version": "v2" },
+    signal: AbortSignal.timeout(15e3)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`0x ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
+  return data;
+}
+async function executeDefiSwap(opts) {
+  if (!isDefiSwapAvailable()) return { ok: false, reason: "ZEROX_API_KEY not set on the server" };
+  const chain = DEFI_CHAINS[opts.chainKey];
+  if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
+  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
+  let sellToken, buyToken;
+  try {
+    sellToken = await resolveToken(opts.chainKey, opts.sellToken);
+    buyToken = await resolveToken(opts.chainKey, opts.buyToken);
+  } catch (e) {
+    return { ok: false, reason: e?.message || "token resolution failed" };
+  }
+  let decimals = 18;
+  if (sellToken !== NATIVE_PSEUDO) {
+    const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
+    decimals = Number(await erc.decimals());
+  }
+  const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
+  const quote = await zeroXQuote(chain.chainId, {
+    sellToken,
+    buyToken,
+    sellAmount,
+    taker: wallet.address,
+    slippageBps: String(opts.slippageBps)
+  });
+  if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
+    return { ok: false, reason: "no liquidity for this pair/size" };
+  }
+  let approveTxHash;
+  const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
+  if (sellToken !== NATIVE_PSEUDO && spender) {
+    const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
+    const current = await erc.allowance(wallet.address, spender);
+    if (current < BigInt(sellAmount)) {
+      const aTx = await erc.approve(spender, ethers.MaxUint256);
+      approveTxHash = aTx.hash;
+      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
+    }
+  }
+  let buyAmountHuman;
+  if (quote.buyAmount) {
+    try {
+      let bDec = 18;
+      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
+      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+    } catch {
+    }
+  }
+  const t = quote.transaction;
+  if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
+  const txResp = await wallet.sendTransaction({
+    to: t.to,
+    data: t.data,
+    value: t.value ? BigInt(t.value) : BigInt(0),
+    ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
+  });
+  try {
+    await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
+  } catch {
+  }
+  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+}
+function addressFromPrivateKey(pk) {
+  return new ethers.Wallet(pk.trim()).address;
+}
+var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TOKEN_LIST_URL, SYMBOL_ALIASES;
+var init_defi_swap = __esm({
+  "server/services/defi-swap.ts"() {
+    "use strict";
+    init_cryptocom();
+    DEFI_CHAINS = {
+      ethereum: { chainId: 1, rpc: "https://ethereum-rpc.publicnode.com", name: "Ethereum", native: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" },
+      base: { chainId: 8453, rpc: "https://base-rpc.publicnode.com", name: "Base", native: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", weth: "0x4200000000000000000000000000000000000006" },
+      arbitrum: { chainId: 42161, rpc: "https://arbitrum-one-rpc.publicnode.com", name: "Arbitrum", native: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", weth: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1" },
+      optimism: { chainId: 10, rpc: "https://optimism-rpc.publicnode.com", name: "Optimism", native: "ETH", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", weth: "0x4200000000000000000000000000000000000006" },
+      polygon: { chainId: 137, rpc: "https://polygon-bor-rpc.publicnode.com", name: "Polygon", native: "POL", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", weth: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619" }
+    };
+    NATIVE_PSEUDO = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+    ERC20_ABI = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)"];
+    tokenIndexCache = null;
+    tokenIndexLoadedAt = 0;
+    TOKEN_LIST_URL = "https://tokens.uniswap.org";
+    SYMBOL_ALIASES = {
+      ETH: ["WETH"],
+      WETH: ["WETH"],
+      BTC: ["WBTC", "CBBTC", "BTCB"],
+      WBTC: ["WBTC", "CBBTC"],
+      MATIC: ["WMATIC", "POL"],
+      POL: ["POL", "WMATIC"]
+    };
+  }
+});
+
+// server/services/defi-executor.ts
+var defi_executor_exports = {};
+__export(defi_executor_exports, {
+  defiEntryBuy: () => defiEntryBuy,
+  defiExitSell: () => defiExitSell,
+  defiTokenAvailable: () => defiTokenAvailable
+});
+async function defiTokenAvailable(chainKey, symbol) {
+  return isTokenTradeable(chainKey, baseCoin(symbol));
+}
+async function loadHotWallet(userId) {
+  const { rows } = await pool.query(
+    `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
+    [userId]
+  );
+  if (!rows.length) return null;
+  return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
+}
+async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
+  const token = baseCoin(base);
+  const chain = chainKey || "base";
+  if (!await isTokenTradeable(chain, token)) {
+    return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${token} on ${chain} \u2014 not on the chain's token list (try a token that exists on ${chain}, or a different chain)` };
+  }
+  const hw = await loadHotWallet(userId);
+  if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: "no active DeFi hot wallet connected" };
+  const q = await getAggregatedQuote(token).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
+  const r = await executeDefiSwap({
+    encryptedPrivateKey: hw.encryptedKey,
+    chainKey: chain,
+    sellToken: "USDC",
+    buyToken: token,
+    sellAmountHuman: notionalUsd,
+    slippageBps
+  });
+  if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
+  let qtyBase = notionalUsd / price;
+  if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
+  qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
+  return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
+}
+async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
+  const token = baseCoin(base);
+  const hw = await loadHotWallet(userId);
+  if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
+  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
+  const price = q?.best?.price ?? 0;
+  const r = await executeDefiSwap({
+    encryptedPrivateKey: hw.encryptedKey,
+    chainKey: chainKey || hw.chain,
+    sellToken: token,
+    buyToken: "USDC",
+    sellAmountHuman: qtyBase,
+    slippageBps
+  });
+  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
+  return { ok: true, exitPrice: price, txHash: r.txHash };
+}
+var init_defi_executor = __esm({
+  "server/services/defi-executor.ts"() {
+    "use strict";
+    init_db();
+    init_crypto_market_data();
+    init_defi_swap();
+    init_cefi_executor();
+  }
+});
+
+// server/services/cryptocom-scanner.ts
+var cryptocom_scanner_exports = {};
+__export(cryptocom_scanner_exports, {
+  manualCloseCryptoTrade: () => manualCloseCryptoTrade,
+  runCryptocomEngineScan: () => runCryptocomEngineScan,
+  startCryptocomEngineScanner: () => startCryptocomEngineScanner
+});
+function convertToCandles3(bars) {
+  return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
+}
+async function runTrendFollowing(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+  if (bars.length < 30) {
+    return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
+  }
+  const candles = convertToCandles3(bars);
+  const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
+  const price = candles[candles.length - 1].c;
+  const dailyChangePercent = (price - candles[0].c) / candles[0].c * 100;
+  const adx = indicators.adx?.adx || 0;
+  const plusDI = indicators.adx?.plusDI || 0;
+  const minusDI = indicators.adx?.minusDI || 0;
+  const rsi3 = indicators.rsi?.value || 50;
+  const macdHist2 = indicators.macd?.histogram || 0;
+  let direction = null;
+  let score = 0;
+  const confluences = [];
+  if (adx > 25 && plusDI > minusDI && rsi3 < 68 && macdHist2 > 0) {
+    direction = "BUY";
+    score = 60 + Math.min(20, adx - 25);
+    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish");
+  } else if (adx > 25 && minusDI > plusDI && rsi3 > 32 && macdHist2 < 0) {
+    direction = "SELL";
+    score = 60 + Math.min(20, adx - 25);
+    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish");
+  }
+  if (!direction) {
+    return { decision: "watching", reasoning: `${symbol}: no clear trend confluence (ADX ${adx.toFixed(1)}, RSI ${rsi3.toFixed(1)}).`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: ${direction} confluence found, but direction filter is "${cfg.directionFilter}".`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: ${direction} confluence (${confluences.join(", ")}) but score ${Math.round(score)}/100 below ${cfg.minConfidence} threshold.`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
+  }
+  return {
+    decision: "signal",
+    score: Math.round(score),
+    price,
+    dailyChangePercent,
+    strategy: "trend_following",
+    direction,
+    reasoning: `${symbol}: ${direction} trend confluence \u2014 ${confluences.join(", ")}. Score ${Math.round(score)}/100.`
+  };
+}
+async function runMomentum(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "15m", 30);
+  if (bars.length < 10) {
+    return { decision: "error", reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
+  }
+  const price = bars[bars.length - 1].c;
+  const dailyChangePercent = (price - bars[0].c) / bars[0].c * 100;
+  const direction = dailyChangePercent >= 0 ? "BUY" : "SELL";
+  const score = Math.round(Math.min(100, 50 + Math.min(Math.abs(dailyChangePercent) / 3, 1) * 50));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) {
+    return { decision: "skipped", reasoning: `${symbol}: moved ${direction === "BUY" ? "up" : "down"} ${Math.abs(dailyChangePercent).toFixed(2)}%, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "momentum" };
+  }
+  if (score < cfg.minConfidence) {
+    return { decision: "watching", reasoning: `${symbol}: momentum score ${score}/100 below ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent, strategy: "momentum" };
+  }
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
+}
+async function runOrderFlow(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "5m", 60);
+  if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const win = c.slice(-30);
+  let pv = 0, vv = 0;
+  for (const b of win) {
+    const tp = (b.h + b.l + b.c) / 3;
+    pv += tp * (b.v ?? 0);
+    vv += b.v ?? 0;
+  }
+  const vwap = vv > 0 ? pv / vv : price;
+  const delta = win.map((b) => (b.c >= b.o ? 1 : -1) * (b.v ?? 0));
+  const mid = Math.floor(delta.length / 2);
+  const cvdFirst = delta.slice(0, mid).reduce((s, d) => s + d, 0);
+  const cvdSecond = delta.slice(mid).reduce((s, d) => s + d, 0);
+  const cvdShiftPct = vv > 0 ? (cvdSecond - cvdFirst) / vv * 100 : 0;
+  const rangePct = (Math.max(...win.map((b) => b.h)) - Math.min(...win.map((b) => b.l))) / price * 100;
+  const last = win[win.length - 1];
+  let direction = null;
+  if (rangePct >= 0.8 && price > vwap && cvdShiftPct > 0 && last.c >= last.o) direction = "BUY";
+  else if (rangePct >= 0.8 && price < vwap && cvdShiftPct < 0 && last.c <= last.o) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: order flow balanced (range ${rangePct.toFixed(2)}%, CVD shift ${cvdShiftPct.toFixed(1)}%, price ${price > vwap ? "above" : "below"} VWAP).`, score: 45, price, dailyChangePercent, strategy: "order_flow" };
+  const score = Math.round(Math.min(92, 60 + Math.min(20, Math.abs(cvdShiftPct)) + Math.min(12, rangePct)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} order-flow read, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "order_flow" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} order flow (CVD ${cvdShiftPct.toFixed(1)}%) but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "order_flow" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "order_flow", direction, reasoning: `${symbol}: ${direction} order flow \u2014 CVD shift ${cvdShiftPct.toFixed(1)}%, price ${direction === "BUY" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, ${rangePct.toFixed(2)}% range. Score ${score}/100.` };
+}
+async function runVolumeProfile(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "15m", 96);
+  if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const hi = Math.max(...c.map((b) => b.h)), lo = Math.min(...c.map((b) => b.l));
+  const bins = 24, binSize = (hi - lo) / bins || 1;
+  const vol = new Array(bins).fill(0);
+  for (const b of c) {
+    const tp = (b.h + b.l + b.c) / 3;
+    let i = Math.floor((tp - lo) / binSize);
+    i = Math.max(0, Math.min(bins - 1, i));
+    vol[i] += b.v ?? 0;
+  }
+  const total = vol.reduce((a, b) => a + b, 0) || 1;
+  let poc = 0;
+  for (let i = 1; i < bins; i++) if (vol[i] > vol[poc]) poc = i;
+  let inc = vol[poc], loI = poc, hiI = poc;
+  while (inc < total * 0.7 && (loI > 0 || hiI < bins - 1)) {
+    const d = loI > 0 ? vol[loI - 1] : -1;
+    const u = hiI < bins - 1 ? vol[hiI + 1] : -1;
+    if (u >= d) {
+      hiI++;
+      inc += vol[hiI];
+    } else {
+      loI--;
+      inc += vol[loI];
+    }
+  }
+  const VAL = lo + loI * binSize, VAH = lo + (hiI + 1) * binSize;
+  const avgVol = total / c.length, recentVol = c.slice(-3).reduce((s, b) => s + (b.v ?? 0), 0) / 3;
+  const volConfirm = recentVol > avgVol;
+  let direction = null;
+  if (price > VAH && volConfirm) direction = "BUY";
+  else if (price < VAL && volConfirm) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside/at value area $${VAL.toFixed(2)}\u2013$${VAH.toFixed(2)} or volume not confirming \u2014 no VP edge.`, score: 46, price, dailyChangePercent, strategy: "volume_profile" };
+  const dist = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
+  const score = Math.round(Math.max(55, Math.min(90, 60 + dist * 8)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} VP breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "volume_profile" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} VP breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "volume_profile" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "volume_profile", direction, reasoning: `${symbol}: ${direction} value-area ${direction === "BUY" ? "breakout above " + VAH.toFixed(2) : "breakdown below " + VAL.toFixed(2)} (POC ~$${(lo + (poc + 0.5) * binSize).toFixed(2)}), volume confirming. Score ${score}/100.` };
+}
+async function runBreakout(symbol, cfg) {
+  const bars = await CryptoComService.getCandles(symbol, "1h", 60);
+  if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
+  const c = convertToCandles3(bars);
+  const price = c[c.length - 1].c;
+  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
+  const lookback = 20;
+  const prior = c.slice(-(lookback + 1), -1);
+  const priorHigh = Math.max(...prior.map((b) => b.h)), priorLow = Math.min(...prior.map((b) => b.l));
+  const avgVol = prior.reduce((s, b) => s + (b.v ?? 0), 0) / prior.length;
+  const last = c[c.length - 1];
+  let direction = null;
+  if (last.c > priorHigh) direction = "BUY";
+  else if (last.c < priorLow) direction = "SELL";
+  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside its ${lookback}h range $${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)} \u2014 no breakout.`, score: 45, price, dailyChangePercent, strategy: "breakout" };
+  const volConfirm = (last.v ?? 0) > avgVol;
+  if (!volConfirm) return { decision: "watching", reasoning: `${symbol}: ${direction} breakout of ${lookback}h range but volume not confirming (${Math.round(last.v ?? 0)} vs avg ${Math.round(avgVol)}).`, score: 52, price, dailyChangePercent, strategy: "breakout" };
+  const score = Math.round(Math.min(90, 65 + Math.min(20, Math.abs(last.c - (direction === "BUY" ? priorHigh : priorLow)) / price * 2e3)));
+  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "breakout" };
+  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
+  return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
+}
+async function scanSymbol(symbol, cfg) {
+  if (cfg.strategyMode === "auto") {
+    const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS[k](symbol, cfg).catch(() => null)));
+    const valid = results.filter((r) => !!r);
+    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (signals.length > 0) return signals[0];
+    if (cfg.enableCompositeAutonomous) {
+      const dir = valid.filter((r) => r.direction);
+      const buys = dir.filter((r) => r.direction === "BUY"), sells = dir.filter((r) => r.direction === "SELL");
+      const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
+      if (side.length >= 2) {
+        const composite = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
+        const floor = cfg.compositeMinEdgeScore ?? 72;
+        if (composite >= floor) {
+          const direction = side[0].direction;
+          const allowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
+          if (allowed) return { decision: "signal", score: composite, price: side[0].price, dailyChangePercent: side[0].dailyChangePercent, strategy: "composite_autonomous", direction, reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${side.length} strategies agree ${direction}, blended ${composite}/100 (floor ${floor}).` };
+        }
+      }
+    }
+    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    if (watching.length > 0) return watching[0];
+    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
+  }
+  const runner = STRATEGY_RUNNERS[cfg.strategyMode] || runTrendFollowing;
+  return runner(symbol, cfg);
+}
+async function computeCryptocomQuantity(userId, cfg, accountBalance, price, symbol) {
+  if (!price || price <= 0 || accountBalance <= 0) return { quantity: 0, reasoning: "" };
+  const riskAmount = accountBalance * (cfg.riskPerTrade / 100) * cfg.leverage;
+  let baseQty = Math.max(0, Math.round(riskAmount / price * 1e3) / 1e3);
+  let brainNote = "";
+  if (cfg.cryptoBrainEnabled !== false && symbol) {
+    const bm = cryptoBrainSizeMultiplier(userId, symbol);
+    if (bm !== 1) {
+      baseQty = Math.round(baseQty * bm * 1e3) / 1e3;
+      brainNote = ` \u{1F9E0} Brain ${bm}\xD7 (${symbol}).`;
+    }
+  }
+  if (cfg.brainLearningMode) {
+    const stats = await storage.getCryptocomEngineTradeStats(userId);
+    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
+    if (brainLocked) {
+      return { quantity: baseQty > 0 ? Math.min(baseQty, Math.max(1e-3, baseQty * 0.25)) : 0, reasoning: `\u{1F9E0} Learning Mode: sized conservatively (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
+    }
+    if (cfg.useKellyCriterion) {
+      const fractionalKelly = stats.winRate / 100 * 0.25;
+      return { quantity: baseQty * (1 + fractionalKelly), reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.${brainNote}` };
+    }
+    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.${brainNote}` };
+  }
+  if (cfg.useKellyCriterion) {
+    const stats = await storage.getCryptocomEngineTradeStats(userId);
+    const fractionalKelly = stats.winRate / 100 * 0.25;
+    return { quantity: baseQty * (1 + fractionalKelly), reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).${brainNote}` };
+  }
+  return { quantity: baseQty, reasoning: brainNote.trim() };
+}
+function computeTrailFloorR(cfg, peakR) {
+  switch (cfg.trailMethod) {
+    case "fixed_r":
+      return peakR - cfg.trailFixedR;
+    case "stepped_fixed": {
+      const steps = Math.floor(peakR / cfg.trailStepR);
+      return (steps - 1) * cfg.trailStepR;
+    }
+    case "profit_lock":
+      return peakR * (cfg.trailProfitLockPct / 100);
+    case "chandelier":
+      return peakR - cfg.trailFixedR * 1.5;
+    case "parabolic_sar": {
+      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR * cfg.trailSarInitialAF);
+      return peakR * (1 - af);
+    }
+    case "r_multiple":
+      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
+    case "swing_structure":
+      return peakR - cfg.trailFixedR * 0.75;
+    default:
+      return -Infinity;
+  }
+}
+async function monitorOpenPositions(userId, cfg) {
+  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
+  if (openTrades.length === 0) return;
+  for (const trade of openTrades) {
+    try {
+      if (trade.venue && trade.venue !== "cryptocom") {
+        const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+        const q = await getAggregatedQuote2(baseCoin(trade.symbol)).catch(() => null);
+        const px = q?.best?.price ?? 0;
+        if (!px) continue;
+        if (trade.takeProfit && px >= trade.takeProfit) {
+          await closePosition(userId, trade, px, "take_profit");
+          continue;
+        }
+        if (trade.stopLoss && px <= trade.stopLoss) {
+          await closePosition(userId, trade, px, "stop_loss");
+          continue;
+        }
+        continue;
+      }
+      if (cfg.trailMethod === "none") continue;
+      const currentPrice = await CryptoComService.getTicker(trade.symbol);
+      if (!currentPrice || !trade.stopLoss) continue;
+      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
+      if (riskDistance <= 0) continue;
+      const isLong = trade.direction === "long";
+      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
+      const peakR = Math.max(trade.peakRMultiple, currentR);
+      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
+      if (currentR <= -1) {
+        await closePosition(userId, trade, currentPrice, "stop_loss");
+        continue;
+      }
+      if (armed) {
+        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
+        if (currentR <= floor) {
+          await closePosition(userId, trade, currentPrice, "trailing_stop");
+          continue;
+        }
+      }
+      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
+        await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
+      }
+    } catch (err) {
+      console.error(`[cryptocom-scanner] monitor failed for trade ${trade.id}:`, err.message);
+    }
+  }
+}
+async function closePosition(userId, trade, currentPrice, reason) {
+  try {
+    const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
+    if (venue === "defi") {
+      const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
+      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+    } else if (venue) {
+      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
+      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+    } else {
+      const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
+      if (connection2) {
+        const service = new CryptoComService(connection2.apiKey, decryptApiSecret2(connection2.encryptedApiSecret));
+        const closeSide = trade.direction === "long" ? "SELL" : "BUY";
+        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: "MARKET" }).catch(() => {
+        });
+      }
+    }
+    const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
+    await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
+    await storage.createCryptocomEngineActivity({
+      userId,
+      symbol: trade.symbol,
+      decision: "signal",
+      strategy: trade.strategy,
+      reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
+      score: null,
+      price: currentPrice,
+      dailyChangePercent: null,
+      source: "cryptocom"
+    });
+    try {
+      await recordRealizedPnl(userId, trade.connectionId, "cryptocom", realizedPnl);
+    } catch {
+    }
+    try {
+      const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
+      const returnPct = notional > 0 ? realizedPnl / notional * 100 : 0;
+      const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
+      await recordCryptoBrainOutcome({
+        userId,
+        symbol: trade.symbol,
+        strategy: trade.strategy || "unknown",
+        direction: trade.direction,
+        entryConfidence: trade.entryConfidence ?? null,
+        returnPct,
+        holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
+        exitReason: reason,
+        profitLoss: realizedPnl
+      });
+    } catch {
+    }
+  } catch (err) {
+    console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
+  }
+}
+async function manualCloseCryptoTrade(userId, tradeId) {
+  try {
+    const open = await storage.getOpenCryptocomEngineTrades(userId);
+    const trade = open.find((t) => t.id === tradeId);
+    if (!trade) return { ok: false, error: "Trade not found or already closed" };
+    let px = 0;
+    try {
+      const bars = await CryptoComService.getCandles(trade.symbol, "5m", 2);
+      px = bars?.[bars.length - 1]?.c ?? 0;
+    } catch {
+    }
+    if (!(px > 0)) return { ok: false, error: "Could not fetch current price to close" };
+    await closePosition(userId, trade, px, "manual");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || "close failed" };
+  }
+}
+async function checkSafetyGates(userId, cfg, equity) {
+  if (cfg.maxDailyTrades > 0) {
+    const count = await storage.getTodayCryptocomEngineTradeCount(userId);
+    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
+  }
+  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
+  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
+  let riskMultiplier = 1;
+  if (equity > 0) {
+    const todayPnl = await storage.getTodayCryptocomEngineRealizedPnl(userId);
+    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
+      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
+    }
+    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
+      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
+    }
+    const peak = Math.max(sessionPeakEquity.get(userId) ?? equity, equity);
+    sessionPeakEquity.set(userId, peak);
+    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
+    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
+    if (cfg.ruinGuardEnabled) {
+      const base = cfg.accountBalance > 0 ? cfg.accountBalance : equity;
+      const dailyLimitPct = cfg.dailyLossLimitPct ?? 5;
+      const maxDdPct = cfg.maxDrawdownLimitPct ?? 10;
+      if (dailyLimitPct > 0 && todayPnl <= -(base * dailyLimitPct / 100)) {
+        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: daily P&L hit the \u2212${dailyLimitPct}% limit \u2014 halted until next UTC day`, riskMultiplier: 1 };
+      }
+      if (maxDdPct > 0 && ddFromPeakPct >= maxDdPct) {
+        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: drawdown ${ddFromPeakPct.toFixed(1)}% from peak hit the ${maxDdPct}% max-DD limit \u2014 halted until equity recovers`, riskMultiplier: 1 };
+      }
+    }
+    if (cfg.consistencyEnforcementEnabled) {
+      const history = await storage.getCryptocomEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
+      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      history[today] = todayPnl;
+      if (cfg.maxDailyProfitPctOfTotal > 0) {
+        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const todayProfit = Math.max(0, todayPnl);
+        if (totalProfitAllTime > 0 && todayProfit > 0) {
+          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
+          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
+            return { allowed: false, reason: `consistency rule \u2014 today's profit already ${todayPctOfTotal.toFixed(0)}% of total`, riskMultiplier: 1 };
+          }
+        }
+      }
+    }
+  }
+  return { allowed: true, riskMultiplier };
+}
+function quantVerdictFromScore(score) {
+  if (score === null) return "SKIP";
+  if (score >= 65) return "CONFIRM";
+  if (score >= 40) return "WATCH";
+  return "SKIP";
+}
+async function getCryptocomAiConfirmationLite(userId, symbol, result) {
+  try {
+    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const client2 = await getUniversalAIClientForUser2(userId);
+    const system = 'You are a disciplined crypto perpetual futures second opinion. Given a rules-based signal, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string}.';
+    const user = `Symbol: ${symbol}
+Strategy: ${result.strategy}
+Direction: ${result.direction}
+Quant score: ${result.score}/100
+Price: ${result.price}
+Daily change %: ${result.dailyChangePercent}
+Reasoning: ${result.reasoning}`;
+    const r = await client2.chat.completions.create({
+      model: client2.defaultModel || "gpt-4o-mini",
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+      temperature: 0.3
+    });
+    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
+    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || "") };
+  } catch (err) {
+    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
+  }
+}
+async function getCryptocomAiConfirmation(userId, symbol, result) {
+  try {
+    const bars = await CryptoComService.getCandles(symbol, "5m", 100);
+    if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
+    const candles = convertToCandles3(bars);
+    const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
+    const { getAiVisionConfirmation: getAiVisionConfirmation2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
+    const proposedSignal = result.direction === "BUY" ? "BUY" : result.direction === "SELL" ? "SELL" : "NEUTRAL";
+    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
+    const conf = await getAiVisionConfirmation2(
+      candles,
+      indicators,
+      proposedSignal,
+      Math.max(0, Math.min(100, result.score ?? 0)),
+      tradePlan,
+      symbol,
+      "M5",
+      userId,
+      void 0,
+      null,
+      null,
+      void 0,
+      null,
+      void 0,
+      void 0,
+      `crypto-${result.strategy}`,
+      false
+    );
+    if (!conf || conf.aiConfidence === void 0 && conf.confirmed === void 0) {
+      return getCryptocomAiConfirmationLite(userId, symbol, result);
+    }
+    const dirOk = !conf.aiDirection || conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
+    return {
+      confirmed: !!conf.confirmed && dirOk,
+      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
+      reasoning: `[SS AI${conf.modelUsed ? ` \xB7 ${conf.modelUsed}` : ""}] ${String(conf.reasoning || "no reasoning returned")}${dirOk ? "" : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} \u2014 skipped)`}`
+    };
+  } catch (err) {
+    return getCryptocomAiConfirmationLite(userId, symbol, result);
+  }
+}
+function pushConsensus(userId, entry) {
+  global.cryptocomEngineConsensus = global.cryptocomEngineConsensus || {};
+  const list = global.cryptocomEngineConsensus[userId] || [];
+  const deduped = list.filter((e) => e.symbol !== entry.symbol);
+  global.cryptocomEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
+  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
+    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "cryptocom", entry)
+  ).catch(() => {
+  });
+}
+async function assembleConsensus(userId, symbol, result, cfg) {
+  const quantVerdict = quantVerdictFromScore(result.score);
+  if (cfg.aiMode === "rule_based") {
+    const tradeAllowed2 = quantVerdict !== "SKIP";
+    pushConsensus(userId, {
+      symbol,
+      strategy: result.strategy,
+      quantVerdict,
+      quantScore: result.score ?? 0,
+      aiVerdict: "CONFIRM",
+      aiConfidence: 0,
+      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
+      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
+      tradeAllowed: tradeAllowed2,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return tradeAllowed2;
+  }
+  const ai = await getCryptocomAiConfirmation(userId, symbol, result);
+  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
+  let consensus;
+  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
+  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
+  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
+  else consensus = "WATCH";
+  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
+  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+  return tradeAllowed;
+}
+async function executeSignal(service, connection2, userId, symbol, result, cfg) {
+  if (!result.direction || !result.price) return;
+  if (!cfg.multiVenueEnabled) {
+    return executeSignalSingle(service, connection2, userId, symbol, result, cfg);
+  }
+  const arms = [];
+  if (connection2) arms.push({ venue: "cryptocom", label: "perps" });
+  if (cfg.defiAutoTradeEnabled) arms.push({ venue: "defi", label: "DeFi" });
+  if (cfg.cefiAutoTradeEnabled) {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      for (const [tbl, v] of [["coinbase_connections", "coinbase"], ["kraken_connections", "kraken"], ["gemini_connections", "gemini"]]) {
+        const r = await pool2.query(`SELECT 1 FROM ${tbl} WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => null);
+        if (r && r.rows.length) arms.push({ venue: v, label: v });
+      }
+    } catch {
+    }
+  }
+  for (const arm of arms) {
+    const armCfg = {
+      ...cfg,
+      executionVenue: arm.venue,
+      defiAutoTradeEnabled: arm.venue === "defi",
+      cefiAutoTradeEnabled: arm.venue !== "defi" && arm.venue !== "cryptocom"
+    };
+    await executeSignalSingle(service, connection2, userId, symbol, result, armCfg).catch((e) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
+  }
+}
+async function executeSignalSingle(service, connection2, userId, symbol, result, cfg) {
+  if (!result.direction || !result.price) return;
+  const venue = cfg.executionVenue;
+  if (venue === "defi" && cfg.defiAutoTradeEnabled) {
+    if (result.direction !== "BUY") {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only \u2014 SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const gateD = await checkSafetyGates(userId, cfg, cfg.accountBalance);
+    if (!gateD.allowed) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gateD.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const chain = cfg.defiChain || "base";
+    const slip = cfg.defiSlippageBps ?? 100;
+    const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
+    try {
+      const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
+      const r = await defiEntryBuy2(userId, chain, symbol, notionalD, slip);
+      if (!r.ok) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        return;
+      }
+      const tp = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
+      const sl = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
+      await storage.createCryptocomEngineTrade({
+        userId,
+        connectionId: connection2?.id ?? 0,
+        venue: "defi",
+        symbol,
+        strategy: result.strategy,
+        direction: "long",
+        quantity: r.qtyBase,
+        entryPrice: r.entryPrice,
+        stopLoss: sl,
+        takeProfit: tp,
+        entryOrderId: r.txHash ?? "",
+        entryReasoning: result.reasoning,
+        status: "open"
+      });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    } catch (err) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    }
+    return;
+  }
+  if (venue && venue !== "cryptocom" && venue !== "defi" && cfg.cefiAutoTradeEnabled) {
+    if (result.direction !== "BUY") {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: ${venue} is spot (long-only) \u2014 SELL/short signals aren't traded on this venue.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const gateC = await checkSafetyGates(userId, cfg, cfg.accountBalance);
+    if (!gateC.allowed) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gateC.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+      return;
+    }
+    const base = baseCoin(symbol);
+    const notional = Math.max(1, cfg.cefiNotionalUsd ?? 25) * (gateC.riskMultiplier < 1 ? gateC.riskMultiplier : 1);
+    try {
+      const r = await cefiEntryBuy(userId, venue, base, notional);
+      if (!r.ok) {
+        await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: ${venue} spot entry failed \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        return;
+      }
+      await storage.createCryptocomEngineTrade({
+        userId,
+        connectionId: connection2?.id ?? 0,
+        venue,
+        symbol: r.venueSymbol,
+        strategy: result.strategy,
+        direction: "long",
+        quantity: r.qtyBase,
+        entryPrice: r.entryPrice,
+        stopLoss: r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100),
+        takeProfit: r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100),
+        entryOrderId: r.orderId,
+        entryReasoning: result.reasoning,
+        status: "open"
+      });
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on ${venue.toUpperCase()} \u2014 spot BUY ${r.qtyBase} ${base} (~$${notional.toFixed(0)}) @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    } catch (err) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: ${venue} spot order error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    }
+    return;
+  }
+  let account;
+  try {
+    account = await service.getAccountInfo();
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: couldn't fetch account info: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
+  const gate = await checkSafetyGates(userId, cfg, gateEquity);
+  if (!gate.allowed) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
+  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price, symbol);
+  if (quantity <= 0) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  const atrDistance = Math.max(result.price * 0.01, result.price * 5e-3);
+  const stopLoss = result.direction === "BUY" ? result.price - atrDistance : result.price + atrDistance;
+  const takeProfit = result.direction === "BUY" ? result.price + atrDistance * 2 : result.price - atrDistance * 2;
+  let order;
+  try {
+    order = await service.placeOrder({ instrumentName: symbol, side: result.direction, quantity, type: "MARKET" });
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: order failed: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+    return;
+  }
+  await storage.createCryptocomEngineTrade({
+    userId,
+    connectionId: connection2.id,
+    symbol,
+    strategy: result.strategy,
+    direction: result.direction === "BUY" ? "long" : "short",
+    quantity,
+    entryPrice: result.price,
+    stopLoss,
+    takeProfit,
+    entryOrderId: order.orderId,
+    entryReasoning: result.reasoning,
+    status: "open"
+  });
+  await storage.createCryptocomEngineActivity({
+    userId,
+    symbol,
+    decision: "signal",
+    strategy: result.strategy,
+    reasoning: `${symbol}: EXECUTED \u2014 ${result.direction === "BUY" ? "long" : "short"} ${quantity} @ ~$${result.price.toFixed(2)}. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
+    score: result.score,
+    price: result.price,
+    dailyChangePercent: result.dailyChangePercent,
+    source: "cryptocom"
+  });
+}
+async function scanOneUser(userId) {
+  const config = await storage.getUserCryptocomEngineConfig(userId);
+  if (!config || !config.isActive) return;
+  const now = Date.now();
+  const last = lastScanAt.get(userId) || 0;
+  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
+  lastScanAt.set(userId, now);
+  const connections = await storage.getUserCryptocomConnections(userId);
+  const activeConn = connections.find((c) => c.isActive);
+  if (!activeConn) {
+    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "No active Crypto.com connection.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+    return;
+  }
+  let service;
+  try {
+    service = new CryptoComService(activeConn.apiKey, decryptApiSecret2(activeConn.encryptedApiSecret));
+  } catch (err) {
+    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
+    return;
+  }
+  await monitorOpenPositions(userId, config).catch((e) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
+  if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
+  });
+  const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
+  const allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+  let symbols = allSymbols;
+  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
+    const start = (scanCursor.get(userId) || 0) % allSymbols.length;
+    symbols = [];
+    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
+    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
+  }
+  for (const symbol of symbols) {
+    try {
+      const result = await scanSymbol(symbol, config);
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: result.decision, reasoning: result.reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom", strategy: result.strategy });
+      if (result.decision === "signal" && canAutoExecute) {
+        if (config.cryptoBrainEnabled !== false && config.cryptoBrainGating) {
+          const g = cryptoBrainGate(userId, symbol, result.strategy, (/* @__PURE__ */ new Date()).getUTCHours());
+          if (g.blocked) {
+            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: g.reason, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+            continue;
+          }
+        }
+        const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
+        if (tradeAllowed) {
+          await executeSignal(service, activeConn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
+        } else {
+          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
+        }
+      }
+    } catch (err) {
+      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: config.strategyMode });
+    }
+  }
+}
+async function runCryptocomEngineScan() {
+  try {
+    const configs = await storage.getAllActiveCryptocomEngineConfigs();
+    for (const config of configs) {
+      await scanOneUser(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
+    }
+  } catch (err) {
+    console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
+  }
+}
+function startCryptocomEngineScanner() {
+  if (started2) return;
+  started2 = true;
+  const LOOP_INTERVAL_MS = 6e4;
+  setInterval(() => {
+    runCryptocomEngineScan().catch(() => {
+    });
+  }, LOOP_INTERVAL_MS);
+  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
+}
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2;
+var init_cryptocom_scanner = __esm({
+  "server/services/cryptocom-scanner.ts"() {
+    "use strict";
+    init_storage();
+    init_cryptocom();
+    init_indicators();
+    init_crypto_brain();
+    init_prop_firm_consistency();
+    init_cefi_executor();
+    MIN_SCAN_INTERVAL_MS = 3e4;
+    lastScanAt = /* @__PURE__ */ new Map();
+    MAX_SYMBOLS_PER_CYCLE = 12;
+    scanCursor = /* @__PURE__ */ new Map();
+    STRATEGY_RUNNERS = {
+      trend_following: runTrendFollowing,
+      momentum: runMomentum,
+      order_flow: runOrderFlow,
+      volume_profile: runVolumeProfile,
+      breakout: runBreakout
+    };
+    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
+    sessionPeakEquity = /* @__PURE__ */ new Map();
+    started2 = false;
+  }
+});
+
 // server/services/all-time-performance.ts
 var all_time_performance_exports = {};
 __export(all_time_performance_exports, {
@@ -35065,7 +36761,7 @@ var init_kalshi = __esm({
 var polymarket_autonomous_engine_exports = {};
 __export(polymarket_autonomous_engine_exports, {
   closeAllPositions: () => closeAllPositions,
-  closePosition: () => closePosition,
+  closePosition: () => closePosition2,
   getEngineState: () => getEngineState,
   manualScan: () => manualScan,
   restoreEngineStateFromDb: () => restoreEngineStateFromDb,
@@ -35388,14 +37084,14 @@ async function _refreshPositionPrices(s, userId) {
       pos.unrealizedPnl = pos.currentValue - pos.stake;
       pos.unrealizedPnlPct = pos.unrealizedPnl / pos.stake * 100;
       if (market.closed) {
-        await closePosition(s, pos.id, currentProb, userId, true);
+        await closePosition2(s, pos.id, currentProb, userId, true);
       }
     }
     s.totalUnrealizedPnl = s.openPositions.reduce((acc, p) => acc + p.unrealizedPnl, 0);
   } catch {
   }
 }
-async function closePosition(s, positionId, exitProb, userId, viaMarketResolution = false) {
+async function closePosition2(s, positionId, exitProb, userId, viaMarketResolution = false) {
   const idx = s.openPositions.findIndex((p) => p.id === positionId);
   if (idx === -1) return false;
   const pos = s.openPositions[idx];
@@ -35460,7 +37156,7 @@ async function closeAllPositions(userId) {
   const ids = s.openPositions.map((p) => p.id);
   let closed = 0;
   for (const id of ids) {
-    if (await closePosition(s, id, void 0, userId)) closed++;
+    if (await closePosition2(s, id, void 0, userId)) closed++;
   }
   return closed;
 }
@@ -35836,7 +37532,7 @@ __export(kalshi_trading_exports, {
 });
 import * as fs9 from "fs";
 import * as path9 from "path";
-import * as crypto8 from "crypto";
+import * as crypto11 from "crypto";
 function loadAllCreds() {
   try {
     if (fs9.existsSync(CREDS_FILE)) return JSON.parse(fs9.readFileSync(CREDS_FILE, "utf-8"));
@@ -35879,7 +37575,7 @@ ${wrapped}
   }
   pem = pem.trim();
   try {
-    crypto8.createPrivateKey(pem);
+    crypto11.createPrivateKey(pem);
   } catch {
     throw new Error('Private key is not a valid RSA PEM. Paste the full contents of the key file Kalshi gave you, including the "-----BEGIN ... PRIVATE KEY-----" and "-----END ... PRIVATE KEY-----" lines.');
   }
@@ -35928,14 +37624,14 @@ async function getOrRefreshToken(userId, creds) {
 function signKalshiRequest(privateKeyPem, timestampMs, method, endpoint) {
   const pathOnly = endpoint.split("?")[0];
   const message = String(timestampMs) + method.toUpperCase() + KALSHI_PATH_PREFIX + pathOnly;
-  const sign3 = crypto8.createSign("sha256");
+  const sign3 = crypto11.createSign("sha256");
   sign3.update(message);
   sign3.end();
   return sign3.sign(
     {
       key: privateKeyPem,
-      padding: crypto8.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto8.constants.RSA_PSS_SALTLEN_DIGEST
+      padding: crypto11.constants.RSA_PKCS1_PSS_PADDING,
+      saltLength: crypto11.constants.RSA_PSS_SALTLEN_DIGEST
     },
     "base64"
   );
@@ -36304,24 +38000,24 @@ async function learnFromKalshiTrades(userId) {
     coinKnowledge: coins,
     insights
   };
-  _cache.set(userId, { brain, at: Date.now() });
+  _cache3.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshKalshiBrain(userId, force = false) {
-  const hit = _cache.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
+  const hit = _cache3.get(userId);
+  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
   return learnFromKalshiTrades(userId);
 }
 function cachedKalshiBrain(userId) {
-  return _cache.get(userId)?.brain ?? null;
+  return _cache3.get(userId)?.brain ?? null;
 }
 function kalshiBrainSizeMultiplier(userId, coin) {
-  const b = _cache.get(userId)?.brain;
+  const b = _cache3.get(userId)?.brain;
   const k = b?.coinKnowledge[coin];
   return k ? k.recommendedSizeMultiplier : 1;
 }
 function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
-  const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
+  const k = _cache3.get(userId)?.brain?.coinKnowledge[coin];
   if (!k) return { blocked: false, reason: "" };
   const decided = k.wins + k.losses;
   if (decided >= 15 && k.winRate < 35) {
@@ -36348,7 +38044,7 @@ function kalshiBrainGate(userId, coin, strikeType, hourUtc, confidence2) {
   return { blocked: false, reason: "" };
 }
 function kalshiBrainValueWeight(userId, coin, strikeType) {
-  const k = _cache.get(userId)?.brain?.coinKnowledge[coin];
+  const k = _cache3.get(userId)?.brain?.coinKnowledge[coin];
   if (!k) return 1;
   let w = k.valueScoreWeight;
   if (strikeType) {
@@ -36357,15 +38053,15 @@ function kalshiBrainValueWeight(userId, coin, strikeType) {
   }
   return Math.max(0.6, Math.min(1.4, Math.round(w * 100) / 100));
 }
-var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS, _cache;
+var MIN_TRADES_FOR_COIN, REFRESH_TTL_MS2, _cache3;
 var init_kalshi_brain = __esm({
   "server/services/kalshi-brain.ts"() {
     "use strict";
     init_db();
     init_schema();
     MIN_TRADES_FOR_COIN = 10;
-    REFRESH_TTL_MS = 60 * 1e3;
-    _cache = /* @__PURE__ */ new Map();
+    REFRESH_TTL_MS2 = 60 * 1e3;
+    _cache3 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -37595,7 +39291,7 @@ __export(polymarket_us_exports, {
 });
 import * as fs11 from "fs";
 import * as path11 from "path";
-import * as crypto9 from "crypto";
+import * as crypto12 from "crypto";
 function loadAll3() {
   try {
     if (fs11.existsSync(FILE3)) return JSON.parse(fs11.readFileSync(FILE3, "utf-8"));
@@ -37640,13 +39336,13 @@ function ed25519KeyFromSecret(secretKeyB64) {
   const raw = Buffer.from(secretKeyB64, "base64");
   const seed = raw.subarray(0, 32);
   const der = Buffer.concat([PKCS8_ED25519_PREFIX, seed]);
-  return crypto9.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  return crypto12.createPrivateKey({ key: der, format: "der", type: "pkcs8" });
 }
 function signHeaders(keyId, secret, method, reqPath) {
   const timestamp2 = Date.now().toString();
   const message = `${timestamp2}${method.toUpperCase()}${reqPath}`;
   const key = ed25519KeyFromSecret(secret);
-  const signature = crypto9.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
+  const signature = crypto12.sign(null, Buffer.from(message, "utf-8"), key).toString("base64");
   return {
     "X-PM-Access-Key": keyId,
     "X-PM-Timestamp": timestamp2,
@@ -38119,227 +39815,6 @@ var init_polymarket_us_engine = __esm({
   }
 });
 
-// server/services/crypto-market-data.ts
-var crypto_market_data_exports = {};
-__export(crypto_market_data_exports, {
-  getAggregatedQuote: () => getAggregatedQuote,
-  getAggregatedQuotes: () => getAggregatedQuotes
-});
-function krakenPair(sym) {
-  const s = sym.toUpperCase();
-  return (s === "BTC" ? "XBT" : s) + "USD";
-}
-async function coinbaseSpot(sym) {
-  try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p = parseFloat(d?.data?.amount);
-    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
-  } catch (e) {
-    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
-  }
-}
-async function krakenTicker(sym) {
-  try {
-    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const first = Object.values(d?.result || {})[0];
-    const p = parseFloat(first?.c?.[0]);
-    const v = parseFloat(first?.v?.[1]);
-    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
-  } catch (e) {
-    return { venue: "kraken", symbol: sym, price: null, error: e.message };
-  }
-}
-async function geminiTicker(sym) {
-  try {
-    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p = parseFloat(d?.last);
-    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
-    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "gemini", symbol: sym, price: null, error: e.message };
-  }
-}
-async function cryptocomTicker(sym) {
-  try {
-    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const t = d?.result?.data;
-    const row = Array.isArray(t) ? t[0] : t;
-    const p = parseFloat(row?.a ?? row?.k);
-    const v = parseFloat(row?.v);
-    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
-  }
-}
-async function getAggregatedQuote(symbol) {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache2.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
-  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
-  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
-  let best = null;
-  let spreadPct = null;
-  if (priced.length) {
-    const lo = priced.reduce((a, b) => b.price < a.price ? b : a);
-    const hi = priced.reduce((a, b) => b.price > a.price ? b : a);
-    best = { venue: lo.venue, price: lo.price };
-    spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
-  }
-  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache2.set(sym, { q, ts: Date.now() });
-  return q;
-}
-async function getAggregatedQuotes(symbols) {
-  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
-  return Promise.all(uniq.map(getAggregatedQuote));
-}
-var TTL_MS, _cache2;
-var init_crypto_market_data = __esm({
-  "server/services/crypto-market-data.ts"() {
-    "use strict";
-    TTL_MS = 15e3;
-    _cache2 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/coinbase.ts
-var coinbase_exports = {};
-__export(coinbase_exports, {
-  CoinbaseService: () => CoinbaseService,
-  decryptApiSecret: () => decryptApiSecret2,
-  encryptApiSecret: () => encryptApiSecret2
-});
-import crypto10 from "crypto";
-import jwt from "jsonwebtoken";
-function buildJwt(keyName, privateKeyPem, method, path17) {
-  const uri = `${method} ${API_HOST}${path17}`;
-  const now = Math.floor(Date.now() / 1e3);
-  const payload2 = { sub: keyName, iss: "cdp", nbf: now, exp: now + 120, uri };
-  return jwt.sign(payload2, privateKeyPem, {
-    algorithm: "ES256",
-    header: { kid: keyName, nonce: crypto10.randomBytes(16).toString("hex"), typ: "JWT", alg: "ES256" }
-  });
-}
-var API_HOST, CoinbaseService;
-var init_coinbase = __esm({
-  "server/coinbase.ts"() {
-    "use strict";
-    init_cryptocom();
-    API_HOST = "api.coinbase.com";
-    CoinbaseService = class {
-      keyName;
-      privateKey;
-      constructor(keyName, privateKeyPem) {
-        this.keyName = keyName;
-        this.privateKey = privateKeyPem.includes("\\n") ? privateKeyPem.replace(/\\n/g, "\n") : privateKeyPem;
-      }
-      async get(path17) {
-        const token = buildJwt(this.keyName, this.privateKey, "GET", path17);
-        const res = await fetch(`https://${API_HOST}${path17}`, {
-          method: "GET",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(12e3)
-        });
-        if (!res.ok) {
-          const text2 = await res.text();
-          throw new Error(`Coinbase ${res.status}: ${text2.slice(0, 300)}`);
-        }
-        return res.json();
-      }
-      async post(path17, body) {
-        const token = buildJwt(this.keyName, this.privateKey, "POST", path17);
-        const res = await fetch(`https://${API_HOST}${path17}`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(12e3)
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(`Coinbase ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-        return data;
-      }
-      /**
-       * Place a spot order (Advanced Trade). Requires "trade" permission on the key.
-       *  - product: e.g. 'BTC-USD'
-       *  - side: 'BUY' | 'SELL'
-       *  - type: 'market' | 'limit'
-       *  - quoteSize: USD to spend (market BUY); baseSize: coin amount (SELL / limit)
-       *  - limitPrice: required for limit orders
-       */
-      async placeOrder(o) {
-        const clientOrderId = crypto10.randomUUID();
-        let order_configuration;
-        if (o.type === "market") {
-          order_configuration = o.side === "BUY" && o.quoteSize ? { market_market_ioc: { quote_size: String(o.quoteSize) } } : { market_market_ioc: { base_size: String(o.baseSize) } };
-        } else {
-          if (!o.limitPrice || !o.baseSize) throw new Error("limit orders require baseSize and limitPrice");
-          order_configuration = { limit_limit_gtc: { base_size: String(o.baseSize), limit_price: String(o.limitPrice) } };
-        }
-        const data = await this.post("/api/v3/brokerage/orders", {
-          client_order_id: clientOrderId,
-          product_id: o.product,
-          side: o.side,
-          order_configuration
-        });
-        const success = !!data?.success;
-        if (!success) throw new Error(`Coinbase order rejected: ${JSON.stringify(data?.error_response || data).slice(0, 300)}`);
-        return { orderId: data?.success_response?.order_id ?? clientOrderId, success, raw: data };
-      }
-      /** Read-only: list account balances (paginated), valued in USD via public spot. */
-      async getBalances() {
-        const accounts = [];
-        let cursor = "";
-        for (let i = 0; i < 10; i++) {
-          const path17 = `/api/v3/brokerage/accounts?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
-          const data = await this.get(path17);
-          for (const a of data?.accounts ?? []) accounts.push(a);
-          if (data?.has_next && data?.cursor) cursor = data.cursor;
-          else break;
-        }
-        const balances = [];
-        for (const a of accounts) {
-          const available = parseFloat(a?.available_balance?.value ?? "0") || 0;
-          const hold = parseFloat(a?.hold?.value ?? "0") || 0;
-          const total = available + hold;
-          if (total <= 0) continue;
-          balances.push({ currency: a?.available_balance?.currency ?? a?.currency ?? "?", available, hold, total });
-        }
-        let totalUsd = 0;
-        try {
-          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-          for (const b of balances) {
-            if (b.currency === "USD" || b.currency === "USDC") {
-              b.usdValue = b.total;
-              totalUsd += b.total;
-              continue;
-            }
-            const q = await getAggregatedQuote2(b.currency).catch(() => null);
-            const px = q?.best?.price ?? null;
-            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
-            if (b.usdValue) totalUsd += b.usdValue;
-          }
-        } catch {
-        }
-        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-        return { balances, totalUsd: Math.round(totalUsd * 100) / 100, accountCount: accounts.length };
-      }
-      /** Lightweight auth check for the "Test connection" button. */
-      async test() {
-        const data = await this.get("/api/v3/brokerage/accounts?limit=1");
-        return { ok: true, accountCount: (data?.accounts ?? []).length };
-      }
-    };
-  }
-});
-
 // server/services/onchain-indexer.ts
 var onchain_indexer_exports = {};
 __export(onchain_indexer_exports, {
@@ -38581,379 +40056,6 @@ var init_onchain_balances = __esm({
   }
 });
 
-// server/services/defi-swap.ts
-var defi_swap_exports = {};
-__export(defi_swap_exports, {
-  DEFI_CHAINS: () => DEFI_CHAINS,
-  addressFromPrivateKey: () => addressFromPrivateKey,
-  executeDefiSwap: () => executeDefiSwap,
-  isDefiSwapAvailable: () => isDefiSwapAvailable,
-  isTokenTradeable: () => isTokenTradeable,
-  resolveToken: () => resolveToken
-});
-import { ethers } from "ethers";
-function isDefiSwapAvailable() {
-  return !!process.env.ZEROX_API_KEY;
-}
-async function loadTokenIndex() {
-  if (tokenIndexCache && Date.now() - tokenIndexLoadedAt < 6 * 36e5) return tokenIndexCache;
-  try {
-    const res = await fetch(TOKEN_LIST_URL, { signal: AbortSignal.timeout(1e4) });
-    const data = await res.json();
-    const idx = /* @__PURE__ */ new Map();
-    for (const t of data?.tokens ?? []) {
-      if (t?.chainId && t?.symbol && t?.address) idx.set(`${t.chainId}:${String(t.symbol).toUpperCase()}`, t.address);
-    }
-    if (idx.size > 0) {
-      tokenIndexCache = idx;
-      tokenIndexLoadedAt = Date.now();
-    }
-    return tokenIndexCache ?? idx;
-  } catch {
-    return tokenIndexCache ?? /* @__PURE__ */ new Map();
-  }
-}
-async function resolveToken(chainKey, token) {
-  const c = DEFI_CHAINS[chainKey];
-  const t = token.trim();
-  if (/^0x[a-fA-F0-9]{40}$/.test(t)) return t;
-  const up = t.toUpperCase();
-  if (up === c.native || up === "ETH" || up === "NATIVE" || up === "POL" || up === "MATIC") return NATIVE_PSEUDO;
-  if (up === "USDC") return c.usdc;
-  if (up === "WETH") return c.weth;
-  const idx = await loadTokenIndex();
-  const candidates = SYMBOL_ALIASES[up] ?? [up];
-  for (const sym of candidates) {
-    const addr = idx.get(`${c.chainId}:${sym}`);
-    if (addr) return addr;
-  }
-  throw new Error(`Token "${token}" isn't listed on ${chainKey} \u2014 it may not exist on this chain. Use a 0x address, or pick a token that trades on ${chainKey}.`);
-}
-async function isTokenTradeable(chainKey, token) {
-  try {
-    await resolveToken(chainKey, token);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function zeroXQuote(chainId, params) {
-  const qs = new URLSearchParams({ chainId: String(chainId), ...params });
-  const res = await fetch(`https://api.0x.org/swap/allowance-holder/quote?${qs.toString()}`, {
-    headers: { "0x-api-key": process.env.ZEROX_API_KEY || "", "0x-version": "v2" },
-    signal: AbortSignal.timeout(15e3)
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(`0x ${res.status}: ${JSON.stringify(data).slice(0, 300)}`);
-  return data;
-}
-async function executeDefiSwap(opts) {
-  if (!isDefiSwapAvailable()) return { ok: false, reason: "ZEROX_API_KEY not set on the server" };
-  const chain = DEFI_CHAINS[opts.chainKey];
-  if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
-  const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
-  const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
-  let sellToken, buyToken;
-  try {
-    sellToken = await resolveToken(opts.chainKey, opts.sellToken);
-    buyToken = await resolveToken(opts.chainKey, opts.buyToken);
-  } catch (e) {
-    return { ok: false, reason: e?.message || "token resolution failed" };
-  }
-  let decimals = 18;
-  if (sellToken !== NATIVE_PSEUDO) {
-    const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
-    decimals = Number(await erc.decimals());
-  }
-  const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
-  const quote = await zeroXQuote(chain.chainId, {
-    sellToken,
-    buyToken,
-    sellAmount,
-    taker: wallet.address,
-    slippageBps: String(opts.slippageBps)
-  });
-  if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
-    return { ok: false, reason: "no liquidity for this pair/size" };
-  }
-  let approveTxHash;
-  const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
-  if (sellToken !== NATIVE_PSEUDO && spender) {
-    const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
-    const current = await erc.allowance(wallet.address, spender);
-    if (current < BigInt(sellAmount)) {
-      const aTx = await erc.approve(spender, ethers.MaxUint256);
-      approveTxHash = aTx.hash;
-      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
-    }
-  }
-  let buyAmountHuman;
-  if (quote.buyAmount) {
-    try {
-      let bDec = 18;
-      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
-      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
-    } catch {
-    }
-  }
-  const t = quote.transaction;
-  if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
-  const txResp = await wallet.sendTransaction({
-    to: t.to,
-    data: t.data,
-    value: t.value ? BigInt(t.value) : BigInt(0),
-    ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
-  });
-  try {
-    await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
-  } catch {
-  }
-  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
-}
-function addressFromPrivateKey(pk) {
-  return new ethers.Wallet(pk.trim()).address;
-}
-var DEFI_CHAINS, NATIVE_PSEUDO, ERC20_ABI, tokenIndexCache, tokenIndexLoadedAt, TOKEN_LIST_URL, SYMBOL_ALIASES;
-var init_defi_swap = __esm({
-  "server/services/defi-swap.ts"() {
-    "use strict";
-    init_cryptocom();
-    DEFI_CHAINS = {
-      ethereum: { chainId: 1, rpc: "https://ethereum-rpc.publicnode.com", name: "Ethereum", native: "ETH", usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" },
-      base: { chainId: 8453, rpc: "https://base-rpc.publicnode.com", name: "Base", native: "ETH", usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", weth: "0x4200000000000000000000000000000000000006" },
-      arbitrum: { chainId: 42161, rpc: "https://arbitrum-one-rpc.publicnode.com", name: "Arbitrum", native: "ETH", usdc: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", weth: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1" },
-      optimism: { chainId: 10, rpc: "https://optimism-rpc.publicnode.com", name: "Optimism", native: "ETH", usdc: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", weth: "0x4200000000000000000000000000000000000006" },
-      polygon: { chainId: 137, rpc: "https://polygon-bor-rpc.publicnode.com", name: "Polygon", native: "POL", usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", weth: "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619" }
-    };
-    NATIVE_PSEUDO = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
-    ERC20_ABI = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function decimals() view returns (uint8)", "function balanceOf(address) view returns (uint256)"];
-    tokenIndexCache = null;
-    tokenIndexLoadedAt = 0;
-    TOKEN_LIST_URL = "https://tokens.uniswap.org";
-    SYMBOL_ALIASES = {
-      ETH: ["WETH"],
-      WETH: ["WETH"],
-      BTC: ["WBTC", "CBBTC", "BTCB"],
-      WBTC: ["WBTC", "CBBTC"],
-      MATIC: ["WMATIC", "POL"],
-      POL: ["POL", "WMATIC"]
-    };
-  }
-});
-
-// server/gemini.ts
-var gemini_exports = {};
-__export(gemini_exports, {
-  GeminiService: () => GeminiService,
-  decryptApiSecret: () => decryptApiSecret2,
-  encryptApiSecret: () => encryptApiSecret2
-});
-import crypto11 from "crypto";
-var API_HOST2, GeminiService;
-var init_gemini = __esm({
-  "server/gemini.ts"() {
-    "use strict";
-    init_cryptocom();
-    API_HOST2 = "https://api.gemini.com";
-    GeminiService = class {
-      apiKey;
-      secret;
-      constructor(apiKey, secret) {
-        this.apiKey = apiKey;
-        this.secret = secret;
-      }
-      async privatePost(endpoint, params = {}) {
-        const nonce = Date.now();
-        const payload2 = { request: endpoint, nonce, ...params };
-        const b64 = Buffer.from(JSON.stringify(payload2)).toString("base64");
-        const signature = crypto11.createHmac("sha384", this.secret).update(b64).digest("hex");
-        const res = await fetch(`${API_HOST2}${endpoint}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "text/plain",
-            "Content-Length": "0",
-            "X-GEMINI-APIKEY": this.apiKey,
-            "X-GEMINI-PAYLOAD": b64,
-            "X-GEMINI-SIGNATURE": signature,
-            "Cache-Control": "no-cache",
-            "User-Agent": "VEDD/1.0"
-          },
-          signal: AbortSignal.timeout(12e3)
-        });
-        const data = await res.json();
-        if (!res.ok || data?.result === "error") {
-          throw new Error(`Gemini: ${data?.reason || data?.message || res.status}`);
-        }
-        return data;
-      }
-      /** Read-only: account balances, valued in USD via the public price layer. */
-      async getBalances() {
-        const raw = await this.privatePost("/v1/balances");
-        const balances = [];
-        for (const b of Array.isArray(raw) ? raw : []) {
-          const amt = parseFloat(b?.amount ?? "0");
-          if (!isFinite(amt) || amt <= 0) continue;
-          balances.push({ currency: String(b?.currency ?? "?").toUpperCase(), total: amt });
-        }
-        let totalUsd = 0;
-        try {
-          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-          for (const b of balances) {
-            if (b.currency === "USD" || b.currency === "USDC" || b.currency === "GUSD" || b.currency === "USDT") {
-              b.usdValue = b.total;
-              totalUsd += b.total;
-              continue;
-            }
-            const q = await getAggregatedQuote2(b.currency).catch(() => null);
-            const px = q?.best?.price ?? null;
-            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
-            if (b.usdValue) totalUsd += b.usdValue;
-          }
-        } catch {
-        }
-        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-        return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
-      }
-      /**
-       * Place an order. Requires "Trading" scope on the key. Gemini's API is
-       * limit-only ("exchange limit"); a market-style fill is an immediate-or-cancel
-       * limit at an aggressive price. Caller supplies the limit price either way.
-       *  - symbol: e.g. 'btcusd'
-       *  - side: 'buy' | 'sell'
-       *  - amount: base amount (coin)
-       *  - price: limit price (required by Gemini)
-       *  - immediateOrCancel: true = market-like (fills now or cancels the rest)
-       */
-      async placeOrder(o) {
-        if (!o.price) throw new Error("Gemini requires a limit price (its API is limit-only)");
-        const params = {
-          symbol: o.symbol.toLowerCase(),
-          amount: String(o.amount),
-          price: String(o.price),
-          side: o.side,
-          type: "exchange limit"
-        };
-        if (o.immediateOrCancel) params.options = ["immediate-or-cancel"];
-        const data = await this.privatePost("/v1/order/new", params);
-        return { orderId: String(data?.order_id ?? ""), executedAmount: parseFloat(data?.executed_amount ?? "0") || 0, isLive: !!data?.is_live, raw: data };
-      }
-      async test() {
-        const raw = await this.privatePost("/v1/balances");
-        return { ok: true, assetCount: Array.isArray(raw) ? raw.length : 0 };
-      }
-    };
-  }
-});
-
-// server/kraken.ts
-var kraken_exports = {};
-__export(kraken_exports, {
-  KrakenService: () => KrakenService,
-  decryptApiSecret: () => decryptApiSecret2,
-  encryptApiSecret: () => encryptApiSecret2
-});
-import crypto12 from "crypto";
-function normalizeAsset(code) {
-  const c = code.toUpperCase().replace(/\.(S|F|M)$/, "");
-  const map = { XXBT: "BTC", XBT: "BTC", XETH: "ETH", XXRP: "XRP", XLTC: "LTC", XXDG: "DOGE", XDG: "DOGE", ZUSD: "USD", ZEUR: "EUR", ZGBP: "GBP", XXLM: "XLM", XETC: "ETC", XZEC: "ZEC" };
-  if (map[c]) return map[c];
-  if (c.length === 4 && (c[0] === "X" || c[0] === "Z")) return c.slice(1);
-  return c;
-}
-var API_HOST3, KrakenService;
-var init_kraken = __esm({
-  "server/kraken.ts"() {
-    "use strict";
-    init_cryptocom();
-    API_HOST3 = "https://api.kraken.com";
-    KrakenService = class {
-      apiKey;
-      secret;
-      constructor(apiKey, secret) {
-        this.apiKey = apiKey;
-        this.secret = secret;
-      }
-      sign(path17, nonce, postData) {
-        const sha256 = crypto12.createHash("sha256").update(nonce + postData).digest();
-        const message = Buffer.concat([Buffer.from(path17, "utf8"), sha256]);
-        const key = Buffer.from(this.secret, "base64");
-        return crypto12.createHmac("sha512", key).update(message).digest("base64");
-      }
-      async privatePost(endpoint, params = {}) {
-        const path17 = `/0/private/${endpoint}`;
-        const nonce = String(Date.now() * 1e3);
-        const body = new URLSearchParams({ nonce, ...params });
-        const postData = body.toString();
-        const res = await fetch(`${API_HOST3}${path17}`, {
-          method: "POST",
-          headers: {
-            "API-Key": this.apiKey,
-            "API-Sign": this.sign(path17, nonce, postData),
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "VEDD/1.0"
-          },
-          body: postData,
-          signal: AbortSignal.timeout(12e3)
-        });
-        const data = await res.json();
-        if (data?.error?.length) throw new Error(`Kraken: ${data.error.join(", ")}`);
-        return data?.result ?? {};
-      }
-      /** Read-only: account balances, valued in USD via the public price layer. */
-      async getBalances() {
-        const raw = await this.privatePost("Balance");
-        const merged = /* @__PURE__ */ new Map();
-        for (const [code, valStr] of Object.entries(raw)) {
-          const amt = parseFloat(String(valStr));
-          if (!isFinite(amt) || amt <= 0) continue;
-          const cur = normalizeAsset(code);
-          merged.set(cur, (merged.get(cur) ?? 0) + amt);
-        }
-        const balances = Array.from(merged, ([currency, total]) => ({ currency, total }));
-        let totalUsd = 0;
-        try {
-          const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-          for (const b of balances) {
-            if (b.currency === "USD" || b.currency === "USDC" || b.currency === "USDT") {
-              b.usdValue = b.total;
-              totalUsd += b.total;
-              continue;
-            }
-            const q = await getAggregatedQuote2(b.currency).catch(() => null);
-            const px = q?.best?.price ?? null;
-            b.usdValue = px != null ? Math.round(b.total * px * 100) / 100 : null;
-            if (b.usdValue) totalUsd += b.usdValue;
-          }
-        } catch {
-        }
-        balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-        return { balances, totalUsd: Math.round(totalUsd * 100) / 100 };
-      }
-      /**
-       * Place an order. Requires "Create & modify orders" permission on the key.
-       *  - pair: Kraken pair, e.g. 'XBTUSD' (BTC) or 'ETHUSD'
-       *  - type: 'buy' | 'sell'
-       *  - ordertype: 'market' | 'limit'
-       *  - volume: base amount (in the traded coin)
-       *  - price: required for limit orders
-       */
-      async placeOrder(o) {
-        const params = { pair: o.pair, type: o.type, ordertype: o.ordertype, volume: String(o.volume) };
-        if (o.ordertype === "limit") {
-          if (!o.price) throw new Error("limit orders require a price");
-          params.price = String(o.price);
-        }
-        const res = await this.privatePost("AddOrder", params);
-        return { txids: res?.txid ?? [], descr: res?.descr?.order ?? "", raw: res };
-      }
-      async test() {
-        const raw = await this.privatePost("Balance");
-        return { ok: true, assetCount: Object.keys(raw).length };
-      }
-    };
-  }
-});
-
 // server/services/ruin-cone.ts
 var ruin_cone_exports = {};
 __export(ruin_cone_exports, {
@@ -38997,7 +40099,7 @@ async function runRuinConeSimulation(userId, params = {}) {
     source
   };
   if (!params.noCache) {
-    const hit = _cache3.get(_cacheKey(userId, resolved));
+    const hit = _cache4.get(_cacheKey(userId, resolved));
     if (hit && hit.expires > Date.now()) return hit.result;
   }
   const rows = await db.select({ pnl: aiTradeResults.profitLoss, closedAt: aiTradeResults.closedAt }).from(aiTradeResults).where(and10(
@@ -39045,7 +40147,7 @@ async function runRuinConeSimulation(userId, params = {}) {
       },
       warning: `Only ${sourceTradeCount} closed '${source}' trade(s) on record \u2014 need at least 2 to simulate. Let the scanner build more history.`
     };
-    _cache3.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
+    _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result: result2 });
     return result2;
   }
   const paths = new Array(numSimulations);
@@ -39145,10 +40247,10 @@ async function runRuinConeSimulation(userId, params = {}) {
     },
     warning: sourceTradeCount < 20 ? `Thin history: only ${sourceTradeCount} closed '${source}' trade(s). Results are indicative only until more trades accumulate.` : void 0
   };
-  _cache3.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
+  _cache4.set(_cacheKey(userId, resolved), { expires: Date.now() + CACHE_TTL_MS6, result });
   return result;
 }
-var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache3;
+var FTUK_DEFAULTS, DEFAULT_NUM_SIMULATIONS, DEFAULT_NUM_TRADES, DEFAULT_SOURCE_LIMIT, CACHE_TTL_MS6, _cache4;
 var init_ruin_cone = __esm({
   "server/services/ruin-cone.ts"() {
     "use strict";
@@ -39169,7 +40271,7 @@ var init_ruin_cone = __esm({
     DEFAULT_NUM_TRADES = 100;
     DEFAULT_SOURCE_LIMIT = 200;
     CACHE_TTL_MS6 = 5 * 60 * 1e3;
-    _cache3 = /* @__PURE__ */ new Map();
+    _cache4 = /* @__PURE__ */ new Map();
   }
 });
 
@@ -49554,7 +50656,7 @@ async function runOrb(service, symbol, cfg) {
     reasoning: `${symbol}: volume-confirmed ${direction} breakout of the ${cfg.orbRangeMinutes}-min opening range ($${orLow.toFixed(2)}-$${orHigh.toFixed(2)}), now at $${last.c.toFixed(2)}. Score ${score}/100. Would target a ${cfg.strikeSelectionMode === "delta_target" ? `~${cfg.targetDelta} delta` : cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
-async function runVolumeProfile(service, symbol, cfg) {
+async function runVolumeProfile2(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   const start = new Date(now.getTime() - cfg.volumeProfileLookbackDays * 24 * 60 * 6e4);
   const bars = await service.getBars(symbol, "5Min", start, now, 2e3);
@@ -49616,7 +50718,7 @@ async function runVolumeProfile(service, symbol, cfg) {
     reasoning: `${symbol}: broke ${direction} out of its ${cfg.volumeProfileLookbackDays}-day value area ($${vaLow.toFixed(2)}-$${vaHigh.toFixed(2)}) \u2014 POC (point of control) at $${pocPrice.toFixed(2)}, now at $${price.toFixed(2)} (${distFromPocPct.toFixed(1)}% away). Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
-async function runBreakout(service, symbol, cfg) {
+async function runBreakout2(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   const start = new Date(now.getTime() - (cfg.breakoutLookbackDays + 3) * 24 * 60 * 6e4);
   const bars = await service.getBars(symbol, "1Day", start, now, 200);
@@ -49662,7 +50764,7 @@ function momentumScore(dailyChangePercent) {
   const magnitude = Math.min(Math.abs(dailyChangePercent) / 3, 1);
   return Math.round(50 + magnitude * 50);
 }
-async function runMomentum(service, symbol, cfg) {
+async function runMomentum2(service, symbol, cfg) {
   const snap = await service.getSnapshot(symbol);
   if (!snap) {
     return { decision: "error", reasoning: `${symbol}: no market data returned \u2014 check the symbol is a valid US equity ticker.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
@@ -49680,7 +50782,7 @@ async function runMomentum(service, symbol, cfg) {
   }
   return { decision: "watching", score, price: snap.price, dailyChangePercent: snap.dailyChangePercent, strategy: "momentum", reasoning: `${symbol} at $${snap.price.toFixed(2)} (${direction} ${Math.abs(snap.dailyChangePercent).toFixed(2)}% today) \u2014 momentum score ${score}/100 is below your ${cfg.minConfidence} confidence threshold. Watching, not acting.` };
 }
-async function runOrderFlow(service, symbol, cfg) {
+async function runOrderFlow2(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   const lookback = Math.max(10, cfg.orderFlowLookbackBars);
   const sessionsNeeded = Math.ceil(lookback / 78);
@@ -49748,7 +50850,7 @@ async function runOrderFlow(service, symbol, cfg) {
     reasoning: `${symbol}: imbalanced market (${rangePct.toFixed(2)}% range over ${lookback} bars) with a ${direction} volume-delta shift of ${cvdShiftPct.toFixed(1)}%, price $${price.toFixed(2)} ${direction === "up" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, confirmed by a full ${direction === "up" ? "bullish" : "bearish"} candle close. Score ${score}/100. Would target a ${cfg.strikeSelectionMode} ${optType}, ${cfg.expiryPreference} expiry.`
   };
 }
-function quantVerdictFromScore(score) {
+function quantVerdictFromScore2(score) {
   if (score === null) return "SKIP";
   if (score >= 65) return "CONFIRM";
   if (score >= 40) return "WATCH";
@@ -49802,7 +50904,7 @@ function pushOptionsConsensus(userId, entry) {
   });
 }
 async function assembleOptionsConsensus(userId, symbol, result, cfg) {
-  const quantVerdict = quantVerdictFromScore(result.score);
+  const quantVerdict = quantVerdictFromScore2(result.score);
   if (cfg.aiMode === "rule_based") {
     const tradeAllowed2 = quantVerdict !== "SKIP" && (result.score ?? 0) >= cfg.minConfidence;
     pushOptionsConsensus(userId, {
@@ -49841,7 +50943,7 @@ async function assembleOptionsConsensus(userId, symbol, result, cfg) {
   });
   return tradeAllowed;
 }
-async function scanSymbol(service, symbol, cfg) {
+async function scanSymbol2(service, symbol, cfg) {
   const now = /* @__PURE__ */ new Date();
   if (cfg.sessionFilterEnabled && isWeekday(now)) {
     const open = nyMarketOpenUTC(now);
@@ -49855,7 +50957,7 @@ async function scanSymbol(service, symbol, cfg) {
     }
   }
   if (cfg.strategyMode === "auto" || cfg.strategyMode === "credit_spread") {
-    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k) => STRATEGY_RUNNERS[k](service, symbol, cfg).catch(() => null)));
+    const results = await Promise.all(["orb", "volume_profile", "breakout", "momentum", "order_flow"].map((k) => STRATEGY_RUNNERS2[k](service, symbol, cfg).catch(() => null)));
     const valid = results.filter((r) => !!r);
     const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
     if (signals.length > 0) return signals[0];
@@ -49884,7 +50986,7 @@ async function scanSymbol(service, symbol, cfg) {
     if (watching.length > 0) return watching[0];
     return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed to return data.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
   }
-  const runner = STRATEGY_RUNNERS[cfg.strategyMode];
+  const runner = STRATEGY_RUNNERS2[cfg.strategyMode];
   if (!runner) {
     return { decision: "watching", reasoning: `${symbol}: strategy "${cfg.strategyMode}" isn't yet backed by live scanning logic (options-spread strategies like covered_call/credit_spread are on the roadmap) \u2014 no read produced.`, score: null, price: null, dailyChangePercent: null, strategy: cfg.strategyMode };
   }
@@ -49989,7 +51091,7 @@ async function computeContractQuantity(userId, cfg, equity, askPrice, signalScor
   }
   return finalize(baseQty, "");
 }
-async function checkSafetyGates(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0, directionBias) {
+async function checkSafetyGates2(userId, cfg, equity, connectionId, connectionType = "alpaca", symbol, unrealizedPnl = 0, directionBias) {
   if (cfg.maxDailyTrades > 0) {
     const count = await storage.getTodayOptionsEngineTradeCount(userId, connectionId);
     if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) already reached`, riskMultiplier: 1 };
@@ -50049,8 +51151,8 @@ async function checkSafetyGates(userId, cfg, equity, connectionId, connectionTyp
     if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
       return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached \u2014 locking in gains`, riskMultiplier: 1 };
     }
-    const peak = Math.max(sessionPeakEquity.get(connectionId) ?? equity, equity);
-    sessionPeakEquity.set(connectionId, peak);
+    const peak = Math.max(sessionPeakEquity2.get(connectionId) ?? equity, equity);
+    sessionPeakEquity2.set(connectionId, peak);
     const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
     if (ddFromPeakPct >= cfg.drawdownShieldThreshold) {
       riskMultiplier = Math.min(riskMultiplier, 0.25);
@@ -50230,7 +51332,7 @@ async function executeCreditSpread(service, connection2, userId, underlyingSymbo
     source: "alpaca"
   });
 }
-async function executeSignal(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
+async function executeSignal2(service, connection2, userId, underlyingSymbol, result, cfg, brainMultiplier, bestStrategies) {
   if (!result.direction) return;
   let account;
   try {
@@ -50257,7 +51359,7 @@ async function executeSignal(service, connection2, userId, underlyingSymbol, res
   } catch {
   }
   const _dirBias = result.direction === "up" ? "bullish" : "bearish";
-  const gate = await checkSafetyGates(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl, _dirBias);
+  const gate = await checkSafetyGates2(userId, cfg, gateEquity, connection2.id, "alpaca", underlyingSymbol, unrealizedPnl, _dirBias);
   if (!gate.allowed) {
     await storage.createOptionsEngineActivity({
       userId,
@@ -50531,7 +51633,7 @@ async function manageCreditSpread(service, userId, cfg, connectionId, trade) {
   } catch {
   }
 }
-async function monitorOpenPositions(service, userId, cfg, connectionId) {
+async function monitorOpenPositions2(service, userId, cfg, connectionId) {
   const openTrades = await storage.getOpenOptionsEngineTrades(userId, connectionId);
   const alpacaTrades = openTrades.filter((t) => t.broker === "alpaca");
   for (const trade of alpacaTrades) {
@@ -50635,13 +51737,13 @@ async function monitorOpenPositions(service, userId, cfg, connectionId) {
     }
   }
 }
-async function scanOneUser(userId) {
+async function scanOneUser2(userId) {
   const config = await storage.getUserOptionsEngineConfig(userId);
   if (!config || !config.isActive) return;
   const now = Date.now();
-  const last = lastScanAt.get(userId) || 0;
-  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS, config.scanIntervalMs)) return;
-  lastScanAt.set(userId, now);
+  const last = lastScanAt2.get(userId) || 0;
+  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS2, config.scanIntervalMs)) return;
+  lastScanAt2.set(userId, now);
   const alpacaConns = await storage.getUserAlpacaConnections(userId);
   const activeConns = alpacaConns.filter((c) => c.isActive);
   if (activeConns.length === 0) {
@@ -50701,7 +51803,7 @@ async function scanOneUser(userId) {
   for (const conn of activeConns) {
     const connSvc = connServices.get(conn.id);
     if (!connSvc) continue;
-    await monitorOpenPositions(connSvc, userId, config, conn.id).catch(
+    await monitorOpenPositions2(connSvc, userId, config, conn.id).catch(
       (e) => console.error(`[options-scanner] monitorOpenPositions failed for user ${userId} connection ${conn.id}:`, e.message)
     );
   }
@@ -50733,7 +51835,7 @@ async function scanOneUser(userId) {
           symbolCfg = { ...symbolCfg, minConfidence: Math.max(50, symbolCfg.minConfidence - 5) };
         }
       }
-      let result = await scanSymbol(service, symbol, symbolCfg);
+      let result = await scanSymbol2(service, symbol, symbolCfg);
       const symbolKnowledge = brain?.contractKnowledge?.[symbol];
       if (result.decision === "signal" && symbolKnowledge) {
         const stratStats = symbolKnowledge.strategyWinRates?.[result.strategy];
@@ -50775,7 +51877,7 @@ async function scanOneUser(userId) {
           const bestStrategies = symbolKnowledge?.bestStrategies ?? [];
           for (const conn of executingConns) {
             const connSvc = connServices.get(conn.id);
-            await executeSignal(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
+            await executeSignal2(connSvc, conn, userId, symbol, result, symbolCfg, brainMultiplier, bestStrategies).catch(
               (e) => console.error(`[options-scanner] executeSignal failed for ${symbol} on connection ${conn.id}:`, e.message)
             );
           }
@@ -50812,7 +51914,7 @@ async function runOptionsEngineScan() {
   try {
     const configs = await storage.getAllActiveOptionsEngineConfigs();
     for (const config of configs) {
-      await scanOneUser(config.userId).catch(
+      await scanOneUser2(config.userId).catch(
         (e) => console.error(`[options-scanner] user ${config.userId} scan failed:`, e.message)
       );
     }
@@ -50821,8 +51923,8 @@ async function runOptionsEngineScan() {
   }
 }
 function startOptionsEngineScanner() {
-  if (started2) return;
-  started2 = true;
+  if (started3) return;
+  started3 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
     runOptionsEngineScan().catch(() => {
@@ -50830,15 +51932,15 @@ function startOptionsEngineScanner() {
   }, LOOP_INTERVAL_MS);
   console.log("[options-scanner] Background options-engine scan loop started (60s tick, per-user throttled, strategies: orb/volume_profile/breakout/momentum/order_flow/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS, sessionPeakEquity, started2;
+var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_OPEN_PER_SYMBOL2, MAX_DAILY_ENTRIES_PER_SYMBOL2, SYMBOL_COOLDOWN_MS2, CORRELATED_BASKET_CAP, CORRELATED_BASKETS, STRATEGY_RUNNERS2, sessionPeakEquity2, started3;
 var init_options_scanner = __esm({
   "server/services/options-scanner.ts"() {
     "use strict";
     init_storage();
     init_alpaca();
     init_options_brain();
-    MIN_SCAN_INTERVAL_MS = 3e4;
-    lastScanAt = /* @__PURE__ */ new Map();
+    MIN_SCAN_INTERVAL_MS2 = 3e4;
+    lastScanAt2 = /* @__PURE__ */ new Map();
     MAX_OPEN_PER_SYMBOL2 = 3;
     MAX_DAILY_ENTRIES_PER_SYMBOL2 = 4;
     SYMBOL_COOLDOWN_MS2 = 20 * 60 * 1e3;
@@ -50853,15 +51955,15 @@ var init_options_scanner = __esm({
       ["BTCUSD", "ETHUSD", "MSTR", "COIN"]
       // crypto-beta
     ];
-    STRATEGY_RUNNERS = {
+    STRATEGY_RUNNERS2 = {
       orb: runOrb,
-      volume_profile: runVolumeProfile,
-      breakout: runBreakout,
-      momentum: runMomentum,
-      order_flow: runOrderFlow
+      volume_profile: runVolumeProfile2,
+      breakout: runBreakout2,
+      momentum: runMomentum2,
+      order_flow: runOrderFlow2
     };
-    sessionPeakEquity = /* @__PURE__ */ new Map();
-    started2 = false;
+    sessionPeakEquity2 = /* @__PURE__ */ new Map();
+    started3 = false;
   }
 });
 
@@ -50998,8 +52100,8 @@ async function tick() {
   if (closed) console.log(`[fx-paper-monitor] tick closed ${closed}/${open.length} open paper trade(s).`);
 }
 function startFxPaperMonitor() {
-  if (started3) return;
-  started3 = true;
+  if (started4) return;
+  started4 = true;
   console.log(`[fx-paper-monitor] started \u2014 closing open FX paper trades on SL/TP every ${TICK_MS2 / 6e4} min (max-hold ${MAX_HOLD_MS / 36e5}h).`);
   setInterval(() => {
     tick().catch((e) => console.error("[fx-paper-monitor] tick error:", e?.message ?? e));
@@ -51009,7 +52111,7 @@ function startFxPaperMonitor() {
     });
   }, 15e3);
 }
-var TICK_MS2, MAX_HOLD_MS, started3;
+var TICK_MS2, MAX_HOLD_MS, started4;
 var init_fx_paper_monitor = __esm({
   "server/services/fx-paper-monitor.ts"() {
     "use strict";
@@ -51017,1089 +52119,6 @@ var init_fx_paper_monitor = __esm({
     init_service();
     TICK_MS2 = 3 * 60 * 1e3;
     MAX_HOLD_MS = 3 * 24 * 60 * 60 * 1e3;
-    started3 = false;
-  }
-});
-
-// server/services/crypto-brain.ts
-function bump(map, key, win) {
-  const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
-  s.trades++;
-  if (win) s.wins++;
-  s.winRate = Math.round(s.wins / s.trades * 100);
-}
-function sizeMult(winRate2, rr, trades) {
-  if (trades < MIN_TRADES) return 1;
-  const w = winRate2 / 100, r = rr > 0 ? rr : 1;
-  const kelly = w - (1 - w) / r;
-  return Math.max(0.25, Math.min(1.5, 1 + kelly));
-}
-async function backfillIfEmpty(userId) {
-  const { rows } = await pool.query(`SELECT count(*)::int n FROM crypto_brain_outcomes WHERE user_id=$1`, [userId]);
-  if (rows[0].n > 0) return;
-  const { rows: trades } = await pool.query(
-    `SELECT symbol, strategy, direction, realized_pnl, closed_at FROM cryptocom_engine_trades
-     WHERE user_id=$1 AND status='closed' AND realized_pnl IS NOT NULL ORDER BY closed_at DESC LIMIT 1000`,
-    [userId]
-  );
-  if (!trades.length) return;
-  for (const t of trades) {
-    const pnl = Number(t.realized_pnl) || 0;
-    const d = t.closed_at ? new Date(t.closed_at) : /* @__PURE__ */ new Date();
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, result, profit_loss, hour_utc, source, closed_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'backfill',$8)`,
-      [userId, t.symbol, t.strategy || "unknown", t.direction || "long", pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN", pnl, d.getUTCHours(), d]
-    ).catch(() => {
-    });
-  }
-}
-async function learnFromCryptoTrades(userId) {
-  await backfillIfEmpty(userId).catch(() => {
-  });
-  const { rows } = await pool.query(
-    `SELECT symbol, strategy, direction, result, profit_loss, hour_utc FROM crypto_brain_outcomes
-     WHERE user_id=$1 ORDER BY closed_at DESC LIMIT 2000`,
-    [userId]
-  );
-  const symbols = {};
-  const winSum = {}, winN = {}, lossSum = {}, lossN = {};
-  let totalWins = 0, totalDecided = 0, totalPnl = 0;
-  for (const r of rows) {
-    const sym = r.symbol || "UNKNOWN";
-    const k = symbols[sym] ??= { totalTrades: 0, wins: 0, losses: 0, winRate: 0, totalPnl: 0, avgWin: 0, avgLoss: 0, riskReward: 0, byStrategy: {}, byHour: {}, bestStrategy: null, recommendedSizeMultiplier: 1 };
-    const pnl = Number(r.profit_loss) || 0;
-    const win = r.result === "WIN", loss = r.result === "LOSS";
-    k.totalTrades++;
-    k.totalPnl += pnl;
-    totalPnl += pnl;
-    if (win) {
-      k.wins++;
-      totalWins++;
-      winSum[sym] = (winSum[sym] ?? 0) + pnl;
-      winN[sym] = (winN[sym] ?? 0) + 1;
-    }
-    if (loss) {
-      k.losses++;
-      lossSum[sym] = (lossSum[sym] ?? 0) + Math.abs(pnl);
-      lossN[sym] = (lossN[sym] ?? 0) + 1;
-    }
-    if (win || loss) totalDecided++;
-    if (r.strategy) bump(k.byStrategy, r.strategy, win);
-    if (r.hour_utc != null) bump(k.byHour, String(r.hour_utc), win);
-  }
-  for (const [sym, k] of Object.entries(symbols)) {
-    const decided = k.wins + k.losses;
-    k.winRate = decided ? Math.round(k.wins / decided * 100) : 0;
-    k.avgWin = winN[sym] ? winSum[sym] / winN[sym] : 0;
-    k.avgLoss = lossN[sym] ? lossSum[sym] / lossN[sym] : 0;
-    k.riskReward = k.avgLoss > 0 ? k.avgWin / k.avgLoss : k.avgWin > 0 ? 2 : 1;
-    k.recommendedSizeMultiplier = sizeMult(k.winRate, k.riskReward, decided);
-    let best = null, bestWr = -1;
-    for (const [s, b] of Object.entries(k.byStrategy)) if (b.trades >= 3 && b.winRate > bestWr) {
-      best = s;
-      bestWr = b.winRate;
-    }
-    k.bestStrategy = best;
-  }
-  const insights = [];
-  for (const [sym, k] of Object.entries(symbols)) {
-    if (k.wins + k.losses >= MIN_TRADES) insights.push(`${sym}: ${k.winRate}% WR over ${k.wins + k.losses} \u2192 sizing \xD7${k.recommendedSizeMultiplier}${k.bestStrategy ? `, best on ${k.bestStrategy}` : ""}.`);
-    else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
-  }
-  const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache4.set(userId, { brain, at: Date.now() });
-  return brain;
-}
-async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache4.get(userId);
-  if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS2) return hit.brain;
-  return learnFromCryptoTrades(userId);
-}
-function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
-  return k ? k.recommendedSizeMultiplier : 1;
-}
-function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache4.get(userId)?.brain?.symbolKnowledge[symbol];
-  if (!k) return { blocked: false, reason: "" };
-  const decided = k.wins + k.losses;
-  if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
-  if (strategy) {
-    const st = k.byStrategy[strategy];
-    if (st && st.trades >= 8 && st.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol}/${strategy} ${st.winRate}% WR over ${st.trades} \u2014 skipping` };
-  }
-  if (hourUtc != null) {
-    const h = k.byHour[String(hourUtc)];
-    if (h && h.trades >= 8 && h.winRate < 30) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} @ ${hourUtc}:00 UTC ${h.winRate}% WR over ${h.trades} \u2014 skipping this hour` };
-  }
-  return { blocked: false, reason: "" };
-}
-async function recordCryptoBrainOutcome(o) {
-  try {
-    await pool.query(
-      `INSERT INTO crypto_brain_outcomes (user_id, symbol, strategy, direction, entry_confidence, return_pct, hour_utc, holding_minutes, exit_reason, result, profit_loss, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'live')`,
-      [
-        o.userId,
-        o.symbol,
-        o.strategy || "unknown",
-        o.direction,
-        o.entryConfidence ?? null,
-        o.returnPct ?? null,
-        (/* @__PURE__ */ new Date()).getUTCHours(),
-        o.holdingMinutes ?? null,
-        o.exitReason ?? null,
-        o.profitLoss > 0 ? "WIN" : o.profitLoss < 0 ? "LOSS" : "BREAKEVEN",
-        o.profitLoss
-      ]
-    );
-    await learnFromCryptoTrades(o.userId);
-  } catch (err) {
-    console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
-  }
-}
-var MIN_TRADES, REFRESH_TTL_MS2, _cache4;
-var init_crypto_brain = __esm({
-  "server/services/crypto-brain.ts"() {
-    "use strict";
-    init_db();
-    MIN_TRADES = 10;
-    REFRESH_TTL_MS2 = 60 * 1e3;
-    _cache4 = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/cefi-executor.ts
-function baseCoin(symbol) {
-  return symbol.toUpperCase().replace(/[-_]/g, "").replace(/PERP$/, "").replace(/(USDT|USDC|USD)$/, "") || symbol.toUpperCase();
-}
-function venueSymbol(venue, base) {
-  if (venue === "coinbase") return `${base}-USD`;
-  if (venue === "kraken") return `${base === "BTC" ? "XBT" : base}USD`;
-  return `${base.toLowerCase()}usd`;
-}
-async function serviceFor(userId, venue) {
-  const table = `${venue}_connections`;
-  const keyCol = venue === "coinbase" ? "api_key_name" : "api_key";
-  const { rows } = await pool.query(`SELECT ${keyCol} AS k, encrypted_api_secret AS s FROM ${table} WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`, [userId]);
-  if (!rows.length) return null;
-  if (venue === "coinbase") {
-    const { CoinbaseService: CoinbaseService2, decryptApiSecret: decryptApiSecret4 } = await Promise.resolve().then(() => (init_coinbase(), coinbase_exports));
-    return new CoinbaseService2(rows[0].k, decryptApiSecret4(rows[0].s));
-  }
-  if (venue === "kraken") {
-    const { KrakenService: KrakenService2, decryptApiSecret: decryptApiSecret4 } = await Promise.resolve().then(() => (init_kraken(), kraken_exports));
-    return new KrakenService2(rows[0].k, decryptApiSecret4(rows[0].s));
-  }
-  const { GeminiService: GeminiService2, decryptApiSecret: decryptApiSecret3 } = await Promise.resolve().then(() => (init_gemini(), gemini_exports));
-  return new GeminiService2(rows[0].k, decryptApiSecret3(rows[0].s));
-}
-async function cefiEntryBuy(userId, venue, base, notionalUsd) {
-  const sym = venueSymbol(venue, base);
-  const svc = await serviceFor(userId, venue);
-  if (!svc) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no active ${venue} connection` };
-  const q = await getAggregatedQuote(base).catch(() => null);
-  const price = q?.best?.price ?? 0;
-  if (!price) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: 0, orderId: "", reason: `no live price for ${base}` };
-  const qtyBase = Math.max(0, Math.round(notionalUsd / price * 1e6) / 1e6);
-  if (qtyBase <= 0) return { ok: false, venue, venueSymbol: sym, qtyBase: 0, entryPrice: price, orderId: "", reason: "size rounds to 0" };
-  let orderId = "";
-  if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "BUY", type: "market", quoteSize: Math.round(notionalUsd * 100) / 100 });
-    orderId = r.orderId;
-  } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "buy", ordertype: "market", volume: qtyBase });
-    orderId = (r.txids || [])[0] || "";
-  } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "buy", amount: qtyBase, price: Math.round(price * 1.01 * 100) / 100, immediateOrCancel: true });
-    orderId = r.orderId;
-  }
-  return { ok: true, venue, venueSymbol: sym, qtyBase, entryPrice: price, orderId };
-}
-async function cefiExitSell(userId, venue, base, qtyBase) {
-  const sym = venueSymbol(venue, base);
-  const svc = await serviceFor(userId, venue);
-  if (!svc) return { ok: false, exitPrice: 0, orderId: "", reason: `no active ${venue} connection` };
-  const q = await getAggregatedQuote(base).catch(() => null);
-  const price = q?.best?.price ?? 0;
-  let orderId = "";
-  if (venue === "coinbase") {
-    const r = await svc.placeOrder({ product: sym, side: "SELL", type: "market", baseSize: qtyBase });
-    orderId = r.orderId;
-  } else if (venue === "kraken") {
-    const r = await svc.placeOrder({ pair: sym, type: "sell", ordertype: "market", volume: qtyBase });
-    orderId = (r.txids || [])[0] || "";
-  } else {
-    const r = await svc.placeOrder({ symbol: sym, side: "sell", amount: qtyBase, price: price ? Math.round(price * 0.99 * 100) / 100 : 0.01, immediateOrCancel: true });
-    orderId = r.orderId;
-  }
-  return { ok: true, exitPrice: price, orderId };
-}
-var init_cefi_executor = __esm({
-  "server/services/cefi-executor.ts"() {
-    "use strict";
-    init_db();
-    init_crypto_market_data();
-  }
-});
-
-// server/services/defi-executor.ts
-var defi_executor_exports = {};
-__export(defi_executor_exports, {
-  defiEntryBuy: () => defiEntryBuy,
-  defiExitSell: () => defiExitSell,
-  defiTokenAvailable: () => defiTokenAvailable
-});
-async function defiTokenAvailable(chainKey, symbol) {
-  return isTokenTradeable(chainKey, baseCoin(symbol));
-}
-async function loadHotWallet(userId) {
-  const { rows } = await pool.query(
-    `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
-    [userId]
-  );
-  if (!rows.length) return null;
-  return { encryptedKey: rows[0].k, chain: rows[0].chain || "base" };
-}
-async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
-  const token = baseCoin(base);
-  const chain = chainKey || "base";
-  if (!await isTokenTradeable(chain, token)) {
-    return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `DeFi venue can't trade ${token} on ${chain} \u2014 not on the chain's token list (try a token that exists on ${chain}, or a different chain)` };
-  }
-  const hw = await loadHotWallet(userId);
-  if (!hw) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: "no active DeFi hot wallet connected" };
-  const q = await getAggregatedQuote(token).catch(() => null);
-  const price = q?.best?.price ?? 0;
-  if (!price) return { ok: false, token, qtyBase: 0, entryPrice: 0, reason: `no live price for ${token}` };
-  const r = await executeDefiSwap({
-    encryptedPrivateKey: hw.encryptedKey,
-    chainKey: chain,
-    sellToken: "USDC",
-    buyToken: token,
-    sellAmountHuman: notionalUsd,
-    slippageBps
-  });
-  if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
-  let qtyBase = notionalUsd / price;
-  if (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) qtyBase = r.buyAmountHuman;
-  qtyBase = Math.max(0, Math.round(qtyBase * 1e8) / 1e8);
-  return { ok: true, token, qtyBase, entryPrice: price, txHash: r.txHash };
-}
-async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
-  const token = baseCoin(base);
-  const hw = await loadHotWallet(userId);
-  if (!hw) return { ok: false, exitPrice: 0, reason: "no active DeFi hot wallet connected" };
-  const q = await getAggregatedQuote(baseCoin(base)).catch(() => null);
-  const price = q?.best?.price ?? 0;
-  const r = await executeDefiSwap({
-    encryptedPrivateKey: hw.encryptedKey,
-    chainKey: chainKey || hw.chain,
-    sellToken: token,
-    buyToken: "USDC",
-    sellAmountHuman: qtyBase,
-    slippageBps
-  });
-  if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
-  return { ok: true, exitPrice: price, txHash: r.txHash };
-}
-var init_defi_executor = __esm({
-  "server/services/defi-executor.ts"() {
-    "use strict";
-    init_db();
-    init_crypto_market_data();
-    init_defi_swap();
-    init_cefi_executor();
-  }
-});
-
-// server/services/cryptocom-scanner.ts
-var cryptocom_scanner_exports = {};
-__export(cryptocom_scanner_exports, {
-  runCryptocomEngineScan: () => runCryptocomEngineScan,
-  startCryptocomEngineScanner: () => startCryptocomEngineScanner
-});
-function convertToCandles3(bars) {
-  return bars.map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v }));
-}
-async function runTrendFollowing(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "5m", 100);
-  if (bars.length < 30) {
-    return { decision: "error", reasoning: `${symbol}: not enough candle history returned.`, score: null, price: null, dailyChangePercent: null, strategy: "trend_following" };
-  }
-  const candles = convertToCandles3(bars);
-  const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
-  const price = candles[candles.length - 1].c;
-  const dailyChangePercent = (price - candles[0].c) / candles[0].c * 100;
-  const adx = indicators.adx?.adx || 0;
-  const plusDI = indicators.adx?.plusDI || 0;
-  const minusDI = indicators.adx?.minusDI || 0;
-  const rsi3 = indicators.rsi?.value || 50;
-  const macdHist2 = indicators.macd?.histogram || 0;
-  let direction = null;
-  let score = 0;
-  const confluences = [];
-  if (adx > 25 && plusDI > minusDI && rsi3 < 68 && macdHist2 > 0) {
-    direction = "BUY";
-    score = 60 + Math.min(20, adx - 25);
-    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI+ dominant", "MACD bullish");
-  } else if (adx > 25 && minusDI > plusDI && rsi3 > 32 && macdHist2 < 0) {
-    direction = "SELL";
-    score = 60 + Math.min(20, adx - 25);
-    confluences.push(`ADX ${adx.toFixed(1)} trend`, "DI- dominant", "MACD bearish");
-  }
-  if (!direction) {
-    return { decision: "watching", reasoning: `${symbol}: no clear trend confluence (ADX ${adx.toFixed(1)}, RSI ${rsi3.toFixed(1)}).`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
-  }
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: ${direction} confluence found, but direction filter is "${cfg.directionFilter}".`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: ${direction} confluence (${confluences.join(", ")}) but score ${Math.round(score)}/100 below ${cfg.minConfidence} threshold.`, score: Math.round(score), price, dailyChangePercent, strategy: "trend_following" };
-  }
-  return {
-    decision: "signal",
-    score: Math.round(score),
-    price,
-    dailyChangePercent,
-    strategy: "trend_following",
-    direction,
-    reasoning: `${symbol}: ${direction} trend confluence \u2014 ${confluences.join(", ")}. Score ${Math.round(score)}/100.`
-  };
-}
-async function runMomentum2(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "15m", 30);
-  if (bars.length < 10) {
-    return { decision: "error", reasoning: `${symbol}: not enough candle history.`, score: null, price: null, dailyChangePercent: null, strategy: "momentum" };
-  }
-  const price = bars[bars.length - 1].c;
-  const dailyChangePercent = (price - bars[0].c) / bars[0].c * 100;
-  const direction = dailyChangePercent >= 0 ? "BUY" : "SELL";
-  const score = Math.round(Math.min(100, 50 + Math.min(Math.abs(dailyChangePercent) / 3, 1) * 50));
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-  if (!directionAllowed) {
-    return { decision: "skipped", reasoning: `${symbol}: moved ${direction === "BUY" ? "up" : "down"} ${Math.abs(dailyChangePercent).toFixed(2)}%, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "momentum" };
-  }
-  if (score < cfg.minConfidence) {
-    return { decision: "watching", reasoning: `${symbol}: momentum score ${score}/100 below ${cfg.minConfidence} threshold.`, score, price, dailyChangePercent, strategy: "momentum" };
-  }
-  return { decision: "signal", score, price, dailyChangePercent, strategy: "momentum", direction, reasoning: `${symbol}: momentum ${direction} \u2014 moved ${Math.abs(dailyChangePercent).toFixed(2)}% this window. Score ${score}/100.` };
-}
-async function runOrderFlow2(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "5m", 60);
-  if (bars.length < 20) return { decision: "error", reasoning: `${symbol}: not enough candles for order flow.`, score: null, price: null, dailyChangePercent: null, strategy: "order_flow" };
-  const c = convertToCandles3(bars);
-  const price = c[c.length - 1].c;
-  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
-  const win = c.slice(-30);
-  let pv = 0, vv = 0;
-  for (const b of win) {
-    const tp = (b.h + b.l + b.c) / 3;
-    pv += tp * (b.v ?? 0);
-    vv += b.v ?? 0;
-  }
-  const vwap = vv > 0 ? pv / vv : price;
-  const delta = win.map((b) => (b.c >= b.o ? 1 : -1) * (b.v ?? 0));
-  const mid = Math.floor(delta.length / 2);
-  const cvdFirst = delta.slice(0, mid).reduce((s, d) => s + d, 0);
-  const cvdSecond = delta.slice(mid).reduce((s, d) => s + d, 0);
-  const cvdShiftPct = vv > 0 ? (cvdSecond - cvdFirst) / vv * 100 : 0;
-  const rangePct = (Math.max(...win.map((b) => b.h)) - Math.min(...win.map((b) => b.l))) / price * 100;
-  const last = win[win.length - 1];
-  let direction = null;
-  if (rangePct >= 0.8 && price > vwap && cvdShiftPct > 0 && last.c >= last.o) direction = "BUY";
-  else if (rangePct >= 0.8 && price < vwap && cvdShiftPct < 0 && last.c <= last.o) direction = "SELL";
-  if (!direction) return { decision: "watching", reasoning: `${symbol}: order flow balanced (range ${rangePct.toFixed(2)}%, CVD shift ${cvdShiftPct.toFixed(1)}%, price ${price > vwap ? "above" : "below"} VWAP).`, score: 45, price, dailyChangePercent, strategy: "order_flow" };
-  const score = Math.round(Math.min(92, 60 + Math.min(20, Math.abs(cvdShiftPct)) + Math.min(12, rangePct)));
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} order-flow read, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "order_flow" };
-  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} order flow (CVD ${cvdShiftPct.toFixed(1)}%) but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "order_flow" };
-  return { decision: "signal", score, price, dailyChangePercent, strategy: "order_flow", direction, reasoning: `${symbol}: ${direction} order flow \u2014 CVD shift ${cvdShiftPct.toFixed(1)}%, price ${direction === "BUY" ? "above" : "below"} VWAP $${vwap.toFixed(2)}, ${rangePct.toFixed(2)}% range. Score ${score}/100.` };
-}
-async function runVolumeProfile2(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "15m", 96);
-  if (bars.length < 40) return { decision: "error", reasoning: `${symbol}: not enough candles for volume profile.`, score: null, price: null, dailyChangePercent: null, strategy: "volume_profile" };
-  const c = convertToCandles3(bars);
-  const price = c[c.length - 1].c;
-  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
-  const hi = Math.max(...c.map((b) => b.h)), lo = Math.min(...c.map((b) => b.l));
-  const bins = 24, binSize = (hi - lo) / bins || 1;
-  const vol = new Array(bins).fill(0);
-  for (const b of c) {
-    const tp = (b.h + b.l + b.c) / 3;
-    let i = Math.floor((tp - lo) / binSize);
-    i = Math.max(0, Math.min(bins - 1, i));
-    vol[i] += b.v ?? 0;
-  }
-  const total = vol.reduce((a, b) => a + b, 0) || 1;
-  let poc = 0;
-  for (let i = 1; i < bins; i++) if (vol[i] > vol[poc]) poc = i;
-  let inc = vol[poc], loI = poc, hiI = poc;
-  while (inc < total * 0.7 && (loI > 0 || hiI < bins - 1)) {
-    const d = loI > 0 ? vol[loI - 1] : -1;
-    const u = hiI < bins - 1 ? vol[hiI + 1] : -1;
-    if (u >= d) {
-      hiI++;
-      inc += vol[hiI];
-    } else {
-      loI--;
-      inc += vol[loI];
-    }
-  }
-  const VAL = lo + loI * binSize, VAH = lo + (hiI + 1) * binSize;
-  const avgVol = total / c.length, recentVol = c.slice(-3).reduce((s, b) => s + (b.v ?? 0), 0) / 3;
-  const volConfirm = recentVol > avgVol;
-  let direction = null;
-  if (price > VAH && volConfirm) direction = "BUY";
-  else if (price < VAL && volConfirm) direction = "SELL";
-  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside/at value area $${VAL.toFixed(2)}\u2013$${VAH.toFixed(2)} or volume not confirming \u2014 no VP edge.`, score: 46, price, dailyChangePercent, strategy: "volume_profile" };
-  const dist = direction === "BUY" ? (price - VAH) / binSize : (VAL - price) / binSize;
-  const score = Math.round(Math.max(55, Math.min(90, 60 + dist * 8)));
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} VP breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "volume_profile" };
-  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} VP breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "volume_profile" };
-  return { decision: "signal", score, price, dailyChangePercent, strategy: "volume_profile", direction, reasoning: `${symbol}: ${direction} value-area ${direction === "BUY" ? "breakout above " + VAH.toFixed(2) : "breakdown below " + VAL.toFixed(2)} (POC ~$${(lo + (poc + 0.5) * binSize).toFixed(2)}), volume confirming. Score ${score}/100.` };
-}
-async function runBreakout2(symbol, cfg) {
-  const bars = await CryptoComService.getCandles(symbol, "1h", 60);
-  if (bars.length < 25) return { decision: "error", reasoning: `${symbol}: not enough candles for breakout.`, score: null, price: null, dailyChangePercent: null, strategy: "breakout" };
-  const c = convertToCandles3(bars);
-  const price = c[c.length - 1].c;
-  const dailyChangePercent = (price - c[0].c) / c[0].c * 100;
-  const lookback = 20;
-  const prior = c.slice(-(lookback + 1), -1);
-  const priorHigh = Math.max(...prior.map((b) => b.h)), priorLow = Math.min(...prior.map((b) => b.l));
-  const avgVol = prior.reduce((s, b) => s + (b.v ?? 0), 0) / prior.length;
-  const last = c[c.length - 1];
-  let direction = null;
-  if (last.c > priorHigh) direction = "BUY";
-  else if (last.c < priorLow) direction = "SELL";
-  if (!direction) return { decision: "watching", reasoning: `${symbol}: inside its ${lookback}h range $${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)} \u2014 no breakout.`, score: 45, price, dailyChangePercent, strategy: "breakout" };
-  const volConfirm = (last.v ?? 0) > avgVol;
-  if (!volConfirm) return { decision: "watching", reasoning: `${symbol}: ${direction} breakout of ${lookback}h range but volume not confirming (${Math.round(last.v ?? 0)} vs avg ${Math.round(avgVol)}).`, score: 52, price, dailyChangePercent, strategy: "breakout" };
-  const score = Math.round(Math.min(90, 65 + Math.min(20, Math.abs(last.c - (direction === "BUY" ? priorHigh : priorLow)) / price * 2e3)));
-  const directionAllowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-  if (!directionAllowed) return { decision: "skipped", reasoning: `${symbol}: ${direction} breakout, but direction filter is "${cfg.directionFilter}".`, score, price, dailyChangePercent, strategy: "breakout" };
-  if (score < cfg.minConfidence) return { decision: "watching", reasoning: `${symbol}: ${direction} volume-confirmed breakout but score ${score}/100 below ${cfg.minConfidence}.`, score, price, dailyChangePercent, strategy: "breakout" };
-  return { decision: "signal", score, price, dailyChangePercent, strategy: "breakout", direction, reasoning: `${symbol}: ${direction} volume-confirmed breakout of ${lookback}h range ($${priorLow.toFixed(2)}\u2013$${priorHigh.toFixed(2)}), now $${price.toFixed(2)}. Score ${score}/100.` };
-}
-async function scanSymbol2(symbol, cfg) {
-  if (cfg.strategyMode === "auto") {
-    const results = await Promise.all(AUTO_STRATEGIES.map((k) => STRATEGY_RUNNERS2[k](symbol, cfg).catch(() => null)));
-    const valid = results.filter((r) => !!r);
-    const signals = valid.filter((r) => r.decision === "signal").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    if (signals.length > 0) return signals[0];
-    if (cfg.enableCompositeAutonomous) {
-      const dir = valid.filter((r) => r.direction);
-      const buys = dir.filter((r) => r.direction === "BUY"), sells = dir.filter((r) => r.direction === "SELL");
-      const side = buys.length > sells.length ? buys : sells.length > buys.length ? sells : [];
-      if (side.length >= 2) {
-        const composite = Math.round(side.reduce((s, r) => s + (r.score ?? 0), 0) / side.length);
-        const floor = cfg.compositeMinEdgeScore ?? 72;
-        if (composite >= floor) {
-          const direction = side[0].direction;
-          const allowed = cfg.directionFilter === "both" || cfg.directionFilter === "long_only" && direction === "BUY" || cfg.directionFilter === "short_only" && direction === "SELL";
-          if (allowed) return { decision: "signal", score: composite, price: side[0].price, dailyChangePercent: side[0].dailyChangePercent, strategy: "composite_autonomous", direction, reasoning: `${symbol}: Composite Autonomous Entry \u2014 ${side.length} strategies agree ${direction}, blended ${composite}/100 (floor ${floor}).` };
-        }
-      }
-    }
-    const watching = valid.filter((r) => r.decision === "watching").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-    if (watching.length > 0) return watching[0];
-    return valid[0] ?? { decision: "error", reasoning: `${symbol}: all strategies failed.`, score: null, price: null, dailyChangePercent: null, strategy: "auto" };
-  }
-  const runner = STRATEGY_RUNNERS2[cfg.strategyMode] || runTrendFollowing;
-  return runner(symbol, cfg);
-}
-async function computeCryptocomQuantity(userId, cfg, accountBalance, price, symbol) {
-  if (!price || price <= 0 || accountBalance <= 0) return { quantity: 0, reasoning: "" };
-  const riskAmount = accountBalance * (cfg.riskPerTrade / 100) * cfg.leverage;
-  let baseQty = Math.max(0, Math.round(riskAmount / price * 1e3) / 1e3);
-  let brainNote = "";
-  if (cfg.cryptoBrainEnabled !== false && symbol) {
-    const bm = cryptoBrainSizeMultiplier(userId, symbol);
-    if (bm !== 1) {
-      baseQty = Math.round(baseQty * bm * 1e3) / 1e3;
-      brainNote = ` \u{1F9E0} Brain ${bm}\xD7 (${symbol}).`;
-    }
-  }
-  if (cfg.brainLearningMode) {
-    const stats = await storage.getCryptocomEngineTradeStats(userId);
-    const brainLocked = stats.totalClosed < 10 || stats.winRate < 60;
-    if (brainLocked) {
-      return { quantity: baseQty > 0 ? Math.min(baseQty, Math.max(1e-3, baseQty * 0.25)) : 0, reasoning: `\u{1F9E0} Learning Mode: sized conservatively (${stats.totalClosed}/10 trades, ${stats.winRate}%/60% WR).` };
-    }
-    if (cfg.useKellyCriterion) {
-      const fractionalKelly = stats.winRate / 100 * 0.25;
-      return { quantity: baseQty * (1 + fractionalKelly), reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) + Kelly sizing.${brainNote}` };
-    }
-    return { quantity: baseQty, reasoning: `\u{1F9E0} Brain unlocked (${stats.totalClosed} trades @ ${stats.winRate}% WR) \u2014 full risk sizing.${brainNote}` };
-  }
-  if (cfg.useKellyCriterion) {
-    const stats = await storage.getCryptocomEngineTradeStats(userId);
-    const fractionalKelly = stats.winRate / 100 * 0.25;
-    return { quantity: baseQty * (1 + fractionalKelly), reasoning: `Kelly sizing (${stats.winRate}% WR over ${stats.totalClosed} trades).${brainNote}` };
-  }
-  return { quantity: baseQty, reasoning: brainNote.trim() };
-}
-function computeTrailFloorR(cfg, peakR) {
-  switch (cfg.trailMethod) {
-    case "fixed_r":
-      return peakR - cfg.trailFixedR;
-    case "stepped_fixed": {
-      const steps = Math.floor(peakR / cfg.trailStepR);
-      return (steps - 1) * cfg.trailStepR;
-    }
-    case "profit_lock":
-      return peakR * (cfg.trailProfitLockPct / 100);
-    case "chandelier":
-      return peakR - cfg.trailFixedR * 1.5;
-    case "parabolic_sar": {
-      const af = Math.min(cfg.trailSarMaxAF, cfg.trailSarInitialAF + peakR * cfg.trailSarInitialAF);
-      return peakR * (1 - af);
-    }
-    case "r_multiple":
-      return cfg.trailActivationR + (peakR - cfg.trailActivationR) * 0.5;
-    case "swing_structure":
-      return peakR - cfg.trailFixedR * 0.75;
-    default:
-      return -Infinity;
-  }
-}
-async function monitorOpenPositions2(userId, cfg) {
-  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
-  if (openTrades.length === 0) return;
-  for (const trade of openTrades) {
-    try {
-      if (trade.venue && trade.venue !== "cryptocom") {
-        const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-        const q = await getAggregatedQuote2(baseCoin(trade.symbol)).catch(() => null);
-        const px = q?.best?.price ?? 0;
-        if (!px) continue;
-        if (trade.takeProfit && px >= trade.takeProfit) {
-          await closePosition2(userId, trade, px, "take_profit");
-          continue;
-        }
-        if (trade.stopLoss && px <= trade.stopLoss) {
-          await closePosition2(userId, trade, px, "stop_loss");
-          continue;
-        }
-        continue;
-      }
-      if (cfg.trailMethod === "none") continue;
-      const currentPrice = await CryptoComService.getTicker(trade.symbol);
-      if (!currentPrice || !trade.stopLoss) continue;
-      const riskDistance = Math.abs(trade.entryPrice - trade.stopLoss);
-      if (riskDistance <= 0) continue;
-      const isLong = trade.direction === "long";
-      const currentR = isLong ? (currentPrice - trade.entryPrice) / riskDistance : (trade.entryPrice - currentPrice) / riskDistance;
-      const peakR = Math.max(trade.peakRMultiple, currentR);
-      const armed = trade.trailArmed || peakR >= cfg.trailActivationR;
-      if (currentR <= -1) {
-        await closePosition2(userId, trade, currentPrice, "stop_loss");
-        continue;
-      }
-      if (armed) {
-        const floor = Math.max(computeTrailFloorR(cfg, peakR), cfg.breakevenBufferR);
-        if (currentR <= floor) {
-          await closePosition2(userId, trade, currentPrice, "trailing_stop");
-          continue;
-        }
-      }
-      if (peakR !== trade.peakRMultiple || armed !== trade.trailArmed) {
-        await storage.updateCryptocomEngineTradeTrailState(trade.id, { peakRMultiple: peakR, trailArmed: armed });
-      }
-    } catch (err) {
-      console.error(`[cryptocom-scanner] monitor failed for trade ${trade.id}:`, err.message);
-    }
-  }
-}
-async function closePosition2(userId, trade, currentPrice, reason) {
-  try {
-    const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
-    if (venue === "defi") {
-      const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
-      const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
-    } else if (venue) {
-      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
-    } else {
-      const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
-      if (connection2) {
-        const service = new CryptoComService(connection2.apiKey, decryptApiSecret2(connection2.encryptedApiSecret));
-        const closeSide = trade.direction === "long" ? "SELL" : "BUY";
-        await service.placeOrder({ instrumentName: trade.symbol, side: closeSide, quantity: trade.quantity, type: "MARKET" }).catch(() => {
-        });
-      }
-    }
-    const realizedPnl = (trade.direction === "long" ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice) * trade.quantity;
-    await storage.closeCryptocomEngineTrade(trade.id, { exitPrice: currentPrice, exitReason: reason, realizedPnl });
-    await storage.createCryptocomEngineActivity({
-      userId,
-      symbol: trade.symbol,
-      decision: "signal",
-      strategy: trade.strategy,
-      reasoning: `${trade.symbol}: CLOSED ${trade.quantity} @ ~$${currentPrice.toFixed(2)} (${reason.replace("_", " ")}). Realized P&L: $${realizedPnl.toFixed(2)}.`,
-      score: null,
-      price: currentPrice,
-      dailyChangePercent: null,
-      source: "cryptocom"
-    });
-    try {
-      await recordRealizedPnl(userId, trade.connectionId, "cryptocom", realizedPnl);
-    } catch {
-    }
-    try {
-      const notional = (trade.entryPrice || 0) * (trade.quantity || 0);
-      const returnPct = notional > 0 ? realizedPnl / notional * 100 : 0;
-      const entered = trade.createdAt ? new Date(trade.createdAt).getTime() : Date.now();
-      await recordCryptoBrainOutcome({
-        userId,
-        symbol: trade.symbol,
-        strategy: trade.strategy || "unknown",
-        direction: trade.direction,
-        entryConfidence: trade.entryConfidence ?? null,
-        returnPct,
-        holdingMinutes: Math.max(0, Math.round((Date.now() - entered) / 6e4)),
-        exitReason: reason,
-        profitLoss: realizedPnl
-      });
-    } catch {
-    }
-  } catch (err) {
-    console.error(`[cryptocom-scanner] closePosition failed for trade ${trade.id}:`, err.message);
-  }
-}
-async function checkSafetyGates2(userId, cfg, equity) {
-  if (cfg.maxDailyTrades > 0) {
-    const count = await storage.getTodayCryptocomEngineTradeCount(userId);
-    if (count >= cfg.maxDailyTrades) return { allowed: false, reason: `max daily trades (${cfg.maxDailyTrades}) reached`, riskMultiplier: 1 };
-  }
-  const openTrades = await storage.getOpenCryptocomEngineTrades(userId);
-  if (openTrades.length >= cfg.maxOpenTrades) return { allowed: false, reason: `max open trades (${cfg.maxOpenTrades}) reached`, riskMultiplier: 1 };
-  let riskMultiplier = 1;
-  if (equity > 0) {
-    const todayPnl = await storage.getTodayCryptocomEngineRealizedPnl(userId);
-    if (cfg.dailyLossLimit > 0 && todayPnl <= -(equity * cfg.dailyLossLimit / 100)) {
-      return { allowed: false, reason: `daily loss limit (${cfg.dailyLossLimit}%) reached`, riskMultiplier: 1 };
-    }
-    if (cfg.dailyProfitTarget > 0 && todayPnl >= equity * cfg.dailyProfitTarget / 100) {
-      return { allowed: false, reason: `daily profit target (${cfg.dailyProfitTarget}%) already reached`, riskMultiplier: 1 };
-    }
-    const peak = Math.max(sessionPeakEquity2.get(userId) ?? equity, equity);
-    sessionPeakEquity2.set(userId, peak);
-    const ddFromPeakPct = peak > 0 ? (peak - equity) / peak * 100 : 0;
-    if (ddFromPeakPct >= cfg.drawdownShieldThreshold) riskMultiplier = Math.min(riskMultiplier, 0.25);
-    if (cfg.ruinGuardEnabled) {
-      const base = cfg.accountBalance > 0 ? cfg.accountBalance : equity;
-      const dailyLimitPct = cfg.dailyLossLimitPct ?? 5;
-      const maxDdPct = cfg.maxDrawdownLimitPct ?? 10;
-      if (dailyLimitPct > 0 && todayPnl <= -(base * dailyLimitPct / 100)) {
-        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: daily P&L hit the \u2212${dailyLimitPct}% limit \u2014 halted until next UTC day`, riskMultiplier: 1 };
-      }
-      if (maxDdPct > 0 && ddFromPeakPct >= maxDdPct) {
-        return { allowed: false, reason: `\u{1F6D1} Ruin Guard: drawdown ${ddFromPeakPct.toFixed(1)}% from peak hit the ${maxDdPct}% max-DD limit \u2014 halted until equity recovers`, riskMultiplier: 1 };
-      }
-    }
-    if (cfg.consistencyEnforcementEnabled) {
-      const history = await storage.getCryptocomEngineDailyPnlHistory(userId, cfg.consistencyPeriodDays);
-      const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      history[today] = todayPnl;
-      if (cfg.maxDailyProfitPctOfTotal > 0) {
-        const totalProfitAllTime = Object.values(history).reduce((s, v) => s + Math.max(0, v ?? 0), 0);
-        const todayProfit = Math.max(0, todayPnl);
-        if (totalProfitAllTime > 0 && todayProfit > 0) {
-          const todayPctOfTotal = todayProfit / totalProfitAllTime * 100;
-          if (todayPctOfTotal >= cfg.maxDailyProfitPctOfTotal) {
-            return { allowed: false, reason: `consistency rule \u2014 today's profit already ${todayPctOfTotal.toFixed(0)}% of total`, riskMultiplier: 1 };
-          }
-        }
-      }
-    }
-  }
-  return { allowed: true, riskMultiplier };
-}
-function quantVerdictFromScore2(score) {
-  if (score === null) return "SKIP";
-  if (score >= 65) return "CONFIRM";
-  if (score >= 40) return "WATCH";
-  return "SKIP";
-}
-async function getCryptocomAiConfirmationLite(userId, symbol, result) {
-  try {
-    const { getUniversalAIClientForUser: getUniversalAIClientForUser2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const client2 = await getUniversalAIClientForUser2(userId);
-    const system = 'You are a disciplined crypto perpetual futures second opinion. Given a rules-based signal, decide whether you would independently confirm or skip it. Respond ONLY with JSON: {"confirmed": boolean, "confidence": number (0-100), "reasoning": string}.';
-    const user = `Symbol: ${symbol}
-Strategy: ${result.strategy}
-Direction: ${result.direction}
-Quant score: ${result.score}/100
-Price: ${result.price}
-Daily change %: ${result.dailyChangePercent}
-Reasoning: ${result.reasoning}`;
-    const r = await client2.chat.completions.create({
-      model: client2.defaultModel || "gpt-4o-mini",
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      response_format: { type: "json_object" },
-      max_tokens: 300,
-      temperature: 0.3
-    });
-    const parsed = JSON.parse(r.choices?.[0]?.message?.content || "{}");
-    return { confirmed: !!parsed.confirmed, confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)), reasoning: String(parsed.reasoning || "") };
-  } catch (err) {
-    return { confirmed: false, confidence: 0, reasoning: `AI confirmation unavailable: ${err.message}` };
-  }
-}
-async function getCryptocomAiConfirmation(userId, symbol, result) {
-  try {
-    const bars = await CryptoComService.getCandles(symbol, "5m", 100);
-    if (!bars || bars.length < 30) return getCryptocomAiConfirmationLite(userId, symbol, result);
-    const candles = convertToCandles3(bars);
-    const indicators = computeAllAdvancedIndicators(candles, 0, symbol, "M5");
-    const { getAiVisionConfirmation: getAiVisionConfirmation2 } = await Promise.resolve().then(() => (init_openai(), openai_exports));
-    const proposedSignal = result.direction === "BUY" ? "BUY" : result.direction === "SELL" ? "SELL" : "NEUTRAL";
-    const tradePlan = { direction: proposedSignal, entry: result.price, strategy: result.strategy };
-    const conf = await getAiVisionConfirmation2(
-      candles,
-      indicators,
-      proposedSignal,
-      Math.max(0, Math.min(100, result.score ?? 0)),
-      tradePlan,
-      symbol,
-      "M5",
-      userId,
-      void 0,
-      null,
-      null,
-      void 0,
-      null,
-      void 0,
-      void 0,
-      `crypto-${result.strategy}`,
-      false
-    );
-    if (!conf || conf.aiConfidence === void 0 && conf.confirmed === void 0) {
-      return getCryptocomAiConfirmationLite(userId, symbol, result);
-    }
-    const dirOk = !conf.aiDirection || conf.aiDirection === "NEUTRAL" || conf.aiDirection === proposedSignal;
-    return {
-      confirmed: !!conf.confirmed && dirOk,
-      confidence: Math.max(0, Math.min(100, Number(conf.aiConfidence) || 0)),
-      reasoning: `[SS AI${conf.modelUsed ? ` \xB7 ${conf.modelUsed}` : ""}] ${String(conf.reasoning || "no reasoning returned")}${dirOk ? "" : ` (direction mismatch: AI says ${conf.aiDirection}, signal is ${proposedSignal} \u2014 skipped)`}`
-    };
-  } catch (err) {
-    return getCryptocomAiConfirmationLite(userId, symbol, result);
-  }
-}
-function pushConsensus(userId, entry) {
-  global.cryptocomEngineConsensus = global.cryptocomEngineConsensus || {};
-  const list = global.cryptocomEngineConsensus[userId] || [];
-  const deduped = list.filter((e) => e.symbol !== entry.symbol);
-  global.cryptocomEngineConsensus[userId] = [entry, ...deduped].slice(0, 20);
-  Promise.resolve().then(() => (init_engine_consensus(), engine_consensus_exports)).then(
-    ({ recordEngineConsensus: recordEngineConsensus2 }) => recordEngineConsensus2(userId, "cryptocom", entry)
-  ).catch(() => {
-  });
-}
-async function assembleConsensus(userId, symbol, result, cfg) {
-  const quantVerdict = quantVerdictFromScore2(result.score);
-  if (cfg.aiMode === "rule_based") {
-    const tradeAllowed2 = quantVerdict !== "SKIP";
-    pushConsensus(userId, {
-      symbol,
-      strategy: result.strategy,
-      quantVerdict,
-      quantScore: result.score ?? 0,
-      aiVerdict: "CONFIRM",
-      aiConfidence: 0,
-      aiReasoning: "Rule-based mode \u2014 AI confirmation skipped.",
-      consensus: quantVerdict === "CONFIRM" ? "STRONG_CONFIRM" : quantVerdict === "SKIP" ? "STRONG_SKIP" : "WATCH",
-      tradeAllowed: tradeAllowed2,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    return tradeAllowed2;
-  }
-  const ai = await getCryptocomAiConfirmation(userId, symbol, result);
-  const aiVerdict = ai.confirmed && ai.confidence >= Math.max(60, cfg.minConfidence) ? "CONFIRM" : "SKIP";
-  let consensus;
-  if (quantVerdict === "CONFIRM" && aiVerdict === "CONFIRM") consensus = "STRONG_CONFIRM";
-  else if (quantVerdict === "SKIP" && aiVerdict === "SKIP") consensus = "STRONG_SKIP";
-  else if (quantVerdict === "CONFIRM" && aiVerdict === "SKIP" || quantVerdict === "SKIP" && aiVerdict === "CONFIRM") consensus = "CAUTION";
-  else consensus = "WATCH";
-  const tradeAllowed = consensus !== "STRONG_SKIP" && aiVerdict === "CONFIRM";
-  pushConsensus(userId, { symbol, strategy: result.strategy, quantVerdict, quantScore: result.score ?? 0, aiVerdict, aiConfidence: ai.confidence, aiReasoning: ai.reasoning, consensus, tradeAllowed, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  return tradeAllowed;
-}
-async function executeSignal2(service, connection2, userId, symbol, result, cfg) {
-  if (!result.direction || !result.price) return;
-  if (!cfg.multiVenueEnabled) {
-    return executeSignalSingle(service, connection2, userId, symbol, result, cfg);
-  }
-  const arms = [];
-  if (connection2) arms.push({ venue: "cryptocom", label: "perps" });
-  if (cfg.defiAutoTradeEnabled) arms.push({ venue: "defi", label: "DeFi" });
-  if (cfg.cefiAutoTradeEnabled) {
-    try {
-      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
-      for (const [tbl, v] of [["coinbase_connections", "coinbase"], ["kraken_connections", "kraken"], ["gemini_connections", "gemini"]]) {
-        const r = await pool2.query(`SELECT 1 FROM ${tbl} WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => null);
-        if (r && r.rows.length) arms.push({ venue: v, label: v });
-      }
-    } catch {
-    }
-  }
-  for (const arm of arms) {
-    const armCfg = {
-      ...cfg,
-      executionVenue: arm.venue,
-      defiAutoTradeEnabled: arm.venue === "defi",
-      cefiAutoTradeEnabled: arm.venue !== "defi" && arm.venue !== "cryptocom"
-    };
-    await executeSignalSingle(service, connection2, userId, symbol, result, armCfg).catch((e) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
-  }
-}
-async function executeSignalSingle(service, connection2, userId, symbol, result, cfg) {
-  if (!result.direction || !result.price) return;
-  const venue = cfg.executionVenue;
-  if (venue === "defi" && cfg.defiAutoTradeEnabled) {
-    if (result.direction !== "BUY") {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: DeFi swaps are long-only \u2014 SELL/short signals aren't traded on-chain.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-      return;
-    }
-    const gateD = await checkSafetyGates2(userId, cfg, cfg.accountBalance);
-    if (!gateD.allowed) {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gateD.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-      return;
-    }
-    const chain = cfg.defiChain || "base";
-    const slip = cfg.defiSlippageBps ?? 100;
-    const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
-    try {
-      const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const r = await defiEntryBuy2(userId, chain, symbol, notionalD, slip);
-      if (!r.ok) {
-        await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-        return;
-      }
-      const tp = r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100);
-      const sl = r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100);
-      await storage.createCryptocomEngineTrade({
-        userId,
-        connectionId: connection2?.id ?? 0,
-        venue: "defi",
-        symbol,
-        strategy: result.strategy,
-        direction: "long",
-        quantity: r.qtyBase,
-        entryPrice: r.entryPrice,
-        stopLoss: sl,
-        takeProfit: tp,
-        entryOrderId: r.txHash ?? "",
-        entryReasoning: result.reasoning,
-        status: "open"
-      });
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on DeFi (${chain}) \u2014 swapped ~$${notionalD.toFixed(0)} USDC \u2192 ${r.qtyBase} ${r.token} @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. tx ${r.txHash?.slice(0, 12) ?? ""}\u2026 ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    } catch (err) {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    }
-    return;
-  }
-  if (venue && venue !== "cryptocom" && venue !== "defi" && cfg.cefiAutoTradeEnabled) {
-    if (result.direction !== "BUY") {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: ${venue} is spot (long-only) \u2014 SELL/short signals aren't traded on this venue.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-      return;
-    }
-    const gateC = await checkSafetyGates2(userId, cfg, cfg.accountBalance);
-    if (!gateC.allowed) {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gateC.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-      return;
-    }
-    const base = baseCoin(symbol);
-    const notional = Math.max(1, cfg.cefiNotionalUsd ?? 25) * (gateC.riskMultiplier < 1 ? gateC.riskMultiplier : 1);
-    try {
-      const r = await cefiEntryBuy(userId, venue, base, notional);
-      if (!r.ok) {
-        await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: ${venue} spot entry failed \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-        return;
-      }
-      await storage.createCryptocomEngineTrade({
-        userId,
-        connectionId: connection2?.id ?? 0,
-        venue,
-        symbol: r.venueSymbol,
-        strategy: result.strategy,
-        direction: "long",
-        quantity: r.qtyBase,
-        entryPrice: r.entryPrice,
-        stopLoss: r.entryPrice * (1 - (cfg.cefiStopLossPct ?? 2) / 100),
-        takeProfit: r.entryPrice * (1 + (cfg.cefiTakeProfitPct ?? 3) / 100),
-        entryOrderId: r.orderId,
-        entryReasoning: result.reasoning,
-        status: "open"
-      });
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "signal", strategy: result.strategy, reasoning: `${symbol}: EXECUTED on ${venue.toUpperCase()} \u2014 spot BUY ${r.qtyBase} ${base} (~$${notional.toFixed(0)}) @ ~$${r.entryPrice.toFixed(2)}. TP +${cfg.cefiTakeProfitPct ?? 3}% / SL -${cfg.cefiStopLossPct ?? 2}%. ${result.reasoning}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    } catch (err) {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: ${venue} spot order error: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    }
-    return;
-  }
-  let account;
-  try {
-    account = await service.getAccountInfo();
-  } catch (err) {
-    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: couldn't fetch account info: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    return;
-  }
-  const gateEquity = account.equity > 0 ? account.equity : cfg.accountBalance;
-  const gate = await checkSafetyGates2(userId, cfg, gateEquity);
-  if (!gate.allowed) {
-    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but execution blocked \u2014 ${gate.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    return;
-  }
-  const sizingCfg = gate.riskMultiplier < 1 ? { ...cfg, riskPerTrade: cfg.riskPerTrade * gate.riskMultiplier } : cfg;
-  const { quantity, reasoning: sizingReasoning } = await computeCryptocomQuantity(userId, sizingCfg, gateEquity, result.price, symbol);
-  if (quantity <= 0) {
-    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed, but sizing produced 0 quantity.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    return;
-  }
-  const atrDistance = Math.max(result.price * 0.01, result.price * 5e-3);
-  const stopLoss = result.direction === "BUY" ? result.price - atrDistance : result.price + atrDistance;
-  const takeProfit = result.direction === "BUY" ? result.price + atrDistance * 2 : result.price - atrDistance * 2;
-  let order;
-  try {
-    order = await service.placeOrder({ instrumentName: symbol, side: result.direction, quantity, type: "MARKET" });
-  } catch (err) {
-    await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", strategy: result.strategy, reasoning: `${symbol}: order failed: ${err.message}`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-    return;
-  }
-  await storage.createCryptocomEngineTrade({
-    userId,
-    connectionId: connection2.id,
-    symbol,
-    strategy: result.strategy,
-    direction: result.direction === "BUY" ? "long" : "short",
-    quantity,
-    entryPrice: result.price,
-    stopLoss,
-    takeProfit,
-    entryOrderId: order.orderId,
-    entryReasoning: result.reasoning,
-    status: "open"
-  });
-  await storage.createCryptocomEngineActivity({
-    userId,
-    symbol,
-    decision: "signal",
-    strategy: result.strategy,
-    reasoning: `${symbol}: EXECUTED \u2014 ${result.direction === "BUY" ? "long" : "short"} ${quantity} @ ~$${result.price.toFixed(2)}. ${result.reasoning}${sizingReasoning ? ` ${sizingReasoning}` : ""}`,
-    score: result.score,
-    price: result.price,
-    dailyChangePercent: result.dailyChangePercent,
-    source: "cryptocom"
-  });
-}
-async function scanOneUser2(userId) {
-  const config = await storage.getUserCryptocomEngineConfig(userId);
-  if (!config || !config.isActive) return;
-  const now = Date.now();
-  const last = lastScanAt2.get(userId) || 0;
-  if (now - last < Math.max(MIN_SCAN_INTERVAL_MS2, config.scanIntervalMs)) return;
-  lastScanAt2.set(userId, now);
-  const connections = await storage.getUserCryptocomConnections(userId);
-  const activeConn = connections.find((c) => c.isActive);
-  if (!activeConn) {
-    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: "No active Crypto.com connection.", score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
-    return;
-  }
-  let service;
-  try {
-    service = new CryptoComService(activeConn.apiKey, decryptApiSecret2(activeConn.encryptedApiSecret));
-  } catch (err) {
-    await storage.createCryptocomEngineActivity({ userId, symbol: "\u2014", decision: "error", reasoning: `Could not decrypt credentials: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: null });
-    return;
-  }
-  await monitorOpenPositions2(userId, config).catch((e) => console.error(`[cryptocom-scanner] monitorOpenPositions failed for user ${userId}:`, e.message));
-  if (config.cryptoBrainEnabled !== false) await getOrRefreshCryptoBrain(userId).catch(() => {
-  });
-  const canAutoExecute = activeConn.autoExecute && config.enableAutoExecution;
-  const allSymbols = Array.isArray(config.symbols) ? config.symbols : [];
-  let symbols = allSymbols;
-  if (allSymbols.length > MAX_SYMBOLS_PER_CYCLE) {
-    const start = (scanCursor.get(userId) || 0) % allSymbols.length;
-    symbols = [];
-    for (let i = 0; i < MAX_SYMBOLS_PER_CYCLE; i++) symbols.push(allSymbols[(start + i) % allSymbols.length]);
-    scanCursor.set(userId, (start + MAX_SYMBOLS_PER_CYCLE) % allSymbols.length);
-  }
-  for (const symbol of symbols) {
-    try {
-      const result = await scanSymbol2(symbol, config);
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: result.decision, reasoning: result.reasoning, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom", strategy: result.strategy });
-      if (result.decision === "signal" && canAutoExecute) {
-        if (config.cryptoBrainEnabled !== false && config.cryptoBrainGating) {
-          const g = cryptoBrainGate(userId, symbol, result.strategy, (/* @__PURE__ */ new Date()).getUTCHours());
-          if (g.blocked) {
-            await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: g.reason, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-            continue;
-          }
-        }
-        const tradeAllowed = await assembleConsensus(userId, symbol, result, config).catch(() => true);
-        if (tradeAllowed) {
-          await executeSignal2(service, activeConn, userId, symbol, result, config).catch((e) => console.error(`[cryptocom-scanner] executeSignal failed for ${symbol}:`, e.message));
-        } else {
-          await storage.createCryptocomEngineActivity({ userId, symbol, decision: "skipped", strategy: result.strategy, reasoning: `${symbol}: signal confirmed by quant scan, but Dual-Vote Consensus blocked execution.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
-        }
-      }
-    } catch (err) {
-      await storage.createCryptocomEngineActivity({ userId, symbol, decision: "error", reasoning: `Scan failed for ${symbol}: ${err.message}`, score: null, price: null, dailyChangePercent: null, source: "cryptocom", strategy: config.strategyMode });
-    }
-  }
-}
-async function runCryptocomEngineScan() {
-  try {
-    const configs = await storage.getAllActiveCryptocomEngineConfigs();
-    for (const config of configs) {
-      await scanOneUser2(config.userId).catch((e) => console.error(`[cryptocom-scanner] user ${config.userId} scan failed:`, e.message));
-    }
-  } catch (err) {
-    console.error("[cryptocom-scanner] runCryptocomEngineScan failed:", err.message);
-  }
-}
-function startCryptocomEngineScanner() {
-  if (started4) return;
-  started4 = true;
-  const LOOP_INTERVAL_MS = 6e4;
-  setInterval(() => {
-    runCryptocomEngineScan().catch(() => {
-    });
-  }, LOOP_INTERVAL_MS);
-  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
-}
-var MIN_SCAN_INTERVAL_MS2, lastScanAt2, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS2, AUTO_STRATEGIES, sessionPeakEquity2, started4;
-var init_cryptocom_scanner = __esm({
-  "server/services/cryptocom-scanner.ts"() {
-    "use strict";
-    init_storage();
-    init_cryptocom();
-    init_indicators();
-    init_crypto_brain();
-    init_prop_firm_consistency();
-    init_cefi_executor();
-    MIN_SCAN_INTERVAL_MS2 = 3e4;
-    lastScanAt2 = /* @__PURE__ */ new Map();
-    MAX_SYMBOLS_PER_CYCLE = 12;
-    scanCursor = /* @__PURE__ */ new Map();
-    STRATEGY_RUNNERS2 = {
-      trend_following: runTrendFollowing,
-      momentum: runMomentum2,
-      order_flow: runOrderFlow2,
-      volume_profile: runVolumeProfile2,
-      breakout: runBreakout2
-    };
-    AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
-    sessionPeakEquity2 = /* @__PURE__ */ new Map();
     started4 = false;
   }
 });
@@ -69883,6 +69902,20 @@ Rules:
       storage.getUserCryptocomEngineTrades(userId, limit)
     ]);
     res.json({ open, recent });
+  });
+  app2.post("/api/cryptocom-engine/close-trade", async (req, res) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+    const userId = req.user.id;
+    const tradeId = Number(req.body?.tradeId);
+    if (!Number.isFinite(tradeId)) return res.status(400).json({ error: "tradeId required" });
+    try {
+      const { manualCloseCryptoTrade: manualCloseCryptoTrade2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
+      const r = await manualCloseCryptoTrade2(userId, tradeId);
+      if (!r.ok) return res.status(400).json({ error: r.error });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err?.message || "close failed" });
+    }
   });
   app2.get("/api/cryptocom-engine/consensus", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
