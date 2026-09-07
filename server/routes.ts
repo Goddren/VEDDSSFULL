@@ -16394,6 +16394,69 @@ Rules:
     res.json({ open, recent });
   });
 
+  // DeFi hot-wallet snapshot for the crypto engine page: on-chain wallet amount
+  // (USDC + native gas) on the configured chain + net realized DeFi P&L.
+  app.get("/api/cryptocom-engine/defi-wallet", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.json({ connected: false });
+    const userId = (req.user as User).id;
+    try {
+      const { pool } = await import('./db');
+      const hw = (await pool.query(`SELECT address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId])).rows[0];
+      if (!hw) return res.json({ connected: false });
+      const cfg = (await pool.query(`SELECT defi_chain FROM cryptocom_engine_configs WHERE user_id=$1`, [userId])).rows[0];
+      const chain = cfg?.defi_chain || 'ethereum';
+      const nativeSym: Record<string, string> = { ethereum: 'ETH', base: 'ETH', arbitrum: 'ETH', optimism: 'ETH', polygon: 'POL' };
+      const { getOnchainBalances } = await import('./services/onchain-balances');
+      const bal = await getOnchainBalances(hw.address).catch(() => null);
+      const chainHoldings = (bal?.holdings ?? []).filter((h: any) => h.chain === chain);
+      const usdc = chainHoldings.filter((h: any) => h.symbol === 'USDC').reduce((s: number, h: any) => s + (h.amount || 0), 0);
+      const native = chainHoldings.filter((h: any) => h.symbol === (nativeSym[chain] || 'ETH')).reduce((s: number, h: any) => s + (h.amount || 0), 0);
+      const walletUsd = chainHoldings.reduce((s: number, h: any) => s + (h.usdValue || 0), 0);
+      // Net realized P&L across closed DeFi trades.
+      const pnlRow = (await pool.query(
+        `SELECT COALESCE(SUM(realized_pnl),0) AS net, COUNT(*) AS n FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status='closed' AND realized_pnl IS NOT NULL`,
+        [userId],
+      )).rows[0];
+      const realizedPnl = Math.round(Number(pnlRow.net) * 100) / 100;
+      // Unrealized P&L on open DeFi positions (live prices).
+      let unrealizedPnl = 0;
+      try {
+        const openRows = (await pool.query(
+          `SELECT symbol, quantity, entry_price, direction FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status='open'`,
+          [userId],
+        )).rows;
+        if (openRows.length) {
+          const bases = Array.from(new Set(openRows.map((r: any) => String(r.symbol).replace(/USD-?PERP$/i, '').replace(/USD$/i, '').toUpperCase())));
+          const { getAggregatedQuotes } = await import('./services/crypto-market-data');
+          const quotes = await getAggregatedQuotes(bases).catch(() => []);
+          const pm: Record<string, number> = {};
+          for (const q of (quotes || [])) { const p = q?.best?.price; if (typeof p === 'number' && q?.symbol) pm[String(q.symbol).toUpperCase()] = p; }
+          for (const r of openRows) {
+            const base = String(r.symbol).replace(/USD-?PERP$/i, '').replace(/USD$/i, '').toUpperCase();
+            const px = pm[base];
+            if (px > 0) unrealizedPnl += (px - Number(r.entry_price)) * Number(r.quantity) * (r.direction === 'long' ? 1 : -1);
+          }
+        }
+      } catch { /* unrealized best-effort */ }
+      unrealizedPnl = Math.round(unrealizedPnl * 100) / 100;
+      res.json({
+        connected: true,
+        address: hw.address,
+        chain,
+        nativeSymbol: nativeSym[chain] || 'ETH',
+        usdc: Math.round(usdc * 100) / 100,
+        native: Math.round(native * 1e6) / 1e6,
+        walletUsd: Math.round(walletUsd * 100) / 100,
+        realizedPnl,
+        unrealizedPnl,
+        netPnl: Math.round((realizedPnl + unrealizedPnl) * 100) / 100,
+        closedTrades: Number(pnlRow.n),
+      });
+    } catch (err: any) {
+      res.json({ connected: false, error: err?.message });
+    }
+  });
+
   // Manual close of one open crypto-engine trade (UI "Close" button).
   app.post("/api/cryptocom-engine/close-trade", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });

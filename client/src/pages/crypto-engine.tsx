@@ -481,6 +481,13 @@ export default function CryptoEnginePage() {
     if (!(px > 0)) return null;
     return (px - t.entryPrice) * t.quantity * (t.direction === 'long' ? 1 : -1);
   };
+  // ── DeFi hot-wallet snapshot (on-chain amount + net P&L) ──────────────────
+  const { data: defiWallet } = useQuery<any>({
+    queryKey: ['/api/cryptocom-engine/defi-wallet'],
+    refetchInterval: 30000,
+  });
+  const unrealizedOpenPnl = openTrades.reduce((s, t) => s + (livePnlFor(t) ?? 0), 0);
+  const defiNetPnl = (defiWallet?.realizedPnl ?? 0) + unrealizedOpenPnl;
   // Rolling P&L history per trade id for the mini live chart (last 40 points).
   const [pnlHistory, setPnlHistory] = useState<Record<number, number[]>>({});
   useEffect(() => {
@@ -1597,6 +1604,39 @@ export default function CryptoEnginePage() {
                 <CardDescription>Real orders placed by the engine when a signal fires with Auto-execute on.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* ── DeFi Hot Wallet snapshot: on-chain amount + net P&L ── */}
+                {defiWallet?.connected && (
+                  <div className="rounded-lg border border-amber-700/30 bg-amber-900/10 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Wallet className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-amber-300 uppercase tracking-wide">DeFi Hot Wallet</span>
+                        <span className="text-[10px] text-gray-500 uppercase">{defiWallet.chain}</span>
+                      </div>
+                      <a href={`https://${defiWallet.chain === 'polygon' ? 'polygonscan.com' : defiWallet.chain === 'base' ? 'basescan.org' : defiWallet.chain === 'arbitrum' ? 'arbiscan.io' : defiWallet.chain === 'optimism' ? 'optimistic.etherscan.io' : 'etherscan.io'}/address/${defiWallet.address}`}
+                        target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono text-amber-400/70 hover:text-amber-300">
+                        {String(defiWallet.address).slice(0, 6)}…{String(defiWallet.address).slice(-4)} ↗
+                      </a>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="rounded bg-black/20 p-2 text-center">
+                        <p className="text-sm font-bold font-mono text-white">${Number(defiWallet.usdc ?? 0).toFixed(2)}</p>
+                        <p className="text-[9px] text-gray-500">USDC to trade</p>
+                      </div>
+                      <div className="rounded bg-black/20 p-2 text-center">
+                        <p className="text-sm font-bold font-mono text-gray-300">{Number(defiWallet.native ?? 0).toFixed(4)}</p>
+                        <p className="text-[9px] text-gray-500">{defiWallet.nativeSymbol} (gas)</p>
+                      </div>
+                      <div className="rounded bg-black/20 p-2 text-center">
+                        <p className={`text-sm font-bold font-mono ${defiNetPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{defiNetPnl >= 0 ? '+' : ''}${defiNetPnl.toFixed(2)}</p>
+                        <p className="text-[9px] text-gray-500">Net P&L</p>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">
+                      Net P&L = realized ${Number(defiWallet.realizedPnl ?? 0).toFixed(2)} ({defiWallet.closedTrades ?? 0} closed) + open {unrealizedOpenPnl >= 0 ? '+' : ''}${unrealizedOpenPnl.toFixed(2)} · wallet ≈ ${Number(defiWallet.walletUsd ?? 0).toFixed(2)} on-chain
+                    </p>
+                  </div>
+                )}
                 {tradesLoading ? (
                   <p className="text-xs text-gray-500">Loading trades...</p>
                 ) : (

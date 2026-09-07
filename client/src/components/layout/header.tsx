@@ -165,20 +165,24 @@ const Header: React.FC = () => {
     ...navTastyConns.filter((c: any) => c.isActive).map((c: any) => ({ ...c, broker: 'TastyTrade', label: c.username, typeLabel: c.accountType })),
   ];
 
-  // ── Crypto.com account balance + engine total P&L for the slide nav ──
-  const { data: cryptoNavBalance } = useQuery<any>({
-    queryKey: ['/api/cryptocom/balance'], enabled: !!user, refetchInterval: 60000,
+  // ── Crypto DeFi hot-wallet: live on-chain balance + net P&L for the slide nav ──
+  const { data: defiWalletNav } = useQuery<any>({
+    queryKey: ['/api/cryptocom-engine/defi-wallet'], enabled: !!user, refetchInterval: 30000,
   });
-  const { data: cryptoNavTrades } = useQuery<any>({
-    queryKey: ['/api/cryptocom-engine/trades'], enabled: !!user, refetchInterval: 60000,
+  // ── Options engine: live balance (sum of connected accounts) + net P&L ──
+  const { data: optionsBalancesNav } = useQuery<any>({
+    queryKey: ['/api/options-engine/balances'], enabled: !!user, refetchInterval: 60000,
   });
-  const cryptoTotalPnl = Array.isArray(cryptoNavTrades?.recent)
-    ? cryptoNavTrades.recent.reduce((s: number, t: any) => s + (Number(t.realizedPnl) || 0), 0)
+  const optionsTotalBalance = Array.isArray(optionsBalancesNav?.accounts)
+    ? optionsBalancesNav.accounts.reduce((s: number, a: any) => s + (Number(a.equity ?? a.balance) || 0), 0)
     : 0;
-  const cryptoClosedCount = Array.isArray(cryptoNavTrades?.recent)
-    ? cryptoNavTrades.recent.filter((t: any) => t.status === 'closed').length
+  const optionsAnyConnected = Array.isArray(optionsBalancesNav?.accounts) && optionsBalancesNav.accounts.some((a: any) => !a.error);
+  const { data: optionsTradesNav } = useQuery<any>({
+    queryKey: ['/api/options-engine/trades'], enabled: !!user, refetchInterval: 60000,
+  });
+  const optionsTotalPnl = Array.isArray(optionsTradesNav?.recent)
+    ? optionsTradesNav.recent.reduce((s: number, t: any) => s + (Number(t.realizedPnl) || 0), 0)
     : 0;
-  // Polymarket total P&L (realized + unrealized) comes from polyEngineStatus above.
 
   // Live MT5 EA push data for the nav balance display
   const { data: navMt5Data } = useQuery<any>({
@@ -1260,67 +1264,70 @@ const Header: React.FC = () => {
                     </div>
                   )}
 
-                  {/* ── Crypto Account (Crypto.com balance + engine total P&L) ── */}
-                  <div className="border-t border-gray-700 pt-3 mt-1">
+                  {/* ── Crypto DeFi Hot Wallet (live on-chain balance + net P&L) ── */}
+                  <Link href="/crypto-engine" onClick={handleMobileNavClick} className="block border-t border-gray-700 pt-3 mt-1 group">
                     <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                      <Coins className="h-3 w-3" />
-                      Crypto Account
+                      <Wallet className="h-3 w-3" />
+                      Crypto DeFi Wallet
+                      {defiWalletNav?.connected && <span className="text-[10px] text-gray-500 normal-case font-normal">· {defiWalletNav.chain}</span>}
                     </span>
-                    <div className="bg-gray-800/60 border border-amber-700/25 rounded-lg px-3 py-2 mb-2">
+                    <div className="bg-gray-800/60 border border-amber-700/25 rounded-lg px-3 py-2 mb-1 group-hover:border-amber-600/40 transition-colors">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-bold font-mono text-amber-300">
-                            {cryptoNavBalance?.connected
-                              ? `$${Number(cryptoNavBalance.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            {defiWalletNav?.connected
+                              ? `$${Number(defiWalletNav.usdc ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                               : '—'}
                           </p>
-                          <p className="text-[10px] text-gray-500">{cryptoNavBalance?.connected ? 'Balance (Crypto.com)' : 'Not connected'}</p>
+                          <p className="text-[10px] text-gray-500">{defiWalletNav?.connected ? `USDC · ${Number(defiWalletNav.native ?? 0).toFixed(4)} ${defiWalletNav.nativeSymbol} gas` : 'No hot wallet'}</p>
                         </div>
-                        {cryptoClosedCount > 0 && (
+                        {defiWalletNav?.connected && (
                           <div className="text-right shrink-0">
-                            <p className={`text-sm font-bold ${cryptoTotalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {cryptoTotalPnl >= 0 ? '+' : ''}${cryptoTotalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <p className={`text-sm font-bold ${(defiWalletNav.netPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {(defiWalletNav.netPnl ?? 0) >= 0 ? '+' : ''}${Number(defiWalletNav.netPnl ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
-                            <p className="text-[10px] text-gray-500">Total P&L · {cryptoClosedCount} closed</p>
+                            <p className="text-[10px] text-gray-500">Net P&L</p>
                           </div>
                         )}
                       </div>
                     </div>
-                    <Link href="/crypto-engine" onClick={handleMobileNavClick} className="text-sm font-medium text-amber-400 hover:text-amber-300 flex items-center gap-1.5">
+                    <span className="text-sm font-medium text-amber-400 group-hover:text-amber-300 flex items-center gap-1.5">
                       <TrendingUp className="h-3.5 w-3.5" />
                       Manage Crypto Engine
-                    </Link>
-                  </div>
+                    </span>
+                  </Link>
 
-                  {/* ── Polymarket Account (total P&L, links to engine) ──── */}
-                  {(() => {
-                    const pmPnl = (polyEngineStatus?.totalRealizedPnl ?? 0) + (polyEngineStatus?.totalUnrealizedPnl ?? 0);
-                    return (
-                      <div className="border-t border-gray-700 pt-3 mt-1">
-                        <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                          <DollarSign className="h-3 w-3" />
-                          Polymarket Account
-                        </span>
-                        <div className="bg-gray-800/60 border border-blue-700/25 rounded-lg px-3 py-2 mb-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className={`text-sm font-bold ${pmPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                {pmPnl >= 0 ? '+' : ''}${pmPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </p>
-                              <p className="text-[10px] text-gray-500">Total P&L (realized + open)</p>
-                            </div>
-                            <span className={`text-[11px] shrink-0 ${polyEngineStatus?.isRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
-                              {polyEngineStatus?.isRunning ? '● Live' : '○ Idle'}
-                            </span>
-                          </div>
+                  {/* ── Options Engine (live balance + net P&L, links to engine) ── */}
+                  <Link href="/options-engine" onClick={handleMobileNavClick} className="block border-t border-gray-700 pt-3 mt-1 group">
+                    <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <TrendingUp className="h-3 w-3" />
+                      Options Engine
+                    </span>
+                    <div className="bg-gray-800/60 border border-emerald-700/25 rounded-lg px-3 py-2 mb-1 group-hover:border-emerald-600/40 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold font-mono text-emerald-300">
+                            {optionsAnyConnected
+                              ? `$${optionsTotalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : '—'}
+                          </p>
+                          <p className="text-[10px] text-gray-500">{optionsAnyConnected ? 'Balance (equity)' : 'Not connected'}</p>
                         </div>
-                        <Link href="/polymarket-engine" onClick={handleMobileNavClick} className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1.5">
-                          <TrendingUp className="h-3.5 w-3.5" />
-                          Manage Polymarket
-                        </Link>
+                        {Array.isArray(optionsTradesNav?.recent) && optionsTradesNav.recent.length > 0 && (
+                          <div className="text-right shrink-0">
+                            <p className={`text-sm font-bold ${optionsTotalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {optionsTotalPnl >= 0 ? '+' : ''}${optionsTotalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-[10px] text-gray-500">Net P&L</p>
+                          </div>
+                        )}
                       </div>
-                    );
-                  })()}
+                    </div>
+                    <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      Manage Options Engine
+                    </span>
+                  </Link>
 
                   <button
                     onClick={handleLogout}

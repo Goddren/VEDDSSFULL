@@ -34531,6 +34531,338 @@ var init_engine_consensus = __esm({
   }
 });
 
+// server/services/crypto-market-data.ts
+var crypto_market_data_exports = {};
+__export(crypto_market_data_exports, {
+  getAggregatedQuote: () => getAggregatedQuote,
+  getAggregatedQuotes: () => getAggregatedQuotes
+});
+function krakenPair(sym) {
+  const s = sym.toUpperCase();
+  return (s === "BTC" ? "XBT" : s) + "USD";
+}
+async function coinbaseSpot(sym) {
+  try {
+    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.data?.amount);
+    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
+  } catch (e) {
+    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
+  }
+}
+async function krakenTicker(sym) {
+  try {
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const first = Object.values(d?.result || {})[0];
+    const p = parseFloat(first?.c?.[0]);
+    const v = parseFloat(first?.v?.[1]);
+    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
+  } catch (e) {
+    return { venue: "kraken", symbol: sym, price: null, error: e.message };
+  }
+}
+async function geminiTicker(sym) {
+  try {
+    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const p = parseFloat(d?.last);
+    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
+    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "gemini", symbol: sym, price: null, error: e.message };
+  }
+}
+async function cryptocomTicker(sym) {
+  try {
+    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
+    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
+    const d = await r.json();
+    const t = d?.result?.data;
+    const row = Array.isArray(t) ? t[0] : t;
+    const p = parseFloat(row?.a ?? row?.k);
+    const v = parseFloat(row?.v);
+    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
+  } catch (e) {
+    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
+  }
+}
+async function getAggregatedQuote(symbol) {
+  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const hit = _cache.get(sym);
+  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
+  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
+  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
+  let best = null;
+  let spreadPct = null;
+  if (priced.length) {
+    const lo = priced.reduce((a, b) => b.price < a.price ? b : a);
+    const hi = priced.reduce((a, b) => b.price > a.price ? b : a);
+    best = { venue: lo.venue, price: lo.price };
+    spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
+  }
+  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  _cache.set(sym, { q, ts: Date.now() });
+  return q;
+}
+async function getAggregatedQuotes(symbols) {
+  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
+  return Promise.all(uniq.map(getAggregatedQuote));
+}
+var TTL_MS, _cache;
+var init_crypto_market_data = __esm({
+  "server/services/crypto-market-data.ts"() {
+    "use strict";
+    TTL_MS = 15e3;
+    _cache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/onchain-indexer.ts
+var onchain_indexer_exports = {};
+__export(onchain_indexer_exports, {
+  getIndexedBalances: () => getIndexedBalances,
+  isIndexerAvailable: () => isIndexerAvailable
+});
+async function rpc(url, method, params) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
+    signal: AbortSignal.timeout(12e3)
+  });
+  if (!res.ok) throw new Error(`Alchemy ${res.status}`);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message || "alchemy error");
+  return d.result;
+}
+function hexToNum(hex, decimals) {
+  if (!hex || hex === "0x") return 0;
+  try {
+    return Number(BigInt(hex)) / Math.pow(10, decimals);
+  } catch {
+    return 0;
+  }
+}
+function isIndexerAvailable() {
+  return !!process.env.ALCHEMY_API_KEY;
+}
+async function getIndexedBalances(address) {
+  const key = process.env.ALCHEMY_API_KEY;
+  const holdings = [];
+  const scanned = [];
+  await Promise.all(Object.entries(ALCHEMY_NETS).map(async ([, cfg]) => {
+    const url = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
+    try {
+      const nativeHex = await rpc(url, "eth_getBalance", [address, "latest"]);
+      const nativeAmt = hexToNum(nativeHex, 18);
+      if (nativeAmt > 0) holdings.push({ chain: cfg.name, symbol: cfg.nativeSymbol, amount: nativeAmt });
+      const balRes = await rpc(url, "alchemy_getTokenBalances", [address, "erc20"]);
+      const tokens = (balRes?.tokenBalances ?? []).filter((t) => t.tokenBalance && t.tokenBalance !== "0x" && !/^0x0+$/.test(t.tokenBalance));
+      for (const t of tokens.slice(0, 40)) {
+        const contract = t.contractAddress;
+        let meta = _metaCache.get(contract);
+        if (meta === void 0) {
+          try {
+            const m = await rpc(url, "alchemy_getTokenMetadata", [contract]);
+            meta = typeof m?.decimals === "number" && m?.symbol ? { symbol: m.symbol, decimals: m.decimals } : null;
+          } catch {
+            meta = null;
+          }
+          _metaCache.set(contract, meta);
+        }
+        if (!meta) continue;
+        const amt = hexToNum(t.tokenBalance, meta.decimals);
+        if (amt > 0) holdings.push({ chain: cfg.name, symbol: meta.symbol, amount: amt, contract });
+      }
+      scanned.push(cfg.name);
+    } catch {
+    }
+  }));
+  let totalUsd = 0;
+  const priceCache3 = /* @__PURE__ */ new Map();
+  for (const h of holdings) {
+    const s = h.symbol.toUpperCase();
+    if (["USDC", "USDT", "DAI", "GUSD", "USDC.E", "FRAX", "TUSD"].includes(s)) {
+      h.usdValue = h.amount;
+      totalUsd += h.amount;
+      continue;
+    }
+    const priceSym = s === "WBTC" ? "BTC" : s === "WETH" ? "ETH" : s === "POL" ? "MATIC" : s;
+    if (!priceCache3.has(priceSym)) {
+      const q = await getAggregatedQuote(priceSym).catch(() => null);
+      priceCache3.set(priceSym, q?.best?.price ?? null);
+    }
+    const px = priceCache3.get(priceSym) ?? null;
+    h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
+    if (h.usdValue) totalUsd += h.usdValue;
+  }
+  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned, source: "alchemy" };
+}
+var ALCHEMY_NETS, _metaCache;
+var init_onchain_indexer = __esm({
+  "server/services/onchain-indexer.ts"() {
+    "use strict";
+    init_crypto_market_data();
+    ALCHEMY_NETS = {
+      ethereum: { net: "eth-mainnet", name: "Ethereum", nativeSymbol: "ETH" },
+      base: { net: "base-mainnet", name: "Base", nativeSymbol: "ETH" },
+      arbitrum: { net: "arb-mainnet", name: "Arbitrum", nativeSymbol: "ETH" },
+      optimism: { net: "opt-mainnet", name: "Optimism", nativeSymbol: "ETH" },
+      polygon: { net: "polygon-mainnet", name: "Polygon", nativeSymbol: "POL" }
+    };
+    _metaCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// server/services/onchain-balances.ts
+var onchain_balances_exports = {};
+__export(onchain_balances_exports, {
+  getOnchainBalances: () => getOnchainBalances,
+  isValidEvmAddress: () => isValidEvmAddress
+});
+async function rpc2(url, method, params) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(9e3)
+  });
+  if (!res.ok) throw new Error(`RPC ${res.status}`);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message || "rpc error");
+  return d.result;
+}
+function hexToNum2(hex, decimals) {
+  if (!hex || hex === "0x") return 0;
+  try {
+    return Number(BigInt(hex)) / Math.pow(10, decimals);
+  } catch {
+    return 0;
+  }
+}
+function isValidEvmAddress(addr) {
+  return /^0x[a-fA-F0-9]{40}$/.test(addr);
+}
+async function getOnchainBalances(address) {
+  if (!isValidEvmAddress(address)) throw new Error("Invalid EVM address");
+  try {
+    const { isIndexerAvailable: isIndexerAvailable2, getIndexedBalances: getIndexedBalances2 } = await Promise.resolve().then(() => (init_onchain_indexer(), onchain_indexer_exports));
+    if (isIndexerAvailable2()) {
+      const idx = await getIndexedBalances2(address);
+      return { address, holdings: idx.holdings, totalUsd: idx.totalUsd, chainsScanned: idx.chainsScanned };
+    }
+  } catch {
+  }
+  const holdings = [];
+  const scanned = [];
+  await Promise.all(CHAINS.map(async (chain) => {
+    try {
+      const nativeHex = await rpc2(chain.rpc, "eth_getBalance", [address, "latest"]);
+      const nativeAmt = hexToNum2(nativeHex, 18);
+      if (nativeAmt > 0) holdings.push({ chain: chain.name, symbol: chain.nativeSymbol, amount: nativeAmt });
+      for (const t of chain.tokens) {
+        try {
+          const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+          const raw = await rpc2(chain.rpc, "eth_call", [{ to: t.address, data }, "latest"]);
+          const amt = hexToNum2(raw, t.decimals);
+          if (amt > 0) holdings.push({ chain: chain.name, symbol: t.symbol, amount: amt });
+        } catch {
+        }
+      }
+      scanned.push(chain.name);
+    } catch {
+    }
+  }));
+  let totalUsd = 0;
+  try {
+    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+    const priceCache3 = /* @__PURE__ */ new Map();
+    for (const h of holdings) {
+      if (["USDC", "USDT", "DAI", "GUSD"].includes(h.symbol)) {
+        h.usdValue = h.amount;
+        totalUsd += h.amount;
+        continue;
+      }
+      const priceSym = h.symbol === "WBTC" ? "BTC" : h.symbol === "POL" ? "MATIC" : h.symbol;
+      if (!priceCache3.has(priceSym)) {
+        const q = await getAggregatedQuote2(priceSym).catch(() => null);
+        priceCache3.set(priceSym, q?.best?.price ?? null);
+      }
+      const px = priceCache3.get(priceSym) ?? null;
+      h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
+      if (h.usdValue) totalUsd += h.usdValue;
+    }
+  } catch {
+  }
+  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
+  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned };
+}
+var CHAINS;
+var init_onchain_balances = __esm({
+  "server/services/onchain-balances.ts"() {
+    "use strict";
+    CHAINS = [
+      {
+        key: "ethereum",
+        name: "Ethereum",
+        rpc: "https://ethereum-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://etherscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+          { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+          { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
+          { symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 }
+        ]
+      },
+      {
+        key: "base",
+        name: "Base",
+        rpc: "https://base-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://basescan.org",
+        tokens: [{ symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }]
+      },
+      {
+        key: "arbitrum",
+        name: "Arbitrum",
+        rpc: "https://arbitrum-one-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://arbiscan.io",
+        tokens: [
+          { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
+          { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 }
+        ]
+      },
+      {
+        key: "optimism",
+        name: "Optimism",
+        rpc: "https://optimism-rpc.publicnode.com",
+        nativeSymbol: "ETH",
+        explorer: "https://optimistic.etherscan.io",
+        tokens: [{ symbol: "USDC", address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6 }]
+      },
+      {
+        key: "polygon",
+        name: "Polygon",
+        rpc: "https://polygon-bor-rpc.publicnode.com",
+        nativeSymbol: "POL",
+        explorer: "https://polygonscan.com",
+        tokens: [
+          { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+          { symbol: "USDT", address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 }
+        ]
+      }
+    ];
+  }
+});
+
 // server/services/crypto-brain.ts
 function bump(map, key, win) {
   const s = map[key] ??= { trades: 0, wins: 0, winRate: 0 };
@@ -34618,20 +34950,20 @@ async function learnFromCryptoTrades(userId) {
     else insights.push(`${sym}: still learning (${k.wins + k.losses}/${MIN_TRADES}).`);
   }
   const brain = { userId, lastLearned: (/* @__PURE__ */ new Date()).toISOString(), totalTrades: rows.length, overallWinRate: totalDecided ? Math.round(totalWins / totalDecided * 100) : 0, totalPnl: Math.round(totalPnl * 100) / 100, symbolKnowledge: symbols, insights };
-  _cache.set(userId, { brain, at: Date.now() });
+  _cache2.set(userId, { brain, at: Date.now() });
   return brain;
 }
 async function getOrRefreshCryptoBrain(userId, force = false) {
-  const hit = _cache.get(userId);
+  const hit = _cache2.get(userId);
   if (!force && hit && Date.now() - hit.at < REFRESH_TTL_MS) return hit.brain;
   return learnFromCryptoTrades(userId);
 }
 function cryptoBrainSizeMultiplier(userId, symbol) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
   return k ? k.recommendedSizeMultiplier : 1;
 }
 function cryptoBrainGate(userId, symbol, strategy, hourUtc) {
-  const k = _cache.get(userId)?.brain?.symbolKnowledge[symbol];
+  const k = _cache2.get(userId)?.brain?.symbolKnowledge[symbol];
   if (!k) return { blocked: false, reason: "" };
   const decided = k.wins + k.losses;
   if (decided >= 15 && k.winRate < 35) return { blocked: true, reason: `\u{1F9E0} Crypto brain: ${symbol} ${k.winRate}% WR over ${decided} \u2014 skipping symbol` };
@@ -34669,104 +35001,13 @@ async function recordCryptoBrainOutcome(o) {
     console.error("[crypto-brain] recordCryptoBrainOutcome failed (non-fatal):", err?.message ?? err);
   }
 }
-var MIN_TRADES, REFRESH_TTL_MS, _cache;
+var MIN_TRADES, REFRESH_TTL_MS, _cache2;
 var init_crypto_brain = __esm({
   "server/services/crypto-brain.ts"() {
     "use strict";
     init_db();
     MIN_TRADES = 10;
     REFRESH_TTL_MS = 60 * 1e3;
-    _cache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/crypto-market-data.ts
-var crypto_market_data_exports = {};
-__export(crypto_market_data_exports, {
-  getAggregatedQuote: () => getAggregatedQuote,
-  getAggregatedQuotes: () => getAggregatedQuotes
-});
-function krakenPair(sym) {
-  const s = sym.toUpperCase();
-  return (s === "BTC" ? "XBT" : s) + "USD";
-}
-async function coinbaseSpot(sym) {
-  try {
-    const r = await fetch(`https://api.coinbase.com/v2/prices/${sym}-USD/spot`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "coinbase", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p = parseFloat(d?.data?.amount);
-    return { venue: "coinbase", symbol: sym, price: isFinite(p) ? p : null };
-  } catch (e) {
-    return { venue: "coinbase", symbol: sym, price: null, error: e.message };
-  }
-}
-async function krakenTicker(sym) {
-  try {
-    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${krakenPair(sym)}`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "kraken", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const first = Object.values(d?.result || {})[0];
-    const p = parseFloat(first?.c?.[0]);
-    const v = parseFloat(first?.v?.[1]);
-    return { venue: "kraken", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null, error: d?.error?.length ? d.error.join(",") : void 0 };
-  } catch (e) {
-    return { venue: "kraken", symbol: sym, price: null, error: e.message };
-  }
-}
-async function geminiTicker(sym) {
-  try {
-    const r = await fetch(`https://api.gemini.com/v1/pubticker/${sym.toLowerCase()}usd`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "gemini", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const p = parseFloat(d?.last);
-    const v = parseFloat(d?.volume?.[sym.toUpperCase()]);
-    return { venue: "gemini", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "gemini", symbol: sym, price: null, error: e.message };
-  }
-}
-async function cryptocomTicker(sym) {
-  try {
-    const r = await fetch(`https://api.crypto.com/v2/public/get-ticker?instrument_name=${sym.toUpperCase()}_USDT`, { headers: { "User-Agent": "VEDD/1.0" }, signal: AbortSignal.timeout(6e3) });
-    if (!r.ok) return { venue: "cryptocom", symbol: sym, price: null, error: `HTTP ${r.status}` };
-    const d = await r.json();
-    const t = d?.result?.data;
-    const row = Array.isArray(t) ? t[0] : t;
-    const p = parseFloat(row?.a ?? row?.k);
-    const v = parseFloat(row?.v);
-    return { venue: "cryptocom", symbol: sym, price: isFinite(p) ? p : null, volume24h: isFinite(v) ? v : null };
-  } catch (e) {
-    return { venue: "cryptocom", symbol: sym, price: null, error: e.message };
-  }
-}
-async function getAggregatedQuote(symbol) {
-  const sym = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const hit = _cache2.get(sym);
-  if (hit && Date.now() - hit.ts < TTL_MS) return hit.q;
-  const venues = await Promise.all([coinbaseSpot(sym), krakenTicker(sym), geminiTicker(sym), cryptocomTicker(sym)]);
-  const priced = venues.filter((v) => typeof v.price === "number" && v.price > 0);
-  let best = null;
-  let spreadPct = null;
-  if (priced.length) {
-    const lo = priced.reduce((a, b) => b.price < a.price ? b : a);
-    const hi = priced.reduce((a, b) => b.price > a.price ? b : a);
-    best = { venue: lo.venue, price: lo.price };
-    spreadPct = lo.price > 0 ? Math.round((hi.price - lo.price) / lo.price * 1e4) / 100 : null;
-  }
-  const q = { symbol: sym, best, spreadPct, venues, fetchedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  _cache2.set(sym, { q, ts: Date.now() });
-  return q;
-}
-async function getAggregatedQuotes(symbols) {
-  const uniq = Array.from(new Set(symbols.map((s) => s.toUpperCase().replace(/[^A-Z0-9]/g, "")))).slice(0, 25);
-  return Promise.all(uniq.map(getAggregatedQuote));
-}
-var TTL_MS, _cache2;
-var init_crypto_market_data = __esm({
-  "server/services/crypto-market-data.ts"() {
-    "use strict";
-    TTL_MS = 15e3;
     _cache2 = /* @__PURE__ */ new Map();
   }
 });
@@ -39812,247 +40053,6 @@ var init_polymarket_us_engine = __esm({
     _timers2 = /* @__PURE__ */ new Map();
     _credValidity2 = /* @__PURE__ */ new Map();
     CRED_VALIDITY_TTL_MS2 = 10 * 60 * 1e3;
-  }
-});
-
-// server/services/onchain-indexer.ts
-var onchain_indexer_exports = {};
-__export(onchain_indexer_exports, {
-  getIndexedBalances: () => getIndexedBalances,
-  isIndexerAvailable: () => isIndexerAvailable
-});
-async function rpc(url, method, params) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params }),
-    signal: AbortSignal.timeout(12e3)
-  });
-  if (!res.ok) throw new Error(`Alchemy ${res.status}`);
-  const d = await res.json();
-  if (d.error) throw new Error(d.error.message || "alchemy error");
-  return d.result;
-}
-function hexToNum(hex, decimals) {
-  if (!hex || hex === "0x") return 0;
-  try {
-    return Number(BigInt(hex)) / Math.pow(10, decimals);
-  } catch {
-    return 0;
-  }
-}
-function isIndexerAvailable() {
-  return !!process.env.ALCHEMY_API_KEY;
-}
-async function getIndexedBalances(address) {
-  const key = process.env.ALCHEMY_API_KEY;
-  const holdings = [];
-  const scanned = [];
-  await Promise.all(Object.entries(ALCHEMY_NETS).map(async ([, cfg]) => {
-    const url = `https://${cfg.net}.g.alchemy.com/v2/${key}`;
-    try {
-      const nativeHex = await rpc(url, "eth_getBalance", [address, "latest"]);
-      const nativeAmt = hexToNum(nativeHex, 18);
-      if (nativeAmt > 0) holdings.push({ chain: cfg.name, symbol: cfg.nativeSymbol, amount: nativeAmt });
-      const balRes = await rpc(url, "alchemy_getTokenBalances", [address, "erc20"]);
-      const tokens = (balRes?.tokenBalances ?? []).filter((t) => t.tokenBalance && t.tokenBalance !== "0x" && !/^0x0+$/.test(t.tokenBalance));
-      for (const t of tokens.slice(0, 40)) {
-        const contract = t.contractAddress;
-        let meta = _metaCache.get(contract);
-        if (meta === void 0) {
-          try {
-            const m = await rpc(url, "alchemy_getTokenMetadata", [contract]);
-            meta = typeof m?.decimals === "number" && m?.symbol ? { symbol: m.symbol, decimals: m.decimals } : null;
-          } catch {
-            meta = null;
-          }
-          _metaCache.set(contract, meta);
-        }
-        if (!meta) continue;
-        const amt = hexToNum(t.tokenBalance, meta.decimals);
-        if (amt > 0) holdings.push({ chain: cfg.name, symbol: meta.symbol, amount: amt, contract });
-      }
-      scanned.push(cfg.name);
-    } catch {
-    }
-  }));
-  let totalUsd = 0;
-  const priceCache3 = /* @__PURE__ */ new Map();
-  for (const h of holdings) {
-    const s = h.symbol.toUpperCase();
-    if (["USDC", "USDT", "DAI", "GUSD", "USDC.E", "FRAX", "TUSD"].includes(s)) {
-      h.usdValue = h.amount;
-      totalUsd += h.amount;
-      continue;
-    }
-    const priceSym = s === "WBTC" ? "BTC" : s === "WETH" ? "ETH" : s === "POL" ? "MATIC" : s;
-    if (!priceCache3.has(priceSym)) {
-      const q = await getAggregatedQuote(priceSym).catch(() => null);
-      priceCache3.set(priceSym, q?.best?.price ?? null);
-    }
-    const px = priceCache3.get(priceSym) ?? null;
-    h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
-    if (h.usdValue) totalUsd += h.usdValue;
-  }
-  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned, source: "alchemy" };
-}
-var ALCHEMY_NETS, _metaCache;
-var init_onchain_indexer = __esm({
-  "server/services/onchain-indexer.ts"() {
-    "use strict";
-    init_crypto_market_data();
-    ALCHEMY_NETS = {
-      ethereum: { net: "eth-mainnet", name: "Ethereum", nativeSymbol: "ETH" },
-      base: { net: "base-mainnet", name: "Base", nativeSymbol: "ETH" },
-      arbitrum: { net: "arb-mainnet", name: "Arbitrum", nativeSymbol: "ETH" },
-      optimism: { net: "opt-mainnet", name: "Optimism", nativeSymbol: "ETH" },
-      polygon: { net: "polygon-mainnet", name: "Polygon", nativeSymbol: "POL" }
-    };
-    _metaCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// server/services/onchain-balances.ts
-var onchain_balances_exports = {};
-__export(onchain_balances_exports, {
-  getOnchainBalances: () => getOnchainBalances,
-  isValidEvmAddress: () => isValidEvmAddress
-});
-async function rpc2(url, method, params) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "VEDD/1.0" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-    signal: AbortSignal.timeout(9e3)
-  });
-  if (!res.ok) throw new Error(`RPC ${res.status}`);
-  const d = await res.json();
-  if (d.error) throw new Error(d.error.message || "rpc error");
-  return d.result;
-}
-function hexToNum2(hex, decimals) {
-  if (!hex || hex === "0x") return 0;
-  try {
-    return Number(BigInt(hex)) / Math.pow(10, decimals);
-  } catch {
-    return 0;
-  }
-}
-function isValidEvmAddress(addr) {
-  return /^0x[a-fA-F0-9]{40}$/.test(addr);
-}
-async function getOnchainBalances(address) {
-  if (!isValidEvmAddress(address)) throw new Error("Invalid EVM address");
-  try {
-    const { isIndexerAvailable: isIndexerAvailable2, getIndexedBalances: getIndexedBalances2 } = await Promise.resolve().then(() => (init_onchain_indexer(), onchain_indexer_exports));
-    if (isIndexerAvailable2()) {
-      const idx = await getIndexedBalances2(address);
-      return { address, holdings: idx.holdings, totalUsd: idx.totalUsd, chainsScanned: idx.chainsScanned };
-    }
-  } catch {
-  }
-  const holdings = [];
-  const scanned = [];
-  await Promise.all(CHAINS.map(async (chain) => {
-    try {
-      const nativeHex = await rpc2(chain.rpc, "eth_getBalance", [address, "latest"]);
-      const nativeAmt = hexToNum2(nativeHex, 18);
-      if (nativeAmt > 0) holdings.push({ chain: chain.name, symbol: chain.nativeSymbol, amount: nativeAmt });
-      for (const t of chain.tokens) {
-        try {
-          const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
-          const raw = await rpc2(chain.rpc, "eth_call", [{ to: t.address, data }, "latest"]);
-          const amt = hexToNum2(raw, t.decimals);
-          if (amt > 0) holdings.push({ chain: chain.name, symbol: t.symbol, amount: amt });
-        } catch {
-        }
-      }
-      scanned.push(chain.name);
-    } catch {
-    }
-  }));
-  let totalUsd = 0;
-  try {
-    const { getAggregatedQuote: getAggregatedQuote2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
-    const priceCache3 = /* @__PURE__ */ new Map();
-    for (const h of holdings) {
-      if (["USDC", "USDT", "DAI", "GUSD"].includes(h.symbol)) {
-        h.usdValue = h.amount;
-        totalUsd += h.amount;
-        continue;
-      }
-      const priceSym = h.symbol === "WBTC" ? "BTC" : h.symbol === "POL" ? "MATIC" : h.symbol;
-      if (!priceCache3.has(priceSym)) {
-        const q = await getAggregatedQuote2(priceSym).catch(() => null);
-        priceCache3.set(priceSym, q?.best?.price ?? null);
-      }
-      const px = priceCache3.get(priceSym) ?? null;
-      h.usdValue = px != null ? Math.round(h.amount * px * 100) / 100 : null;
-      if (h.usdValue) totalUsd += h.usdValue;
-    }
-  } catch {
-  }
-  holdings.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0));
-  return { address, holdings, totalUsd: Math.round(totalUsd * 100) / 100, chainsScanned: scanned };
-}
-var CHAINS;
-var init_onchain_balances = __esm({
-  "server/services/onchain-balances.ts"() {
-    "use strict";
-    CHAINS = [
-      {
-        key: "ethereum",
-        name: "Ethereum",
-        rpc: "https://ethereum-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://etherscan.io",
-        tokens: [
-          { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
-          { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
-          { symbol: "DAI", address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 },
-          { symbol: "WBTC", address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", decimals: 8 }
-        ]
-      },
-      {
-        key: "base",
-        name: "Base",
-        rpc: "https://base-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://basescan.org",
-        tokens: [{ symbol: "USDC", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6 }]
-      },
-      {
-        key: "arbitrum",
-        name: "Arbitrum",
-        rpc: "https://arbitrum-one-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://arbiscan.io",
-        tokens: [
-          { symbol: "USDC", address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", decimals: 6 },
-          { symbol: "USDT", address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9", decimals: 6 }
-        ]
-      },
-      {
-        key: "optimism",
-        name: "Optimism",
-        rpc: "https://optimism-rpc.publicnode.com",
-        nativeSymbol: "ETH",
-        explorer: "https://optimistic.etherscan.io",
-        tokens: [{ symbol: "USDC", address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6 }]
-      },
-      {
-        key: "polygon",
-        name: "Polygon",
-        rpc: "https://polygon-bor-rpc.publicnode.com",
-        nativeSymbol: "POL",
-        explorer: "https://polygonscan.com",
-        tokens: [
-          { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
-          { symbol: "USDT", address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 }
-        ]
-      }
-    ];
   }
 });
 
@@ -69902,6 +69902,68 @@ Rules:
       storage.getUserCryptocomEngineTrades(userId, limit)
     ]);
     res.json({ open, recent });
+  });
+  app2.get("/api/cryptocom-engine/defi-wallet", async (req, res) => {
+    if (!req.isAuthenticated()) return res.json({ connected: false });
+    const userId = req.user.id;
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      const hw = (await pool2.query(`SELECT address FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId])).rows[0];
+      if (!hw) return res.json({ connected: false });
+      const cfg = (await pool2.query(`SELECT defi_chain FROM cryptocom_engine_configs WHERE user_id=$1`, [userId])).rows[0];
+      const chain = cfg?.defi_chain || "ethereum";
+      const nativeSym = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", polygon: "POL" };
+      const { getOnchainBalances: getOnchainBalances2 } = await Promise.resolve().then(() => (init_onchain_balances(), onchain_balances_exports));
+      const bal = await getOnchainBalances2(hw.address).catch(() => null);
+      const chainHoldings = (bal?.holdings ?? []).filter((h) => h.chain === chain);
+      const usdc = chainHoldings.filter((h) => h.symbol === "USDC").reduce((s, h) => s + (h.amount || 0), 0);
+      const native = chainHoldings.filter((h) => h.symbol === (nativeSym[chain] || "ETH")).reduce((s, h) => s + (h.amount || 0), 0);
+      const walletUsd = chainHoldings.reduce((s, h) => s + (h.usdValue || 0), 0);
+      const pnlRow = (await pool2.query(
+        `SELECT COALESCE(SUM(realized_pnl),0) AS net, COUNT(*) AS n FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status='closed' AND realized_pnl IS NOT NULL`,
+        [userId]
+      )).rows[0];
+      const realizedPnl = Math.round(Number(pnlRow.net) * 100) / 100;
+      let unrealizedPnl = 0;
+      try {
+        const openRows = (await pool2.query(
+          `SELECT symbol, quantity, entry_price, direction FROM cryptocom_engine_trades WHERE user_id=$1 AND venue='defi' AND status='open'`,
+          [userId]
+        )).rows;
+        if (openRows.length) {
+          const bases = Array.from(new Set(openRows.map((r) => String(r.symbol).replace(/USD-?PERP$/i, "").replace(/USD$/i, "").toUpperCase())));
+          const { getAggregatedQuotes: getAggregatedQuotes2 } = await Promise.resolve().then(() => (init_crypto_market_data(), crypto_market_data_exports));
+          const quotes = await getAggregatedQuotes2(bases).catch(() => []);
+          const pm = {};
+          for (const q of quotes || []) {
+            const p = q?.best?.price;
+            if (typeof p === "number" && q?.symbol) pm[String(q.symbol).toUpperCase()] = p;
+          }
+          for (const r of openRows) {
+            const base = String(r.symbol).replace(/USD-?PERP$/i, "").replace(/USD$/i, "").toUpperCase();
+            const px = pm[base];
+            if (px > 0) unrealizedPnl += (px - Number(r.entry_price)) * Number(r.quantity) * (r.direction === "long" ? 1 : -1);
+          }
+        }
+      } catch {
+      }
+      unrealizedPnl = Math.round(unrealizedPnl * 100) / 100;
+      res.json({
+        connected: true,
+        address: hw.address,
+        chain,
+        nativeSymbol: nativeSym[chain] || "ETH",
+        usdc: Math.round(usdc * 100) / 100,
+        native: Math.round(native * 1e6) / 1e6,
+        walletUsd: Math.round(walletUsd * 100) / 100,
+        realizedPnl,
+        unrealizedPnl,
+        netPnl: Math.round((realizedPnl + unrealizedPnl) * 100) / 100,
+        closedTrades: Number(pnlRow.n)
+      });
+    } catch (err) {
+      res.json({ connected: false, error: err?.message });
+    }
   });
   app2.post("/api/cryptocom-engine/close-trade", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
