@@ -60,7 +60,7 @@ const instrumentCache = new Map<string, { tradableInstrumentId: number; routeId:
 // Cache the full instruments LIST per account so polling many symbols (e.g. the
 // ORB page's per-setup candle feed) doesn't fire a fresh /instruments request
 // per symbol and trip the broker's rate limit (429).
-const instrumentsListCache = new Map<string, { instruments: any[]; cachedAt: number }>();
+const instrumentsListCache = new Map<string, { instruments: any[]; routes?: any[]; cachedAt: number }>();
 
 // Keyed by connection id, or a composite account key for connections that
 // don't have a DB row yet — `id || 0` collided all pending connections onto
@@ -697,47 +697,65 @@ export class TradeLockerService {
     return out;
   }
 
-  async getInstruments(): Promise<any[]> {
+  // Shared, cached, rate-limit-aware instruments fetch. One network call per
+  // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
+  // candle feed) so a burst of signals doesn't fire one /instruments request per
+  // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
+  // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
+  // is exactly what was aborting every auto-trade with
+  // "Failed to get instruments: 429 - <Cloudflare block page>".
+  private async fetchInstrumentsPayload(forceRefresh = false): Promise<{ instruments: any[]; routes: any[] }> {
     await this.ensureAuthenticated();
+    const listKey = `${this.baseUrl}:${this.accountId}`;
+    if (!forceRefresh) {
+      const cached = instrumentsListCache.get(listKey);
+      if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+        return { instruments: cached.instruments, routes: cached.routes ?? [] };
+      }
+    }
+    const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${this.accessToken}`,
+        'Content-Type': 'application/json',
+        'accNum': this.accNum,
+      },
+      signal: AbortSignal.timeout(10000),
+    });
 
+    let response = await doFetch();
+
+    // 404 → stale accountId; re-resolve once and retry.
+    if (response.status === 404) {
+      console.log('[TradeLocker] Instruments 404 for accountId', this.accountId, '— forcing accNum/accountId re-resolution');
+      await this.forceResolveAccNum();
+      response = await doFetch();
+    }
+
+    // 429 / 5xx → exponential backoff instead of failing the trade immediately.
+    for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
+      const delay = RETRY_DELAYS[i];
+      console.warn(`[TradeLocker] instruments ${response.status} — backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
+      await new Promise(r => setTimeout(r, delay));
+      response = await doFetch();
+    }
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      throw new Error(`Failed to get instruments: ${response.status}${errText ? ' - ' + errText.slice(0, 120) : ''}`);
+    }
+
+    const data = await response.json();
+    // TradeLocker wraps this in {s, d: {instruments: [...], routes: [...]}}.
+    const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+    const routes = data?.d?.routes ?? data?.routes ?? [];
+    instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
+    return { instruments, routes };
+  }
+
+  async getInstruments(): Promise<any[]> {
     try {
-      let response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-          'accNum': this.accNum,
-        },
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (response.status === 404) {
-        // The cached accountId doesn't exist on TradeLocker's side — force a
-        // fresh account-list lookup to correct it (see resolveAccNum) and
-        // retry once before giving up.
-        console.log('[TradeLocker] Instruments 404 for accountId', this.accountId, '— forcing accNum/accountId re-resolution');
-        await this.forceResolveAccNum();
-        response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json',
-            'accNum': this.accNum,
-          },
-          signal: AbortSignal.timeout(10000),
-        });
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to get instruments: ${response.status}`);
-      }
-
-      const data = await response.json();
-      // TradeLocker wraps this in {s, d: {instruments: [...]}} like every
-      // other endpoint here — returning the raw object (not the array
-      // inside it) made every caller's .map()/for..of throw or silently
-      // no-op depending on how the error was caught upstream.
-      return data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+      return (await this.fetchInstrumentsPayload()).instruments;
     } catch (error) {
       console.error('TradeLocker get instruments error:', error);
       throw error;
@@ -778,46 +796,12 @@ export class TradeLockerService {
         routeId = cachedInst.routeId;
         console.log('[TradeLocker] Instrument cache HIT:', order.symbol, '→ id:', tradableInstrumentId, 'route:', routeId);
       } else {
-        console.log('[TradeLocker] Instrument cache MISS — fetching instruments...');
-        let instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.accessToken}`,
-            'Content-Type': 'application/json',
-            'accNum': this.accNum,
-          },
-        });
+        console.log('[TradeLocker] Instrument cache MISS — fetching instruments (shared cache + 429 backoff)...');
+        // Shared cached fetch: one /instruments call per account per TTL, with
+        // 429/5xx backoff — so a burst of auto-trade signals can't self-inflict
+        // the rate-limit that was failing every order.
+        const { instruments, routes } = await this.fetchInstrumentsPayload();
 
-        if (instrumentsResponse.status === 404) {
-          // The cached accountId doesn't exist on TradeLocker's side (e.g. a
-          // prop-firm-portal reference like "D2322519" got stored instead of
-          // TradeLocker's own numeric ID) — force a fresh account-list
-          // lookup to correct it and retry once before giving up.
-          console.log('[TradeLocker] Instruments 404 for accountId', this.accountId, '— forcing accNum/accountId re-resolution');
-          await this.forceResolveAccNum();
-          instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${this.accessToken}`,
-              'Content-Type': 'application/json',
-              'accNum': this.accNum,
-            },
-          });
-        }
-
-        console.log('[TradeLocker] Instruments response status:', instrumentsResponse.status);
-        if (!instrumentsResponse.ok) {
-          const errText = await instrumentsResponse.text();
-          console.log('[TradeLocker] Instruments error:', errText);
-          throw new Error(`Failed to get instruments: ${instrumentsResponse.status} - ${errText}`);
-        }
-        
-        const instrumentsData = await instrumentsResponse.json();
-        console.log('[TradeLocker] Instruments response structure:', Object.keys(instrumentsData));
-        
-        const instruments = instrumentsData.d?.instruments || instrumentsData.instruments || instrumentsData;
-        const routes = instrumentsData.d?.routes || instrumentsData.routes || [];
-        
         if (Array.isArray(instruments)) {
           const sym = order.symbol.toUpperCase();
           const symVariants: string[] = [sym];
@@ -1082,22 +1066,9 @@ export class TradeLockerService {
       tradableInstrumentId = cached.tradableInstrumentId;
       infoRouteId = cached.infoRouteId;
     } else {
-      // Shared instruments-list cache — one fetch serves every symbol, so
-      // polling many ORB symbols doesn't hammer /instruments into a 429.
-      const listKey = `${this.baseUrl}:${this.accountId}`;
-      let instruments: any[];
-      const listCached = instrumentsListCache.get(listKey);
-      if (listCached && Date.now() - listCached.cachedAt < INSTRUMENT_CACHE_TTL) {
-        instruments = listCached.instruments;
-      } else {
-        const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-          headers: { 'Authorization': `Bearer ${this.accessToken}`, 'Content-Type': 'application/json', 'accNum': this.accNum },
-        });
-        if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
-        const instrData = await instrResp.json();
-        instruments = instrData.d?.instruments || instrData.instruments || instrData || [];
-        instrumentsListCache.set(listKey, { instruments, cachedAt: Date.now() });
-      }
+      // Shared instruments-list cache + 429 backoff — one fetch serves every
+      // symbol, so polling many ORB symbols doesn't hammer /instruments into a 429.
+      const { instruments } = await this.fetchInstrumentsPayload();
       const sym = symbol.toUpperCase();
       const ALIASES: Record<string, string[]> = {
         'XAUUSD': ['GOLD', 'XAU/USD'], 'NAS100': ['USTEC', 'US100', 'NDX100'],

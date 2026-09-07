@@ -18008,36 +18008,56 @@ var init_tradelocker = __esm({
         }
         return out;
       }
-      async getInstruments() {
+      // Shared, cached, rate-limit-aware instruments fetch. One network call per
+      // account per TTL serves EVERY symbol lookup (order placement, getInstruments,
+      // candle feed) so a burst of signals doesn't fire one /instruments request per
+      // symbol and hammer the broker into a 429. On 429/5xx it backs off and retries
+      // (RETRY_DELAYS) instead of throwing on the first rate-limit response — which
+      // is exactly what was aborting every auto-trade with
+      // "Failed to get instruments: 429 - <Cloudflare block page>".
+      async fetchInstrumentsPayload(forceRefresh = false) {
         await this.ensureAuthenticated();
+        const listKey = `${this.baseUrl}:${this.accountId}`;
+        if (!forceRefresh) {
+          const cached = instrumentsListCache.get(listKey);
+          if (cached && Date.now() - cached.cachedAt < INSTRUMENT_CACHE_TTL) {
+            return { instruments: cached.instruments, routes: cached.routes ?? [] };
+          }
+        }
+        const doFetch = () => fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
+          method: "GET",
+          headers: {
+            "Authorization": `Bearer ${this.accessToken}`,
+            "Content-Type": "application/json",
+            "accNum": this.accNum
+          },
+          signal: AbortSignal.timeout(1e4)
+        });
+        let response = await doFetch();
+        if (response.status === 404) {
+          console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
+          await this.forceResolveAccNum();
+          response = await doFetch();
+        }
+        for (let i = 0; i < RETRY_DELAYS.length && RETRYABLE_STATUSES.has(response.status); i++) {
+          const delay = RETRY_DELAYS[i];
+          console.warn(`[TradeLocker] instruments ${response.status} \u2014 backing off ${delay}ms (retry ${i + 1}/${RETRY_DELAYS.length})`);
+          await new Promise((r) => setTimeout(r, delay));
+          response = await doFetch();
+        }
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`Failed to get instruments: ${response.status}${errText ? " - " + errText.slice(0, 120) : ""}`);
+        }
+        const data = await response.json();
+        const instruments = data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+        const routes = data?.d?.routes ?? data?.routes ?? [];
+        instrumentsListCache.set(listKey, { instruments, routes, cachedAt: Date.now() });
+        return { instruments, routes };
+      }
+      async getInstruments() {
         try {
-          let response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-            method: "GET",
-            headers: {
-              "Authorization": `Bearer ${this.accessToken}`,
-              "Content-Type": "application/json",
-              "accNum": this.accNum
-            },
-            signal: AbortSignal.timeout(1e4)
-          });
-          if (response.status === 404) {
-            console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
-            await this.forceResolveAccNum();
-            response = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": this.accNum
-              },
-              signal: AbortSignal.timeout(1e4)
-            });
-          }
-          if (!response.ok) {
-            throw new Error(`Failed to get instruments: ${response.status}`);
-          }
-          const data = await response.json();
-          return data?.d?.instruments ?? data?.instruments ?? (Array.isArray(data) ? data : []);
+          return (await this.fetchInstrumentsPayload()).instruments;
         } catch (error) {
           console.error("TradeLocker get instruments error:", error);
           throw error;
@@ -18067,37 +18087,8 @@ var init_tradelocker = __esm({
             routeId = cachedInst.routeId;
             console.log("[TradeLocker] Instrument cache HIT:", order.symbol, "\u2192 id:", tradableInstrumentId, "route:", routeId);
           } else {
-            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments...");
-            let instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-              method: "GET",
-              headers: {
-                "Authorization": `Bearer ${this.accessToken}`,
-                "Content-Type": "application/json",
-                "accNum": this.accNum
-              }
-            });
-            if (instrumentsResponse.status === 404) {
-              console.log("[TradeLocker] Instruments 404 for accountId", this.accountId, "\u2014 forcing accNum/accountId re-resolution");
-              await this.forceResolveAccNum();
-              instrumentsResponse = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-                method: "GET",
-                headers: {
-                  "Authorization": `Bearer ${this.accessToken}`,
-                  "Content-Type": "application/json",
-                  "accNum": this.accNum
-                }
-              });
-            }
-            console.log("[TradeLocker] Instruments response status:", instrumentsResponse.status);
-            if (!instrumentsResponse.ok) {
-              const errText = await instrumentsResponse.text();
-              console.log("[TradeLocker] Instruments error:", errText);
-              throw new Error(`Failed to get instruments: ${instrumentsResponse.status} - ${errText}`);
-            }
-            const instrumentsData = await instrumentsResponse.json();
-            console.log("[TradeLocker] Instruments response structure:", Object.keys(instrumentsData));
-            const instruments = instrumentsData.d?.instruments || instrumentsData.instruments || instrumentsData;
-            const routes = instrumentsData.d?.routes || instrumentsData.routes || [];
+            console.log("[TradeLocker] Instrument cache MISS \u2014 fetching instruments (shared cache + 429 backoff)...");
+            const { instruments, routes } = await this.fetchInstrumentsPayload();
             if (Array.isArray(instruments)) {
               const sym = order.symbol.toUpperCase();
               const symVariants = [sym];
@@ -18315,20 +18306,7 @@ var init_tradelocker = __esm({
           tradableInstrumentId = cached.tradableInstrumentId;
           infoRouteId = cached.infoRouteId;
         } else {
-          const listKey = `${this.baseUrl}:${this.accountId}`;
-          let instruments;
-          const listCached = instrumentsListCache.get(listKey);
-          if (listCached && Date.now() - listCached.cachedAt < INSTRUMENT_CACHE_TTL) {
-            instruments = listCached.instruments;
-          } else {
-            const instrResp = await fetch(`${this.baseUrl}/trade/accounts/${this.accountId}/instruments`, {
-              headers: { "Authorization": `Bearer ${this.accessToken}`, "Content-Type": "application/json", "accNum": this.accNum }
-            });
-            if (!instrResp.ok) throw new Error(`TradeLocker instruments error: ${instrResp.status}`);
-            const instrData = await instrResp.json();
-            instruments = instrData.d?.instruments || instrData.instruments || instrData || [];
-            instrumentsListCache.set(listKey, { instruments, cachedAt: Date.now() });
-          }
+          const { instruments } = await this.fetchInstrumentsPayload();
           const sym = symbol.toUpperCase();
           const ALIASES = {
             "XAUUSD": ["GOLD", "XAU/USD"],
