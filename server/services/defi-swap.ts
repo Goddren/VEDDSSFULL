@@ -105,6 +105,7 @@ export async function executeDefiSwap(opts: {
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
 
   const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
+  try {
   const wallet = new ethers.Wallet(decryptApiSecret(opts.encryptedPrivateKey), provider);
   let sellToken: string, buyToken: string;
   try {
@@ -170,6 +171,12 @@ export async function executeDefiSwap(opts: {
   // usually returns confirmed; on timeout we still return the hash as submitted.
   try { await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8000))]); } catch { /* revert/other — hash still returned; verify on explorer */ }
   return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+  } finally {
+    // ethers v6 JsonRpcProvider keeps a network poll timer/socket alive; without
+    // destroy() each swap leaks a poller → memory growth over time. Release it on
+    // every exit path (early returns included).
+    try { provider.destroy(); } catch { /* ignore */ }
+  }
 }
 
 /** Derive the address for a raw private key (for storing a hot wallet). */

@@ -833,10 +833,25 @@ export async function runCryptocomEngineScan(): Promise<void> {
 }
 
 let started = false;
+let scanInFlight = false;
 export function startCryptocomEngineScanner(): void {
   if (started) return;
   started = true;
   const LOOP_INTERVAL_MS = 60000;
-  setInterval(() => { runCryptocomEngineScan().catch(() => {}); }, LOOP_INTERVAL_MS);
-  console.log('[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).');
+  setInterval(() => {
+    // Re-entrancy guard: a scan cycle (many symbols × AI calls × DeFi RPC) can
+    // run longer than the 60s tick. Without this, ticks overlap and pile up —
+    // each overlapping run retains candle arrays, brain features and providers
+    // in memory simultaneously, compounding into an OOM. Skip the tick if the
+    // previous cycle is still running.
+    if (scanInFlight) {
+      console.warn('[cryptocom-scanner] previous scan still running — skipping this tick to avoid overlap/OOM');
+      return;
+    }
+    scanInFlight = true;
+    runCryptocomEngineScan()
+      .catch(() => {})
+      .finally(() => { scanInFlight = false; });
+  }, LOOP_INTERVAL_MS);
+  console.log('[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).');
 }

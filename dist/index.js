@@ -35478,63 +35478,70 @@ async function executeDefiSwap(opts) {
   const chain = DEFI_CHAINS[opts.chainKey];
   if (!chain) return { ok: false, reason: `unsupported chain ${opts.chainKey}` };
   const provider = new ethers.JsonRpcProvider(chain.rpc, chain.chainId);
-  const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
-  let sellToken, buyToken;
   try {
-    sellToken = await resolveToken(opts.chainKey, opts.sellToken);
-    buyToken = await resolveToken(opts.chainKey, opts.buyToken);
-  } catch (e) {
-    return { ok: false, reason: e?.message || "token resolution failed" };
-  }
-  let decimals = 18;
-  if (sellToken !== NATIVE_PSEUDO) {
-    const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
-    decimals = Number(await erc.decimals());
-  }
-  const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
-  const quote = await zeroXQuote(chain.chainId, {
-    sellToken,
-    buyToken,
-    sellAmount,
-    taker: wallet.address,
-    slippageBps: String(opts.slippageBps)
-  });
-  if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
-    return { ok: false, reason: "no liquidity for this pair/size" };
-  }
-  let approveTxHash;
-  const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
-  if (sellToken !== NATIVE_PSEUDO && spender) {
-    const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
-    const current = await erc.allowance(wallet.address, spender);
-    if (current < BigInt(sellAmount)) {
-      const aTx = await erc.approve(spender, ethers.MaxUint256);
-      approveTxHash = aTx.hash;
-      return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
-    }
-  }
-  let buyAmountHuman;
-  if (quote.buyAmount) {
+    const wallet = new ethers.Wallet(decryptApiSecret2(opts.encryptedPrivateKey), provider);
+    let sellToken, buyToken;
     try {
-      let bDec = 18;
-      if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
-      buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+      sellToken = await resolveToken(opts.chainKey, opts.sellToken);
+      buyToken = await resolveToken(opts.chainKey, opts.buyToken);
+    } catch (e) {
+      return { ok: false, reason: e?.message || "token resolution failed" };
+    }
+    let decimals = 18;
+    if (sellToken !== NATIVE_PSEUDO) {
+      const erc = new ethers.Contract(sellToken, ERC20_ABI, provider);
+      decimals = Number(await erc.decimals());
+    }
+    const sellAmount = ethers.parseUnits(String(opts.sellAmountHuman), decimals).toString();
+    const quote = await zeroXQuote(chain.chainId, {
+      sellToken,
+      buyToken,
+      sellAmount,
+      taker: wallet.address,
+      slippageBps: String(opts.slippageBps)
+    });
+    if (!quote?.liquidityAvailable && quote?.liquidityAvailable !== void 0) {
+      return { ok: false, reason: "no liquidity for this pair/size" };
+    }
+    let approveTxHash;
+    const spender = quote?.issues?.allowance?.spender || quote?.allowanceTarget;
+    if (sellToken !== NATIVE_PSEUDO && spender) {
+      const erc = new ethers.Contract(sellToken, ERC20_ABI, wallet);
+      const current = await erc.allowance(wallet.address, spender);
+      if (current < BigInt(sellAmount)) {
+        const aTx = await erc.approve(spender, ethers.MaxUint256);
+        approveTxHash = aTx.hash;
+        return { ok: false, approveTxHash, reason: `One-time token approval submitted (tx ${aTx.hash.slice(0, 10)}\u2026). Wait ~20s for it to confirm, then run the swap again \u2014 this only happens once per token.` };
+      }
+    }
+    let buyAmountHuman;
+    if (quote.buyAmount) {
+      try {
+        let bDec = 18;
+        if (buyToken !== NATIVE_PSEUDO) bDec = Number(await new ethers.Contract(buyToken, ERC20_ABI, provider).decimals());
+        buyAmountHuman = Number(ethers.formatUnits(BigInt(quote.buyAmount), bDec));
+      } catch {
+      }
+    }
+    const t = quote.transaction;
+    if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
+    const txResp = await wallet.sendTransaction({
+      to: t.to,
+      data: t.data,
+      value: t.value ? BigInt(t.value) : BigInt(0),
+      ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
+    });
+    try {
+      await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
+    } catch {
+    }
+    return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+  } finally {
+    try {
+      provider.destroy();
     } catch {
     }
   }
-  const t = quote.transaction;
-  if (!t?.to || !t?.data) return { ok: false, reason: "quote returned no transaction" };
-  const txResp = await wallet.sendTransaction({
-    to: t.to,
-    data: t.data,
-    value: t.value ? BigInt(t.value) : BigInt(0),
-    ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
-  });
-  try {
-    await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
-  } catch {
-  }
-  return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
 }
 function addressFromPrivateKey(pk) {
   return new ethers.Wallet(pk.trim()).address;
@@ -36414,12 +36421,19 @@ function startCryptocomEngineScanner() {
   started2 = true;
   const LOOP_INTERVAL_MS = 6e4;
   setInterval(() => {
+    if (scanInFlight) {
+      console.warn("[cryptocom-scanner] previous scan still running \u2014 skipping this tick to avoid overlap/OOM");
+      return;
+    }
+    scanInFlight = true;
     runCryptocomEngineScan().catch(() => {
+    }).finally(() => {
+      scanInFlight = false;
     });
   }, LOOP_INTERVAL_MS);
-  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, per-user throttled, strategies: trend_following/momentum/auto).");
+  console.log("[cryptocom-scanner] Background Crypto.com perpetuals scan loop started (60s tick, re-entrancy guarded, per-user throttled, strategies: trend_following/momentum/auto).");
 }
-var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2;
+var MIN_SCAN_INTERVAL_MS, lastScanAt, MAX_SYMBOLS_PER_CYCLE, scanCursor, STRATEGY_RUNNERS, AUTO_STRATEGIES, sessionPeakEquity, started2, scanInFlight;
 var init_cryptocom_scanner = __esm({
   "server/services/cryptocom-scanner.ts"() {
     "use strict";
@@ -36443,6 +36457,7 @@ var init_cryptocom_scanner = __esm({
     AUTO_STRATEGIES = ["trend_following", "momentum", "order_flow", "volume_profile", "breakout"];
     sessionPeakEquity = /* @__PURE__ */ new Map();
     started2 = false;
+    scanInFlight = false;
   }
 });
 
