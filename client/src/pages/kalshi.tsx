@@ -174,6 +174,31 @@ export default function KalshiHubPage() {
           </Section>
         )}
 
+        {/* Recent closed trades — per-trade realized P&L */}
+        {(state?.closedTrades?.length ?? 0) > 0 && (
+          <Section title={`Recent closed trades (${state.closedTrades.length})`} icon={<TrendingUp className="h-4 w-4" />}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-[11px] uppercase text-white/40"><th className="py-1 pr-3">Market</th><th className="pr-3">Coin</th><th className="pr-3">Entry</th><th className="pr-3">Exit</th><th className="pr-3">P&L</th></tr></thead>
+                <tbody>
+                  {state.closedTrades.slice(0, 10).map((t: any) => {
+                    const rp = t.realizedPnl ?? 0;
+                    return (
+                      <tr key={t.id} className="border-t border-white/5">
+                        <td className="py-1.5 pr-3 text-white/80">{t.subtitle}</td>
+                        <td className="pr-3 text-white/60">{t.coin}</td>
+                        <td className="pr-3 font-mono">{t.entryPriceCents}¢</td>
+                        <td className="pr-3 font-mono">{t.currentPriceCents}¢</td>
+                        <td className="pr-3 font-mono" style={{ color: rp >= 0 ? "#34d399" : "#f87171" }}>{fmtUsd(rp)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        )}
+
         {/* Value picks */}
         {picks?.picks?.length > 0 && (
           <Section title="Top value picks" icon={<Store className="h-4 w-4" />}>

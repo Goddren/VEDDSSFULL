@@ -911,6 +911,52 @@ export default function PolymarketEnginePage() {
           <p className="text-[8px] text-gray-600 mt-2">Runs the exact Kalshi strategies on the regulated Polymarket US exchange. Auto-trades crypto markets when available; idle (live) if none are listed yet. {pmUsEngine?.isPaperMode && "PAPER until your API key connects above."}</p>
         </div>
 
+        {/* ── Polymarket Engine positions — per-trade P&L ──────────────────── */}
+        {((state?.openPositions?.length ?? 0) > 0 || (state?.closedPositions?.length ?? 0) > 0) && (
+          <div className="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-purple-400" />
+                <h2 className="text-sm font-bold text-white">Polymarket Engine Positions</h2>
+              </div>
+              <span className={`text-xs font-bold ${pnlColor(totalPnl)}`}>{totalPnl >= 0 ? "+" : ""}${fmt(totalPnl)}</span>
+            </div>
+
+            {(state?.openPositions?.length ?? 0) > 0 && (
+              <div className="mb-3">
+                <div className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1">Open ({openCount})</div>
+                <div className="space-y-1">
+                  {state!.openPositions.map(p => (
+                    <div key={p.id} className={`flex items-center justify-between gap-2 text-[10px] rounded-lg px-2.5 py-1.5 border ${pnlBg(p.unrealizedPnl)}`}>
+                      <span className="text-gray-200 truncate max-w-[45%]">{p.market.question}</span>
+                      <span className={`font-bold flex-shrink-0 ${p.side === "YES" ? "text-emerald-400" : "text-red-400"}`}>{p.side} {p.direction}</span>
+                      <span className={`font-bold flex-shrink-0 ${pnlColor(p.unrealizedPnl)}`}>{p.unrealizedPnl >= 0 ? "+" : ""}${Math.abs(p.unrealizedPnl).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(state?.closedPositions?.length ?? 0) > 0 && (
+              <div>
+                <div className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1">Closed ({closedCount})</div>
+                <div className="space-y-1">
+                  {state!.closedPositions.slice(0, 10).map(p => {
+                    const rp = p.realizedPnl ?? 0;
+                    return (
+                      <div key={p.id} className={`flex items-center justify-between gap-2 text-[10px] rounded-lg px-2.5 py-1.5 border ${pnlBg(rp)}`}>
+                        <span className="text-gray-200 truncate max-w-[45%]">{p.market.question}</span>
+                        <span className={`font-bold flex-shrink-0 ${p.side === "YES" ? "text-emerald-400" : "text-red-400"}`}>{p.side} {p.direction}</span>
+                        <span className={`font-bold flex-shrink-0 ${pnlColor(rp)}`}>{rp >= 0 ? "+" : ""}${Math.abs(rp).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── US-legal notice ──────────────────────────────────────────────── */}
         <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-2.5 flex items-center gap-3">
           <span className="text-base">🇺🇸</span>
