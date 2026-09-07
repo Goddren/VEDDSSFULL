@@ -10590,10 +10590,17 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               (analysis.signal === 'BUY'  && smcContext.bosCHOCH.direction === 'BEARISH') ||
               (analysis.signal === 'SELL' && smcContext.bosCHOCH.direction === 'BULLISH')));
             const ADVISORY_SIGNAL_FLOOR = 85;
-            const _advisoryOverride = !useBreakoutMode
-              && consensusLabel === 'STRONG_SKIP'
-              && preConfirmConfidence >= ADVISORY_SIGNAL_FLOOR
+            // Robust 0-100 coercion (proposed confidence can arrive as a string or a
+            // 0-1 fraction). Dropped the !useBreakoutMode guard — the dual-agent
+            // STRONG_SKIP (and this confluence hard-block) fires in breakout mode too.
+            let _propConf = Number(preConfirmConfidence) || 0;
+            if (_propConf > 0 && _propConf <= 1) _propConf *= 100;
+            const _advisoryOverride = consensusLabel === 'STRONG_SKIP'
+              && _propConf >= ADVISORY_SIGNAL_FLOOR
               && !_confluenceConflicts;
+            if (consensusLabel === 'STRONG_SKIP') {
+              console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? 'null'} → override=${_advisoryOverride}`);
+            }
             // STRONG_SKIP = both agents independently say NO → hard block,
             // UNLESS the advisory override applies (strong signal, no conflict).
             const tradeAllowed = (consensusLabel !== 'STRONG_SKIP' && aiPasses && !overrideTooWeak) || _advisoryOverride;

@@ -64871,7 +64871,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
             const overrideTooWeak = _isAiOverride && !(_strongGrade && _enoughAligned);
             const _confluenceConflicts = !!(smcContext?.bosCHOCH?.detected && (analysis.signal === "BUY" && smcContext.bosCHOCH.direction === "BEARISH" || analysis.signal === "SELL" && smcContext.bosCHOCH.direction === "BULLISH"));
             const ADVISORY_SIGNAL_FLOOR = 85;
-            const _advisoryOverride = !useBreakoutMode && consensusLabel === "STRONG_SKIP" && preConfirmConfidence >= ADVISORY_SIGNAL_FLOOR && !_confluenceConflicts;
+            let _propConf = Number(preConfirmConfidence) || 0;
+            if (_propConf > 0 && _propConf <= 1) _propConf *= 100;
+            const _advisoryOverride = consensusLabel === "STRONG_SKIP" && _propConf >= ADVISORY_SIGNAL_FLOOR && !_confluenceConflicts;
+            if (consensusLabel === "STRONG_SKIP") {
+              console.log(`[Advisory] ${sanitizedSymbol} STRONG_SKIP inputs: breakout=${useBreakoutMode} propConf=${_propConf} conflict=${_confluenceConflicts} smcBOS=${smcContext?.bosCHOCH?.detected ?? "null"} \u2192 override=${_advisoryOverride}`);
+            }
             const tradeAllowed = consensusLabel !== "STRONG_SKIP" && aiPasses && !overrideTooWeak || _advisoryOverride;
             if (_advisoryOverride) {
               aiConfirmation.confirmed = true;
