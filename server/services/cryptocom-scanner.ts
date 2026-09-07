@@ -20,12 +20,12 @@ import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-exe
 // so ENABLE_CRYPTO_ENGINE=true is memory-safe for CeFi/perps users. ethers only
 // loads if a DeFi trade actually fires.
 
-const MIN_SCAN_INTERVAL_MS = 30000;
+const MIN_SCAN_INTERVAL_MS = 60000; // trimmed footprint: min 60s between per-user scans (was 30s)
 const lastScanAt = new Map<number, number>();
 // Cap how many symbols are processed per scan cycle to bound per-cycle memory/CPU
 // (candle fetch + full indicator suite per symbol). Large watchlists are covered
 // by ROTATING through them across cycles instead of scanning all at once.
-const MAX_SYMBOLS_PER_CYCLE = 12;
+const MAX_SYMBOLS_PER_CYCLE = 5; // trimmed footprint: smaller working set per cycle (was 12); cursor still covers the full list over successive cycles
 const scanCursor = new Map<number, number>();
 
 type Decision = 'watching' | 'signal' | 'skipped' | 'error';

@@ -36451,9 +36451,9 @@ var init_cryptocom_scanner = __esm({
     init_crypto_brain();
     init_prop_firm_consistency();
     init_cefi_executor();
-    MIN_SCAN_INTERVAL_MS = 3e4;
+    MIN_SCAN_INTERVAL_MS = 6e4;
     lastScanAt = /* @__PURE__ */ new Map();
-    MAX_SYMBOLS_PER_CYCLE = 12;
+    MAX_SYMBOLS_PER_CYCLE = 5;
     scanCursor = /* @__PURE__ */ new Map();
     STRATEGY_RUNNERS = {
       trend_following: runTrendFollowing,
