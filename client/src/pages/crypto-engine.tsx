@@ -464,7 +464,10 @@ export default function CryptoEnginePage() {
   const baseCoin = (sym: string) => sym.replace(/USD-?PERP$/i, '').replace(/USD$/i, '').toUpperCase();
   const openBaseCoins = Array.from(new Set(openTrades.map(t => baseCoin(t.symbol))));
   const { data: livePrices } = useQuery<{ quotes: any[] }>({
-    queryKey: ['/api/crypto/prices', openBaseCoins.join(',')],
+    // NOTE: the default queryFn fetches queryKey[0] verbatim and ignores the
+    // rest — so the ?symbols= param MUST live in queryKey[0], not a 2nd element,
+    // or the endpoint falls back to BTC/ETH/SOL and open-trade P&L stays blank.
+    queryKey: [`/api/crypto/prices?symbols=${openBaseCoins.join(',')}`],
     enabled: openBaseCoins.length > 0,
     refetchInterval: 15000,
   });
