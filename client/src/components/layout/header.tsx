@@ -190,6 +190,15 @@ const Header: React.FC = () => {
     ? optionsTradesNav.recent.reduce((s: number, t: any) => s + (Number(t.realizedPnl) || 0), 0)
     : 0;
 
+  // ── Kalshi account (balance) + performance (P&L) + Polymarket P&L for the nav ──
+  const { data: kalshiNavAccount } = useQuery<any>({
+    queryKey: ['/api/kalshi/account'], enabled: !!user, refetchInterval: 60000,
+  });
+  const { data: kalshiNavPerf } = useQuery<any>({
+    queryKey: ['/api/kalshi/performance'], enabled: !!user, refetchInterval: 60000,
+  });
+  const pmNavPnl = (polyEngineStatus?.totalRealizedPnl ?? 0) + (polyEngineStatus?.totalUnrealizedPnl ?? 0);
+
   // Live MT5 EA push data for the nav balance display
   const { data: navMt5Data } = useQuery<any>({
     queryKey: ['/api/mt5/account-data'],
@@ -1371,6 +1380,59 @@ const Header: React.FC = () => {
                     <span className="text-sm font-medium text-emerald-400 group-hover:text-emerald-300 flex items-center gap-1.5">
                       <TrendingUp className="h-3.5 w-3.5" />
                       Manage Options Engine
+                    </span>
+                  </Link>
+
+                  {/* ── Kalshi Account (balance + P&L) ─────────────── */}
+                  <Link href="/kalshi" onClick={handleMobileNavClick} className="block border-t border-gray-700 pt-3 mt-1 group">
+                    <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <DollarSign className="h-3 w-3" />
+                      Kalshi Account
+                    </span>
+                    <div className="bg-gray-800/60 border border-indigo-700/25 rounded-lg px-3 py-2 mb-1 group-hover:border-indigo-600/40 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold font-mono text-indigo-300">
+                            {kalshiNavAccount?.connected ? `$${Number(kalshiNavAccount.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </p>
+                          <p className="text-[10px] text-gray-500">{kalshiNavAccount?.connected ? 'Balance' : 'Not connected'}</p>
+                        </div>
+                        {kalshiNavPerf?.totals && (
+                          <div className="text-right shrink-0">
+                            <p className={`text-sm font-bold ${(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {(kalshiNavPerf.totals.totalPnl ?? 0) >= 0 ? '+' : ''}${Number(kalshiNavPerf.totals.totalPnl ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p className="text-[10px] text-gray-500">P&L · {kalshiNavPerf.totals.trades ?? 0}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-sm font-medium text-indigo-400 group-hover:text-indigo-300 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" /> Manage Kalshi
+                    </span>
+                  </Link>
+
+                  {/* ── Polymarket Account (net P&L + status) ─────────── */}
+                  <Link href="/polymarket-engine" onClick={handleMobileNavClick} className="block border-t border-gray-700 pt-3 mt-1 group">
+                    <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                      <DollarSign className="h-3 w-3" />
+                      Polymarket Account
+                    </span>
+                    <div className="bg-gray-800/60 border border-blue-700/25 rounded-lg px-3 py-2 mb-1 group-hover:border-blue-600/40 transition-colors">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className={`text-sm font-bold ${pmNavPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {pmNavPnl >= 0 ? '+' : ''}${pmNavPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-gray-500">Total P&L (realized + open)</p>
+                        </div>
+                        <span className={`text-[11px] shrink-0 ${polyEngineStatus?.isRunning ? 'text-emerald-400' : 'text-gray-500'}`}>
+                          {polyEngineStatus?.isRunning ? '● Live' : '○ Idle'}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-sm font-medium text-blue-400 group-hover:text-blue-300 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5" /> Manage Polymarket
                     </span>
                   </Link>
 

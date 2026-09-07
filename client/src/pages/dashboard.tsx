@@ -1270,8 +1270,15 @@ const Dashboard: React.FC = () => {
               )}
               <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border ${ssEngineRunning ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${ssEngineRunning ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'}`} />
-                <span className="whitespace-nowrap">{ssEngineRunning ? 'LIVE' : 'OFF'}</span>
+                <span className="whitespace-nowrap">FX {ssEngineRunning ? 'LIVE' : 'OFF'}</span>
               </div>
+              {/* DXtrade live indicator — green when an auto-trade DXtrade account is connected */}
+              {dxAccts.some((c: any) => c.autoTradeEnabled && !c.error) && (
+                <Link href="/dxtrade" className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border bg-blue-500/10 border-blue-500/30 text-blue-300">
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-blue-400 animate-pulse" />
+                  <span className="whitespace-nowrap">DXtrade LIVE</span>
+                </Link>
+              )}
               {/* Explore Features button — desktop prominent, mobile compact */}
               <button
                 onClick={() => setShowFeaturesHub(true)}
