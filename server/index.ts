@@ -1528,9 +1528,19 @@ async function withRetry<T>(
     // Importing the scanner pulls in ethers + the DeFi stack; keeping it out of the
     // boot path frees memory while the crypto engine is paused. Re-enable after the
     // instance has more RAM.
-    if (process.env.ENABLE_CRYPTO_ENGINE === 'true') {
+    // Tolerant parse — accept true/1/yes/on in any case, trimmed, so a stray
+    // "TRUE" or a trailing space in the Render env var can't silently keep the
+    // engine off (a common footgun that looked like "the engine won't start").
+    const _cryptoRaw = String(process.env.ENABLE_CRYPTO_ENGINE ?? '').trim().toLowerCase();
+    const _cryptoEnabled = ['true', '1', 'yes', 'on'].includes(_cryptoRaw);
+    (global as any).__cryptoEnvSeen = process.env.ENABLE_CRYPTO_ENGINE !== undefined;
+    (global as any).__cryptoEnabled = _cryptoEnabled;
+    console.log(`[startup] ENABLE_CRYPTO_ENGINE raw="${process.env.ENABLE_CRYPTO_ENGINE ?? '(unset)'}" -> enabled=${_cryptoEnabled}`);
+    if (_cryptoEnabled) {
       const { startCryptocomEngineScanner } = await import('./services/cryptocom-scanner');
       startCryptocomEngineScanner();
+      (global as any).__cryptoScannerStarted = true;
+      console.log('[startup] Crypto engine scanner STARTED.');
     }
   })().catch(err => {
     console.error('[startup] Background initialization error:', err);

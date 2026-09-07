@@ -16341,6 +16341,23 @@ Rules:
     res.json(config);
   });
 
+  // Unauth diagnostic — tells us whether the crypto scanner actually started at
+  // boot and how the ENABLE_CRYPTO_ENGINE env var was read, without exposing any
+  // secret. Lets us confirm the flag took effect after a Render deploy.
+  app.get("/api/cryptocom-engine/health", async (_req: Request, res: Response) => {
+    const g = global as any;
+    res.json({
+      scannerStarted: !!g.__cryptoScannerStarted,
+      envVarSeen: !!g.__cryptoEnvSeen,
+      enabledParsed: !!g.__cryptoEnabled,
+      note: g.__cryptoScannerStarted
+        ? 'Crypto scanner is running.'
+        : g.__cryptoEnvSeen
+        ? 'ENABLE_CRYPTO_ENGINE is set but did not parse as truthy — value must be true/1/yes/on.'
+        : 'ENABLE_CRYPTO_ENGINE is NOT set in this environment.',
+    });
+  });
+
   app.get("/api/cryptocom-engine/activity", async (req: Request, res: Response) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = (req.user as User).id;

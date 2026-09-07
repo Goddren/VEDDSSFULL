@@ -69843,6 +69843,15 @@ Rules:
     const config = await storage.upsertCryptocomEngineConfig(userId, updateData);
     res.json(config);
   });
+  app2.get("/api/cryptocom-engine/health", async (_req, res) => {
+    const g = global;
+    res.json({
+      scannerStarted: !!g.__cryptoScannerStarted,
+      envVarSeen: !!g.__cryptoEnvSeen,
+      enabledParsed: !!g.__cryptoEnabled,
+      note: g.__cryptoScannerStarted ? "Crypto scanner is running." : g.__cryptoEnvSeen ? "ENABLE_CRYPTO_ENGINE is set but did not parse as truthy \u2014 value must be true/1/yes/on." : "ENABLE_CRYPTO_ENGINE is NOT set in this environment."
+    });
+  });
   app2.get("/api/cryptocom-engine/activity", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
     const userId = req.user.id;
@@ -85285,9 +85294,16 @@ async function withRetry(fn, label, maxAttempts = 6, baseDelayMs = 2e3) {
     startFuturesEngineScanner2();
     const { startFxPaperMonitor: startFxPaperMonitor2 } = await Promise.resolve().then(() => (init_fx_paper_monitor(), fx_paper_monitor_exports));
     startFxPaperMonitor2();
-    if (process.env.ENABLE_CRYPTO_ENGINE === "true") {
+    const _cryptoRaw = String(process.env.ENABLE_CRYPTO_ENGINE ?? "").trim().toLowerCase();
+    const _cryptoEnabled = ["true", "1", "yes", "on"].includes(_cryptoRaw);
+    global.__cryptoEnvSeen = process.env.ENABLE_CRYPTO_ENGINE !== void 0;
+    global.__cryptoEnabled = _cryptoEnabled;
+    console.log(`[startup] ENABLE_CRYPTO_ENGINE raw="${process.env.ENABLE_CRYPTO_ENGINE ?? "(unset)"}" -> enabled=${_cryptoEnabled}`);
+    if (_cryptoEnabled) {
       const { startCryptocomEngineScanner: startCryptocomEngineScanner2 } = await Promise.resolve().then(() => (init_cryptocom_scanner(), cryptocom_scanner_exports));
       startCryptocomEngineScanner2();
+      global.__cryptoScannerStarted = true;
+      console.log("[startup] Crypto engine scanner STARTED.");
     }
   })().catch((err) => {
     console.error("[startup] Background initialization error:", err);
