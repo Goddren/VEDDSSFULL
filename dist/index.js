@@ -64969,6 +64969,21 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
+              if (!analysis.tradePlan) {
+                if (preConfirmEntry && preConfirmSL && preConfirmTP) {
+                  analysis.tradePlan = {
+                    direction: analysis.signal,
+                    entry: preConfirmEntry,
+                    stopLoss: preConfirmSL,
+                    takeProfit: preConfirmTP,
+                    riskReward: (Math.abs(preConfirmTP - preConfirmEntry) / Math.max(1e-9, Math.abs(preConfirmEntry - preConfirmSL))).toFixed(2)
+                  };
+                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 rebuilt null tradePlan from pre-confirm proposal (entry=${analysis.tradePlan.entry} SL=${analysis.tradePlan.stopLoss} TP=${analysis.tradePlan.takeProfit})`);
+                } else {
+                  analysis.tradePlan = { direction: analysis.signal, entry: currentPrice, stopLoss: 0, takeProfit: 0, riskReward: "0", _noLevels: true };
+                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 approved but no tradePlan/levels available; placeholder plan (EA will apply its own SL/TP)`);
+                }
+              }
               let hasAdjustments = false;
               if (useBreakoutMode) {
                 if (typeof aiConfirmation.adjustedStopLoss === "number" && !isNaN(aiConfirmation.adjustedStopLoss) && aiConfirmation.adjustedStopLoss > 0) {

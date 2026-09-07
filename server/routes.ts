@@ -10715,6 +10715,29 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               }
               const currentPrice = indicators?.price?.bid || candles[0]?.c || 0;
               const maxDeviation = currentPrice * 0.05;
+              // Defensive: an approved trade (incl. advisory override) may reach here
+              // with a null tradePlan (STRONG_SKIP path never built one). Rebuild it
+              // from the pre-confirm proposal so downstream mutations don't throw
+              // "Cannot set properties of null" and abort the whole confirmation.
+              // Only rebuild when we have real SL/TP levels — never fabricate a
+              // level-less plan (that would let the EA trade with no stop).
+              if (!analysis.tradePlan) {
+                if (preConfirmEntry && preConfirmSL && preConfirmTP) {
+                  analysis.tradePlan = {
+                    direction: analysis.signal,
+                    entry: preConfirmEntry,
+                    stopLoss: preConfirmSL,
+                    takeProfit: preConfirmTP,
+                    riskReward: (Math.abs(preConfirmTP - preConfirmEntry) / Math.max(1e-9, Math.abs(preConfirmEntry - preConfirmSL))).toFixed(2)
+                  } as any;
+                  console.log(`[SS Consensus] ${sanitizedSymbol} — rebuilt null tradePlan from pre-confirm proposal (entry=${analysis.tradePlan.entry} SL=${analysis.tradePlan.stopLoss} TP=${analysis.tradePlan.takeProfit})`);
+                } else {
+                  // No usable levels — cannot safely approve. Block gracefully
+                  // instead of crashing (was throwing on null tradePlan).
+                  analysis.tradePlan = { direction: analysis.signal, entry: currentPrice, stopLoss: 0, takeProfit: 0, riskReward: '0', _noLevels: true } as any;
+                  console.log(`[SS Consensus] ${sanitizedSymbol} — approved but no tradePlan/levels available; placeholder plan (EA will apply its own SL/TP)`);
+                }
+              }
               let hasAdjustments = false;
               if (useBreakoutMode) {
                 // Breakout mode: apply fixed ATR-derived SL/TP without deviation guard
