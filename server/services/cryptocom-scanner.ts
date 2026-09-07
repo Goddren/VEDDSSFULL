@@ -551,7 +551,50 @@ async function assembleConsensus(userId: number, symbol: string, result: Strateg
 // Execution
 // ══════════════════════════════════════════════════════════════════════════
 
+// ── Multi-venue fan-out wrapper ──────────────────────────────────────────────
+// When multiVenueEnabled is on, one confirmed signal fires on EVERY connected +
+// enabled rail at once — Crypto.com perps + DeFi hot wallet + any connected CeFi
+// spot exchange — instead of only the single executionVenue. Each rail runs
+// independently (its own gate/size/execute + activity log); one failing never
+// blocks the others. Perps take long AND short; DeFi/spot take the long side
+// only (shorts are skipped there). Off = legacy single-venue routing, unchanged.
 async function executeSignal(service: CryptoComService, connection: CryptocomConnection, userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<void> {
+  if (!result.direction || !result.price) return;
+  if (!(cfg as any).multiVenueEnabled) {
+    return executeSignalSingle(service, connection, userId, symbol, result, cfg);
+  }
+
+  const arms: Array<{ venue: string; label: string }> = [];
+  // Perps — always in the fan-out when the Crypto.com connection is live.
+  if (connection) arms.push({ venue: 'cryptocom', label: 'perps' });
+  // DeFi hot wallet — only when explicitly enabled (a funded burner + ZEROX key).
+  if ((cfg as any).defiAutoTradeEnabled) arms.push({ venue: 'defi', label: 'DeFi' });
+  // CeFi spot — every connected exchange, so a newly-connected wallet auto-joins.
+  if ((cfg as any).cefiAutoTradeEnabled) {
+    try {
+      const { pool } = await import('../db');
+      for (const [tbl, v] of [['coinbase_connections', 'coinbase'], ['kraken_connections', 'kraken'], ['gemini_connections', 'gemini']] as const) {
+        const r = await pool.query(`SELECT 1 FROM ${tbl} WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => null);
+        if (r && r.rows.length) arms.push({ venue: v, label: v });
+      }
+    } catch { /* spot detection best-effort */ }
+  }
+
+  for (const arm of arms) {
+    // Clone the config with this arm's venue forced, and the OTHER rails' flags
+    // cleared, so executeSignalSingle routes cleanly into exactly one branch.
+    const armCfg = {
+      ...cfg,
+      executionVenue: arm.venue,
+      defiAutoTradeEnabled: arm.venue === 'defi',
+      cefiAutoTradeEnabled: arm.venue !== 'defi' && arm.venue !== 'cryptocom',
+    } as CryptocomEngineConfig;
+    await executeSignalSingle(service, connection, userId, symbol, result, armCfg)
+      .catch((e: any) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
+  }
+}
+
+async function executeSignalSingle(service: CryptoComService, connection: CryptocomConnection, userId: number, symbol: string, result: StrategyResult, cfg: CryptocomEngineConfig): Promise<void> {
   if (!result.direction || !result.price) return;
 
   const venue = (cfg as any).executionVenue as string;

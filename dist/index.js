@@ -1210,6 +1210,12 @@ var init_schema = __esm({
       // USD (USDC) per swap entry
       defiSlippageBps: integer("defi_slippage_bps").notNull().default(100),
       // 100 = 1%
+      // ── Multi-venue fan-out ──────────────────────────────────────────────────
+      // When true, a confirmed signal fires on EVERY connected+enabled rail at
+      // once (Crypto.com perps + DeFi hot wallet + any connected CeFi spot
+      // exchange) instead of only the single executionVenue. Perps take long+short;
+      // spot/DeFi take the long side only. Off = legacy single-venue routing.
+      multiVenueEnabled: boolean("multi_venue_enabled").notNull().default(false),
       createdAt: timestamp("created_at").defaultNow().notNull(),
       updatedAt: timestamp("updated_at").defaultNow().notNull()
     });
@@ -48534,6 +48540,7 @@ ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_auto_trade
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_chain" text NOT NULL DEFAULT 'base';
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_notional_usd" double precision NOT NULL DEFAULT 25;
 ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "defi_slippage_bps" integer NOT NULL DEFAULT 100;
+ALTER TABLE "cryptocom_engine_configs" ADD COLUMN IF NOT EXISTS "multi_venue_enabled" boolean NOT NULL DEFAULT false;
 `;
   }
 });
@@ -51827,6 +51834,34 @@ async function assembleConsensus(userId, symbol, result, cfg) {
   return tradeAllowed;
 }
 async function executeSignal2(service, connection2, userId, symbol, result, cfg) {
+  if (!result.direction || !result.price) return;
+  if (!cfg.multiVenueEnabled) {
+    return executeSignalSingle(service, connection2, userId, symbol, result, cfg);
+  }
+  const arms = [];
+  if (connection2) arms.push({ venue: "cryptocom", label: "perps" });
+  if (cfg.defiAutoTradeEnabled) arms.push({ venue: "defi", label: "DeFi" });
+  if (cfg.cefiAutoTradeEnabled) {
+    try {
+      const { pool: pool2 } = await Promise.resolve().then(() => (init_db(), db_exports));
+      for (const [tbl, v] of [["coinbase_connections", "coinbase"], ["kraken_connections", "kraken"], ["gemini_connections", "gemini"]]) {
+        const r = await pool2.query(`SELECT 1 FROM ${tbl} WHERE user_id=$1 AND is_active=true LIMIT 1`, [userId]).catch(() => null);
+        if (r && r.rows.length) arms.push({ venue: v, label: v });
+      }
+    } catch {
+    }
+  }
+  for (const arm of arms) {
+    const armCfg = {
+      ...cfg,
+      executionVenue: arm.venue,
+      defiAutoTradeEnabled: arm.venue === "defi",
+      cefiAutoTradeEnabled: arm.venue !== "defi" && arm.venue !== "cryptocom"
+    };
+    await executeSignalSingle(service, connection2, userId, symbol, result, armCfg).catch((e) => console.error(`[cryptocom-scanner] fan-out ${arm.label} failed for ${symbol}:`, e?.message ?? e));
+  }
+}
+async function executeSignalSingle(service, connection2, userId, symbol, result, cfg) {
   if (!result.direction || !result.price) return;
   const venue = cfg.executionVenue;
   if (venue === "defi" && cfg.defiAutoTradeEnabled) {
@@ -69797,7 +69832,9 @@ Rules:
       "defiAutoTradeEnabled",
       "defiChain",
       "defiNotionalUsd",
-      "defiSlippageBps"
+      "defiSlippageBps",
+      // Multi-venue fan-out (perps + DeFi hot wallet + connected CeFi spot at once)
+      "multiVenueEnabled"
     ];
     const updateData = {};
     for (const key of allowed) {

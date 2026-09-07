@@ -950,6 +950,13 @@ export const cryptocomEngineConfigs = pgTable("cryptocom_engine_configs", {
   defiNotionalUsd: doublePrecision("defi_notional_usd").notNull().default(25), // USD (USDC) per swap entry
   defiSlippageBps: integer("defi_slippage_bps").notNull().default(100),        // 100 = 1%
 
+  // ── Multi-venue fan-out ──────────────────────────────────────────────────
+  // When true, a confirmed signal fires on EVERY connected+enabled rail at
+  // once (Crypto.com perps + DeFi hot wallet + any connected CeFi spot
+  // exchange) instead of only the single executionVenue. Perps take long+short;
+  // spot/DeFi take the long side only. Off = legacy single-venue routing.
+  multiVenueEnabled: boolean("multi_venue_enabled").notNull().default(false),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

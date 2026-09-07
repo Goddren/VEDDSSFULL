@@ -68,6 +68,7 @@ type CryptocomEngineConfig = {
   defiChain: string;
   defiNotionalUsd: number;
   defiSlippageBps: number;
+  multiVenueEnabled: boolean;
   trailMethod: 'none' | 'fixed_r' | 'stepped_fixed' | 'profit_lock' | 'chandelier' | 'parabolic_sar' | 'r_multiple' | 'swing_structure';
   trailActivationR: number;
   trailFixedR: number;
@@ -1154,6 +1155,14 @@ export default function CryptoEnginePage() {
                     {/* ── Execution venue routing ── */}
                     <div>
                       <h4 className="text-[11px] font-bold text-blue-400 uppercase tracking-wide mb-3">Execution Venue</h4>
+                      {/* Multi-venue fan-out — fire every connected+enabled rail at once */}
+                      <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2 mb-3">
+                        <div>
+                          <Label className="text-xs text-white">Fan out to ALL connected venues</Label>
+                          <p className="text-[10px] text-gray-500">One signal fires on Crypto.com perps + DeFi hot wallet + any connected spot exchange at once. Perps trade long &amp; short; spot/DeFi long-only. Off = single venue below.</p>
+                        </div>
+                        <Switch checked={config.multiVenueEnabled} onCheckedChange={(v) => updateConfigMutation.mutate({ multiVenueEnabled: v })} />
+                      </div>
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-xs text-gray-400">Connected wallet to auto-trade</Label>

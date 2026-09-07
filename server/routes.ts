@@ -16330,6 +16330,8 @@ Rules:
       'executionVenue', 'cefiAutoTradeEnabled', 'cefiNotionalUsd', 'cefiTakeProfitPct', 'cefiStopLossPct',
       // DeFi hot-wallet auto-trade (Phase B)
       'defiAutoTradeEnabled', 'defiChain', 'defiNotionalUsd', 'defiSlippageBps',
+      // Multi-venue fan-out (perps + DeFi hot wallet + connected CeFi spot at once)
+      'multiVenueEnabled',
     ];
     const updateData: Record<string, any> = {};
     for (const key of allowed) {
