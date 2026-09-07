@@ -6,14 +6,14 @@ import { Link } from "wouter";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Eye, EyeOff, Trash2, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, Trash2, Building2, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function DxtradePage() {
   const { toast } = useToast();
   const [form, setForm] = useState({ host: "https://dx.velotrade.com", username: "", password: "", domain: "default", label: "" });
   const [showPw, setShowPw] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState<number | null>(null);
   const [order, setOrder] = useState({ instrument: "BTCUSD", side: "BUY" as "BUY" | "SELL", quantity: "", type: "MARKET" as "MARKET" | "LIMIT", limitPrice: "", stopLoss: "", takeProfit: "", riskPercent: "", entryPrice: "" });
   const [orderConnId, setOrderConnId] = useState<number | null>(null);
   const [orderConfirm, setOrderConfirm] = useState(false);
@@ -103,12 +103,13 @@ export default function DxtradePage() {
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
         </Link>
         <div className="flex items-center gap-2.5 mb-1">
+          <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-700/40 flex items-center justify-center">
+            <Building2 className="w-5 h-5 text-emerald-400" />
+          </div>
           <h1 className="text-xl font-bold">DXtrade (Velotrade)</h1>
-          <Badge variant="outline" className="text-[10px] border-blue-700 text-blue-400">FX SS AI — read-only (Phase 1)</Badge>
         </div>
         <p className="text-sm text-gray-500 mb-6">
-          Connect your Velotrade DXtrade account. Phase 1 verifies the login and shows balances/positions;
-          auto-execution of SS AI signals is wired in Phase 2 once a connection is confirmed. Your password is encrypted at rest and never shown again.
+          Connect your Velotrade DXtrade account to view balances and route SS AI signals. Your password is encrypted at rest and never shown again.
         </p>
 
         {/* Connected accounts */}
@@ -119,30 +120,47 @@ export default function DxtradePage() {
             <p className="text-xs text-gray-500">No DXtrade account connected yet.</p>
           ) : (
             conns.map((c: any) => (
-              <Card key={c.id} className="bg-gray-900 border-gray-800">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      {c.error ? <XCircle className="w-4 h-4 text-red-400" /> : <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                      {c.label || c.username}
-                    </span>
-                    <button onClick={() => remove.mutate(c.id)} className="text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-                  </CardTitle>
-                  <CardDescription className="text-[11px]">
-                    {c.host} · {c.accountCode || "account pending"} {c.domain ? `· domain ${c.domain}` : ""}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="text-xs">
-                  {c.error ? (
-                    <p className="text-red-400">Error: {c.error}</p>
-                  ) : (
-                    <>
-                      <p className="text-[10px] text-gray-500 mb-1">account code: <span className="font-mono text-gray-300">{c.accountCode || "— not resolved (see raw below)"}</span></p>
+              <Card key={c.id} className="bg-gray-900 border-gray-800 overflow-hidden">
+                {/* Account header — balance & status */}
+                <div className="p-4 border-b border-gray-800">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-semibold text-white truncate">{c.label || c.username}</p>
+                        {c.error ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-800/40">● Reconnect required</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-800/40">● Connected</span>
+                        )}
+                      </div>
+                      <p className="text-3xl font-bold text-white tracking-tight">
+                        {c.balance != null
+                          ? `$${Number(c.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : "—"}
+                        {c.currency && c.balance != null && <span className="text-sm font-medium text-gray-500 ml-1.5">{c.currency}</span>}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-gray-500">
+                        <span className="truncate">{c.host}</span>
+                        {c.accountCode && <span className="font-mono text-gray-400">· {c.accountCode}</span>}
+                        {c.openPositions > 0 && (
+                          <span className="text-emerald-400 font-semibold">· {c.openPositions} open position{c.openPositions === 1 ? "" : "s"}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => remove.mutate(c.id)} className="text-gray-600 hover:text-red-400 shrink-0 p-1" title="Remove account"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                  {c.error && <p className="text-[11px] text-red-400 mt-2">{c.error}</p>}
+                </div>
 
+                <CardContent className="text-xs pt-4">
+                  {!c.error && (
+                    <>
                       {/* SS AI engine auto-routing controls */}
-                      <div className="mb-2 rounded-lg border border-red-800/30 bg-red-500/[0.05] p-2 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="mb-3">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Automation</p>
+                      <div className="rounded-lg border border-gray-800 bg-black/20 p-2.5 flex items-center justify-between gap-2 flex-wrap">
                         <div>
-                          <p className="text-[11px] font-bold text-white">SS AI auto-trade to this account</p>
+                          <p className="text-[11px] font-bold text-white">SS AI auto-trade</p>
                           <p className="text-[10px] text-gray-500">Engine fires FX signals here, sized by risk %</p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -168,9 +186,11 @@ export default function DxtradePage() {
                           </button>
                         </div>
                       </div>
+                      </div>
 
                       {/* Prop firm & consistency controls */}
-                      <div className="mb-2 rounded-lg border border-blue-800/30 bg-blue-500/[0.05] p-2 space-y-2">
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Prop firm rules</p>
+                      <div className="mb-2 rounded-lg border border-gray-800 bg-black/20 p-2.5 space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="text-[11px] font-bold text-white">Prop firm account</p>
@@ -239,20 +259,41 @@ export default function DxtradePage() {
                           </div>
                         </div>
                       </div>
-                      {c.accounts && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">users/self: {JSON.stringify(c.accounts, null, 2).slice(0, 1000)}</pre>}
-                      {c.metrics && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 mb-2">{JSON.stringify(c.metrics, null, 2).slice(0, 800)}</pre>}
-                      {c.portfolio && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2">{JSON.stringify(c.portfolio, null, 2).slice(0, 1200)}</pre>}
-                      {!c.metrics && !c.portfolio && <p className="text-gray-500">Connected. No portfolio/metrics returned — send me this account's response so I can map the fields.</p>}
-
-                      {/* Manual order ticket (Phase 2a) — validate live order placement */}
-                      <div className="mt-3 rounded-lg border border-blue-800/30 bg-black/20 p-3 space-y-2">
-                        <p className="text-[11px] font-bold text-blue-300">Place a test order <span className="text-gray-500 font-normal">(live — start tiny)</span></p>
+                      {/* Advanced / manual trading — collapsible */}
+                      <button
+                        onClick={() => setAdvancedOpen(advancedOpen === c.id ? null : c.id)}
+                        className="mt-1 w-full flex items-center justify-between text-[11px] font-semibold text-gray-400 hover:text-white py-2"
+                      >
+                        <span className="uppercase tracking-wide">Advanced / manual trading</span>
+                        {advancedOpen === c.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </button>
+                      {advancedOpen === c.id && (
+                      <>
+                      {/* Manual order ticket — validate live order placement */}
+                      <div className="mt-1 rounded-lg border border-gray-800 bg-black/20 p-3 space-y-2">
+                        <p className="text-[11px] font-bold text-gray-200">Place a test order <span className="text-gray-500 font-normal">(live — start tiny)</span></p>
                         {/* Instrument finder — discover the exact tradable symbol format */}
                         <div className="flex gap-2">
                           <Input placeholder="Find symbol (e.g. BTC, EUR)" value={instrQuery} onChange={(e) => setInstrQuery(e.target.value)} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                           <button onClick={() => { setOrderConnId(c.id); searchInstruments.mutate(c.id); }} disabled={searchInstruments.isPending} className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 text-gray-200 shrink-0">{searchInstruments.isPending ? "…" : "Search"}</button>
                         </div>
-                        {instrResult && orderConnId === c.id && <pre className="text-[10px] text-gray-400 overflow-x-auto bg-black/30 rounded p-2 max-h-40">{JSON.stringify(instrResult, null, 2).slice(0, 1500)}</pre>}
+                        {instrResult && orderConnId === c.id && Array.isArray(instrResult) && instrResult.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {instrResult.slice(0, 20).map((instr: any, i: number) => {
+                              const sym = instr?.symbol || instr?.name || (typeof instr === "string" ? instr : null);
+                              if (!sym) return null;
+                              return (
+                                <button
+                                  key={i}
+                                  onClick={() => setOrder((o) => ({ ...o, instrument: String(sym).toUpperCase() }))}
+                                  className="text-[10px] font-mono px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700"
+                                >
+                                  {String(sym)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                           <Input placeholder="Symbol e.g. BTCUSD (no slash)" value={order.instrument} onChange={(e) => setOrder((o) => ({ ...o, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
                           <select value={order.side} onChange={(e) => setOrder((o) => ({ ...o, side: e.target.value as any }))} className="bg-gray-800 border border-gray-700 rounded-lg h-8 text-sm text-white px-2"><option value="BUY">Buy</option><option value="SELL">Sell</option></select>
@@ -281,11 +322,11 @@ export default function DxtradePage() {
                             <button onClick={() => setOrderConfirm(false)} className="text-sm px-3 py-1.5 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
                           </div>
                         )}
-                        <p className="text-[10px] text-gray-600">Live order on your Velotrade account. Use a tiny quantity to validate before the SS AI engine auto-executes (Phase 2b).</p>
+                        <p className="text-[10px] text-gray-600">Live order on your Velotrade account. Use a tiny quantity to validate before the SS AI engine auto-executes.</p>
                       </div>
 
                       {/* Modify SL/TP on an open position */}
-                      <div className="mt-3 rounded-lg border border-amber-800/30 bg-black/20 p-3 space-y-2">
+                      <div className="mt-3 rounded-lg border border-gray-800 bg-black/20 p-3 space-y-2">
                         <p className="text-[11px] font-bold text-amber-300">Modify SL / TP on an open position</p>
                         <div className="grid grid-cols-2 gap-2">
                           <Input placeholder="Symbol (BTCUSD)" value={mod.instrument} onChange={(e) => setMod((m) => ({ ...m, instrument: e.target.value.toUpperCase() }))} className="bg-gray-800 border-gray-700 h-8 text-sm" />
@@ -300,6 +341,8 @@ export default function DxtradePage() {
                         <button onClick={() => { setModConnId(c.id); modify.mutate(c.id); }} disabled={modify.isPending || !mod.quantity || (!mod.stopLoss && !mod.takeProfit)} className="w-full text-sm font-bold py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50">{modify.isPending ? "Updating…" : "Update SL/TP"}</button>
                         <p className="text-[10px] text-gray-600">Places protective STOP (SL) + LIMIT (TP) orders on the position. Enter the position's symbol, direction and quantity.</p>
                       </div>
+                      </>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -336,7 +379,7 @@ export default function DxtradePage() {
                 <button onClick={() => connect.mutate()} disabled={connect.isPending || !form.username || !form.password} className="text-sm font-bold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">{connect.isPending ? "Verifying…" : "Connect"}</button>
                 <button onClick={() => setShowForm(false)} className="text-sm px-3 py-2 rounded-lg bg-gray-800 text-gray-400">Cancel</button>
               </div>
-              <p className="text-[10px] text-gray-500">Velotrade officially allows API/algo trading on funded accounts. Read-only for now — no orders are placed in Phase 1.</p>
+              <p className="text-[10px] text-gray-500">Velotrade officially allows API/algo trading on funded accounts.</p>
             </CardContent>
           </Card>
         )}

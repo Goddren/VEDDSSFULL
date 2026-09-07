@@ -73151,7 +73151,7 @@ Respond with ONLY valid JSON:
         `SELECT id, host, username, domain, account_code, label, is_active, last_connected_at, last_error, auto_trade_enabled, use_risk_percent, risk_percent, lot_multiplier, is_prop_firm_account, prop_firm_name, prop_firm_account_size, weekly_profit_target, consistency_enabled, consistency_threshold_pct FROM dxtrade_connections WHERE user_id=$1 ORDER BY id`,
         [userId]
       );
-      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
+      const { DxtradeService: DxtradeService2, decryptApiSecret: decryptApiSecret3, extractAccountCode: extractAccountCode2, extractBalance: extractBalance2 } = await Promise.resolve().then(() => (init_dxtrade(), dxtrade_exports));
       const connections = await Promise.all(rows.map(async (c) => {
         try {
           const pw = decryptApiSecret3((await pool2.query(`SELECT encrypted_password FROM dxtrade_connections WHERE id=$1`, [c.id])).rows[0].encrypted_password);
@@ -73165,12 +73165,15 @@ Respond with ONLY valid JSON:
             } catch {
             }
           }
-          let portfolio = null, metrics = null;
+          let portfolio = null, metrics = null, balance = null, openPositions = 0;
           if (accCode) {
             portfolio = await svc.getPortfolio(accCode).catch((e) => ({ error: e.message }));
             metrics = await svc.getMetrics(accCode).catch(() => null);
+            balance = extractBalance2(metrics);
+            const posArr = portfolio?.positions ?? (Array.isArray(portfolio) ? portfolio : []);
+            openPositions = Array.isArray(posArr) ? posArr.length : 0;
           }
-          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, accounts, portfolio, metrics };
+          return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: accCode, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, balance, currency: "USD", openPositions, accounts, portfolio, metrics };
         } catch (e) {
           return { id: c.id, host: c.host, username: c.username, domain: c.domain, accountCode: c.account_code, label: c.label, isActive: c.is_active, autoTradeEnabled: c.auto_trade_enabled, useRiskPercent: c.use_risk_percent, riskPercent: c.risk_percent, lotMultiplier: c.lot_multiplier, isPropFirmAccount: c.is_prop_firm_account, propFirmName: c.prop_firm_name, propFirmAccountSize: c.prop_firm_account_size, weeklyProfitTarget: c.weekly_profit_target, consistencyEnabled: c.consistency_enabled, consistencyThresholdPct: c.consistency_threshold_pct, error: e.message };
         }

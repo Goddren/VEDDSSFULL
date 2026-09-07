@@ -151,6 +151,12 @@ const Header: React.FC = () => {
   });
   const activeTLNavConns = tlNavConnections.filter((c: any) => c.isActive);
 
+  // DXtrade (Velotrade) connections + live balances for the slide nav (showcased like TradeLocker)
+  const { data: dxNavData } = useQuery<{ connections: any[] }>({
+    queryKey: ['/api/dxtrade/connections'], enabled: !!user, refetchInterval: 60000,
+  });
+  const activeDxNavConns = (dxNavData?.connections ?? []).filter((c: any) => c.isActive);
+
   // Options AI Engine connections (Alpaca / TastyTrade / Crypto.com) for the slide nav
   const { data: navAlpacaConns = [] } = useQuery<any[]>({
     queryKey: ['/api/alpaca/connections'], enabled: !!user, refetchInterval: 60000,
@@ -1208,6 +1214,45 @@ const Header: React.FC = () => {
                       >
                         <LinkIcon className="h-4 w-4" />
                         Connect TradeLocker
+                      </Link>
+                    </div>
+                  )}
+
+                  {/* ── DXtrade (Velotrade) Accounts — showcased like TradeLocker ── */}
+                  {activeDxNavConns.length > 0 && (
+                    <div className="border-t border-gray-700 pt-3 mt-1">
+                      <span className="text-xs font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5 mb-2">
+                        <Cable className="h-3 w-3" />
+                        DXtrade Accounts
+                      </span>
+                      <div className="space-y-2 mb-3">
+                        {activeDxNavConns.map((c: any) => (
+                          <div key={c.id} className="bg-gray-800/60 border border-blue-700/25 rounded-lg px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm text-white font-medium truncate">{c.label ?? c.username}</p>
+                                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                  {c.autoTradeEnabled && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">AUTO</span>}
+                                  {c.isPropFirmAccount && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">PROP</span>}
+                                  {c.openPositions > 0 && <span className="text-[10px] text-gray-500">{c.openPositions} open</span>}
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                {c.error ? (
+                                  <span className="text-[11px] text-red-400">Reconnect</span>
+                                ) : c.balance != null ? (
+                                  <p className="text-sm font-bold font-mono text-emerald-400">{c.currency ?? 'USD'} {Number(c.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                ) : (
+                                  <span className="text-[11px] text-gray-500">—</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Link href="/dxtrade" onClick={handleMobileNavClick} className="text-sm font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1.5">
+                        <Cable className="h-3.5 w-3.5" />
+                        Manage DXtrade Accounts
                       </Link>
                     </div>
                   )}

@@ -1009,6 +1009,14 @@ const Dashboard: React.FC = () => {
     refetchInterval: 30000,
     staleTime: 0,
   });
+
+  // DXtrade (Velotrade) connections + live balances for the account row
+  const { data: dxData } = useQuery<{ connections: any[] }>({
+    queryKey: ['/api/dxtrade/connections'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+  const dxAccts = (dxData?.connections ?? []).filter((c: any) => c.isActive);
   // Legacy single alias for components that still use tlConnection
   const tlConnection = tlConnectionsAll[0] ?? null;
 
@@ -1388,7 +1396,28 @@ const Dashboard: React.FC = () => {
                 <p className="text-[9px] text-gray-500 mt-0.5 truncate" title={a.error ?? undefined}>{a.error}</p>
               </Link>
             ))}
-            {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && optionsAccounts.length === 0 && (
+            {/* DXtrade (Velotrade) accounts — same showcase as TradeLocker */}
+            {dxAccts.filter((c: any) => !c.error).map((c: any) => (
+              <Link key={`dx-${c.id}`} href="/dxtrade" className="flex-shrink-0 rounded-xl border border-blue-500/25 hover:border-blue-500/50 px-3 py-2.5 min-w-[140px] transition-colors block" style={{ background: 'rgba(59,130,246,0.07)' }}>
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span className="text-[9px] font-bold text-blue-300 uppercase tracking-wider">{c.label ?? 'DXtrade'}</span>
+                </div>
+                <p className="text-base font-black text-white leading-none">{c.currency ?? 'USD'} {(c.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                {c.openPositions > 0 && <p className="text-[10px] text-blue-400 mt-0.5">{c.openPositions} open</p>}
+              </Link>
+            ))}
+            {dxAccts.filter((c: any) => !!c.error).map((c: any) => (
+              <Link key={`dx-err-${c.id}`} href="/dxtrade" className="flex-shrink-0 rounded-xl border border-amber-500/40 hover:border-amber-500/60 px-3 py-2.5 min-w-[160px] bg-amber-500/5 hover:bg-amber-500/10 transition-colors block">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span className="text-[9px] font-bold text-amber-300 uppercase tracking-wider">{c.label ?? 'DXtrade'}</span>
+                </div>
+                <p className="text-[10px] text-amber-400 font-semibold">Reconnect required →</p>
+                <p className="text-[9px] text-gray-500 mt-0.5 truncate" title={c.error}>{c.error}</p>
+              </Link>
+            ))}
+            {!mt5LiveAcct?.connected && tlLiveAccts.length === 0 && optionsAccounts.length === 0 && dxAccts.length === 0 && (
               <Link href="/mt5-chart-data" className="flex-shrink-0 rounded-xl border border-gray-700 hover:border-indigo-500/50 px-3 py-2.5 min-w-[160px] bg-gray-900/40 hover:bg-gray-900/60 transition-colors block">
                 <p className="text-[10px] text-gray-500">No live accounts connected</p>
                 <p className="text-[9px] text-indigo-400 mt-0.5 font-semibold">Connect MT5 EA or TradeLocker →</p>
