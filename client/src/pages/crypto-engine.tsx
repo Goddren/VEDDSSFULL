@@ -934,9 +934,9 @@ export default function CryptoEnginePage() {
                       <Wallet className="w-3 h-3 mr-1.5" /> Deposit funds <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
                     </Button>
                   </a>
-                  <a href="https://crypto.com/exchange/trade/perpetual" target="_blank" rel="noopener noreferrer" className="w-full">
+                  <a href="https://crypto.com/exchange/trade/BTCUSD-PERP" target="_blank" rel="noopener noreferrer" className="w-full">
                     <Button size="sm" variant="outline" className="w-full h-8 text-xs border-blue-700/50 text-blue-300 hover:bg-blue-500/10">
-                      Open Exchange <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
+                      Open Perps <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
                     </Button>
                   </a>
                 </div>
