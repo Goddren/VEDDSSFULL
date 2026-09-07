@@ -14,7 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ArrowLeft, RefreshCw, Eye, EyeOff, AlertCircle, CheckCircle2, XCircle, Trash2, TrendingUp,
-  TrendingDown, Radar, Ban, Brain, Swords, Settings2, Coins,
+  TrendingDown, Radar, Ban, Brain, Swords, Settings2, Coins, ExternalLink, Wallet,
 } from "lucide-react";
 
 // ── Types mirroring the server schema ───────────────────────────────────────
@@ -927,6 +927,21 @@ export default function CryptoEnginePage() {
                 <CardDescription>HMAC-signed API Key + Secret Key — no OAuth, no broker login page.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
+                {/* Quick jump to Crypto.com Exchange to deposit / withdraw / manage the perps wallet */}
+                <div className="grid grid-cols-2 gap-2">
+                  <a href="https://crypto.com/exchange/wallet" target="_blank" rel="noopener noreferrer" className="w-full">
+                    <Button size="sm" variant="outline" className="w-full h-8 text-xs border-emerald-700/50 text-emerald-300 hover:bg-emerald-500/10">
+                      <Wallet className="w-3 h-3 mr-1.5" /> Deposit funds <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
+                    </Button>
+                  </a>
+                  <a href="https://crypto.com/exchange/trade/perpetual" target="_blank" rel="noopener noreferrer" className="w-full">
+                    <Button size="sm" variant="outline" className="w-full h-8 text-xs border-blue-700/50 text-blue-300 hover:bg-blue-500/10">
+                      Open Exchange <ExternalLink className="w-3 h-3 ml-1 opacity-70" />
+                    </Button>
+                  </a>
+                </div>
+                <p className="text-[10px] text-gray-500 -mt-1">Manage your Crypto.com perps balance — deposit more funds, withdraw, or check positions. Opens in a new tab.</p>
+
                 {cryptocomLoading ? (
                   <p className="text-xs text-gray-500">Loading...</p>
                 ) : (
