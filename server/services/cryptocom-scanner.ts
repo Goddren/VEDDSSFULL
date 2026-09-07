@@ -14,7 +14,11 @@ import type { CryptocomEngineConfig, CryptocomConnection } from '../../shared/sc
 import { getOrRefreshCryptoBrain, cryptoBrainSizeMultiplier, cryptoBrainGate, recordCryptoBrainOutcome } from './crypto-brain';
 import { recordRealizedPnl } from './prop-firm-consistency';
 import { cefiEntryBuy, cefiExitSell, baseCoin, type CefiVenue } from './cefi-executor';
-import { defiEntryBuy, defiExitSell } from './defi-executor';
+// NOTE: defi-executor is imported LAZILY (dynamic import at the two call sites
+// below) — it pulls in defi-swap → ethers, a heavy stack. Keeping it out of the
+// module's static graph means the crypto scanner boots without loading ethers,
+// so ENABLE_CRYPTO_ENGINE=true is memory-safe for CeFi/perps users. ethers only
+// loads if a DeFi trade actually fires.
 
 const MIN_SCAN_INTERVAL_MS = 30000;
 const lastScanAt = new Map<number, number>();
@@ -332,6 +336,7 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
     if (venue === 'defi') {
       // DeFi exit — swap the held token back to USDC via the hot wallet.
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
+      const { defiExitSell } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi exit
       const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', baseCoin(trade.symbol), trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch(() => null);
       if (exit?.exitPrice) currentPrice = exit.exitPrice;
     } else if (venue) {
@@ -568,6 +573,7 @@ async function executeSignal(service: CryptoComService, connection: CryptocomCon
     const slip = (cfg as any).defiSlippageBps ?? 100;
     const notionalD = Math.max(1, (cfg as any).defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     try {
+      const { defiEntryBuy } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi entry
       const r = await defiEntryBuy(userId, chain, symbol, notionalD, slip);
       if (!r.ok) {
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? 'skipped' : 'error', strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? 'skipped' : 'failed'} — ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: 'cryptocom' });

@@ -51238,6 +51238,15 @@ var init_cefi_executor = __esm({
 });
 
 // server/services/defi-executor.ts
+var defi_executor_exports = {};
+__export(defi_executor_exports, {
+  defiEntryBuy: () => defiEntryBuy,
+  defiExitSell: () => defiExitSell,
+  defiTokenAvailable: () => defiTokenAvailable
+});
+async function defiTokenAvailable(chainKey, symbol) {
+  return isTokenTradeable(chainKey, baseCoin(symbol));
+}
 async function loadHotWallet(userId) {
   const { rows } = await pool.query(
     `SELECT encrypted_private_key AS k, chain FROM defi_hot_wallets WHERE user_id=$1 AND is_active=true ORDER BY id LIMIT 1`,
@@ -51604,7 +51613,8 @@ async function closePosition2(userId, trade, currentPrice, reason) {
     const venue = trade.venue && trade.venue !== "cryptocom" ? trade.venue : null;
     if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
-      const exit = await defiExitSell(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
+      const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
       if (exit?.exitPrice) currentPrice = exit.exitPrice;
     } else if (venue) {
       const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
@@ -51833,7 +51843,8 @@ async function executeSignal2(service, connection2, userId, symbol, result, cfg)
     const slip = cfg.defiSlippageBps ?? 100;
     const notionalD = Math.max(1, cfg.defiNotionalUsd ?? 25) * (gateD.riskMultiplier < 1 ? gateD.riskMultiplier : 1);
     try {
-      const r = await defiEntryBuy(userId, chain, symbol, notionalD, slip);
+      const { defiEntryBuy: defiEntryBuy2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
+      const r = await defiEntryBuy2(userId, chain, symbol, notionalD, slip);
       if (!r.ok) {
         await storage.createCryptocomEngineActivity({ userId, symbol, decision: r.reason?.includes("can't trade") ? "skipped" : "error", strategy: result.strategy, reasoning: `${symbol}: DeFi swap entry ${r.reason?.includes("can't trade") ? "skipped" : "failed"} \u2014 ${r.reason}.`, score: result.score, price: result.price, dailyChangePercent: result.dailyChangePercent, source: "cryptocom" });
         return;
@@ -52041,7 +52052,6 @@ var init_cryptocom_scanner = __esm({
     init_crypto_brain();
     init_prop_firm_consistency();
     init_cefi_executor();
-    init_defi_executor();
     MIN_SCAN_INTERVAL_MS2 = 3e4;
     lastScanAt2 = /* @__PURE__ */ new Map();
     MAX_SYMBOLS_PER_CYCLE = 12;
