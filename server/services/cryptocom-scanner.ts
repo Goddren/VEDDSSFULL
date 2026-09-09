@@ -337,12 +337,26 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
       // DeFi exit — swap the held token back to USDC via the hot wallet.
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       const { defiExitSell } = await import('./defi-executor'); // lazy — loads ethers only on a real DeFi exit
-      const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', baseCoin(trade.symbol), trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await defiExitSell(userId, (cfg as any)?.defiChain || 'base', baseCoin(trade.symbol), trade.quantity, (cfg as any)?.defiSlippageBps ?? 100).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
+      // A7: NEVER book a close the broker/chain didn't actually execute. If the
+      // swap failed (needs token approval, no liquidity, RPC error, etc.) leave
+      // the trade OPEN for retry next cycle — booking a phantom close would
+      // record fabricated P&L while the tokens still sit in the hot wallet.
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] DeFi exit FAILED for trade ${trade.id} (${trade.symbol}): ${(exit as any)?.reason || 'unknown'} — position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: DeFi EXIT FAILED (${(exit as any)?.reason || 'error'}) — position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else if (venue) {
       // CeFi spot exit — sell the held base amount on the venue.
-      const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] CeFi exit FAILED for trade ${trade.id} (${trade.symbol}) on ${venue}: ${(exit as any)?.reason || 'unknown'} — position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: 'signal', strategy: trade.strategy, reasoning: `${trade.symbol}: ${venue} EXIT FAILED (${(exit as any)?.reason || 'error'}) — position still OPEN, will retry. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: 'cryptocom' }).catch(() => {});
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else {
       const connection = await storage.getUserCryptocomConnections(userId).then(c => c.find(x => x.id === trade.connectionId));
       if (connection) {

@@ -94,8 +94,9 @@ import { Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface KeyPoint {
-  title: string;
-  description: string;
+  title?: string;
+  description?: string;
+  text?: string; // some modules author key points as { text } — rendered as the heading
   icon?: typeof GraduationCap;
 }
 
@@ -190,8 +191,8 @@ function KeyPointCarousel({ keyPoints }: { keyPoints: KeyPoint[] }) {
                     <IconComponent className="w-6 h-6 text-green-400" />
                   </div>
                   <div>
-                    <h5 className="font-medium text-white mb-2">{currentPoint.title}</h5>
-                    <p className="text-gray-300 text-sm leading-relaxed">{currentPoint.description}</p>
+                    <h5 className="font-medium text-white mb-2">{currentPoint.title ?? currentPoint.text}</h5>
+                    {currentPoint.description && <p className="text-gray-300 text-sm leading-relaxed">{currentPoint.description}</p>}
                   </div>
                 </div>
               );

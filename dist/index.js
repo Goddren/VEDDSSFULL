@@ -9149,6 +9149,10 @@ function buildRegimeAdaptationSection(regime, adx, strategyMode) {
     return `
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 \u{1F9ED} ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this ADAPTIVE REGIME block OVERRIDES any earlier rule in the
+strategy filter that says "BOS/CHOCH must be confirmed" or "no ranging market
+entries." When the two conflict, follow THIS block \u2014 do NOT reject a valid
+range-reversal setup just because no BOS/CHOCH is present.
 The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
 Structure is WRONG \u2014 the highest-quality range trade is a REVERSAL at the edge.
 OVERRIDE the sniper's trending rules as follows:
@@ -9177,6 +9181,8 @@ counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
   return `
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 \u{1F9ED} ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this block OVERRIDES any earlier "BOS/CHOCH must be confirmed /
+no ranging entries" hard rule in the strategy filter \u2014 follow the guidance here.
 Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
 confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
 sweep (range path). If the setup fits neither cleanly, REJECT \u2014 no forcing.
@@ -28391,10 +28397,18 @@ var init_dxtrade = __esm({
         const closeSide = o.positionSide === "BUY" ? "SELL" : "BUY";
         const out = {};
         if (o.stopLoss != null && o.stopLoss > 0) {
-          out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC" });
+          try {
+            out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "STOP", stopPrice: o.stopLoss, positionEffect: "CLOSE", tif: "GTC" });
+          } catch (e) {
+            out.stopError = e?.message || String(e);
+          }
         }
         if (o.takeProfit != null && o.takeProfit > 0) {
-          out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC" });
+          try {
+            out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: "LIMIT", limitPrice: o.takeProfit, positionEffect: "CLOSE", tif: "GTC" });
+          } catch (e) {
+            out.tpError = e?.message || String(e);
+          }
         }
         return out;
       }
@@ -28428,7 +28442,7 @@ var init_dxtrade = __esm({
         try {
           const data = await this.getInstruments(symbol);
           const list = data?.instruments ?? data;
-          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
+          if (Array.isArray(list)) return list.find((i) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? null;
           return null;
         } catch {
           return null;
@@ -32430,8 +32444,11 @@ async function processDecision(userId, decision, newsCtx) {
               }
             }
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
+            const _dxIncr = Number(spec?.quantityIncrement) > 0 ? Number(spec.quantityIncrement) : Number(spec?.lotSize) > 0 ? Number(spec.lotSize) : 0;
             if (qty > 0 && _dxMult !== 1) {
-              qty = Math.max(0, Math.round(qty * _dxMult));
+              qty = qty * _dxMult;
+              if (_dxIncr > 0) qty = Math.floor(qty / _dxIncr) * _dxIncr;
+              qty = Math.max(0, Math.round(qty * 1e8) / 1e8);
               if (_dxConsistencyMult < 1) sizeLabel += ` \xB7 consistency ${Math.round(_dxConsistencyMult * 100)}%`;
             }
             if (!(qty > 0)) {
@@ -32440,30 +32457,53 @@ async function processDecision(userId, decision, newsCtx) {
             }
             const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
             let _pos = null;
-            try {
-              await new Promise((res) => setTimeout(res, 1200));
-              const _poss = await svc.getPositions(acct);
-              _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
-            } catch {
+            let _verifyError = false;
+            for (let _att = 0; _att < 5 && !_pos; _att++) {
+              await new Promise((res) => setTimeout(res, 1e3));
+              try {
+                const _poss = await svc.getPositions(acct);
+                _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+                _verifyError = false;
+              } catch (ve) {
+                _verifyError = true;
+              }
             }
             if (!_pos) {
-              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker after send (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+              if (_verifyError) {
+                let _emClosed = false;
+                try {
+                  await svc.closePosition(acct, dxSymbol, _dxSide, qty);
+                  _emClosed = true;
+                } catch {
+                }
+                try {
+                  const _rcTicket = `dx_${acct}_reconcile_${Date.now()}`;
+                  await storage.createAiTradeResult({ userId, symbol: dxSymbol, direction: _dxSide, entryPrice: entryPrice || 0, exitPrice: 0, stopLoss: stopLoss || 0, takeProfit: takeProfit || 0, aiConfidence: adjustedConfidence || 0, result: "NEEDS_RECONCILE", profitLoss: 0, source: "dxtrade", connectionId: dc.id, mt5Ticket: _rcTicket, notes: `DXtrade fill UNVERIFIED (broker read failed) \u2014 emergency close ${_emClosed ? "sent" : "FAILED"}; verify on Velotrade` });
+                } catch {
+                }
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: could NOT verify fill (broker read failed). Emergency close ${_emClosed ? "sent" : "FAILED"} + flagged NEEDS_RECONCILE \u2014 CHECK Velotrade manually.` });
+              } else {
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+              }
               continue;
             }
             let _prot = {};
             try {
               _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
             } catch (pe) {
-              _prot = { error: pe?.message || String(pe) };
+              _prot = { stopError: pe?.message || String(pe) };
             }
-            if (!_prot.stop || _prot.error) {
+            if (!_prot.stop) {
               try {
                 await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty);
-                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.error || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.stopError || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
               } catch (ce) {
                 addActivity2(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) \u2014 MANUAL ACTION NEEDED, position may be naked.` });
               }
               continue;
+            }
+            if (_prot.tpError) {
+              addActivity2(userId, { type: "info", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: stop attached \u2713 but take-profit order failed (${_prot.tpError}) \u2014 position is protected; TP can be set manually.` });
             }
             addActivity2(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss} | TP: ${takeProfit || "N/A"} \xB7 protection attached`, details: { dxOrder: r?.result ?? r } });
             try {
@@ -36069,11 +36109,23 @@ async function closePosition(userId, trade, currentPrice, reason) {
     if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] DeFi exit FAILED for trade ${trade.id} (${trade.symbol}): ${exit?.reason || "unknown"} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: DeFi EXIT FAILED (${exit?.reason || "error"}) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else if (venue) {
-      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] CeFi exit FAILED for trade ${trade.id} (${trade.symbol}) on ${venue}: ${exit?.reason || "unknown"} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: ${venue} EXIT FAILED (${exit?.reason || "error"}) \u2014 position still OPEN, will retry. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else {
       const connection2 = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
       if (connection2) {

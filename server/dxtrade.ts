@@ -200,14 +200,20 @@ export class DxtradeService {
    *  both raw results so callers can confirm/calibrate. */
   async modifyProtection(accountCode: string, o: {
     instrument: string; positionSide: 'BUY' | 'SELL'; quantity: number; stopLoss?: number; takeProfit?: number;
-  }): Promise<{ stop?: any; takeProfit?: any }> {
+  }): Promise<{ stop?: any; takeProfit?: any; stopError?: string; tpError?: string }> {
     const closeSide = o.positionSide === 'BUY' ? 'SELL' : 'BUY';
-    const out: { stop?: any; takeProfit?: any } = {};
+    const out: { stop?: any; takeProfit?: any; stopError?: string; tpError?: string } = {};
+    // Resilient: each protective leg is placed independently so a take-profit
+    // failure can NEVER discard an already-placed stop (which previously threw
+    // out of here, lost the stop result, and triggered an emergency close that
+    // orphaned the resting STOP). The stop is the safety-critical leg.
     if (o.stopLoss != null && o.stopLoss > 0) {
-      out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'STOP', stopPrice: o.stopLoss, positionEffect: 'CLOSE', tif: 'GTC' });
+      try { out.stop = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'STOP', stopPrice: o.stopLoss, positionEffect: 'CLOSE', tif: 'GTC' }); }
+      catch (e: any) { out.stopError = e?.message || String(e); }
     }
     if (o.takeProfit != null && o.takeProfit > 0) {
-      out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC' });
+      try { out.takeProfit = await this.placeOrder(accountCode, { instrument: o.instrument, side: closeSide, quantity: o.quantity, type: 'LIMIT', limitPrice: o.takeProfit, positionEffect: 'CLOSE', tif: 'GTC' }); }
+      catch (e: any) { out.tpError = e?.message || String(e); }
     }
     return out;
   }
@@ -240,7 +246,11 @@ export class DxtradeService {
     try {
       const data = await this.getInstruments(symbol);
       const list = data?.instruments ?? data;
-      if (Array.isArray(list)) return list.find((i: any) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? list[0] ?? null;
+      // Return ONLY an exact symbol match. The old `?? list[0]` fallback returned
+      // a DIFFERENT instrument's spec (wrong multiplier/increment) when the query
+      // didn't contain the requested symbol — silently defeating the caller's
+      // fail-closed sizing guard and producing wildly mis-sized orders.
+      if (Array.isArray(list)) return list.find((i: any) => String(i?.symbol).toUpperCase() === symbol.toUpperCase()) ?? null;
       return null;
     } catch { return null; }
   }

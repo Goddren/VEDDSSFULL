@@ -1226,6 +1226,10 @@ function buildRegimeAdaptationSection(regime: MarketRegime, adx: number | null, 
     return `
 ═══════════════════════════════════════════
 🧭 ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+⚠️ PRECEDENCE: this ADAPTIVE REGIME block OVERRIDES any earlier rule in the
+strategy filter that says "BOS/CHOCH must be confirmed" or "no ranging market
+entries." When the two conflict, follow THIS block — do NOT reject a valid
+range-reversal setup just because no BOS/CHOCH is present.
 The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
 Structure is WRONG — the highest-quality range trade is a REVERSAL at the edge.
 OVERRIDE the sniper's trending rules as follows:
@@ -1254,6 +1258,8 @@ counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
   return `
 ═══════════════════════════════════════════
 🧭 ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+⚠️ PRECEDENCE: this block OVERRIDES any earlier "BOS/CHOCH must be confirmed /
+no ranging entries" hard rule in the strategy filter — follow the guidance here.
 Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
 confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
 sweep (range path). If the setup fits neither cleanly, REJECT — no forcing.

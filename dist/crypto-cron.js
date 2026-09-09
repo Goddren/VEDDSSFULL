@@ -10574,6 +10574,10 @@ function buildRegimeAdaptationSection(regime, adx, strategyMode) {
     return `
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 \u{1F9ED} ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this ADAPTIVE REGIME block OVERRIDES any earlier rule in the
+strategy filter that says "BOS/CHOCH must be confirmed" or "no ranging market
+entries." When the two conflict, follow THIS block \u2014 do NOT reject a valid
+range-reversal setup just because no BOS/CHOCH is present.
 The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
 Structure is WRONG \u2014 the highest-quality range trade is a REVERSAL at the edge.
 OVERRIDE the sniper's trending rules as follows:
@@ -10602,6 +10606,8 @@ counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
   return `
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 \u{1F9ED} ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+\u26A0\uFE0F PRECEDENCE: this block OVERRIDES any earlier "BOS/CHOCH must be confirmed /
+no ranging entries" hard rule in the strategy filter \u2014 follow the guidance here.
 Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
 confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
 sweep (range path). If the setup fits neither cleanly, REJECT \u2014 no forcing.
@@ -14293,11 +14299,23 @@ async function closePosition(userId, trade, currentPrice, reason) {
     if (venue === "defi") {
       const cfg = await storage.getUserCryptocomEngineConfig(userId).catch(() => null);
       const { defiExitSell: defiExitSell2 } = await Promise.resolve().then(() => (init_defi_executor(), defi_executor_exports));
-      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await defiExitSell2(userId, cfg?.defiChain || "base", baseCoin(trade.symbol), trade.quantity, cfg?.defiSlippageBps ?? 100).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] DeFi exit FAILED for trade ${trade.id} (${trade.symbol}): ${exit?.reason || "unknown"} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: DeFi EXIT FAILED (${exit?.reason || "error"}) \u2014 position still OPEN, will retry next cycle. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else if (venue) {
-      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch(() => null);
-      if (exit?.exitPrice) currentPrice = exit.exitPrice;
+      const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
+      if (!exit?.ok) {
+        console.error(`[cryptocom-scanner] CeFi exit FAILED for trade ${trade.id} (${trade.symbol}) on ${venue}: ${exit?.reason || "unknown"} \u2014 position left OPEN`);
+        await storage.createCryptocomEngineActivity({ userId, symbol: trade.symbol, decision: "signal", strategy: trade.strategy, reasoning: `${trade.symbol}: ${venue} EXIT FAILED (${exit?.reason || "error"}) \u2014 position still OPEN, will retry. No P&L booked.`, score: null, price: currentPrice, dailyChangePercent: null, source: "cryptocom" }).catch(() => {
+        });
+        return;
+      }
+      if (exit.exitPrice) currentPrice = exit.exitPrice;
     } else {
       const connection = await storage.getUserCryptocomConnections(userId).then((c) => c.find((x) => x.id === trade.connectionId));
       if (connection) {
