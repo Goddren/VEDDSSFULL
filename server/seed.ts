@@ -79,6 +79,7 @@ export async function seedSubscriptionPlans() {
       interval: "month",
       features: [
         "Everything in Starter",
+        "Crypto AI Engine — DeFi hot-wallet (on-chain token swaps, long-only) + CeFi wallets (Coinbase, Kraken, Gemini, Crypto.com perps long/short)",
         "Advanced Unified Trade Signal with confidence scoring",
         "Immersive processing with animated pipelines",
         "Timeframe convergence analysis & alignment strength",
@@ -104,6 +105,7 @@ export async function seedSubscriptionPlans() {
       interval: "yearly",
       features: [
         "Everything in Premium",
+        "Crypto AI Engine — DeFi hot-wallet (on-chain token swaps, long-only) + CeFi wallets (Coinbase, Kraken, Gemini, Crypto.com perps long/short)",
         "Annual renewal — best value for serious traders",
         "All future updates & features included",
         "Immersive full-page processing experience",

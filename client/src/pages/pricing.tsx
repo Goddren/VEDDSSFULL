@@ -63,6 +63,7 @@ const PLANS: Plan[] = [
     'ORB Breakout Strategy Engine', 'Futures AI live feed', 'Solana scanner + auto-trade',
     'Sol Engine — paper & live', 'Polymarket prediction engine (BTC/ETH)',
     'Business Credit Builder & Business Builder', 'Grants Hub', 'Multi-agent AI consensus',
+    'Crypto AI Engine — DeFi hot-wallet (on-chain token swaps) + CeFi wallets (Coinbase, Kraken, Gemini, Crypto.com perps)',
     'Bring Your Own AI Key (BYOK)', 'Unlimited social shares',
   ] },
   { name: 'Yearly', price: '$999.99', per: '/yr', cls: 'best', badge: 'Best value', cta: 'Choose Yearly', href: '/subscription', feats: [

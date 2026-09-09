@@ -1799,14 +1799,13 @@ const guideSections: GuideSection[] = [
   },
   {
     id: 'crypto-com-engine',
-    title: 'Crypto.com Perpetuals & DeFi',
+    title: 'Crypto AI Engine — DeFi & CeFi',
     icon: Coins,
-    description: 'A self-learning perpetual-futures engine on Crypto.com plus on-chain DeFi swaps',
+    description: 'A self-learning crypto engine — on-chain DeFi hot-wallet token swaps (spot, long-only) plus CeFi exchange-wallet connections',
     content: [
       {
-        heading: 'Crypto.com Perpetuals Engine',
+        heading: 'Crypto AI Engine',
         steps: [
-          'Connect your Crypto.com account to run the perpetual-futures engine',
           'The engine runs multiple strategies plus a composite, at full parity with the FX and Futures engines',
           'A durable self-learning crypto brain records outcomes and sharpens future decisions',
           'A ruin guard and the shared prop-firm consistency rules protect the account from blow-ups',
@@ -1814,17 +1813,29 @@ const guideSections: GuideSection[] = [
         ],
         tips: [
           'The crypto brain is separate from your FX brain — it learns crypto price behavior specifically',
-          'Start in paper mode and confirm the strategy behaves before enabling live perpetual trades'
+          'Start in paper mode and confirm the strategy behaves before enabling live trades'
         ]
       },
       {
-        heading: 'On-Chain DeFi Swaps',
+        heading: 'On-Chain DeFi Hot Wallet (spot, long-only)',
         steps: [
-          'Beyond centralized perpetuals, the engine can execute on-chain DeFi swaps from a hot wallet',
+          'The engine executes on-chain token swaps from a self-custody DeFi hot wallet (0x) — spot only, long-only, not perpetuals',
           'This lets a signal move into a token directly on-chain when the setup calls for it',
           'All swap activity is logged alongside your other trades'
         ],
         tips: ['Fund the hot wallet only with capital you are willing to put on-chain — treat it as a dedicated trading wallet']
+      },
+      {
+        heading: 'CeFi Exchange Wallets & Crypto.com Perpetuals',
+        steps: [
+          'Connect your CeFi exchange wallets — Coinbase, Kraken, Gemini, and Crypto.com — for balances and spot execution',
+          'Crypto.com perpetuals (long & short) are supported as a CeFi venue, at full parity with the other engines',
+          'Paper mode is available first — test before routing live orders'
+        ],
+        tips: [
+          'DeFi is on-chain spot/long-only; perpetuals (long & short) apply only to the Crypto.com CeFi venue',
+          'Start in paper mode and confirm the strategy behaves before enabling live perpetual trades'
+        ]
       }
     ]
   },

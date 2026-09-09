@@ -188,7 +188,7 @@ const GROUPS: { group: string; items: Item[] }[] = [
       { icon: '🎲', vis: 'verdict', name: 'Polymarket prediction engine', desc: 'BTC/ETH prediction-market signals.', ex: 'A BTC up-or-down signal ready for Polymarket.' },
       { icon: '📡', vis: 'chart', name: 'Futures AI live feed', desc: 'A live NQ/ES/YM/GC/CL scanner.', ex: 'Live NQ and ES signals streaming as the session moves.' },
       { icon: '🦅', vis: 'verdict', name: 'Options AI engine', badge: 'NEW', desc: 'Trades defined-risk credit spreads — bull-put and bear-call, not naked long options — with a graduated confidence score gating every entry.', ex: 'Order-flow sells a bull-put spread on SPY instead of buying a call, capping the loss up front.' },
-      { icon: '🔥', vis: 'radar', name: 'Crypto.com perpetuals engine', badge: 'NEW', desc: 'A self-learning perpetual-futures engine on Crypto.com, plus on-chain DeFi swaps from a hot wallet.', ex: 'Runs a BTC perp strategy 24/7 and can swap into a token on-chain when the setup calls for it.' },
+      { icon: '🔥', vis: 'radar', name: 'Crypto AI Engine — DeFi + CeFi wallets', badge: 'NEW', desc: 'A self-learning crypto engine with full parity to the FX & Futures engines. Trades on-chain via a self-custody DeFi hot wallet (0x token swaps, spot/long-only) and connects your CeFi exchange wallets — Coinbase, Kraken, Gemini, and Crypto.com — for balances and execution. Crypto.com perpetuals (long & short) are supported as a CeFi venue.', ex: 'Swaps into a token on-chain from your hot wallet when the setup fires, and can run a long/short perp strategy on Crypto.com — all self-learning.' },
     ],
   },
   {

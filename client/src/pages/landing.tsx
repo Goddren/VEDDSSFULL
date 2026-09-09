@@ -458,7 +458,7 @@ export default function LandingPage() {
         </div>
 
         <footer>
-          <span>© 2026 VEDD AI Trading Vault · seize the day divine</span>
+          <span>© 2026 VEDD AI Trading Vault · vous êtes des dieux</span>
           <span>veddbuild.com</span>
         </footer>
       </div>

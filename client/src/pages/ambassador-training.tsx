@@ -2862,7 +2862,7 @@ const trainingModules: TrainingModule[] = [
         content: [
           'DXtrade (Velotrade): a second FX broker for the SS AI Engine — connect, live auto-trade routing, and per-trade risk sized as a % of the account. Great for traders whose prop firm or broker uses DXtrade instead of MT5/TradeLocker',
           'Options AI Engine: now trades defined-risk credit spreads (bull-put / bear-call) instead of naked long options, with a graduated confidence score gating entries — pitch it as "capped risk, known before you enter"',
-          'Crypto.com Perpetuals Engine: a self-learning perpetuals engine plus on-chain DeFi swaps from a hot wallet — full parity with the FX and Futures engines',
+          'Crypto AI Engine: a self-learning crypto engine with full parity to the FX & Futures engines — on-chain DeFi token swaps (spot, long-only) from a self-custody hot wallet plus CeFi wallet connections (Coinbase, Kraken, Gemini, and Crypto.com perps long & short)',
           'Engine Risk Guardrails: concentration caps, per-symbol cooldowns, a correlated-basket cap, and an unrealized-drawdown halt run on every engine — the safety story that separates VEDD from reckless bots',
           'A brain for every engine: FX, Options, Futures, and Crypto each have their own self-learning brain, and any of them can be bought or sold in the Brain Marketplace',
           'FX Paper Trading mode: simulate signals with zero risk — trades auto-close on SL/TP and train the FX brain — the perfect risk-free on-ramp for a nervous prospect',
