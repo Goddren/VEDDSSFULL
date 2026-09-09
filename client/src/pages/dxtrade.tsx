@@ -8,6 +8,47 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Eye, EyeOff, Trash2, Building2, ChevronDown, ChevronUp } from "lucide-react";
 
+// A proper sliding on/off switch. The track + knob make the current state
+// obvious at a glance (green+right = ON, gray+left = OFF) so it no longer reads
+// like a button demanding a press. `label` shows the state as text too.
+function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500/50 ${
+          checked ? "bg-emerald-500" : "bg-gray-600"
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-[22px]" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+      {label && (
+        <span className={`text-xs font-bold ${checked ? "text-emerald-400" : "text-gray-500"}`}>
+          {label} {checked ? "ON" : "OFF"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function DxtradePage() {
   const { toast } = useToast();
   const [form, setForm] = useState({ host: "https://dx.velotrade.com", username: "", password: "", domain: "default", label: "" });
@@ -178,12 +219,11 @@ export default function DxtradePage() {
                             onBlur={(e) => updateConn.mutate({ id: c.id, patch: { lotMultiplier: Number(e.target.value) } })}
                             className="bg-gray-800 border-gray-700 h-7 w-16 text-sm"
                           />
-                          <button
-                            onClick={() => updateConn.mutate({ id: c.id, patch: { autoTradeEnabled: !c.autoTradeEnabled } })}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.autoTradeEnabled ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
-                          >
-                            {c.autoTradeEnabled ? "AUTO-TRADE ON" : "AUTO-TRADE OFF"}
-                          </button>
+                          <ToggleSwitch
+                            checked={!!c.autoTradeEnabled}
+                            onChange={(next) => updateConn.mutate({ id: c.id, patch: { autoTradeEnabled: next } })}
+                            label="AUTO-TRADE"
+                          />
                         </div>
                       </div>
                       </div>
@@ -196,12 +236,11 @@ export default function DxtradePage() {
                             <p className="text-[11px] font-bold text-white">Prop firm account</p>
                             <p className="text-[10px] text-gray-500">Enforce prop-firm rules on this account</p>
                           </div>
-                          <button
-                            onClick={() => updateConn.mutate({ id: c.id, patch: { isPropFirmAccount: !c.isPropFirmAccount } })}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-lg ${c.isPropFirmAccount ? "bg-emerald-600 hover:bg-emerald-500" : "bg-gray-700 hover:bg-gray-600"} text-white`}
-                          >
-                            {c.isPropFirmAccount ? "PROP FIRM ON" : "PROP FIRM OFF"}
-                          </button>
+                          <ToggleSwitch
+                            checked={!!c.isPropFirmAccount}
+                            onChange={(next) => updateConn.mutate({ id: c.id, patch: { isPropFirmAccount: next } })}
+                            label="PROP FIRM"
+                          />
                         </div>
                         {c.isPropFirmAccount && (
                           <div className="grid grid-cols-2 gap-2">
