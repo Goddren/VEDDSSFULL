@@ -1189,6 +1189,77 @@ function detectWeekendRolloverRisk(): { isFridayPM: boolean; isNearRollover: boo
 // ── Strategy-mode filter section injected into the AI confirmation prompt ──────────
 // Tells the AI exactly what setup it must verify for the chosen strategy.
 // Without this, the AI runs a generic confluence check regardless of selected strategy.
+// ─── Adaptive Market-Regime filter ──────────────────────────────────────────
+// Detects whether the chart the AI is reading is TRENDING (impulsive/breakout)
+// or RANGING (mean-reverting) from ADX, so the sniper can apply the RIGHT rules
+// per regime instead of hard-requiring a Break of Structure on every setup. In
+// trends BOS/CHOCH stays mandatory; in ranges we swap to range-reversal
+// confluence (extreme + OB/FVG + sweep/RSI). This is what lets the engine keep
+// producing quality setups on rangebound days — the prop-firm "consistency" goal.
+export type MarketRegime = 'TRENDING' | 'RANGING' | 'TRANSITIONAL';
+
+export function detectMarketRegime(indicators: any): { regime: MarketRegime; adx: number | null; reason: string } {
+  const adx = indicators?.adx?.value ?? (typeof indicators?.adx === 'number' ? indicators.adx : null);
+  if (adx == null || !Number.isFinite(adx)) {
+    return { regime: 'TRANSITIONAL', adx: null, reason: 'ADX unavailable — treat as transitional' };
+  }
+  if (adx >= 25) return { regime: 'TRENDING', adx, reason: `ADX ${adx.toFixed(1)} ≥ 25 — trending/impulsive` };
+  if (adx < 20)  return { regime: 'RANGING', adx, reason: `ADX ${adx.toFixed(1)} < 20 — ranging/mean-reverting` };
+  return { regime: 'TRANSITIONAL', adx, reason: `ADX ${adx.toFixed(1)} in 20–25 — transitional` };
+}
+
+// Per-user opt-in for the adaptive regime filter (default OFF → sniper behaves
+// exactly as before until the user flips the toggle).
+const adaptiveRegimeEnabledMap = new Map<number, boolean>();
+export function setAdaptiveRegimeEnabled(userId: number, enabled: boolean) { adaptiveRegimeEnabledMap.set(userId, enabled); }
+export function isAdaptiveRegimeEnabled(userId: number): boolean { return adaptiveRegimeEnabledMap.get(userId) ?? false; }
+export function hydrateAdaptiveRegimeMap(userId: number, enabled: boolean) { adaptiveRegimeEnabledMap.set(userId, enabled); }
+
+// Builds the regime-specific rule override injected into the sniper prompt. Only
+// meaningful for the sniper family (sniper / prop_firm_sniper) — other strategy
+// filters already encode their own regime assumptions.
+function buildRegimeAdaptationSection(regime: MarketRegime, adx: number | null, strategyMode?: string): string {
+  const isSniperFamily = strategyMode === 'sniper' || strategyMode === 'prop_firm_sniper';
+  if (!isSniperFamily) return '';
+  const adxStr = adx != null ? adx.toFixed(1) : 'n/a';
+  if (regime === 'RANGING') {
+    return `
+═══════════════════════════════════════════
+🧭 ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
+Structure is WRONG — the highest-quality range trade is a REVERSAL at the edge.
+OVERRIDE the sniper's trending rules as follows:
+• BOS/CHOCH is NO LONGER required (do not reject for "no BOS/CHOCH — ranging").
+• ICT macro window is a bonus, NOT a hard requirement.
+Instead, CONFIRM only if ALL of these range-reversal criteria are met:
+1. Price is AT or sweeping a VALIDATED range extreme — support/resistance,
+   PDH/PDL, or equal highs/lows (BUY at range low, SELL at range high ONLY).
+2. A fresh Order Block OR Fair Value Gap sits at that extreme in the trade direction.
+3. A rejection signal is present: liquidity sweep of the extreme + close back
+   inside, RSI extreme (>70 for SELL, <30 for BUY), or bullish/bearish engulf.
+4. Target is the OPPOSITE range boundary; R:R must be >= 1:2 (ranges give tighter targets than trends).
+REJECT if price is in the MIDDLE of the range (no edge), or the setup is trading
+INTO the range boundary rather than reversing off it (that's chop = no trade).
+═══════════════════════════════════════════`;
+  }
+  if (regime === 'TRENDING') {
+    return `
+═══════════════════════════════════════════
+🧭 ADAPTIVE REGIME: TRENDING (ADX ${adxStr})
+Impulsive/trending conditions confirmed — the FULL sniper breakout rules apply:
+BOS/CHOCH is REQUIRED, favor continuation in the trend direction, and treat
+counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
+═══════════════════════════════════════════`;
+  }
+  return `
+═══════════════════════════════════════════
+🧭 ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
+confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
+sweep (range path). If the setup fits neither cleanly, REJECT — no forcing.
+═══════════════════════════════════════════`;
+}
+
 function buildStrategyFilterSection(strategyMode?: string): string {
   if (!strategyMode || strategyMode === 'aggressive') return '';
 
@@ -1701,10 +1772,17 @@ Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) 
 Grade D → avoid. Grade A/A+ → high conviction trade.
 ═══════════════════════════════════════════`;
 
+  // Adaptive regime override — only when the user has toggled it on. Detects
+  // ranging vs trending from ADX and rewrites the sniper's BOS/CHOCH requirement
+  // to fit the regime (range-reversal rules in ranges, breakout rules in trends).
+  const _regimeSection = (userId && isAdaptiveRegimeEnabled(userId))
+    ? (() => { const r = detectMarketRegime(indicators); return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode); })()
+    : '';
+
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics — Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace — the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced — the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}

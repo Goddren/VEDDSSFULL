@@ -288,6 +288,8 @@ var init_schema = __esm({
       // AI 2nd-confirmation Vision system — ON by default
       trailingStopEnabled: boolean("trailing_stop_enabled").default(true),
       // Remove trailing stop from AI recommendations when false
+      adaptiveRegimeEnabled: boolean("adaptive_regime_enabled").default(false),
+      // Adaptive market-regime filter: sniper swaps BOS/CHOCH rules for range-reversal rules in ranging markets
       // faithBasedContent field temporarily removed due to database issues
       // Using localStorage instead of database column for faith-based content preferences
       referralCode: text("referral_code").unique(),
@@ -9722,6 +9724,7 @@ __export(openai_exports, {
   analyzeChartImage: () => analyzeChartImage,
   analyzeORBSignal: () => analyzeORBSignal,
   coerceConfidence: () => coerceConfidence,
+  detectMarketRegime: () => detectMarketRegime,
   enrichLeadWithAI: () => enrichLeadWithAI,
   extractTextFromImage: () => extractTextFromImage,
   generateDailyDevotional: () => generateDailyDevotional,
@@ -9750,9 +9753,11 @@ __export(openai_exports, {
   getUniversalVisionClientForUser: () => getUniversalVisionClientForUser,
   getUserModelPreference: () => getUserModelPreference,
   hasHiddenReasoningOverhead: () => hasHiddenReasoningOverhead,
+  hydrateAdaptiveRegimeMap: () => hydrateAdaptiveRegimeMap,
   hydrateAiVisionMap: () => hydrateAiVisionMap,
   hydrateBreakoutModeMap: () => hydrateBreakoutModeMap,
   inferModelProvider: () => inferModelProvider,
+  isAdaptiveRegimeEnabled: () => isAdaptiveRegimeEnabled,
   isAiVisionConfirmationEnabled: () => isAiVisionConfirmationEnabled,
   isBreakoutModeEnabled: () => isBreakoutModeEnabled,
   isICTStrategyEnabled: () => isICTStrategyEnabled,
@@ -9762,6 +9767,7 @@ __export(openai_exports, {
   isTrailingStopEnabled: () => isTrailingStopEnabled,
   openai: () => openai,
   scanGrantsWithAI: () => scanGrantsWithAI,
+  setAdaptiveRegimeEnabled: () => setAdaptiveRegimeEnabled,
   setAiMinConfidence: () => setAiMinConfidence,
   setAiVisionConfirmation: () => setAiVisionConfirmation,
   setBreakoutModeEnabled: () => setBreakoutModeEnabled,
@@ -10542,6 +10548,65 @@ function detectWeekendRolloverRisk() {
   }
   return { isFridayPM, isNearRollover, minutesToRollover, warning };
 }
+function detectMarketRegime(indicators) {
+  const adx = indicators?.adx?.value ?? (typeof indicators?.adx === "number" ? indicators.adx : null);
+  if (adx == null || !Number.isFinite(adx)) {
+    return { regime: "TRANSITIONAL", adx: null, reason: "ADX unavailable \u2014 treat as transitional" };
+  }
+  if (adx >= 25) return { regime: "TRENDING", adx, reason: `ADX ${adx.toFixed(1)} \u2265 25 \u2014 trending/impulsive` };
+  if (adx < 20) return { regime: "RANGING", adx, reason: `ADX ${adx.toFixed(1)} < 20 \u2014 ranging/mean-reverting` };
+  return { regime: "TRANSITIONAL", adx, reason: `ADX ${adx.toFixed(1)} in 20\u201325 \u2014 transitional` };
+}
+function setAdaptiveRegimeEnabled(userId, enabled) {
+  adaptiveRegimeEnabledMap.set(userId, enabled);
+}
+function isAdaptiveRegimeEnabled(userId) {
+  return adaptiveRegimeEnabledMap.get(userId) ?? false;
+}
+function hydrateAdaptiveRegimeMap(userId, enabled) {
+  adaptiveRegimeEnabledMap.set(userId, enabled);
+}
+function buildRegimeAdaptationSection(regime, adx, strategyMode) {
+  const isSniperFamily = strategyMode === "sniper" || strategyMode === "prop_firm_sniper";
+  if (!isSniperFamily) return "";
+  const adxStr = adx != null ? adx.toFixed(1) : "n/a";
+  if (regime === "RANGING") {
+    return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: RANGING (ADX ${adxStr})
+The market is RANGE-BOUND, not trending. In a range, waiting for a Break of
+Structure is WRONG \u2014 the highest-quality range trade is a REVERSAL at the edge.
+OVERRIDE the sniper's trending rules as follows:
+\u2022 BOS/CHOCH is NO LONGER required (do not reject for "no BOS/CHOCH \u2014 ranging").
+\u2022 ICT macro window is a bonus, NOT a hard requirement.
+Instead, CONFIRM only if ALL of these range-reversal criteria are met:
+1. Price is AT or sweeping a VALIDATED range extreme \u2014 support/resistance,
+   PDH/PDL, or equal highs/lows (BUY at range low, SELL at range high ONLY).
+2. A fresh Order Block OR Fair Value Gap sits at that extreme in the trade direction.
+3. A rejection signal is present: liquidity sweep of the extreme + close back
+   inside, RSI extreme (>70 for SELL, <30 for BUY), or bullish/bearish engulf.
+4. Target is the OPPOSITE range boundary; R:R must be >= 1:2 (ranges give tighter targets than trends).
+REJECT if price is in the MIDDLE of the range (no edge), or the setup is trading
+INTO the range boundary rather than reversing off it (that's chop = no trade).
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  }
+  if (regime === "TRENDING") {
+    return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: TRENDING (ADX ${adxStr})
+Impulsive/trending conditions confirmed \u2014 the FULL sniper breakout rules apply:
+BOS/CHOCH is REQUIRED, favor continuation in the trend direction, and treat
+counter-trend reversals as LOW quality unless a CHOCH confirms the shift.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  }
+  return `
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+\u{1F9ED} ADAPTIVE REGIME: TRANSITIONAL (ADX ${adxStr})
+Neither cleanly trending nor ranging. Demand EXTRA confirmation: either a
+confirmed BOS/CHOCH (trend path) OR a clean range-edge reversal with OB/FVG +
+sweep (range path). If the setup fits neither cleanly, REJECT \u2014 no forcing.
+\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+}
 function buildStrategyFilterSection(strategyMode) {
   if (!strategyMode || strategyMode === "aggressive") return "";
   const filters = {
@@ -11002,10 +11067,14 @@ ${confluenceResult.summary.join("\n")}
 Grade guide: A+ (10-12) = ELITE | A (8-9) = HIGH | B (6-7) = MODERATE | C (4-5) = LOW | D (0-3) = POOR
 Grade D \u2192 avoid. Grade A/A+ \u2192 high conviction trade.
 \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550`;
+  const _regimeSection = userId && isAdaptiveRegimeEnabled(userId) ? (() => {
+    const r = detectMarketRegime(indicators);
+    return buildRegimeAdaptationSection(r.regime, r.adx, strategyMode);
+  })() : "";
   return {
     system: "You are a master trader who speaks with street knowledge and the wisdom of Supreme Mathematics \u2014 Gods and Earths style. You build and destroy with the science of trading, dropping jewels and keeping it real. Your analysis is sharp, your reasoning is laced with knowledge of self and mathematical precision. You reference concepts like Knowledge (1), Wisdom (2), Understanding (3), Culture (4), Power (5), Equality (6), God (7), Build/Destroy (8), Born (9), and Cipher (0) naturally when they fit. You say things like 'the chart is showing and proving', 'peace \u2014 the math don't lie', 'this is a cipher of accumulation', 'knowledge this pattern God', 'the wisdom here is...', 'we building or we destroying?', etc. Keep it concise, authentic, and never forced \u2014 the science comes first, the flavor is the delivery. You provide honest, unbiased second opinions on trade signals using ALL available data including news sentiment and upcoming economic events. Always return valid JSON.",
     user: `You are an elite trading analyst providing a SECOND OPINION on a proposed trade. Use ALL data below for maximum accuracy.
-${buildStrategyFilterSection(strategyMode)}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
+${buildStrategyFilterSection(strategyMode)}${_regimeSection}${htfSection}${newsProximityAlert}${propFirmSection}${confluenceHeader}
 
 SYMBOL: ${symbol}
 TIMEFRAME: ${timeframe}
@@ -13609,7 +13678,7 @@ Respond with this exact JSON structure:
     };
   }
 }
-var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
+var TOP_PROFITABLE_STRATEGIES, _openaiInstance, openai, AVAILABLE_VISION_MODELS, userModelPreferences, DEPRECATED_MODEL_MAP, DEFAULT_AI_MODEL, VISION_FALLBACK, KNOWN_VISION_MODEL_IDS, aiVisionConfirmationEnabled, aiMinConfidenceThreshold, ictStrategyEnabledMap, breakoutModeEnabledMap, trailingStopEnabledMap, breakoutModePriorState, smcStrategyEnabledMap, propFirmModeMap, propFirmContextMap, aiConfirmationLogs2, logIdCounter, adaptiveRegimeEnabledMap, VETERAN_JUDGE_MODEL, VETERAN_PERSONA, PROVIDER_MODELS, AnthropicAsOpenAI, PROVIDER_PRIORITY, VEDD_IDENTITY_CONTEXT, MASTER_GRANT_WRITER_SYSTEM;
 var init_openai = __esm({
   "server/openai.ts"() {
     "use strict";
@@ -13701,6 +13770,7 @@ var init_openai = __esm({
     propFirmContextMap = /* @__PURE__ */ new Map();
     aiConfirmationLogs2 = /* @__PURE__ */ new Map();
     logIdCounter = 1;
+    adaptiveRegimeEnabledMap = /* @__PURE__ */ new Map();
     VETERAN_JUDGE_MODEL = "openai/gpt-oss-120b";
     VETERAN_PERSONA = `You are a trader with over 30 years of unbroken, consistently profitable trading experience across every market regime \u2014 bull runs, bear markets, chop, and black-swan crashes. Early in your career you blew up two accounts by over-trading and chasing marginal setups; you have never repeated that mistake. Your hallmarks:
 - Capital preservation is priority #1, always \u2014 profit is priority #2.

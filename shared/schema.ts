@@ -74,6 +74,7 @@ export const users = pgTable("users", {
   breakoutModeEnabled: boolean("breakout_mode_enabled").default(false), // Breakout Master Mode for 2nd confirmation AI
   aiVisionEnabled: boolean("ai_vision_enabled").default(true), // AI 2nd-confirmation Vision system — ON by default
   trailingStopEnabled: boolean("trailing_stop_enabled").default(true), // Remove trailing stop from AI recommendations when false
+  adaptiveRegimeEnabled: boolean("adaptive_regime_enabled").default(false), // Adaptive market-regime filter: sniper swaps BOS/CHOCH rules for range-reversal rules in ranging markets
   // faithBasedContent field temporarily removed due to database issues
   // Using localStorage instead of database column for faith-based content preferences
   referralCode: text("referral_code").unique(),

@@ -713,6 +713,7 @@ async function withRetry<T>(
     try {
       await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS breakout_mode_enabled boolean DEFAULT false`);
       await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS trailing_stop_enabled boolean DEFAULT true`);
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS adaptive_regime_enabled boolean DEFAULT false`);
     } catch (err) {
       console.error('[startup] AI settings columns migration (non-fatal):', (err as Error).message);
     }

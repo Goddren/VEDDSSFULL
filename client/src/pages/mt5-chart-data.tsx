@@ -1460,6 +1460,21 @@ export default function MT5ChartDataPage() {
     enabled: aiConfirmationSetting?.enabled || false,
   });
 
+  const { data: adaptiveRegimeSetting } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/adaptive-regime-setting'],
+    enabled: aiConfirmationSetting?.enabled || false,
+  });
+
+  const adaptiveRegimeMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('POST', '/api/adaptive-regime-setting', { enabled });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/adaptive-regime-setting'] });
+    },
+  });
+
   const { data: connectedPairsData } = useQuery<{ activePairs: Array<{ symbol: string }> }>({
     queryKey: ['/api/mt5/connected-pairs'],
     refetchInterval: 30000,
@@ -2108,6 +2123,35 @@ export default function MT5ChartDataPage() {
                     checked={trailingStopSetting?.enabled ?? true}
                     onCheckedChange={(checked) => toggleTrailingStopMutation.mutate(checked)}
                     disabled={toggleTrailingStopMutation.isPending || breakoutModeSetting?.enabled}
+                  />
+                </div>
+
+                {/* Adaptive Market-Regime Filter Toggle */}
+                <div className={`border-t pt-3 flex items-start justify-between gap-4 ${adaptiveRegimeSetting?.enabled ? 'border-emerald-500/40 bg-emerald-500/5 rounded-lg px-3 pb-3' : 'border-purple-500/20'}`}>
+                  <div className="flex items-start gap-2 flex-1">
+                    <div className={`p-1.5 rounded mt-0.5 ${adaptiveRegimeSetting?.enabled ? 'bg-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-emerald-500/10'}`}>
+                      <BarChart3 className={`w-3.5 h-3.5 ${adaptiveRegimeSetting?.enabled ? 'text-emerald-300' : 'text-emerald-400'}`} />
+                    </div>
+                    <div>
+                      <p className={`text-sm font-semibold ${adaptiveRegimeSetting?.enabled ? 'text-emerald-300' : 'text-white'}`}>
+                        Adaptive Regime Filter
+                        {adaptiveRegimeSetting?.enabled && <span className="ml-2 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded-full">ACTIVE</span>}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        The sniper reads the chart's regime (ADX) and adapts its rules: in <span className="text-emerald-300">trending</span> markets it requires a Break of Structure; in <span className="text-emerald-300">ranging</span> markets it switches to range-reversal confluence (edge + order block/FVG + sweep) instead of rejecting for "no BOS/CHOCH." Builds consistency-day frequency without lowering quality.
+                      </p>
+                      {adaptiveRegimeSetting?.enabled && (
+                        <p className="text-[11px] text-emerald-300 mt-1 flex items-center gap-1">
+                          <CheckCircle className="w-3 h-3" />
+                          Trades both breakouts and ranges · regime-aware sniper
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={adaptiveRegimeSetting?.enabled ?? false}
+                    onCheckedChange={(checked) => adaptiveRegimeMutation.mutate(checked)}
+                    disabled={adaptiveRegimeMutation.isPending}
                   />
                 </div>
 

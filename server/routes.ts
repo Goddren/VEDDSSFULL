@@ -10213,6 +10213,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
               if (_userForVision.breakoutModeEnabled !== undefined && _userForVision.breakoutModeEnabled !== null) {
                 hydrateBreakoutModeMap(token.userId, !!_userForVision.breakoutModeEnabled);
               }
+              if ((_userForVision as any)?.adaptiveRegimeEnabled !== undefined && (_userForVision as any)?.adaptiveRegimeEnabled !== null) {
+                const { hydrateAdaptiveRegimeMap } = await import('./openai');
+                hydrateAdaptiveRegimeMap(token.userId, !!(_userForVision as any).adaptiveRegimeEnabled);
+              }
             }
           } catch (_hydrateErr) { /* non-fatal — keep in-memory default */ }
 
@@ -26604,6 +26608,29 @@ Generate an agenda with timing, topics, and hosting tips. Return JSON: {
     setTrailingStopEnabled(userId, enabled);
     await storage.updateUser(userId, { trailingStopEnabled: enabled });
     res.json({ success: true, enabled: isTrailingStopEnabled(userId) });
+  });
+
+  // Adaptive market-regime filter — persisted per-user (survives restarts).
+  app.get("/api/adaptive-regime-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const userId = req.user!.id;
+    const { isAdaptiveRegimeEnabled, hydrateAdaptiveRegimeMap } = await import('./openai');
+    const user = await storage.getUser(userId);
+    if ((user as any)?.adaptiveRegimeEnabled !== undefined && (user as any)?.adaptiveRegimeEnabled !== null) {
+      hydrateAdaptiveRegimeMap(userId, !!(user as any).adaptiveRegimeEnabled);
+    }
+    res.json({ enabled: isAdaptiveRegimeEnabled(userId) });
+  });
+
+  app.post("/api/adaptive-regime-setting", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') return res.status(400).json({ message: "enabled must be a boolean" });
+    const userId = req.user!.id;
+    const { setAdaptiveRegimeEnabled, isAdaptiveRegimeEnabled } = await import('./openai');
+    setAdaptiveRegimeEnabled(userId, enabled);
+    await storage.updateUser(userId, { adaptiveRegimeEnabled: enabled } as any);
+    res.json({ success: true, enabled: isAdaptiveRegimeEnabled(userId) });
   });
 
   // Aliases for /api/user/breakout-mode and /api/user/trailing-stop-setting
