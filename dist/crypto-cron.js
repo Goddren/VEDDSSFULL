@@ -8164,7 +8164,7 @@ async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
     slippageBps
   });
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
-  return { ok: true, exitPrice: price, txHash: r.txHash };
+  return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, txHash: r.txHash };
 }
 var init_defi_executor = __esm({
   "server/services/defi-executor.ts"() {
@@ -14307,6 +14307,7 @@ async function closePosition(userId, trade, currentPrice, reason) {
         return;
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
+      if (exit.proceedsUsd && trade.quantity > 0) currentPrice = exit.proceedsUsd / trade.quantity;
     } else if (venue) {
       const exit = await cefiExitSell(userId, venue, baseCoin(trade.symbol), trade.quantity).catch((e) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) }));
       if (!exit?.ok) {

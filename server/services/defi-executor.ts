@@ -58,7 +58,7 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
 }
 
 /** Close a DeFi long: swap `qtyBase` of token -> USDC on the wallet's chain. */
-export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; txHash?: string; reason?: string }> {
+export async function defiExitSell(userId: number, chainKey: string, base: string, qtyBase: number, slippageBps: number): Promise<{ ok: boolean; exitPrice: number; proceedsUsd?: number; txHash?: string; reason?: string }> {
   const token = baseCoin(base);
   const hw = await loadHotWallet(userId);
   if (!hw) return { ok: false, exitPrice: 0, reason: 'no active DeFi hot wallet connected' };
@@ -70,5 +70,8 @@ export async function defiExitSell(userId: number, chainKey: string, base: strin
     sellToken: token, buyToken: 'USDC', sellAmountHuman: qtyBase, slippageBps,
   });
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
-  return { ok: true, exitPrice: price, txHash: r.txHash };
+  // A8: buyAmountHuman is the ACTUAL USDC received from the swap (after
+  // slippage + fees). Return it so realized P&L is computed from real proceeds,
+  // not the pre-swap quote price.
+  return { ok: true, exitPrice: price, proceedsUsd: (r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0) ? r.buyAmountHuman : undefined, txHash: r.txHash };
 }

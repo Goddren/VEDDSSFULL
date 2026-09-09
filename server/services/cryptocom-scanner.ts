@@ -348,6 +348,9 @@ async function closePosition(userId: number, trade: any, currentPrice: number, r
         return;
       }
       if (exit.exitPrice) currentPrice = exit.exitPrice;
+      // A8: prefer the REALIZED effective fill price (actual USDC received ÷ qty)
+      // over the pre-swap quote, so booked P&L reflects real slippage + fees.
+      if ((exit as any).proceedsUsd && trade.quantity > 0) currentPrice = (exit as any).proceedsUsd / trade.quantity;
     } else if (venue) {
       // CeFi spot exit — sell the held base amount on the venue.
       const exit = await cefiExitSell(userId, venue as CefiVenue, baseCoin(trade.symbol), trade.quantity).catch((e: any) => ({ ok: false, exitPrice: 0, reason: e?.message || String(e) } as any));
