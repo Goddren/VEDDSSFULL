@@ -10736,10 +10736,16 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   } as any;
                   console.log(`[SS Consensus] ${sanitizedSymbol} — rebuilt null tradePlan from pre-confirm proposal (entry=${analysis.tradePlan.entry} SL=${analysis.tradePlan.stopLoss} TP=${analysis.tradePlan.takeProfit})`);
                 } else {
-                  // No usable levels — cannot safely approve. Block gracefully
-                  // instead of crashing (was throwing on null tradePlan).
+                  // No usable levels — cannot safely approve. Keep a non-null
+                  // placeholder so the downstream SL/TP mutations don't throw, but
+                  // make _noLevels LOAD-BEARING: unconfirm + flip to NEUTRAL so every
+                  // execution gate (TL fan-out, EA response) skips it. A trade with
+                  // no entry/SL/TP must NEVER reach a broker (no naked entries).
                   analysis.tradePlan = { direction: analysis.signal, entry: currentPrice, stopLoss: 0, takeProfit: 0, riskReward: '0', _noLevels: true } as any;
-                  console.log(`[SS Consensus] ${sanitizedSymbol} — approved but no tradePlan/levels available; placeholder plan (EA will apply its own SL/TP)`);
+                  aiConfirmation.confirmed = false;
+                  analysis.signal = 'NEUTRAL';
+                  analysis.alerts.push('TRADE BLOCKED: approved by consensus but no valid entry/SL/TP levels available — not executing (no naked trades).');
+                  console.log(`[SS Consensus] ${sanitizedSymbol} — approved but NO levels; BLOCKED execution (signal→NEUTRAL, unconfirmed) to prevent a stopless trade.`);
                 }
               }
               let hasAdjustments = false;
@@ -11923,6 +11929,12 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                 console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
               }
 
+              // Defense-in-depth (F4): never send a stopless / level-less plan to
+              // the broker, even if some path reaches here with one.
+              if ((analysis.tradePlan as any)?._noLevels || !(Number(analysis.tradePlan?.stopLoss) > 0)) {
+                console.warn(`[TL fan-out] ${tlConn.accountId} ${sanitizedSymbol}: skipped — no valid stop loss on the plan (no naked entries).`);
+                continue;
+              }
               try {
                 const connResult = await executeMT5SignalOnTradeLocker(tlConn, {
                   action: 'OPEN',

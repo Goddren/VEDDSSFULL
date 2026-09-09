@@ -5074,48 +5074,87 @@ async function processDecision(userId: number, decision: any, newsCtx?: any): Pr
             }
             // Risk-% sizing off this account's own balance + stop distance.
             let qty = 0; let sizeLabel = '';
+            const _dxSide: 'BUY' | 'SELL' = decision.direction === 'BUY' ? 'BUY' : 'SELL';
+            const _dxSymNorm = dxSymbol.replace(/\//g, '').toUpperCase();
             const spec = await svc.getInstrument(dxSymbol);
+            // ── F3: FAIL CLOSED when the instrument spec is unavailable. Without it
+            // the contract multiplier is unknown and computeRiskQuantity silently
+            // defaults multiplier=1 → wildly mis-sized orders. Skip rather than guess.
+            if (!spec) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade — skipped (cannot size safely without contract multiplier).` }); continue; }
+            // ── F1: NEVER open a DXtrade position without a stop to attach. dxsca
+            // ignores inline SL on the entry; we attach protection separately after
+            // the fill (below), so a signal with no stop must not enter at all.
+            if (!(Number(stopLoss) > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal — skipped (no naked DXtrade entries).` }); continue; }
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
               const balance = extractBalance(await svc.getMetrics(acct).catch(() => null));
               if (balance) {
                 const s = computeRiskQuantity({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
                 qty = s.quantity; sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
+                // ── F3: hard notional backstop. Reject any size whose notional
+                // exceeds 50x balance — catches a units/lots or contract-size blowup
+                // (e.g. the 33k-unit incident) BEFORE it reaches the broker.
+                const _notional = qty * (entryPrice || 0);
+                if (balance > 0 && _notional > balance * 50) {
+                  addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance — BLOCKED as a sizing safety cap. Check the instrument contract size.` });
+                  continue;
+                }
               }
             }
             // Apply this account's lot multiplier + consistency taper.
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
             if (qty > 0 && _dxMult !== 1) { qty = Math.max(0, Math.round(qty * _dxMult)); if (_dxConsistencyMult < 1) sizeLabel += ` · consistency ${Math.round(_dxConsistencyMult * 100)}%`; }
             if (!(qty > 0)) { addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped — set a stop or check the symbol exists on Velotrade.` }); continue; }
-            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === 'BUY' ? 'BUY' : 'SELL', quantity: qty, type: 'MARKET', stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined });
-            addActivity(userId, { type: 'trade_open', symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || 'N/A'} | TP: ${takeProfit || 'N/A'}`, details: { dxOrder: r?.result ?? r } });
-            // ── Durable open record (parity with TradeLocker) ──────────────────
-            // Write a PENDING ai_trade_results row now so this DXtrade trade shows
-            // in history immediately AND can be reconciled to realized P&L on close
-            // by syncDxtradeOutcomes(). Key by the broker positionId when we can
-            // read it back (matches the closed-trade key), else the client orderCode.
+            // Open with a bare MARKET order (dxsca silently drops inline SL/TP legs).
+            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: 'MARKET' });
+            // ── F2: VERIFY THE FILL. Only proceed if the broker actually shows the
+            // position — never record a PENDING "open" for an order that may have
+            // been rejected (the phantom-fill bug). Note: getPositions normalizes
+            // the instrument (strips "/", uppercases), so match on _dxSymNorm.
+            let _pos: any = null;
             try {
-              let _dxPosId: string | undefined;
+              await new Promise(res => setTimeout(res, 1200)); // let the fill settle
+              const _poss = await svc.getPositions(acct);
+              _pos = _poss.find(p => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+            } catch { /* best-effort */ }
+            if (!_pos) {
+              addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill — no position on the broker after send (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+              continue; // never record a phantom open
+            }
+            // ── F1: attach protective SL (+ TP) as real STOP/LIMIT close orders.
+            let _prot: { stop?: any; takeProfit?: any; error?: string } = {};
+            try { _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || undefined, takeProfit: takeProfit || undefined }); }
+            catch (pe: any) { _prot = { error: pe?.message || String(pe) }; }
+            if (!_prot.stop || _prot.error) {
+              // Protection failed → do NOT leave a naked position on a funded account.
               try {
-                const _poss = await svc.getPositions(acct);
-                const _m = _poss.find(p => p.instrument === dxSymbol && p.side === (decision.direction === 'BUY' ? 'BUY' : 'SELL'));
-                _dxPosId = _m?.positionId;
-              } catch { /* position read best-effort */ }
-              const _dxTicket = `dx_${acct}_${_dxPosId || r?._sent?.orderCode || Date.now()}`;
+                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty);
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.error || 'no stop returned'}) — position CLOSED immediately to avoid a naked entry.` });
+              } catch (ce: any) {
+                addActivity(userId, { type: 'error', symbol: decision.symbol, message: `🚨 DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) — MANUAL ACTION NEEDED, position may be naked.` });
+              }
+              continue;
+            }
+            addActivity(userId, { type: 'trade_open', symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss} | TP: ${takeProfit || 'N/A'} · protection attached`, details: { dxOrder: r?.result ?? r } });
+            // ── Durable open record — now guaranteed a REAL position with a stop.
+            try {
+              const _dxTicket = `dx_${acct}_${_pos.positionId || r?._sent?.orderCode || Date.now()}`;
               const _dxExisting = await storage.getAiTradeResultByTicket(userId, _dxTicket);
               if (!_dxExisting) {
                 await storage.createAiTradeResult({
                   userId,
                   symbol: dxSymbol,
-                  direction: decision.direction === 'BUY' ? 'BUY' : 'SELL',
-                  entryPrice: entryPrice || 0,
+                  direction: _dxSide,
+                  entryPrice: entryPrice || _pos.openPrice || 0,
                   exitPrice: 0,
+                  stopLoss: stopLoss || 0,
+                  takeProfit: takeProfit || 0,
                   aiConfidence: adjustedConfidence || 0,
                   result: 'PENDING',
                   profitLoss: 0,
                   source: 'dxtrade',
                   connectionId: dc.id,
                   mt5Ticket: _dxTicket,
-                  notes: `DXtrade open (qty ${qty}) — awaiting close sync`,
+                  notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ''} — protection attached, awaiting close sync`,
                 } as any);
               }
             } catch (_dxRec: any) {

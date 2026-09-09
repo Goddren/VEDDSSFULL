@@ -135,6 +135,11 @@ async function syncTradeLockerTrades(userId: number, conn: any, svc: any): Promi
       symbol: p.symbol,
       direction: (p.side || '').toUpperCase() === 'SELL' ? 'SELL' : 'BUY',
       entryPrice: p.avgPrice || 0,
+      // F5: persist the broker's SL/TP so the row reflects real protection state
+      // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
+      // whether a live position was actually protected).
+      stopLoss: p.stopLoss || 0,
+      takeProfit: p.takeProfit || 0,
       aiConfidence: 0,
       result: 'PENDING',
       source: 'tradelocker_auto',

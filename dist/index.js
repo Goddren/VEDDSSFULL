@@ -18644,7 +18644,9 @@ var init_tradelocker = __esm({
             qty: norm(p.qty),
             avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
             unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
-            openDate: p.openDate || p.createdDate || void 0
+            openDate: p.openDate || p.createdDate || void 0,
+            stopLoss: norm(p.stopLoss ?? p.sl ?? p.stopLossPrice) || void 0,
+            takeProfit: norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice) || void 0
           }));
         }
         let columns = [];
@@ -18676,6 +18678,8 @@ var init_tradelocker = __esm({
         const iAvg = idx(["avgprice", "openprice", "price"]);
         const iPl = idx(["unrealizedpl", "unrealizedpnl", "pnl", "pl"]);
         const iDate = idx(["opendate", "date"]);
+        const iSl = idx(["stoploss", "sl"]);
+        const iTp = idx(["takeprofit", "tp"]);
         return raw.map((row) => {
           const instId = iInst >= 0 ? String(row[iInst]) : "";
           return {
@@ -18685,7 +18689,9 @@ var init_tradelocker = __esm({
             qty: iQty >= 0 ? norm(row[iQty]) : 0,
             avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
             unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
-            openDate: iDate >= 0 ? String(row[iDate]) : void 0
+            openDate: iDate >= 0 ? String(row[iDate]) : void 0,
+            stopLoss: iSl >= 0 ? norm(row[iSl]) || void 0 : void 0,
+            takeProfit: iTp >= 0 ? norm(row[iTp]) || void 0 : void 0
           };
         });
       }
@@ -19050,6 +19056,11 @@ async function syncTradeLockerTrades(userId, conn, svc) {
       symbol: p.symbol,
       direction: (p.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY",
       entryPrice: p.avgPrice || 0,
+      // F5: persist the broker's SL/TP so the row reflects real protection state
+      // (was omitted → every tradelocker_auto row showed SL=null/TP=null, masking
+      // whether a live position was actually protected).
+      stopLoss: p.stopLoss || 0,
+      takeProfit: p.takeProfit || 0,
       aiConfidence: 0,
       result: "PENDING",
       source: "tradelocker_auto",
@@ -32394,13 +32405,28 @@ async function processDecision(userId, decision, newsCtx) {
             }
             let qty = 0;
             let sizeLabel = "";
+            const _dxSide = decision.direction === "BUY" ? "BUY" : "SELL";
+            const _dxSymNorm = dxSymbol.replace(/\//g, "").toUpperCase();
             const spec = await svc.getInstrument(dxSymbol);
+            if (!spec) {
+              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: instrument spec not found on Velotrade \u2014 skipped (cannot size safely without contract multiplier).` });
+              continue;
+            }
+            if (!(Number(stopLoss) > 0)) {
+              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: no valid stop loss on the signal \u2014 skipped (no naked DXtrade entries).` });
+              continue;
+            }
             if (dc.use_risk_percent !== false && entryPrice && stopLoss) {
               const balance = extractBalance2(await svc.getMetrics(acct).catch(() => null));
               if (balance) {
                 const s = computeRiskQuantity2({ balance, riskPercent: Number(dc.risk_percent) || 1, entryPrice, stopPrice: stopLoss, instrument: spec });
                 qty = s.quantity;
                 sizeLabel = ` (risk ${dc.risk_percent}% of $${balance.toLocaleString()})`;
+                const _notional = qty * (entryPrice || 0);
+                if (balance > 0 && _notional > balance * 50) {
+                  addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: computed qty ${qty} (~$${Math.round(_notional).toLocaleString()} notional) exceeds 50x balance \u2014 BLOCKED as a sizing safety cap. Check the instrument contract size.` });
+                  continue;
+                }
               }
             }
             const _dxMult = (Number(dc.lot_multiplier) || 1) * _dxConsistencyMult;
@@ -32412,32 +32438,53 @@ async function processDecision(userId, decision, newsCtx) {
               addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [conn ${dc.id}] ${dxSymbol}: could not risk-size (need balance + stop). Skipped \u2014 set a stop or check the symbol exists on Velotrade.` });
               continue;
             }
-            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: decision.direction === "BUY" ? "BUY" : "SELL", quantity: qty, type: "MARKET", stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
-            addActivity2(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss || "N/A"} | TP: ${takeProfit || "N/A"}`, details: { dxOrder: r?.result ?? r } });
+            const r = await svc.placeOrder(acct, { instrument: dxSymbol, side: _dxSide, quantity: qty, type: "MARKET" });
+            let _pos = null;
             try {
-              let _dxPosId;
+              await new Promise((res) => setTimeout(res, 1200));
+              const _poss = await svc.getPositions(acct);
+              _pos = _poss.find((p) => p.instrument === _dxSymNorm && p.side === _dxSide) || null;
+            } catch {
+            }
+            if (!_pos) {
+              addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: order did NOT fill \u2014 no position on the broker after send (likely rejected). Not recorded. Response: ${JSON.stringify(r?.result ?? r).slice(0, 140)}` });
+              continue;
+            }
+            let _prot = {};
+            try {
+              _prot = await svc.modifyProtection(acct, { instrument: dxSymbol, positionSide: _dxSide, quantity: _pos.quantity || qty, stopLoss: stopLoss || void 0, takeProfit: takeProfit || void 0 });
+            } catch (pe) {
+              _prot = { error: pe?.message || String(pe) };
+            }
+            if (!_prot.stop || _prot.error) {
               try {
-                const _poss = await svc.getPositions(acct);
-                const _m = _poss.find((p) => p.instrument === dxSymbol && p.side === (decision.direction === "BUY" ? "BUY" : "SELL"));
-                _dxPosId = _m?.positionId;
-              } catch {
+                await svc.closePosition(acct, dxSymbol, _dxSide, _pos.quantity || qty);
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED (${_prot.error || "no stop returned"}) \u2014 position CLOSED immediately to avoid a naked entry.` });
+              } catch (ce) {
+                addActivity2(userId, { type: "error", symbol: decision.symbol, message: `\u{1F6A8} DXtrade [${acct}] ${dxSymbol}: STOP attach FAILED and emergency close ALSO failed (${ce?.message}) \u2014 MANUAL ACTION NEEDED, position may be naked.` });
               }
-              const _dxTicket = `dx_${acct}_${_dxPosId || r?._sent?.orderCode || Date.now()}`;
+              continue;
+            }
+            addActivity2(userId, { type: "trade_open", symbol: decision.symbol, direction: decision.direction, confidence: adjustedConfidence, message: `TRADE EXECUTED via DXtrade [${acct}]: ${decision.direction} ${dxSymbol} | Qty: ${qty}${sizeLabel} | SL: ${stopLoss} | TP: ${takeProfit || "N/A"} \xB7 protection attached`, details: { dxOrder: r?.result ?? r } });
+            try {
+              const _dxTicket = `dx_${acct}_${_pos.positionId || r?._sent?.orderCode || Date.now()}`;
               const _dxExisting = await storage.getAiTradeResultByTicket(userId, _dxTicket);
               if (!_dxExisting) {
                 await storage.createAiTradeResult({
                   userId,
                   symbol: dxSymbol,
-                  direction: decision.direction === "BUY" ? "BUY" : "SELL",
-                  entryPrice: entryPrice || 0,
+                  direction: _dxSide,
+                  entryPrice: entryPrice || _pos.openPrice || 0,
                   exitPrice: 0,
+                  stopLoss: stopLoss || 0,
+                  takeProfit: takeProfit || 0,
                   aiConfidence: adjustedConfidence || 0,
                   result: "PENDING",
                   profitLoss: 0,
                   source: "dxtrade",
                   connectionId: dc.id,
                   mt5Ticket: _dxTicket,
-                  notes: `DXtrade open (qty ${qty}) \u2014 awaiting close sync`
+                  notes: `DXtrade open (qty ${qty}) SL ${stopLoss}${takeProfit ? ` TP ${takeProfit}` : ""} \u2014 protection attached, awaiting close sync`
                 });
               }
             } catch (_dxRec) {
@@ -65048,7 +65095,10 @@ Analyze if the market direction has changed. Respond with ONLY valid JSON:
                   console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 rebuilt null tradePlan from pre-confirm proposal (entry=${analysis.tradePlan.entry} SL=${analysis.tradePlan.stopLoss} TP=${analysis.tradePlan.takeProfit})`);
                 } else {
                   analysis.tradePlan = { direction: analysis.signal, entry: currentPrice, stopLoss: 0, takeProfit: 0, riskReward: "0", _noLevels: true };
-                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 approved but no tradePlan/levels available; placeholder plan (EA will apply its own SL/TP)`);
+                  aiConfirmation.confirmed = false;
+                  analysis.signal = "NEUTRAL";
+                  analysis.alerts.push("TRADE BLOCKED: approved by consensus but no valid entry/SL/TP levels available \u2014 not executing (no naked trades).");
+                  console.log(`[SS Consensus] ${sanitizedSymbol} \u2014 approved but NO levels; BLOCKED execution (signal\u2192NEUTRAL, unconfirmed) to prevent a stopless trade.`);
                 }
               }
               let hasAdjustments = false;
@@ -66011,6 +66061,10 @@ BEAR CASE: ${_bearCase || "n/a"}` : aiConfirmation.reasoning;
                     }
                   } catch (_thrErr) {
                     console.error(`[Re-entry THROTTLE] check failed for ${tlConn.accountId} (non-fatal, trade proceeds):`, _thrErr?.message);
+                  }
+                  if (analysis.tradePlan?._noLevels || !(Number(analysis.tradePlan?.stopLoss) > 0)) {
+                    console.warn(`[TL fan-out] ${tlConn.accountId} ${sanitizedSymbol}: skipped \u2014 no valid stop loss on the plan (no naked entries).`);
+                    continue;
                   }
                   try {
                     const connResult = await executeMT5SignalOnTradeLocker(tlConn, {

@@ -1363,6 +1363,7 @@ export class TradeLockerService {
   async getPositionsNormalized(): Promise<Array<{
     id: string; symbol: string; side: string; qty: number;
     avgPrice: number; unrealizedPl: number; openDate?: string;
+    stopLoss?: number; takeProfit?: number;
   }>> {
     const raw = await this.getPositions();
     if (!raw || raw.length === 0) return [];
@@ -1389,6 +1390,8 @@ export class TradeLockerService {
         avgPrice: norm(p.avgPrice ?? p.openPrice ?? p.price),
         unrealizedPl: norm(p.unrealizedPl ?? p.unrealizedPnL ?? p.uPnL ?? p.pl),
         openDate: p.openDate || p.createdDate || undefined,
+        stopLoss: norm(p.stopLoss ?? p.sl ?? p.stopLossPrice) || undefined,
+        takeProfit: norm(p.takeProfit ?? p.tp ?? p.takeProfitPrice) || undefined,
       }));
     }
 
@@ -1428,6 +1431,8 @@ export class TradeLockerService {
     const iAvg = idx(['avgprice', 'openprice', 'price']);
     const iPl = idx(['unrealizedpl', 'unrealizedpnl', 'pnl', 'pl']);
     const iDate = idx(['opendate', 'date']);
+    const iSl = idx(['stoploss', 'sl']);
+    const iTp = idx(['takeprofit', 'tp']);
 
     return raw.map((row: any[]) => {
       const instId = iInst >= 0 ? String(row[iInst]) : '';
@@ -1439,6 +1444,8 @@ export class TradeLockerService {
         avgPrice: iAvg >= 0 ? norm(row[iAvg]) : 0,
         unrealizedPl: iPl >= 0 ? norm(row[iPl]) : 0,
         openDate: iDate >= 0 ? String(row[iDate]) : undefined,
+        stopLoss: iSl >= 0 ? (norm(row[iSl]) || undefined) : undefined,
+        takeProfit: iTp >= 0 ? (norm(row[iTp]) || undefined) : undefined,
       };
     });
   }
