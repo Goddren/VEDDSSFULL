@@ -218,10 +218,63 @@ export class DxtradeService {
     return out;
   }
 
-  /** Close (or reduce) a position by placing an opposite-side market order. */
+  /** List working/pending orders for the account (from the portfolio payload). */
+  async getWorkingOrders(accountCode: string): Promise<any[]> {
+    const pf = await this.getPortfolio(accountCode).catch(() => null);
+    const p0 = (pf as any)?.portfolios?.[0] ?? pf;
+    const arr = p0?.orders ?? (pf as any)?.orders ?? [];
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  /** Cancel one order by id. dxsca cancel is DELETE on the order resource; the
+   *  exact path shape is UNVERIFIED against Velotrade, so try the candidates and
+   *  treat a 404 as already-gone. Best-effort — never throws. */
+  async cancelOrder(accountCode: string, orderId: string | number): Promise<boolean> {
+    const id = String(orderId);
+    const paths = [
+      `/accounts/${encodeURIComponent(accountCode)}/orders/${encodeURIComponent(id)}`,
+      `/orders/${encodeURIComponent(id)}`,
+    ];
+    for (const p of paths) {
+      try {
+        const res = await this.authed(p, { method: 'DELETE' });
+        if (res.ok || res.status === 404) { console.log(`[dxtrade] cancelOrder ${id} via ${p} → ${res.status}`); return true; }
+      } catch { /* try next candidate */ }
+    }
+    return false;
+  }
+
+  /** Cancel resting protective (CLOSE-effect) orders for an instrument so a
+   *  flatten can't leave an orphaned STOP that later re-opens a position on
+   *  hedging/position-based accounts, and so the opposite leg doesn't rest after
+   *  an SL/TP fill (poor-man's OCO). Filters strictly on positionEffect=CLOSE to
+   *  avoid ever cancelling a genuine entry order. Best-effort — never throws. */
+  async cancelProtectiveOrders(accountCode: string, instrument: string): Promise<number> {
+    try {
+      const norm = (s: any) => String(s ?? '').replace(/\//g, '').toUpperCase();
+      const target = norm(instrument);
+      const orders = await this.getWorkingOrders(accountCode);
+      let n = 0;
+      for (const o of orders) {
+        const sym = norm(o.instrument ?? o.symbol);
+        const effect = String(o.positionEffect ?? o.legs?.[0]?.positionEffect ?? '').toUpperCase();
+        if (sym !== target || effect !== 'CLOSE') continue; // only our SL/TP close orders
+        const id = o.orderId ?? o.id ?? o.orderCode ?? o.code;
+        if (id != null && await this.cancelOrder(accountCode, id)) n++;
+      }
+      if (n > 0) console.log(`[dxtrade] cancelled ${n} resting protective order(s) for ${instrument} on ${accountCode}`);
+      return n;
+    } catch { return 0; }
+  }
+
+  /** Close (or reduce) a position by placing an opposite-side market order, then
+   *  cancel any resting protective orders for the instrument so a flatten never
+   *  leaves an orphaned stop/TP behind. */
   async closePosition(accountCode: string, instrument: string, side: 'BUY' | 'SELL', quantity: number): Promise<any> {
     const opposite = side === 'BUY' ? 'SELL' : 'BUY';
-    return this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE' });
+    const res = await this.placeOrder(accountCode, { instrument, side: opposite, quantity, type: 'MARKET', positionEffect: 'CLOSE' });
+    try { await this.cancelProtectiveOrders(accountCode, instrument); } catch { /* best-effort cleanup */ }
+    return res;
   }
 
   /** Search tradable instruments (dxsca /instruments/query). Used to discover the

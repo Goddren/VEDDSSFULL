@@ -17666,6 +17666,10 @@ Format each recommendation as a clear, concise action item.`;
                 } as any);
                 added++;
                 await recordRealizedPnl(userId, dc.id, 'dxtrade', p, closedDateStr);
+                // Poor-man's OCO: the position closed (SL or TP filled) — cancel the
+                // OTHER resting protective leg so it can't later re-open a position.
+                const _closedSym = (existing as any).symbol || o.symbol;
+                if (_closedSym) { try { await svc.cancelProtectiveOrders(acct, _closedSym); } catch { /* best-effort */ } }
               } else if ((existing as any).connectionId == null) {
                 await storage.updateAiTradeResult(existing.id, userId, { connectionId: dc.id } as any).catch(() => {});
               }
