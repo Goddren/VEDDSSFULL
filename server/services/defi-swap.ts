@@ -99,6 +99,11 @@ export interface SwapResult { ok: boolean; txHash?: string; buyAmount?: string; 
 export async function executeDefiSwap(opts: {
   encryptedPrivateKey: string; chainKey: string; sellToken: string; buyToken: string;
   sellAmountHuman: number; slippageBps: number;
+  // When true (unattended cron/engine path), WAIT for the tx receipt and only
+  // return ok:true if it actually succeeded on-chain (status===1). Prevents
+  // phantom positions from a broadcast-but-reverted swap. The HTTP manual-swap
+  // endpoint leaves this false to avoid overrunning the gateway timeout (→502).
+  confirm?: boolean;
 }): Promise<SwapResult> {
   if (!isDefiSwapAvailable()) return { ok: false, reason: 'ZEROX_API_KEY not set on the server' };
   const chain = DEFI_CHAINS[opts.chainKey];
@@ -165,10 +170,17 @@ export async function executeDefiSwap(opts: {
     to: t.to, data: t.data, value: t.value ? BigInt(t.value) : BigInt(0),
     ...(t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}),
   });
-  // Return as soon as the swap is BROADCAST (we have the hash). We do NOT block on
-  // full confirmation — awaiting it here overran the HTTP gateway timeout (→ 502)
-  // even though the tx landed. Best-effort short wait so a fast chain (Base ~2s)
-  // usually returns confirmed; on timeout we still return the hash as submitted.
+  if (opts.confirm) {
+    // Unattended path: wait for the receipt and VERIFY success. A reverted swap
+    // (insufficient balance, missing allowance, slippage) is mined but delivers
+    // no tokens — returning ok:true here is what created phantom positions.
+    const rcpt = await txResp.wait(1, 90_000).catch(() => null);
+    if (!rcpt) return { ok: false, txHash: txResp.hash, reason: 'swap not confirmed within 90s — treat as unfilled (verify on explorer)' };
+    if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: 'swap reverted on-chain (no tokens received)' };
+    return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+  }
+  // HTTP path: return as soon as the swap is BROADCAST — awaiting full confirmation
+  // overran the gateway timeout (→ 502). Best-effort short wait; verify on explorer.
   try { await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8000))]); } catch { /* revert/other — hash still returned; verify on explorer */ }
   return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
   } finally {

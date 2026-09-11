@@ -35747,6 +35747,12 @@ async function executeDefiSwap(opts) {
       value: t.value ? BigInt(t.value) : BigInt(0),
       ...t.gas ? { gasLimit: BigInt(Math.ceil(Number(t.gas) * 1.2)) } : {}
     });
+    if (opts.confirm) {
+      const rcpt = await txResp.wait(1, 9e4).catch(() => null);
+      if (!rcpt) return { ok: false, txHash: txResp.hash, reason: "swap not confirmed within 90s \u2014 treat as unfilled (verify on explorer)" };
+      if (rcpt.status !== 1) return { ok: false, txHash: txResp.hash, reason: "swap reverted on-chain (no tokens received)" };
+      return { ok: true, txHash: txResp.hash, approveTxHash, buyAmount: quote.buyAmount, buyAmountHuman };
+    }
     try {
       await Promise.race([txResp.wait(), new Promise((r) => setTimeout(r, 8e3))]);
     } catch {
@@ -35825,7 +35831,9 @@ async function defiEntryBuy(userId, chainKey, base, notionalUsd, slippageBps) {
     sellToken: "USDC",
     buyToken: token,
     sellAmountHuman: notionalUsd,
-    slippageBps
+    slippageBps,
+    confirm: true
+    // wait for on-chain success — no phantom entries on a revert
   });
   if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
   let qtyBase = notionalUsd / price;
@@ -35845,7 +35853,9 @@ async function defiExitSell(userId, chainKey, base, qtyBase, slippageBps) {
     sellToken: token,
     buyToken: "USDC",
     sellAmountHuman: qtyBase,
-    slippageBps
+    slippageBps,
+    confirm: true
+    // wait for on-chain success — don't book a close that reverted
   });
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
   return { ok: true, exitPrice: price, proceedsUsd: r.buyAmountHuman && Number.isFinite(r.buyAmountHuman) && r.buyAmountHuman > 0 ? r.buyAmountHuman : void 0, txHash: r.txHash };

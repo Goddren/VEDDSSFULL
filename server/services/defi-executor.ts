@@ -46,6 +46,7 @@ export async function defiEntryBuy(userId: number, chainKey: string, base: strin
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey, chainKey: chain,
     sellToken: 'USDC', buyToken: token, sellAmountHuman: notionalUsd, slippageBps,
+    confirm: true, // wait for on-chain success — no phantom entries on a revert
   });
   if (!r.ok) return { ok: false, token, qtyBase: 0, entryPrice: price, reason: r.reason };
 
@@ -68,6 +69,7 @@ export async function defiExitSell(userId: number, chainKey: string, base: strin
   const r = await executeDefiSwap({
     encryptedPrivateKey: hw.encryptedKey, chainKey: chainKey || hw.chain,
     sellToken: token, buyToken: 'USDC', sellAmountHuman: qtyBase, slippageBps,
+    confirm: true, // wait for on-chain success — don't book a close that reverted
   });
   if (!r.ok) return { ok: false, exitPrice: price, reason: r.reason };
   // A8: buyAmountHuman is the ACTUAL USDC received from the swap (after
